@@ -560,6 +560,33 @@ def _canonical_decision_tree(tree: Any) -> Any:
     return _reorder_dict_keys(tree, ("nodes",))
 
 
+# Rust STRUCT DECLARATION order per estimator kind -- the order
+# `rmp_serde::to_vec_named` writes, which is what the `eg2.` MAC hashes.
+_FITTED_MODEL_KEY_ORDER = {
+    "Linear": ("coefficients", "intercept"),
+    "Forest": ("trees",),
+    "GradientBoosting": ("init", "learning_rate", "trees"),
+    "AdaBoost": ("trees", "weights"),
+    "Svr": ("support_vectors", "dual_coef", "intercept", "kernel", "gamma"),
+}
+# The kinds whose `trees` list must itself be canonicalized element-wise.
+_FITTED_MODEL_ENSEMBLE_KINDS = frozenset({"Forest", "GradientBoosting", "AdaBoost"})
+
+
+def _canonical_fitted_inner(kind: Any, inner: dict[str, Any]) -> Any:
+    """Canonicalize ONE estimator kind's inner model blob."""
+    if kind == "Tree":
+        return _canonical_decision_tree(inner)
+    order = _FITTED_MODEL_KEY_ORDER.get(kind)
+    if order is None:
+        return inner
+    if kind in _FITTED_MODEL_ENSEMBLE_KINDS:
+        trees = inner.get("trees")
+        if isinstance(trees, list):
+            inner = {**inner, "trees": [_canonical_decision_tree(t) for t in trees]}
+    return _reorder_dict_keys(inner, order)
+
+
 def _canonical_fitted_model(model: Any) -> Any:
     """Reorder a ``crate::wire::FittedModel`` blob's dict keys to match Rust's
     struct declaration order, for THIS client's own canonical signing copy only
@@ -582,32 +609,9 @@ def _canonical_fitted_model(model: Any) -> Any:
 
     if not isinstance(model, dict):
         return model
-    kind = model.get("kind")
     inner = model.get("model")
     if isinstance(inner, dict):
-        if kind == "Linear":
-            inner = _reorder_dict_keys(inner, ("coefficients", "intercept"))
-        elif kind == "Tree":
-            inner = _canonical_decision_tree(inner)
-        elif kind == "Forest":
-            trees = inner.get("trees")
-            if isinstance(trees, list):
-                inner = {**inner, "trees": [_canonical_decision_tree(t) for t in trees]}
-            inner = _reorder_dict_keys(inner, ("trees",))
-        elif kind == "GradientBoosting":
-            trees = inner.get("trees")
-            if isinstance(trees, list):
-                inner = {**inner, "trees": [_canonical_decision_tree(t) for t in trees]}
-            inner = _reorder_dict_keys(inner, ("init", "learning_rate", "trees"))
-        elif kind == "AdaBoost":
-            trees = inner.get("trees")
-            if isinstance(trees, list):
-                inner = {**inner, "trees": [_canonical_decision_tree(t) for t in trees]}
-            inner = _reorder_dict_keys(inner, ("trees", "weights"))
-        elif kind == "Svr":
-            inner = _reorder_dict_keys(
-                inner, ("support_vectors", "dual_coef", "intercept", "kernel", "gamma")
-            )
+        inner = _canonical_fitted_inner(model.get("kind"), inner)
     reordered = dict(model)
     if isinstance(inner, dict):
         reordered["model"] = inner
@@ -1017,6 +1021,28 @@ class ServedModalityCapabilities(TypedDict):
     component_total: int
 
 
+_ACQUIRE_CAPACITY_FIELDS = frozenset(
+    {
+        "schema_version",
+        "tenant_ref",
+        "work_item_id",
+        "owner_digest",
+        "idempotency_key",
+        "priority",
+        "demands",
+        "lease_id",
+        "ttl_ms",
+        "now_ms",
+        "cost_budget_micros",
+        "token_budget",
+    }
+)
+_CAPACITY_PRIORITIES = frozenset(
+    {"interactive", "orchestration", "hydration", "background_ingestion"}
+)
+_CAPACITY_RESOURCE_CLASSES = frozenset(
+    {"llm_generator", "llm_embedding", "gpu", "worker", "cpu", "broker"}
+)
 _KNOWLEDGE_FAMILIES = frozenset(
     {"graph", "sql", "rdf", "vector", "time_series", "job", "cross_modal"}
 )
@@ -1270,6 +1296,33 @@ _WORK_ITEM_CAPABILITY_DECISIONS = frozenset(
 )
 
 
+def _work_item_capability_bytes(result: dict[str, Any]) -> bytes | None:
+    """Normalise the opaque capability blob to ``bytes`` (or ``None``) in place."""
+    capability = result["capability"]
+    if capability is None:
+        return None
+    if isinstance(capability, bytearray):
+        capability = bytes(capability)
+        result["capability"] = capability
+    if not isinstance(capability, bytes) or len(capability) > 128:
+        raise ValueError("WorkItemClaimCapability result.capability is invalid")
+    return capability
+
+
+def _check_verify_capability_result(
+    decision: str, valid: bool, capability: bytes | None
+) -> None:
+    """A VERIFY answer states authority only; it never returns capability bytes."""
+    if decision not in {"verified", "unauthorized"}:
+        raise ValueError("WorkItemClaimCapability verify result decision is invalid")
+    if decision == "verified" and not valid:
+        raise ValueError("verified capability result must be valid")
+    if decision == "unauthorized" and valid:
+        raise ValueError("unauthorized capability result must be invalid")
+    if capability is not None:
+        raise ValueError("verify result must not return capability bytes")
+
+
 def _work_item_capability_result(
     value: Any,
     *,
@@ -1292,24 +1345,9 @@ def _work_item_capability_result(
     if decision not in _WORK_ITEM_CAPABILITY_DECISIONS:
         raise ValueError("WorkItemClaimCapability result decision is invalid")
     valid = _boolean("WorkItemClaimCapability result.valid", result["valid"])
-    capability = result["capability"]
-    if capability is not None:
-        if isinstance(capability, bytearray):
-            capability = bytes(capability)
-            result["capability"] = capability
-        if not isinstance(capability, bytes) or len(capability) > 128:
-            raise ValueError("WorkItemClaimCapability result.capability is invalid")
+    capability = _work_item_capability_bytes(result)
     if verify:
-        if decision not in {"verified", "unauthorized"}:
-            raise ValueError(
-                "WorkItemClaimCapability verify result decision is invalid"
-            )
-        if decision == "verified" and not valid:
-            raise ValueError("verified capability result must be valid")
-        if decision == "unauthorized" and valid:
-            raise ValueError("unauthorized capability result must be invalid")
-        if capability is not None:
-            raise ValueError("verify result must not return capability bytes")
+        _check_verify_capability_result(decision, valid, capability)
     elif decision in {"minted", "replayed"}:
         if not valid or not isinstance(capability, bytes) or len(capability) != 36:
             raise ValueError("minted capability result is incomplete")
@@ -2370,97 +2408,126 @@ def _knowledge_cursor(value: Any) -> KnowledgeStreamCursor:
     return cast(KnowledgeStreamCursor, cursor)
 
 
+def _knowledge_query_graph(value: Any) -> dict[str, Any]:
+    query = _exact_mapping(
+        "graph KnowledgeStream query", value, frozenset({"family", "label", "limit"})
+    )
+    query["label"] = _string("query.label", query["label"], allow_empty=True)
+    query["limit"] = _integer("query.limit", query["limit"])
+    return query
+
+
+def _knowledge_query_sql(value: Any) -> dict[str, Any]:
+    query = _exact_mapping(
+        "SQL KnowledgeStream query",
+        value,
+        frozenset({"family", "query", "params_msgpack"}),
+    )
+    query["query"] = _string("query.query", query["query"])
+    query["params_msgpack"] = _bytes("query.params_msgpack", query["params_msgpack"])
+    return query
+
+
+def _knowledge_query_rdf(value: Any) -> dict[str, Any]:
+    query = _exact_mapping(
+        "RDF KnowledgeStream query",
+        value,
+        frozenset({"family", "query", "base_iri", "type_convention"}),
+    )
+    query["query"] = _string("query.query", query["query"])
+    query["base_iri"] = _string("query.base_iri", query["base_iri"], allow_empty=True)
+    query["type_convention"] = _string(
+        "query.type_convention", query["type_convention"], allow_empty=True
+    )
+    return query
+
+
+def _knowledge_embedding(embedding: Any) -> list[float]:
+    """A dense query embedding: a list of finite, f32-representable numbers."""
+    if not isinstance(embedding, list):
+        raise TypeError("query.query_embedding must be a list of finite numbers")
+    normalized: list[float] = []
+    for component in embedding:
+        if isinstance(component, bool) or not isinstance(component, (int, float)):
+            raise TypeError("query.query_embedding must be a list of finite numbers")
+        component = float(component)
+        if not math.isfinite(component) or abs(component) > 3.4028235e38:
+            raise ValueError("query.query_embedding contains an invalid f32 value")
+        normalized.append(component)
+    return normalized
+
+
+def _knowledge_query_vector(value: Any) -> dict[str, Any]:
+    query = _exact_mapping(
+        "vector KnowledgeStream query",
+        value,
+        frozenset({"family", "keywords", "query_embedding", "k"}),
+    )
+    keywords = query["keywords"]
+    if not isinstance(keywords, list):
+        raise TypeError("query.keywords must be a list of strings")
+    query["keywords"] = [
+        _string("query.keywords entry", keyword) for keyword in keywords
+    ]
+    query["query_embedding"] = _knowledge_embedding(query["query_embedding"])
+    query["k"] = _integer("query.k", query["k"], minimum=1)
+    return query
+
+
+def _knowledge_query_time_series(value: Any) -> dict[str, Any]:
+    query = _exact_mapping(
+        "time-series KnowledgeStream query",
+        value,
+        frozenset({"family", "series_id", "from", "to"}),
+    )
+    query["series_id"] = _string("query.series_id", query["series_id"])
+    query["from"] = _integer(
+        "query.from", query["from"], minimum=-(1 << 63), maximum=(1 << 63) - 1
+    )
+    query["to"] = _integer(
+        "query.to", query["to"], minimum=-(1 << 63), maximum=(1 << 63) - 1
+    )
+    if query["from"] > query["to"]:
+        raise ValueError("query.from must not be greater than query.to")
+    return query
+
+
+def _knowledge_query_job(value: Any) -> dict[str, Any]:
+    query = _exact_mapping(
+        "job KnowledgeStream query", value, frozenset({"family", "job_id"})
+    )
+    query["job_id"] = _string("query.job_id", query["job_id"])
+    return query
+
+
+def _knowledge_query_cross_modal(value: Any) -> dict[str, Any]:
+    query = _exact_mapping(
+        "cross-modal KnowledgeStream query", value, frozenset({"family", "text"})
+    )
+    query["text"] = _string("query.text", query["text"])
+    return query
+
+
+# One validator per KnowledgeStream family; `cross_modal` is the fallback the
+# `family` membership check above already narrowed the input down to.
+_KNOWLEDGE_QUERY_VALIDATORS = {
+    "graph": _knowledge_query_graph,
+    "sql": _knowledge_query_sql,
+    "rdf": _knowledge_query_rdf,
+    "vector": _knowledge_query_vector,
+    "time_series": _knowledge_query_time_series,
+    "job": _knowledge_query_job,
+}
+
+
 def _knowledge_query(value: Any) -> tuple[KnowledgeStreamQuery, str]:
     if not isinstance(value, dict):
         raise TypeError("KnowledgeStream query must be a mapping")
     family = _string("query.family", value.get("family"))
     if family not in _KNOWLEDGE_FAMILIES:
         raise ValueError("query.family is not a current KnowledgeStream family")
-
-    if family == "graph":
-        query = _exact_mapping(
-            "graph KnowledgeStream query",
-            value,
-            frozenset({"family", "label", "limit"}),
-        )
-        query["label"] = _string("query.label", query["label"], allow_empty=True)
-        query["limit"] = _integer("query.limit", query["limit"])
-    elif family == "sql":
-        query = _exact_mapping(
-            "SQL KnowledgeStream query",
-            value,
-            frozenset({"family", "query", "params_msgpack"}),
-        )
-        query["query"] = _string("query.query", query["query"])
-        query["params_msgpack"] = _bytes(
-            "query.params_msgpack", query["params_msgpack"]
-        )
-    elif family == "rdf":
-        query = _exact_mapping(
-            "RDF KnowledgeStream query",
-            value,
-            frozenset({"family", "query", "base_iri", "type_convention"}),
-        )
-        query["query"] = _string("query.query", query["query"])
-        query["base_iri"] = _string(
-            "query.base_iri", query["base_iri"], allow_empty=True
-        )
-        query["type_convention"] = _string(
-            "query.type_convention", query["type_convention"], allow_empty=True
-        )
-    elif family == "vector":
-        query = _exact_mapping(
-            "vector KnowledgeStream query",
-            value,
-            frozenset({"family", "keywords", "query_embedding", "k"}),
-        )
-        keywords = query["keywords"]
-        if not isinstance(keywords, list):
-            raise TypeError("query.keywords must be a list of strings")
-        query["keywords"] = [
-            _string("query.keywords entry", keyword) for keyword in keywords
-        ]
-        embedding = query["query_embedding"]
-        if not isinstance(embedding, list):
-            raise TypeError("query.query_embedding must be a list of finite numbers")
-        normalized: list[float] = []
-        for component in embedding:
-            if isinstance(component, bool) or not isinstance(component, (int, float)):
-                raise TypeError(
-                    "query.query_embedding must be a list of finite numbers"
-                )
-            component = float(component)
-            if not math.isfinite(component) or abs(component) > 3.4028235e38:
-                raise ValueError("query.query_embedding contains an invalid f32 value")
-            normalized.append(component)
-        query["query_embedding"] = normalized
-        query["k"] = _integer("query.k", query["k"], minimum=1)
-    elif family == "time_series":
-        query = _exact_mapping(
-            "time-series KnowledgeStream query",
-            value,
-            frozenset({"family", "series_id", "from", "to"}),
-        )
-        query["series_id"] = _string("query.series_id", query["series_id"])
-        query["from"] = _integer(
-            "query.from", query["from"], minimum=-(1 << 63), maximum=(1 << 63) - 1
-        )
-        query["to"] = _integer(
-            "query.to", query["to"], minimum=-(1 << 63), maximum=(1 << 63) - 1
-        )
-        if query["from"] > query["to"]:
-            raise ValueError("query.from must not be greater than query.to")
-    elif family == "job":
-        query = _exact_mapping(
-            "job KnowledgeStream query", value, frozenset({"family", "job_id"})
-        )
-        query["job_id"] = _string("query.job_id", query["job_id"])
-    else:
-        query = _exact_mapping(
-            "cross-modal KnowledgeStream query", value, frozenset({"family", "text"})
-        )
-        query["text"] = _string("query.text", query["text"])
-    return cast(KnowledgeStreamQuery, query), family
+    validate = _KNOWLEDGE_QUERY_VALIDATORS.get(family, _knowledge_query_cross_modal)
+    return cast(KnowledgeStreamQuery, validate(value)), family
 
 
 def _knowledge_batch(
@@ -4188,29 +4255,9 @@ class CapacityLeaseClient:
             _string(f"{name} result.message", result["message"])
         return result
 
-    async def acquire(self, request: dict[str, Any]) -> dict[str, Any]:
-        value = _exact_mapping(
-            "AcquireCapacity request",
-            request,
-            frozenset(
-                {
-                    "schema_version",
-                    "tenant_ref",
-                    "work_item_id",
-                    "owner_digest",
-                    "idempotency_key",
-                    "priority",
-                    "demands",
-                    "lease_id",
-                    "ttl_ms",
-                    "now_ms",
-                    "cost_budget_micros",
-                    "token_budget",
-                }
-            ),
-        )
-        if value["schema_version"] != "1":
-            raise ValueError("AcquireCapacity schema_version must be 1")
+    @staticmethod
+    def _acquire_identity(value: dict[str, Any]) -> None:
+        """Byte-bounded identity claims plus the priority class."""
         for field in ("tenant_ref", "work_item_id", "owner_digest", "idempotency_key"):
             _string(f"AcquireCapacity.{field}", value[field])
             if len(value[field].encode("utf-8")) > 512:
@@ -4219,13 +4266,12 @@ class CapacityLeaseClient:
             _string("AcquireCapacity.lease_id", value["lease_id"])
             if len(value["lease_id"].encode("utf-8")) > 512:
                 raise ValueError("AcquireCapacity.lease_id exceeds 512 bytes")
-        if value["priority"] not in {
-            "interactive",
-            "orchestration",
-            "hydration",
-            "background_ingestion",
-        }:
+        if value["priority"] not in _CAPACITY_PRIORITIES:
             raise ValueError("AcquireCapacity.priority is invalid")
+
+    @staticmethod
+    def _acquire_demands(value: dict[str, Any]) -> None:
+        """1..16 demand rows, each a known resource class with a bounded amount."""
         demands = value["demands"]
         if not isinstance(demands, list) or not 1 <= len(demands) <= 16:
             raise ValueError("AcquireCapacity.demands must contain 1..16 entries")
@@ -4236,18 +4282,15 @@ class CapacityLeaseClient:
                 frozenset({"cell_id", "resource_class", "amount"}),
             )
             _string("AcquireCapacity demand.cell_id", row["cell_id"])
-            if row["resource_class"] not in {
-                "llm_generator",
-                "llm_embedding",
-                "gpu",
-                "worker",
-                "cpu",
-                "broker",
-            }:
+            if row["resource_class"] not in _CAPACITY_RESOURCE_CLASSES:
                 raise ValueError("AcquireCapacity demand.resource_class is invalid")
             _integer("AcquireCapacity demand.amount", row["amount"], minimum=1)
             if row["amount"] > 1_000_000_000:
                 raise ValueError("AcquireCapacity demand.amount exceeds 1e9")
+
+    @staticmethod
+    def _acquire_budgets(value: dict[str, Any]) -> None:
+        """Lease TTL, the caller's clock and the optional cost/token budgets."""
         _integer("AcquireCapacity.ttl_ms", value["ttl_ms"], minimum=1)
         if value["ttl_ms"] > 24 * 60 * 60 * 1000:
             raise ValueError("AcquireCapacity.ttl_ms exceeds 24h")
@@ -4257,8 +4300,10 @@ class CapacityLeaseClient:
                 _integer(f"AcquireCapacity.{field}", value[field])
                 if value[field] > 1_000_000_000_000:
                     raise ValueError(f"AcquireCapacity.{field} exceeds native bound")
-        await self._require_method("AcquireCapacity")
-        result = await self._client._send("AcquireCapacity", {"request": value})
+
+    @staticmethod
+    def _acquire_result(result: Any) -> dict[str, Any]:
+        """The AcquireCapacity answer: a decision plus bounded lease/available lists."""
         answer = _exact_mapping(
             "AcquireCapacity result",
             result,
@@ -4277,6 +4322,19 @@ class CapacityLeaseClient:
         ):
             raise ValueError("AcquireCapacity result list fields are invalid")
         return answer
+
+    async def acquire(self, request: dict[str, Any]) -> dict[str, Any]:
+        value = _exact_mapping(
+            "AcquireCapacity request", request, _ACQUIRE_CAPACITY_FIELDS
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("AcquireCapacity schema_version must be 1")
+        self._acquire_identity(value)
+        self._acquire_demands(value)
+        self._acquire_budgets(value)
+        await self._require_method("AcquireCapacity")
+        result = await self._client._send("AcquireCapacity", {"request": value})
+        return self._acquire_result(result)
 
     async def renew(self, request: dict[str, Any]) -> dict[str, Any]:
         return await self._mutate("RenewCapacity", request, renew=True)
