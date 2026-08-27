@@ -824,16 +824,55 @@ def _canonicalize_method_value(value: Any, *, method: str, field: str = "") -> A
             for key, item in value.items()
         }
     if isinstance(value, list):
-        if field in _CANONICAL_BINARY_FIELDS or (
-            field == "payload" and method in _BINARY_PAYLOAD_METHODS
-        ):
-            if all(isinstance(item, int) and 0 <= item <= 255 for item in value):
-                return bytes(value)
-        return [
-            _canonicalize_method_value(item, method=method, field=field)
-            for item in value
-        ]
+        return _canonicalize_method_list(value, method=method, field=field)
     return value
+
+
+def _canonicalize_method_list(value: list[Any], *, method: str, field: str) -> Any:
+    """A list either IS a binary blob at this schema path, or is walked elementwise."""
+    if _is_binary_blob_field(method, field) and all(
+        isinstance(item, int) and 0 <= item <= 255 for item in value
+    ):
+        return bytes(value)
+    return [
+        _canonicalize_method_value(item, method=method, field=field) for item in value
+    ]
+
+
+def _is_binary_blob_field(method: str, field: str) -> bool:
+    """Whether a list at this schema path serializes as serde ``bytes``."""
+    return field in _CANONICAL_BINARY_FIELDS or (
+        field == "payload" and method in _BINARY_PAYLOAD_METHODS
+    )
+
+
+def _normalize_ts_points(
+    points: list[tuple[int, list[float]]], n_fields: int
+) -> list[list[Any]]:
+    """``(ts_ns, [values])`` pairs widened to exactly ``n_fields`` float fields."""
+    normalized: list[list[Any]] = []
+    for index, (ts, values) in enumerate(points):
+        if not isinstance(values, list | tuple) or len(values) != n_fields:
+            raise ValueError(
+                f"points[{index}] must contain exactly {n_fields} field values"
+            )
+        normalized.append([int(ts), [float(value) for value in values]])
+    return normalized
+
+
+def _ts_field_names(field_names: list[str] | None, n_fields: int) -> list[str]:
+    """The series' field names; a scalar series defaults to ``["value"]``."""
+    if field_names is None:
+        if n_fields != 1:
+            raise ValueError("field_names must be explicit for a multi-field series")
+        return ["value"]
+    if not isinstance(field_names, list):
+        raise TypeError("field_names must be a list of strings")
+    if len(field_names) != n_fields:
+        raise ValueError(f"field_names must contain exactly {n_fields} names")
+    if not all(isinstance(name, str) for name in field_names):
+        raise TypeError("field_names must be a list of strings")
+    return list(field_names)
 
 
 def _put_v2_text(buffer: bytearray, value: str) -> None:
@@ -1075,6 +1114,56 @@ _CHANGE_MUTATION_REQUIRED = frozenset(
 )
 _CHANGE_MUTATION_OPTIONAL = frozenset(
     {"expected_graph_version", "fencing_token", "authoritative_state"}
+)
+_CLAIM_WORK_ITEM_REQUEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "tenant_ref",
+        "work_item_id",
+        "queue_ref",
+        "resource_class",
+        "fairness_group",
+        "worker_ref",
+        "now_ms",
+        "lease_ms",
+        "max_tenant_in_flight",
+    }
+)
+_CLAIM_WORK_ITEM_RESULT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "claimed",
+        "reason",
+        "work_item_id",
+        "kind",
+        "payload_ref",
+        "lease_holder_ref",
+        "lease_epoch",
+        "fencing_token",
+        "lease_expires_at_ms",
+        "attempt",
+        "max_attempts",
+        "tenant_in_flight",
+        "changed_work_item_ids",
+    }
+)
+_CLAIM_WORK_ITEM_LEASE_COUNTERS = (
+    "lease_epoch",
+    "fencing_token",
+    "lease_expires_at_ms",
+    "attempt",
+    "max_attempts",
+)
+_CLAIM_WORK_ITEM_LEASE_FIELDS = (
+    "work_item_id",
+    "kind",
+    "payload_ref",
+    "lease_holder_ref",
+    "lease_epoch",
+    "fencing_token",
+    "lease_expires_at_ms",
+    "attempt",
+    "max_attempts",
 )
 _KNOWLEDGE_FAMILIES = frozenset(
     {"graph", "sql", "rdf", "vector", "time_series", "job", "cross_modal"}
@@ -3793,41 +3882,17 @@ class WorkItemClient:
         result = await self._client._send("SubmitWorkItems", {"request": value})
         return _submit_work_items_result(result)
 
-    async def claim(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Return the authoritative claim result.
-
-        ``{"claimed": false, "reason": "empty"|"tenant_quota"}`` is final;
-        callers must not fall back to a second claim implementation. The tenant
-        limit is required and bounded by the current wire contract (1..=4096).
-        """
+    @staticmethod
+    def _claim_request(request: dict[str, Any]) -> dict[str, Any]:
+        """The ClaimWorkItem request: identity, filters, lease window, quota."""
         value = _exact_mapping(
-            "ClaimWorkItem request",
-            request,
-            frozenset(
-                {
-                    "schema_version",
-                    "tenant_ref",
-                    "work_item_id",
-                    "queue_ref",
-                    "resource_class",
-                    "fairness_group",
-                    "worker_ref",
-                    "now_ms",
-                    "lease_ms",
-                    "max_tenant_in_flight",
-                }
-            ),
+            "ClaimWorkItem request", request, _CLAIM_WORK_ITEM_REQUEST_FIELDS
         )
         if value["schema_version"] != "1":
             raise ValueError("ClaimWorkItem schema_version must be 1")
         _string("ClaimWorkItem.tenant_ref", value["tenant_ref"])
         _string("ClaimWorkItem.worker_ref", value["worker_ref"])
-        for field in (
-            "work_item_id",
-            "queue_ref",
-            "resource_class",
-            "fairness_group",
-        ):
+        for field in ("work_item_id", "queue_ref", "resource_class", "fairness_group"):
             if value[field] is not None:
                 _string(f"ClaimWorkItem.{field}", value[field])
         _integer("ClaimWorkItem.now_ms", value["now_ms"])
@@ -3835,74 +3900,61 @@ class WorkItemClient:
         tenant_limit = _integer("max_tenant_in_flight", value["max_tenant_in_flight"])
         if not 1 <= tenant_limit <= 4096:
             raise ValueError("max_tenant_in_flight must be between 1 and 4096")
-        result = await self._client._send("ClaimWorkItem", {"request": value})
+        return value
+
+    @staticmethod
+    def _claim_granted(answer: dict[str, Any]) -> None:
+        """A POSITIVE claim result must carry a complete lease."""
+        for field in ("work_item_id", "lease_holder_ref"):
+            _string(f"ClaimWorkItem result.{field}", answer[field])
+        for field in _CLAIM_WORK_ITEM_LEASE_COUNTERS:
+            _integer(
+                f"ClaimWorkItem result.{field}",
+                answer[field],
+                minimum=1 if field == "max_attempts" else 0,
+            )
+        changed = answer["changed_work_item_ids"]
+        if not isinstance(changed, list) or answer["work_item_id"] not in changed:
+            raise ValueError("ClaimWorkItem result changed ids are invalid")
+
+    @staticmethod
+    def _claim_refused(answer: dict[str, Any]) -> None:
+        """A NEGATIVE claim result must carry no lease state at all."""
+        if (
+            any(answer[field] is not None for field in _CLAIM_WORK_ITEM_LEASE_FIELDS)
+            or answer["changed_work_item_ids"] != []
+        ):
+            raise ValueError("negative ClaimWorkItem result carries lease state")
+
+    @classmethod
+    def _claim_result(cls, result: Any) -> dict[str, Any]:
+        """The ClaimWorkItem answer, with its claimed/reason agreement enforced."""
         answer = _exact_mapping(
-            "ClaimWorkItem result",
-            result,
-            frozenset(
-                {
-                    "schema_version",
-                    "claimed",
-                    "reason",
-                    "work_item_id",
-                    "kind",
-                    "payload_ref",
-                    "lease_holder_ref",
-                    "lease_epoch",
-                    "fencing_token",
-                    "lease_expires_at_ms",
-                    "attempt",
-                    "max_attempts",
-                    "tenant_in_flight",
-                    "changed_work_item_ids",
-                }
-            ),
+            "ClaimWorkItem result", result, _CLAIM_WORK_ITEM_RESULT_FIELDS
         )
         if answer["schema_version"] != "1":
             raise ValueError("ClaimWorkItem result schema_version must be 1")
         claimed = _boolean("ClaimWorkItem result.claimed", answer["claimed"])
-        reason = answer["reason"]
-        if reason not in {"claimed", "empty", "tenant_quota"}:
+        if answer["reason"] not in {"claimed", "empty", "tenant_quota"}:
             raise ValueError("ClaimWorkItem result reason is invalid")
-        if claimed != (reason == "claimed"):
+        if claimed != (answer["reason"] == "claimed"):
             raise ValueError("ClaimWorkItem result claim state is inconsistent")
         if claimed:
-            for field in ("work_item_id", "lease_holder_ref"):
-                _string(f"ClaimWorkItem result.{field}", answer[field])
-            for field in (
-                "lease_epoch",
-                "fencing_token",
-                "lease_expires_at_ms",
-                "attempt",
-                "max_attempts",
-            ):
-                _integer(
-                    f"ClaimWorkItem result.{field}",
-                    answer[field],
-                    minimum=1 if field == "max_attempts" else 0,
-                )
-            changed = answer["changed_work_item_ids"]
-            if not isinstance(changed, list) or answer["work_item_id"] not in changed:
-                raise ValueError("ClaimWorkItem result changed ids are invalid")
-        elif (
-            any(
-                answer[field] is not None
-                for field in (
-                    "work_item_id",
-                    "kind",
-                    "payload_ref",
-                    "lease_holder_ref",
-                    "lease_epoch",
-                    "fencing_token",
-                    "lease_expires_at_ms",
-                    "attempt",
-                    "max_attempts",
-                )
-            )
-            or answer["changed_work_item_ids"] != []
-        ):
-            raise ValueError("negative ClaimWorkItem result carries lease state")
+            cls._claim_granted(answer)
+        else:
+            cls._claim_refused(answer)
         return answer
+
+    async def claim(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Return the authoritative claim result.
+
+        ``{"claimed": false, "reason": "empty"|"tenant_quota"}`` is final;
+        callers must not fall back to a second claim implementation. The tenant
+        limit is required and bounded by the current wire contract (1..=4096).
+        """
+        value = self._claim_request(request)
+        result = await self._client._send("ClaimWorkItem", {"request": value})
+        return self._claim_result(result)
 
     async def mint_capability(self, request: dict[str, Any]) -> dict[str, Any]:
         """Mint/replay an opaque capability for the caller's live WorkItem lease.
@@ -6866,23 +6918,36 @@ class ClusterTopologyClient:
         address = endpoint.split("://", 1)[1]
         if any(character in address for character in "/?#@"):
             return False
+        port = cls._endpoint_port(address)
+        return port is not None and 0 < port <= 65_535
+
+    @staticmethod
+    def _endpoint_host_port(address: str) -> tuple[str, str] | None:
+        """Split ``host:port`` -- bracketed IPv6 literal or a bare host."""
         if address.startswith("["):
             if "]:" not in address:
-                return False
+                return None
             host, port = address[1:].split("]:", 1)
             if not host or "]" in host:
-                return False
-        else:
-            if ":" not in address:
-                return False
-            host, port = address.rsplit(":", 1)
-            if not host or ":" in host:
-                return False
+                return None
+            return host, port
+        if ":" not in address:
+            return None
+        host, port = address.rsplit(":", 1)
+        if not host or ":" in host:
+            return None
+        return host, port
+
+    @classmethod
+    def _endpoint_port(cls, address: str) -> int | None:
+        """The endpoint's numeric port, or ``None`` if the address is malformed."""
+        split = cls._endpoint_host_port(address)
+        if split is None:
+            return None
         try:
-            numeric_port = int(port)
+            return int(split[1])
         except (TypeError, ValueError):
-            return False
-        return 0 < numeric_port <= 65_535
+            return None
 
     @classmethod
     def _certificate(cls, member: dict[str, Any]) -> tuple[Any, ...]:
@@ -9817,6 +9882,99 @@ def _tls_trust_source(enabled: bool) -> str:
     return "system_default"
 
 
+def _split_tcp_addr(tcp_addr: str) -> tuple[str, str]:
+    """``host, port`` from a bracketed IPv6 literal or a bare ``host:port``."""
+    if tcp_addr.startswith("[") and "]:" in tcp_addr:
+        return tuple(tcp_addr[1:].split("]:", 1))  # type: ignore[return-value]
+    return tuple(tcp_addr.rsplit(":", 1))  # type: ignore[return-value]
+
+
+async def _open_tcp_stream(
+    tcp_addr: str,
+    *,
+    connect_timeout: float | None,
+    tls_context: ssl.SSLContext | None,
+    tls_server_hostname: str | None,
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    """Dial the engine over native TCP, optionally wrapped in TLS."""
+    host, port_str = _split_tcp_addr(tcp_addr)
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(
+                host,
+                int(port_str),
+                ssl=tls_context,
+                server_hostname=(
+                    (tls_server_hostname or host) if tls_context is not None else None
+                ),
+                ssl_handshake_timeout=(10.0 if tls_context is not None else None),
+            ),
+            connect_timeout,
+        )
+    except (asyncio.TimeoutError, TimeoutError) as e:
+        raise TimeoutError("epistemic-graph TCP connection timed out") from e
+    logger.info(
+        "Connected to epistemic-graph via native TCP (tls=%s)", tls_context is not None
+    )
+    return reader, writer
+
+
+def _resolve_uds_path(socket_path: str | None) -> str:
+    """The UDS path to dial: explicit, then the env profile, then the /tmp fallback."""
+    resolved = socket_path or os.environ.get(
+        "GRAPH_SERVICE_SOCKET",
+        os.path.join(
+            os.environ.get("XDG_RUNTIME_DIR", "/tmp"),  # nosec B108
+            "epistemic-graph.sock",
+        ),
+    )
+    if not os.path.exists(resolved):
+        fallback = "/tmp/epistemic-graph.sock"  # nosec B108
+        if os.path.exists(fallback):
+            return fallback
+    return resolved
+
+
+def _validate_resource_stats_cursor(cursor: str) -> None:
+    """A page cursor is a bounded, NUL-free, non-empty string."""
+    if not isinstance(cursor, str):
+        raise TypeError("ResourceStats cursor must be a string or None")
+    if not cursor or len(cursor.encode("utf-8")) > _MAX_RESOURCE_STATS_CURSOR_BYTES:
+        raise ValueError(
+            "ResourceStats cursor must be non-empty and at most "
+            f"{_MAX_RESOURCE_STATS_CURSOR_BYTES} bytes"
+        )
+    if "\x00" in cursor:
+        raise ValueError("ResourceStats cursor must not contain NUL")
+
+
+def _validate_resource_stats_page(
+    cursor: str | None, *, limit: int, summary: bool
+) -> None:
+    """The client-side page bounds, repeated before the request is sent."""
+    if isinstance(limit, bool) or not isinstance(limit, int):
+        raise TypeError("ResourceStats limit must be an integer")
+    if not isinstance(summary, bool):
+        raise TypeError("ResourceStats summary must be a boolean")
+    if limit < 1 or limit > _MAX_RESOURCE_STATS_LIMIT:
+        raise ValueError(
+            f"ResourceStats limit must be between 1 and {_MAX_RESOURCE_STATS_LIMIT}"
+        )
+    if cursor is not None:
+        _validate_resource_stats_cursor(cursor)
+    if summary and cursor is not None:
+        raise ValueError("summary ResourceStats cannot be combined with cursor")
+
+
+def _is_bounded_cursor(cursor: Any) -> bool:
+    """A non-empty string within the ResourceStats cursor byte bound."""
+    return (
+        isinstance(cursor, str)
+        and bool(cursor)
+        and len(cursor.encode("utf-8")) <= _MAX_RESOURCE_STATS_CURSOR_BYTES
+    )
+
+
 def _decode_send_result(result: Any) -> Any:
     """Decode the compact result encoding (engine Phase C-D).
 
@@ -10839,30 +10997,8 @@ class TimeSeriesClient:
         nf = n_fields if n_fields is not None else len(points[0][1])
         if isinstance(nf, bool) or not isinstance(nf, int) or nf <= 0:
             raise ValueError("n_fields must be a positive integer")
-
-        normalized_points: list[list[Any]] = []
-        for index, (ts, values) in enumerate(points):
-            if not isinstance(values, list | tuple) or len(values) != nf:
-                raise ValueError(
-                    f"points[{index}] must contain exactly {nf} field values"
-                )
-            normalized_points.append([int(ts), [float(value) for value in values]])
-
-        if field_names is None:
-            if nf != 1:
-                raise ValueError(
-                    "field_names must be explicit for a multi-field series"
-                )
-            names = ["value"]
-        else:
-            if not isinstance(field_names, list):
-                raise TypeError("field_names must be a list of strings")
-            if len(field_names) != nf:
-                raise ValueError(f"field_names must contain exactly {nf} names")
-            if not all(isinstance(name, str) for name in field_names):
-                raise TypeError("field_names must be a list of strings")
-            names = list(field_names)
-
+        normalized_points = _normalize_ts_points(points, nf)
+        names = _ts_field_names(field_names, nf)
         blob = _pack_binary_msgpack(normalized_points)
         return await self._client._send(
             "TsAppend",
@@ -13397,46 +13533,14 @@ class EpistemicGraphClient:
         """
         _conn_to = connect_timeout if connect_timeout else None
         if tcp_addr:
-            if tcp_addr.startswith("[") and "]:" in tcp_addr:
-                host, port_str = tcp_addr[1:].split("]:", 1)
-            else:
-                host, port_str = tcp_addr.rsplit(":", 1)
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(
-                        host,
-                        int(port_str),
-                        ssl=tls_context,
-                        server_hostname=(
-                            (tls_server_hostname or host)
-                            if tls_context is not None
-                            else None
-                        ),
-                        ssl_handshake_timeout=(
-                            10.0 if tls_context is not None else None
-                        ),
-                    ),
-                    _conn_to,
-                )
-            except (asyncio.TimeoutError, TimeoutError) as e:
-                raise TimeoutError("epistemic-graph TCP connection timed out") from e
-            logger.info(
-                "Connected to epistemic-graph via native TCP (tls=%s)",
-                tls_context is not None,
+            reader, writer = await _open_tcp_stream(
+                tcp_addr,
+                connect_timeout=_conn_to,
+                tls_context=tls_context,
+                tls_server_hostname=tls_server_hostname,
             )
             return reader, writer, ""
-
-        _socket = socket_path or os.environ.get(
-            "GRAPH_SERVICE_SOCKET",
-            os.path.join(
-                os.environ.get("XDG_RUNTIME_DIR", "/tmp"),  # nosec B108
-                "epistemic-graph.sock",
-            ),
-        )
-        if not os.path.exists(_socket):
-            _tmp_socket = "/tmp/epistemic-graph.sock"  # nosec B108
-            if os.path.exists(_tmp_socket):
-                _socket = _tmp_socket
+        _socket = _resolve_uds_path(socket_path)
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_unix_connection(_socket), _conn_to
@@ -14244,11 +14348,7 @@ class EpistemicGraphClient:
         if summary and (graphs or tenants):
             raise RuntimeError("summary ResourceStats response must omit detail arrays")
         next_cursor = snapshot.get("next_cursor")
-        if next_cursor is not None and (
-            not isinstance(next_cursor, str)
-            or not next_cursor
-            or len(next_cursor.encode("utf-8")) > _MAX_RESOURCE_STATS_CURSOR_BYTES
-        ):
+        if next_cursor is not None and not _is_bounded_cursor(next_cursor):
             raise RuntimeError("ResourceStats response carried an invalid next_cursor")
         if not isinstance(snapshot.get("has_more", False), bool):
             raise RuntimeError("ResourceStats response has_more must be boolean")
@@ -14276,27 +14376,7 @@ class EpistemicGraphClient:
         The ``cost`` feature is part of the mandatory main build and remains present in
         the source-built ``cluster`` and ``full-extras`` layers.
         """
-        if isinstance(limit, bool) or not isinstance(limit, int):
-            raise TypeError("ResourceStats limit must be an integer")
-        if not isinstance(summary, bool):
-            raise TypeError("ResourceStats summary must be a boolean")
-        if limit < 1 or limit > _MAX_RESOURCE_STATS_LIMIT:
-            raise ValueError(
-                f"ResourceStats limit must be between 1 and {_MAX_RESOURCE_STATS_LIMIT}"
-            )
-        if cursor is not None:
-            if not isinstance(cursor, str):
-                raise TypeError("ResourceStats cursor must be a string or None")
-            cursor_bytes = cursor.encode("utf-8")
-            if not cursor or len(cursor_bytes) > _MAX_RESOURCE_STATS_CURSOR_BYTES:
-                raise ValueError(
-                    "ResourceStats cursor must be non-empty and at most "
-                    f"{_MAX_RESOURCE_STATS_CURSOR_BYTES} bytes"
-                )
-            if "\x00" in cursor:
-                raise ValueError("ResourceStats cursor must not contain NUL")
-        if summary and cursor is not None:
-            raise ValueError("summary ResourceStats cannot be combined with cursor")
+        _validate_resource_stats_page(cursor, limit=limit, summary=summary)
 
         # Keep the exact legacy unit request/MAC shape for the default call.  A
         # caller asking for any non-default behavior uses the typed page variant.
