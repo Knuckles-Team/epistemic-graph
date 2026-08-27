@@ -2554,6 +2554,52 @@ fn apply_schema_migration_in(
     tenant_scope: &str,
     migration: &SchemaMigration,
 ) -> Result<SchemaMigrationApply, String> {
+    validate_migration_identity_in(migration, tenant_scope)?;
+    let (current, current_digest, current_version, current_catalog_version) =
+        resolve_current_schema_state_in(wtx, tenant_scope, migration)?;
+
+    // The identity lookup comes before all operation work.  A retry after a
+    // lost acknowledgement is a no-op only when the immutable bytes and the
+    // resulting catalog state match exactly.
+    if let Some(replay) = check_migration_replay_in(
+        wtx,
+        tenant_scope,
+        migration,
+        current_version,
+        &current_digest,
+        current_catalog_version,
+    )? {
+        return Ok(replay);
+    }
+
+    verify_migration_occ_state_in(migration, &current, current_version, &current_digest)?;
+    let next_catalog_version =
+        prepare_migration_projection_in(wtx, migration, &current, current_catalog_version)?;
+
+    // Apply the exact ordered operations through the existing row/catalog
+    // helpers.  Any coercion, FK check, or schema error returns before commit,
+    // and redb drops the whole write transaction (failure atomicity).
+    apply_migration_operations_in(wtx, tenant_scope, migration)?;
+
+    let (resulting_digest, record_bytes) =
+        finalize_migration_record_in(wtx, migration, next_catalog_version)?;
+    write_migration_commit_in(wtx, tenant_scope, migration, &record_bytes, next_catalog_version)?;
+
+    Ok(SchemaMigrationApply {
+        migration_id: migration.migration_id.clone(),
+        schema_version: migration.target_schema_version,
+        catalog_version: next_catalog_version,
+        schema_digest: resulting_digest,
+        replayed: false,
+    })
+}
+
+/// `migration.validate()` plus the tenant-binding check, split out purely
+/// to keep `apply_schema_migration_in`'s own CCN low.
+fn validate_migration_identity_in(
+    migration: &SchemaMigration,
+    tenant_scope: &str,
+) -> Result<(), String> {
     migration.validate()?;
     if migration.tenant_scope != tenant_scope {
         return Err(format!(
@@ -2561,66 +2607,119 @@ fn apply_schema_migration_in(
             migration.migration_id, migration.tenant_scope
         ));
     }
+    Ok(())
+}
+
+/// The authoritative current schema/digest/version/catalog-version for
+/// `migration.table`, read once so the OCC and replay checks below observe
+/// a consistent snapshot.
+fn resolve_current_schema_state_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    migration: &SchemaMigration,
+) -> Result<(TableSchema, String, u64, u64), String> {
     let current = get_schema_in(wtx, &migration.table)?
         .ok_or_else(|| format!("table `{}` does not exist", migration.table))?;
     let current_digest = current.schema_digest()?;
     let current_version = schema_version_in(wtx, tenant_scope, &migration.table)?;
     let current_catalog_version = schema_catalog_version_in(wtx, tenant_scope)?;
+    Ok((current, current_digest, current_version, current_catalog_version))
+}
 
-    // The identity lookup comes before all operation work.  A retry after a
-    // lost acknowledgement is a no-op only when the immutable bytes and the
-    // resulting catalog state match exactly.
-    let existing = {
-        let records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
-        let found = records
-            .get((
-                tenant_scope,
-                migration.table.as_str(),
-                migration.migration_id.as_str(),
-            ))
-            .map_err(map_err)?;
-        found
-            .map(|value| {
-                decode_stored::<SchemaMigrationRecord>(value.value(), "schema migration record")
-            })
-            .transpose()?
+/// `Some(apply)` when `migration.migration_id` was already applied and the
+/// current catalog state still matches its target (a safe idempotent
+/// replay); `None` when this is a genuinely new migration to apply.
+fn check_migration_replay_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    migration: &SchemaMigration,
+    current_version: u64,
+    current_digest: &str,
+    current_catalog_version: u64,
+) -> Result<Option<SchemaMigrationApply>, String> {
+    let Some(record) = load_existing_migration_record_in(wtx, tenant_scope, migration)? else {
+        return Ok(None);
     };
-    if let Some(record) = existing {
-        verify_migration_record(
-            &record,
-            tenant_scope,
-            &migration.table,
-            migration.target_schema_version,
-        )?;
-        if record.migration != *migration {
-            return Err(format!(
-                "schema migration identity `{}` already exists with different immutable bytes",
-                migration.migration_id
-            ));
-        }
-        if current_version != migration.target_schema_version
-            || current_digest != migration.target_schema_digest
-        {
-            return Err(format!(
-                "schema migration replay `{}` found catalog state that does not match its target",
-                migration.migration_id
-            ));
-        }
-        if record.catalog_version > current_catalog_version {
-            return Err(format!(
-                "schema migration replay `{}` has a catalog version newer than the authoritative catalog",
-                migration.migration_id
-            ));
-        }
-        return Ok(SchemaMigrationApply {
-            migration_id: migration.migration_id.clone(),
-            schema_version: current_version,
-            catalog_version: record.catalog_version,
-            schema_digest: current_digest,
-            replayed: true,
-        });
-    }
+    validate_migration_replay_matches_current_state(
+        &record,
+        tenant_scope,
+        migration,
+        current_version,
+        current_digest,
+        current_catalog_version,
+    )?;
+    Ok(Some(SchemaMigrationApply {
+        migration_id: migration.migration_id.clone(),
+        schema_version: current_version,
+        catalog_version: record.catalog_version,
+        schema_digest: current_digest.to_string(),
+        replayed: true,
+    }))
+}
 
+fn load_existing_migration_record_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    migration: &SchemaMigration,
+) -> Result<Option<SchemaMigrationRecord>, String> {
+    let records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
+    let found = records
+        .get((
+            tenant_scope,
+            migration.table.as_str(),
+            migration.migration_id.as_str(),
+        ))
+        .map_err(map_err)?;
+    found
+        .map(|value| decode_stored::<SchemaMigrationRecord>(value.value(), "schema migration record"))
+        .transpose()
+}
+
+fn validate_migration_replay_matches_current_state(
+    record: &SchemaMigrationRecord,
+    tenant_scope: &str,
+    migration: &SchemaMigration,
+    current_version: u64,
+    current_digest: &str,
+    current_catalog_version: u64,
+) -> Result<(), String> {
+    verify_migration_record(
+        record,
+        tenant_scope,
+        &migration.table,
+        migration.target_schema_version,
+    )?;
+    if record.migration != *migration {
+        return Err(format!(
+            "schema migration identity `{}` already exists with different immutable bytes",
+            migration.migration_id
+        ));
+    }
+    if current_version != migration.target_schema_version || current_digest != migration.target_schema_digest
+    {
+        return Err(format!(
+            "schema migration replay `{}` found catalog state that does not match its target",
+            migration.migration_id
+        ));
+    }
+    if record.catalog_version > current_catalog_version {
+        return Err(format!(
+            "schema migration replay `{}` has a catalog version newer than the authoritative catalog",
+            migration.migration_id
+        ));
+    }
+    Ok(())
+}
+
+/// The OCC (STALE_SCHEMA_VERSION/STALE_SCHEMA_DIGEST) and ordering checks a
+/// genuinely-new (non-replay) migration must pass before its operations are
+/// applied.
+fn verify_migration_occ_state_in(
+    migration: &SchemaMigration,
+    current: &TableSchema,
+    current_version: u64,
+    current_digest: &str,
+) -> Result<(), String> {
     if migration.expected_schema_version != current_version {
         return Err(format!(
             "STALE_SCHEMA_VERSION: table `{}` expected {} but authoritative version is {}",
@@ -2633,7 +2732,7 @@ fn apply_schema_migration_in(
             migration.table, migration.expected_schema_digest, current_digest
         ));
     }
-    migration.validate_type_policies(&current)?;
+    migration.validate_type_policies(current)?;
     if migration.target_schema_version != current_version.saturating_add(1) {
         return Err(format!(
             "schema migration `{}` is out of order: expected next version {}, got {}",
@@ -2642,31 +2741,43 @@ fn apply_schema_migration_in(
             migration.target_schema_version
         ));
     }
+    Ok(())
+}
+
+/// Computes the next catalog version and confirms `migration`'s declared
+/// target digest matches what its own operations would actually project,
+/// plus the dependency/added-column validation that only makes sense
+/// against that projection.
+fn prepare_migration_projection_in(
+    wtx: &WriteTransaction,
+    migration: &SchemaMigration,
+    current: &TableSchema,
+    current_catalog_version: u64,
+) -> Result<u64, String> {
     let next_catalog_version = current_catalog_version
         .checked_add(1)
         .ok_or_else(|| "schema catalog version overflow".to_string())?;
-    let projected = migration.projected_schema(&current)?;
+    let projected = migration.projected_schema(current)?;
     if projected.schema_digest()? != migration.target_schema_digest {
         return Err(format!(
             "schema migration `{}` target digest does not match its operation projection",
             migration.migration_id
         ));
     }
+    validate_migration_dependencies_in(wtx, current, migration)?;
+    validate_added_columns_in(wtx, &migration.table, current, &projected, migration)?;
+    Ok(next_catalog_version)
+}
 
-    validate_migration_dependencies_in(wtx, &current, migration)?;
-    validate_added_columns_in(wtx, &migration.table, &current, &projected, migration)?;
-
-    // Apply the exact ordered operations through the existing row/catalog
-    // helpers.  Any coercion, FK check, or schema error returns before commit,
-    // and redb drops the whole write transaction (failure atomicity).
+fn apply_migration_operations_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    migration: &SchemaMigration,
+) -> Result<(), String> {
     for operation in &migration.operations {
         match operation {
             SchemaMigrationOperation::AddColumn { column } => {
-                let mut column = column.clone();
-                if column.primary_key {
-                    column.nullable = false;
-                }
-                add_column_in(wtx, tenant_scope, &migration.table, &column)?;
+                apply_migration_add_column_in(wtx, tenant_scope, &migration.table, column)?;
             }
             SchemaMigrationOperation::DropColumn { column } => {
                 drop_column_in(wtx, tenant_scope, &migration.table, column, false)?;
@@ -2687,6 +2798,30 @@ fn apply_schema_migration_in(
             }
         }
     }
+    Ok(())
+}
+
+fn apply_migration_add_column_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    column: &Column,
+) -> Result<(), String> {
+    let mut column = column.clone();
+    if column.primary_key {
+        column.nullable = false;
+    }
+    add_column_in(wtx, tenant_scope, table, &column)
+}
+
+/// Confirms the migration's operations produced exactly its declared target
+/// digest, and encodes the durable record -- but does not write it (see
+/// `write_migration_commit_in`).
+fn finalize_migration_record_in(
+    wtx: &WriteTransaction,
+    migration: &SchemaMigration,
+    next_catalog_version: u64,
+) -> Result<(String, Vec<u8>), String> {
     let resulting = get_schema_in(wtx, &migration.table)?
         .ok_or_else(|| format!("table `{}` disappeared during migration", migration.table))?;
     let resulting_digest = resulting.schema_digest()?;
@@ -2696,7 +2831,6 @@ fn apply_schema_migration_in(
             migration.migration_id, resulting_digest, migration.target_schema_digest
         ));
     }
-
     let record = SchemaMigrationRecord {
         migration: migration.clone(),
         state: MigrationState::Applied,
@@ -2705,85 +2839,119 @@ fn apply_schema_migration_in(
     };
     let bytes = rmp_serde::to_vec_named(&record)
         .map_err(|error| format!("encode schema migration record: {error}"))?;
+    Ok((resulting_digest, bytes))
+}
+
+/// Writes every durable side-effect of a successfully-applied migration:
+/// the new schema version, the new catalog version, this migration's slot
+/// in both ordered chains (each guarded against a concurrent claim), and
+/// the migration record itself.
+fn write_migration_commit_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    migration: &SchemaMigration,
+    record_bytes: &[u8],
+    next_catalog_version: u64,
+) -> Result<(), String> {
+    write_schema_and_catalog_version_in(
+        wtx,
+        tenant_scope,
+        &migration.table,
+        migration.target_schema_version,
+        next_catalog_version,
+    )?;
+    claim_migration_order_slot_in(
+        wtx,
+        tenant_scope,
+        &migration.table,
+        migration.target_schema_version,
+        &migration.migration_id,
+    )?;
+    claim_catalog_order_slot_in(
+        wtx,
+        tenant_scope,
+        &migration.table,
+        &migration.migration_id,
+        next_catalog_version,
+    )?;
+    let mut records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
+    records
+        .insert(
+            (
+                tenant_scope,
+                migration.table.as_str(),
+                migration.migration_id.as_str(),
+            ),
+            record_bytes,
+        )
+        .map_err(map_err)?;
+    Ok(())
+}
+
+fn write_schema_and_catalog_version_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    target_schema_version: u64,
+    next_catalog_version: u64,
+) -> Result<(), String> {
     {
         let mut versions = wtx.open_table(SCHEMA_VERSIONS).map_err(map_err)?;
         versions
-            .insert(
-                (tenant_scope, migration.table.as_str()),
-                migration.target_schema_version,
-            )
+            .insert((tenant_scope, table), target_schema_version)
             .map_err(map_err)?;
     }
+    let mut versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS).map_err(map_err)?;
+    versions
+        .insert(tenant_scope, next_catalog_version)
+        .map_err(map_err)?;
+    Ok(())
+}
+
+fn claim_migration_order_slot_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    target_schema_version: u64,
+    migration_id: &str,
+) -> Result<(), String> {
+    let mut order = wtx.open_table(SCHEMA_MIGRATION_ORDER).map_err(map_err)?;
+    if let Some(previous) = order
+        .get((tenant_scope, table, target_schema_version))
+        .map_err(map_err)?
     {
-        let mut versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS).map_err(map_err)?;
-        versions
-            .insert(tenant_scope, next_catalog_version)
-            .map_err(map_err)?;
+        return Err(format!(
+            "concurrent schema migration claimed version {} as `{}`",
+            target_schema_version,
+            previous.value()
+        ));
     }
-    {
-        let mut order = wtx.open_table(SCHEMA_MIGRATION_ORDER).map_err(map_err)?;
-        if let Some(previous) = order
-            .get((
-                tenant_scope,
-                migration.table.as_str(),
-                migration.target_schema_version,
-            ))
-            .map_err(map_err)?
-        {
-            return Err(format!(
-                "concurrent schema migration claimed version {} as `{}`",
-                migration.target_schema_version,
-                previous.value()
-            ));
-        }
-        order
-            .insert(
-                (
-                    tenant_scope,
-                    migration.table.as_str(),
-                    migration.target_schema_version,
-                ),
-                migration.migration_id.as_str(),
-            )
-            .map_err(map_err)?;
+    order
+        .insert((tenant_scope, table, target_schema_version), migration_id)
+        .map_err(map_err)?;
+    Ok(())
+}
+
+fn claim_catalog_order_slot_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    migration_id: &str,
+    next_catalog_version: u64,
+) -> Result<(), String> {
+    let mut order = wtx.open_table(SCHEMA_CATALOG_ORDER).map_err(map_err)?;
+    if let Some(previous) = order.get((tenant_scope, next_catalog_version)).map_err(map_err)? {
+        return Err(format!(
+            "concurrent schema migration claimed catalog version {} as `{}`",
+            next_catalog_version,
+            previous.value()
+        ));
     }
-    {
-        let mut order = wtx.open_table(SCHEMA_CATALOG_ORDER).map_err(map_err)?;
-        if let Some(previous) = order
-            .get((tenant_scope, next_catalog_version))
-            .map_err(map_err)?
-        {
-            return Err(format!(
-                "concurrent schema migration claimed catalog version {} as `{}`",
-                next_catalog_version,
-                previous.value()
-            ));
-        }
-        let identity = catalog_order_identity(&migration.table, &migration.migration_id);
-        order
-            .insert((tenant_scope, next_catalog_version), identity.as_str())
-            .map_err(map_err)?;
-    }
-    {
-        let mut records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
-        records
-            .insert(
-                (
-                    tenant_scope,
-                    migration.table.as_str(),
-                    migration.migration_id.as_str(),
-                ),
-                bytes.as_slice(),
-            )
-            .map_err(map_err)?;
-    }
-    Ok(SchemaMigrationApply {
-        migration_id: migration.migration_id.clone(),
-        schema_version: migration.target_schema_version,
-        catalog_version: next_catalog_version,
-        schema_digest: resulting_digest,
-        replayed: false,
-    })
+    let identity = catalog_order_identity(table, migration_id);
+    order
+        .insert((tenant_scope, next_catalog_version), identity.as_str())
+        .map_err(map_err)?;
+    Ok(())
 }
 
 fn verify_migration_record(
