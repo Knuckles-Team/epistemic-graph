@@ -1053,12 +1053,22 @@ mod tests {
         let mut envelope = minimal_envelope();
         // Governed by the fixture's existing policy (object-1) so the failure
         // observed is the privacy scan, not the governance-proof check.
+        //
+        // The path uses "person" -- the same documented placeholder username
+        // already used a few tests up in `privacy_scan_rejects_machine_paths`
+        // (and reserved by scripts/check_tracked_privacy.py's
+        // `_RESERVED_HOME_USERS`) -- rather than an arbitrary one like the
+        // former "x": `validate_safe_text` rejects on the bare "/home/"
+        // substring regardless of which user follows it, so the placeholder
+        // still proves rejection, but an unreserved username tripped the
+        // tracked-privacy gate's own "machine-specific home path in runtime
+        // source" scan on this literal (guardrail-tracked-privacy, MAX=0).
         envelope.features.push(FeatureRecord {
             feature_id: "feat-1".into(),
             operation: MaterialOperation::Upsert,
             object_id: "object-1".into(),
             kind: "embedding".into(),
-            value_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/x"}))
+            value_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/person"}))
                 .unwrap(),
             model_version: "v1".into(),
         });
@@ -1097,10 +1107,16 @@ mod tests {
     #[test]
     fn operation_addnode_privacy_violating_properties_is_rejected() {
         let mut envelope = minimal_envelope();
+        // "person" is the same reserved placeholder username used above in
+        // `feature_with_privacy_violating_value_is_rejected` -- see that
+        // test's comment for why an unreserved username (formerly "x")
+        // cannot be used here without tripping guardrail-tracked-privacy.
         envelope.mutation.operations[0].method = crate::protocol::Method::AddNode {
             node_id: "n1".into(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/x"}))
-                .unwrap(),
+            properties_msgpack: rmp_serde::to_vec_named(
+                &serde_json::json!({"path": "/home/person"}),
+            )
+            .unwrap(),
         };
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
