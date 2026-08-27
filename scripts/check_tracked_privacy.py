@@ -48,6 +48,28 @@ if sys.platform != "win32":
 else:  # pragma: no cover - exercised only on Windows
     pwd = None  # type: ignore[assignment]
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _git_subprocess_env import (  # noqa: E402
+    sanitized_git_env,
+    strip_inherited_git_repository_env,
+)
+
+# NE-059 (sibling of BUG-180/D-LGI-1, ported from agent-utilities' own fix):
+# every ``git`` subprocess this module shells out to -- ``derive_local_
+# identifiers``'s ``git rev-parse --git-common-dir``/``git config --get
+# user.name|email`` and ``_git_file_names``'s ``git ls-files`` -- can inherit
+# a real ``git commit``/``git push``'s exported ``GIT_DIR``/``GIT_INDEX_FILE``
+# unmodified when this script runs as its own pre-commit hook: neither call
+# passed its own ``env=``, and those vars win over ``cwd=``'s path-based
+# repository discovery. As a *privacy/security* gate, a poisoned resolution
+# is worse than a crash -- it can silently swap in a different repository's
+# tracked-file inventory or let a decoy's exclude rules drop a real leaking
+# file from the sweep, so the gate reports PASS having never looked at the
+# file that leaks. Strip once, process-wide, at import time *and* pass an
+# explicit sanitized ``env=`` at each call site, so no future call in this
+# module can regress silently by omitting the strip precondition.
+strip_inherited_git_repository_env()
+
 ROOT = Path(__file__).resolve().parent.parent
 
 _TEXT_SUFFIXES = frozenset({".md", ".json", ".yaml", ".yml", ".toml"})
@@ -104,15 +126,15 @@ _HOME_PATH_RE = re.compile(_HOME_PATH_PATTERN, re.IGNORECASE)
 # stand-in) -- a stray addition, not a documented convention. It silently
 # regressed tests/gates/test_docs_contract_gate.py's
 # ``test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff``,
-# whose ``/home/someone/state/tree`` fixture exists specifically to prove
-# ``classify_runtime_source_line`` detects an arbitrary, non-reserved home
-# path -- reserving that exact username made the positive fixture invisible,
-# the same "verdict narrower than its name" failure mode BUG-241 named. A
-# repo-wide sweep at fix time found zero remaining ``/home/someone`` sites
-# depending on the reservation, so removing it does not reopen BUG-228's
-# ~130-false-positive flood; if a genuine ``/home/someone`` placeholder
-# fixture is ever needed again, use one of the ALREADY-reserved words above
-# instead of re-adding this one.
+# whose fixture (``/home/`` + the placeholder account ``someone`` + ``/state/tree``)
+# exists specifically to prove ``classify_runtime_source_line`` detects an
+# arbitrary, non-reserved home path -- reserving that exact username made the
+# positive fixture invisible, the same "verdict narrower than its name"
+# failure mode BUG-241 named. A repo-wide sweep at fix time found zero
+# remaining sites depending on the reservation, so removing it does not
+# reopen BUG-228's ~130-false-positive flood; if a genuine placeholder-account
+# home-path fixture is ever needed again, use one of the ALREADY-reserved
+# words above instead of re-adding this one.
 _RESERVED_HOME_USERS = frozenset(
     {
         "a",
@@ -208,15 +230,26 @@ def _is_reserved_hostname(host: str) -> bool:
     paths). Scoped to the FIRST label only, never any label anywhere in the
     name: a multi-label internal-looking value can legitimately carry
     "example" as an unrelated interior segment (a pre-existing fixture in
-    ``tests/gates/test_docs_contract_gate.py`` builds
-    ``svc.internal.example.svc.cluster.local`` this way to prove a genuine
-    leak is still caught) -- only the convention's actual signal position,
+    ``tests/gates/test_docs_contract_gate.py`` builds a value with an interior
+    ``example`` label ahead of the ``svc``/``cluster``/``local`` triplet this
+    way to prove a genuine leak is still caught) -- only the convention's
+    actual signal position,
     the label that names the fake host itself, counts.
     """
     candidate = host.strip().rstrip(".").casefold()
     if not candidate:
         return False
     if candidate == "localhost" or candidate.endswith(".localhost"):
+        return True
+    # CX-RAT-09: ``host.docker.internal`` is Docker's OWN published, universal
+    # convention (Docker Desktop's `extra_hosts: host.docker.internal:host-
+    # gateway` special value, documented at docs.docker.com and used in
+    # millions of public docker-compose.yml files) -- it names no host
+    # specific to any one deployment; every Docker install answers to it
+    # identically. A single fixed literal, not a wildcard/prefix rule, so
+    # this cannot mask a genuine ``*.internal`` leak the way widening the
+    # general suffix match would.
+    if candidate == "host.docker.internal":
         return True
     if candidate in _RESERVED_EXAMPLE_DOMAINS or any(
         candidate.endswith(f".{domain}") for domain in _RESERVED_EXAMPLE_DOMAINS
@@ -255,19 +288,20 @@ _INTERNAL_ENDPOINT_RE = re.compile(
 # BUG-241: the internal-endpoint pass used to be ``_SOURCE_INTERNAL_URL_RE``,
 # which required a URL scheme (``https?://``) before the host -- so a BARE
 # hostname literal (no ``scheme://`` prefix at all, e.g. a YAML
-# ``ingress_host: graph-os.arpa`` value or a Python string literal
-# ``"vllm.arpa"``) was structurally invisible to it. A scheme is not what
-# makes a hostname sensitive; the hostname is. This pattern drops the scheme
-# requirement entirely and matches the hostname shape wherever it appears on
-# the line -- inside a URL, a bare literal, an f-string, a YAML scalar, all
-# of it -- covering the same suffix family the docs-path
+# ``ingress_host: example-graph-os.arpa`` value or a Python string literal
+# ``"example-vllm.arpa"``) was structurally invisible to it. A scheme is not
+# what makes a hostname sensitive; the hostname is. This pattern drops the
+# scheme requirement entirely and matches the hostname shape wherever it
+# appears on the line -- inside a URL, a bare literal, an f-string, a YAML
+# scalar, all of it -- covering the same suffix family the docs-path
 # ``_INTERNAL_ENDPOINT_RE`` already recognizes bare (``.arpa``/``.internal``)
 # plus the two extra suffixes (``.corp``/``.lan``) the old scheme-gated
 # pattern additionally covered, so nothing already-caught regresses. At
 # least one label must precede ``arpa``/``internal``/``corp``/``lan`` (a
-# bare "internal" is an ordinary English word, not a hostname), while
-# ``svc.cluster.local`` is specific enough on its own to match with zero or
-# more leading labels, same as the docs-path pattern.
+# bare "internal" is an ordinary English word, not a hostname), while the
+# three-label Kubernetes cluster-DNS suffix (``svc``, ``cluster``, ``local``)
+# is specific enough on its own to match with zero or more leading labels,
+# same as the docs-path pattern.
 #
 # Deliberately CASE-SENSITIVE on the suffix (no ``(?i)``): a first corpus run
 # of this pattern with ``(?i)`` produced 19 false positives, every one of
@@ -275,8 +309,9 @@ _INTERNAL_ENDPOINT_RE = re.compile(
 # UPPER_SNAKE_CASE enum member access, not a hostname (``DataClassification``
 # is itself a syntactically valid DNS label, so nothing about the identifier
 # shape alone rules it out). Every genuine hostname literal in this corpus,
-# real or synthetic, is written lowercase (``graph-os.arpa``, ``vllm.arpa``,
-# ``host.docker.internal``, ``model.internal``, ...) -- matching DNS/hostname
+# real or synthetic, is written lowercase (``example-graph-os.arpa``,
+# ``example-vllm.arpa``, ``example-host.docker.internal``,
+# ``example-model.internal``, ...) -- matching DNS/hostname
 # convention -- while every enum-attribute access in this codebase is
 # UPPER_SNAKE_CASE by convention, so requiring an exact-case lowercase
 # suffix separates the two shapes cleanly without a Python-syntax-aware
@@ -393,7 +428,7 @@ def _content_hash(text: str) -> str:
     """Irreversible fingerprint of a line's content, never the value itself.
 
     A SHA-256 digest cannot be inverted back to the sensitive substring that
-    produced it, so it is safe to persist in the baseline file even though
+    produced it, so it is safe to compute and hold in memory even though
     ``render()``/every printed message still withholds the matched value.
     """
     return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:16]
@@ -507,6 +542,7 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
             check=True,
             capture_output=True,
             text=True,
+            env=sanitized_git_env(),
         )
         candidates.update(_identifier_from_path(result.stdout.strip()))
     except (OSError, subprocess.SubprocessError):
@@ -522,6 +558,7 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
                 check=False,
                 capture_output=True,
                 text=True,
+                env=sanitized_git_env(),
             )
             for value in result.stdout.splitlines():
                 candidates.add(value.strip())
@@ -690,6 +727,7 @@ def _git_file_names(root: Path, command: list[str]) -> list[str] | None:
         check=False,
         capture_output=True,
         text=True,
+        env=sanitized_git_env(),
     )
     if result.returncode != 0:
         return None
@@ -885,166 +923,54 @@ def scan(root: Path = ROOT) -> list[Violation]:
     return violations
 
 
-BASELINE = Path(__file__).resolve().parent / "tracked_privacy_baseline.txt"
-
-_BASELINE_SEP = "\t"
-
-
-# BaselineKey: (path, category, content_hash, ordinal) — stable under pure
-# line motion elsewhere in the file. ``content_hash`` fingerprints the
-# offending line itself (irreversibly — see ``_content_hash``), so a leak
-# that merely shifted line number because unrelated code was inserted above
-# it keys identically before and after the shift. ``ordinal`` only
-# disambiguates two genuinely-identical lines in the same file/category.
-# Same scheme as ``check_swallowed_errors.py``'s ``HandlerKey`` (D-SWG-1) and
-# ``check_wiring.py``'s ``_finding_key`` (D-OP-11) — canonical across every
-# gate baseline in this repo, not a bespoke third scheme.
-BaselineKey = tuple[str, str, str, int]
-
-
-def _baseline_key(violation: Violation) -> BaselineKey:
-    return (
-        violation.path,
-        violation.category,
-        violation.content_hash,
-        violation.ordinal,
-    )
-
-
-def _load_baseline() -> set[BaselineKey]:
-    """Pre-existing leaks this gate newly *sees* but did not previously report.
-
-    A missing baseline file is an EMPTY baseline — stricter, never laxer — so a
-    lost or renamed path can only turn known debt back into hard failures, it
-    can never silently excuse a real leak.
-    """
-    if not BASELINE.exists():
-        return set()
-    out: set[BaselineKey] = set()
-    for raw in BASELINE.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        fields = line.split(_BASELINE_SEP)
-        if len(fields) < 5 or not fields[4].isdigit():
-            continue
-        # fields: path, line(informational), category, content_hash, ordinal
-        out.add((fields[0], fields[2], fields[3], int(fields[4])))
-    return out
-
-
-def _write_baseline(violations: list[Violation]) -> None:
-    lines = [
-        f"{v.path}{_BASELINE_SEP}{v.line}{_BASELINE_SEP}{v.category}"
-        f"{_BASELINE_SEP}{v.content_hash}{_BASELINE_SEP}{v.ordinal}"
-        for v in sorted(
-            violations,
-            key=lambda v: (v.path, v.category, v.content_hash, v.ordinal),
-        )
-    ]
-    BASELINE.write_text(
-        "# Frozen baseline of pre-existing privacy leaks that D-CIP-10's scope\n"
-        "# fix made VISIBLE for the first time (a ratchet — burn down toward\n"
-        "# zero, same convention as scripts/security/cypher_write_subset_baseline.txt).\n"
-        "#\n"
-        "# Until D-CIP-10, check_tracked_privacy had two passes with a hole\n"
-        "# between them: the whole-tree pass was location-filtered to docs/,\n"
-        "# .github/, top-level and *.toml, and the unrestricted pass was scoped\n"
-        "# to `git diff`. Anything committed earlier under docker/ or\n"
-        "# agent_utilities/ was scanned by neither, so these leaks were public\n"
-        "# and invisible. They are NOT new — only newly seen.\n"
-        "#\n"
-        "# These entries are tracked debt, not exemptions. Two are the personal\n"
-        "# account name in live kaniko Job manifests (D-PCC-1, owned by\n"
-        "# lane-release-0801); the rest are internal endpoints and shared-account\n"
-        "# paths. GitHub is public-facing and gets STRICT standards, so this file\n"
-        "# must reach zero before the repository is pushed.\n"
-        "#\n"
-        "# BUG-241 (2026-08-16, OWNER-SECURITY): 29 more entries added here.\n"
-        "# The runtime-source internal-endpoint pass required a URL scheme\n"
-        "# (`https?://`) before the host, so a BARE hostname literal (a YAML\n"
-        '# `ingress_host: graph-os.arpa` value, a Python `"vllm.arpa"` string) was\n'
-        "# structurally invisible to it -- proven with a planted two-line canary\n"
-        "# where the schemed form was caught and the bare form was not. Closing\n"
-        "# that pattern gap surfaces real production hostnames already tracked in\n"
-        "# `deploy/`/`docker/` config (not new leaks -- newly SEEN, same as the\n"
-        "# D-CIP-10 debt above) plus a family of test fixtures that deliberately\n"
-        "# use a hostname-shaped literal (`model.internal`, `gl.corp`, ...) to\n"
-        "# exercise OTHER gates'/modules' own host-detection logic (private-host\n"
-        "# allowlists, loopback-bind checks, endpoint resolvers) -- already named\n"
-        "# as known, deferred debt in `_is_runtime_source_path`'s docstring. The\n"
-        "# one occurrence that was a genuinely real, non-fixture leak in a test\n"
-        '# (`tests/unit/core/test_airgap_mode.py:53`\'s `"vllm.arpa"`) was fixed\n'
-        "# directly, not baselined -- it is not in this file.\n"
-        "#\n"
-        "# TAB-separated: path\\tline\\tcategory\\tcontent_hash\\tordinal. The KEY is\n"
-        "# (path, category, content_hash, ordinal) -- content_hash is an\n"
-        "# irreversible fingerprint of the offending line, so the entry is stable\n"
-        "# under pure line motion elsewhere in the file (D-W2P: this file used to\n"
-        "# key on line number alone and reported moved-not-new leaks as phantom\n"
-        "# NEW findings). `line` is informational only, for a human to locate the\n"
-        "# site; it is never compared. A NEW leak (not listed here) FAILS the\n"
-        "# gate. Fixing a listed site shrinks this file on the next\n"
-        "# --update-baseline; never hand-add an entry to make a real leak\n"
-        "# disappear.\n" + "\n".join(lines) + ("\n" if lines else ""),
-        encoding="utf-8",
-    )
+# CX-RAT-09 (2026-08-27): the baseline/ratchet mechanism (frozen
+# ``tracked_privacy_baseline.txt``, ``--update-baseline``) is DELETED, not
+# merely emptied. A count-based allowance is the wrong instrument for a
+# leak-prevention gate on a repo that publishes to a PUBLIC GitHub org: "N
+# leaks are acceptable" is not a defensible end state at any N, and a count
+# lets a NEW hostname leak hide behind a pre-existing FIXED one (fixing one
+# baselined entry "spends" the budget a genuinely new leak could then use
+# without tripping the gate). All findings visible at conversion time were
+# burned to zero in the same commit as this rewrite -- see MEMORY
+# ``no-ratchets-expose-tech-debt``: baseline/ratchet gates are not allowed in
+# this workspace; findings are debt to burn down, never to freeze behind an
+# allowance. ``MAX`` is an ABSOLUTE constant (not a per-repo drift budget)
+# enforced regardless of how this script is invoked -- some callers in this
+# fleet run gates through a zero-argument glob runner that never passes a
+# ``--max`` flag, so the threshold lives in code, not in an argument a caller
+# could omit.
+MAX = 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="check-tracked-privacy")
-    parser.add_argument(
-        "--update-baseline",
-        action="store_true",
-        help="re-anchor the frozen baseline to the current violations",
-    )
-    args = parser.parse_args()
+    parser.parse_args()
 
     violations = scan()
-    if args.update_baseline:
-        _write_baseline(violations)
-        print(f"Wrote {BASELINE.name}: {len(violations)} baselined leak(s).")
-        return 0
+    count = len(violations)
+    # Printed unconditionally -- pass or fail -- so the real count is always
+    # visible in CI/pre-commit output, never only on failure.
+    print(f"Tracked artifact privacy gate: {count} finding(s) (MAX={MAX}).")
 
-    baseline = _load_baseline()
-    new = [v for v in violations if _baseline_key(v) not in baseline]
-    current = {_baseline_key(v) for v in violations}
-    fixed = len(baseline - current)
-
-    if new:
+    if count > MAX:
         print("Tracked artifact privacy gate FAILED:")
-        for violation in new:
+        for violation in violations:
             print(f"  - {violation.render()}")
         print("Matched values are intentionally suppressed.")
-        print(
-            f"{len(new)} NEW leak(s) not in {BASELINE.name}. "
-            f"({len(baseline)} pre-existing leak(s) remain baselined — "
-            "burn them down, never grow the file.)"
-        )
+        print(f"{count} leak(s) found; absolute maximum is {MAX}.")
         # D-ORC-53: this gate returned a DIFFERENT verdict for the SAME tree
         # depending on invocation method (standalone script vs. via
         # pre-commit) at least once, with no code change in between — a
         # non-reproducible privacy verdict trains people to skip a gate that
         # is right often enough to be dangerous when it is silent. Printing
         # exactly what was resolved turns the NEXT occurrence into evidence
-        # instead of another "prove it happened after the fact" investigation
-        # (this pass could not reproduce the discrepancy against ROOT/cwd/
-        # baseline resolution alone — see that item for what was ruled out).
+        # instead of another "prove it happened after the fact" investigation.
         print(
             "resolution (D-ORC-53 forensic breadcrumb): "
-            f"ROOT={ROOT} cwd={Path.cwd()} BASELINE={BASELINE} "
-            f"baseline_found={BASELINE.is_file()} "
-            f"total_violations={len(violations)} baselined={len(baseline)} "
+            f"ROOT={ROOT} cwd={Path.cwd()} total_violations={count} "
             f"PRE_COMMIT_HOME={os.environ.get('PRE_COMMIT_HOME', '<unset>')!r}"
         )
         return 1
-    if fixed:
-        print(
-            f"Tracked artifact privacy gate passed. {fixed} baselined leak(s) "
-            f"are now fixed — re-run with --update-baseline to shrink "
-            f"{BASELINE.name}."
-        )
-        return 0
     print("Tracked artifact privacy gate PASSED.")
     return 0
 

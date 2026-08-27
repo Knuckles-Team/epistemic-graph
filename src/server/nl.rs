@@ -311,7 +311,7 @@ mod tests {
             "eg_nl_full_config.json",
             r#"{
               "nl_query": {
-                "endpoint": "https://gw.arpa/v1/chat/completions",
+                "endpoint": "https://gw.example/v1/chat/completions",
                 "model": "qwen",
                 "headers": {"X-Client-Id": "svc-42"},
                 "tls_ca_path": "/etc/ssl/internal-ca.pem",
@@ -326,7 +326,7 @@ mod tests {
             }"#,
         );
         let s = parse_config(&path).expect("parsed");
-        assert_eq!(s.endpoint, "https://gw.arpa/v1/chat/completions");
+        assert_eq!(s.endpoint, "https://gw.example/v1/chat/completions");
         assert_eq!(
             s.headers,
             vec![("X-Client-Id".to_string(), "svc-42".to_string())]

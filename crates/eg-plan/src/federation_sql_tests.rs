@@ -63,7 +63,7 @@ fn sql_foreign_join_with_local_equals_manual_join() {
     //    rows EXACTLY as the executor's `foreign_scan` does (the spec is real; only the
     //    network fetch is mocked). ──
     let _spec = ForeignSourceSpec::Sql {
-        dsn: "postgres://user:pw@db.internal:5432/papers".into(),
+        dsn: "postgres://user:changeme@db.example.com:5432/papers".into(),
         query: "SELECT doi, relevance FROM cited WHERE published > 2023".into(),
         id_field: "doi".into(),
         score_field: Some("relevance".into()),

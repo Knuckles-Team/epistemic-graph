@@ -16,7 +16,7 @@
 #      timeout, not the rest of the binary's tests never running.
 #   3. `--partition` sharding across machines/CI shards (not wired into any
 #      script yet; available for whoever needs to split the `cargo-test` gate
-#      across R510/rw710 or CI matrix legs).
+#      across multiple hosts or CI matrix legs).
 #
 # CI-fidelity note (read before assuming this is a drop-in replacement):
 # nextest's process-per-test model means a test that was silently passing
@@ -76,7 +76,7 @@ path = "junit-ci.xml"
 # but a handful of integration binaries stand up a real multi-tenant engine
 # or large synthetic corpora and are heavy enough in absolute RAM that running
 # many of them at full 24-way nextest concurrency simultaneously risks OOM on
-# an 8-core/lower-RAM host (R510). This is a CONCURRENCY cap, not the
+# an 8-core/lower-RAM host. This is a CONCURRENCY cap, not the
 # correctness-motivated serialization the encryption-key lock existed for —
 # it's the same tool the old code used (`acquire_test_env_lock`) for a
 # different, legitimate reason (memory headroom), so it stays, scoped

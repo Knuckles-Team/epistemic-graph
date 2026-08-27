@@ -377,7 +377,7 @@ repos:
   # hook passed over them: a green local pre-push did not imply a green CI run,
   # which is why publishing had been dark since 2.23.0.
   # Re-validating the baseline (2026-08-14, CI-faithful unconstrained matrix run
-  # on R710) found 54 of the 55 entries now PASS — the durability-contract and
+  # on a dedicated build host) found 54 of the 55 entries now PASS — the durability-contract and
   # ACL/RDF-update-guard fixture gaps the header described were fixed by later
   # commits (the B-8/B-9 durability-contract rebase, the coalescer stats fix)
   # without anyone re-running `--update-baseline`, i.e. the baseline itself had
@@ -517,8 +517,8 @@ repos:
   # audit failure (5 `privileged-home-prefix` leaks) shipped past every local
   # gate straight into CI: nothing local ever ran check_wheel_privacy.py at
   # all. scripts/wheel_privacy_gate.sh now runs the full sequence (mirroring
-  # the /home/apps/worktrees/epistemic-graph/w4-engine-down/run_gates.sh
-  # reproduction of release-build.yml's exact steps), folding a matching
+  # w4-engine-down run_gates.sh reproduction of release-build.yml's exact
+  # steps), folding a matching
   # eg-numeric kernel wheel in first so check_wheel_completeness.py's
   # numeric-kernel-present invariant is checkable too, not just privacy.
   - id: wheel-smoke
