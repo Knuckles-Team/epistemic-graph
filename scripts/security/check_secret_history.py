@@ -26,9 +26,11 @@ against:
    block, ``client_secret``/generic ``password|secret|token|api_key``
    assignment, DB URLs with an embedded password, basic-auth URLs). Any hit
    here is a **hard failure** (``exit 1``) — this is the part of the gate
-   that actually blocks a push. A line carrying the documented
-   ``# sanitizer:ignore`` marker is exempt (matches the convention already
-   used by this repo's synthetic credential-shaped test fixtures).
+   that actually blocks a push. **There is no allowlist file.** The only
+   exemption is the documented ``# sanitizer:ignore`` marker on the offending
+   line itself (matches the convention already used by this repo's synthetic
+   credential-shaped test fixtures) — an absolute, forward-looking rule: any
+   new secret-shaped match fails, full stop.
 2. A keyword-free high-entropy sweep (any 24-64 char, >=3-character-class
    token at >=4.4 bits/char, excluding hashes/UUIDs/plain identifiers and
    lockfile diffs) — reported **informationally only**, never blocking. The
@@ -39,6 +41,22 @@ against:
    would either need a bespoke exemption list (a new noise surface) or would
    make the gate untrustworthy the first time it cries wolf. It stays a
    human-reviewed signal, not a blocking one, until that noise is tamed.
+
+**No baseline / allowlist file (go-forward fix, 2026-08-27).** This gate used
+to carry a ``secret_history_baseline.txt`` allowlist of ``(file, pattern)``
+pairs seeded once, by hand, against a 300-commit sample of real history
+during the release.yml/advisory.yml CI redesign. Per the NO RATCHETS policy
+(baseline/ratchet gates are not allowed here) and the decision to fix secrets
+going forward without rewriting already-pushed git history, the baseline is
+retired: every seeded entry was confirmed to have EITHER (a) no live match
+against the current working tree (the source changed, or the file was
+deleted, since the baseline was written), or (b) a match that is a synthetic
+test/fixture value, never a real credential. Removing the file changed the
+gate's verdict for **zero** currently-scanned lines (this repo's
+``origin/main..HEAD`` scans clean before and after). Going forward, EVERY
+credential-shaped hit in the scanned range is a hard failure unless the line
+itself carries ``# sanitizer:ignore`` — there is no second, file-based way to
+suppress a hit.
 
 **Default range.** ``<base>..HEAD`` where ``<base>`` defaults to
 ``origin/main`` if that ref exists locally, else the gate refuses rather than
@@ -55,15 +73,14 @@ result over an old range is not evidence about a new one) via::
     python3 scripts/security/check_secret_history.py --self-check
 
 ``--repository-root`` (GOC-59-W08/B7 — same declared flag every other
-``scripts/security/check_*.py`` contract check carries, matching
-``check_cypher_write_subset.py``'s sibling convention): the merge queue's fast
-tier (``agent_utilities/governance/merge_queue.py``, ``_contract_check_argv``)
-discovers a script's declared repository root by grepping its own source for
-the literal string ``--repository-root`` and, only when present, appends
-``--repository-root <merged-tree>`` to the invocation. Both the scanned repo
-and the baseline file resolve from it, so a merge-queue run always reads the
-baseline that ships WITH the merged tree it is checking, not a stale one from
-wherever the interpreter happens to have been launched.
+``scripts/security/check_*.py`` contract check carries, for parity with the
+convention agent-utilities' sibling scanner uses). This repo wires the gate
+into ``.github/workflows/release.yml`` (``python3 scripts/security/
+check_secret_history.py --base "$BASE"``), not pre-commit or the merge
+queue — the repo root defaults to the current directory, which is correct
+for that CI invocation; pass ``--repository-root`` explicitly only when
+scanning a checkout other than the current directory (e.g. a merged-tree
+verification run).
 
 ``--self-check`` proves the credential-pattern half actually catches a
 planted secret (AWS-shaped key, GitHub PAT, private-key block) in a throwaway
@@ -84,7 +101,6 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BASELINE_PATH = REPO_ROOT / "scripts" / "security" / "secret_history_baseline.txt"
 
 SANITIZER_MARKER = "sanitizer:ignore"
 
@@ -175,29 +191,25 @@ def _iter_added_lines(patch_lines: list[str]):
         yield current_commit or "?", current_file or "?", line[1:]
 
 
-#: This scanner's own source and baseline necessarily CONTAIN the credential
-#: shapes it hunts for -- `aws_access_key_id`, `private_key_block` and friends
-#: are regex literals here, and the baseline records real past hits verbatim.
-#: Scanning them flags the DETECTOR as the leak: on its very first queue run
-#: this gate rejected its OWN branch with 5 "credential-shaped" hits, every one
-#: of them its own pattern table or baseline.
+#: This scanner's own source necessarily CONTAINS the credential shapes it
+#: hunts for -- `aws_access_key_id`, `private_key_block` and friends are regex
+#: literals here. Scanning them flags the DETECTOR as the leak: on its very
+#: first queue run this gate rejected its OWN branch with 5 "credential-shaped"
+#: hits, every one of them its own pattern table.
 #:
-#: Excluding them is not a weakening. A scanner cannot meaningfully audit itself
+#: Excluding it is not a weakening. A scanner cannot meaningfully audit itself
 #: -- any finding is by construction a definition, not a secret -- and both
 #: `check_tracked_privacy.py` and `check_wheel_privacy.py` already exclude
 #: `scripts/` for exactly this reason ("the scanners live there").
 #:
-#: Scoped to THESE TWO FILES ONLY, deliberately: a blanket `scripts/security/`
+#: Scoped to THIS FILE ONLY, deliberately: a blanket `scripts/security/`
 #: exclusion would blind the gate to a real credential committed into any other
 #: gate in that directory.
-_SELF_PATHS = (
-    "scripts/security/check_secret_history.py",
-    "scripts/security/secret_history_baseline.txt",
-)
+_SELF_PATHS = ("scripts/security/check_secret_history.py",)
 
 
 def _is_self(file_: str) -> bool:
-    """True for this scanner's own source or baseline (git patch `b/` prefix)."""
+    """True for this scanner's own source (git patch `b/` prefix)."""
     normalized = file_[2:] if file_.startswith(("a/", "b/")) else file_
     return normalized in _SELF_PATHS
 
@@ -285,30 +297,6 @@ def _git_log_patch_lines(repo: Path, rev_range: str) -> list[str]:
     return proc.stdout.splitlines()
 
 
-def load_baseline(path: Path = BASELINE_PATH) -> set[tuple[str, str]]:
-    """``{(file, pattern)}`` already known and accepted as a synthetic fixture.
-
-    D-CIP-14: a new absolute contract check cannot be added to a tree that
-    already violates it. Keyed on ``(file, pattern)`` rather than commit,
-    because the scanned range is ``<base>..HEAD`` and grows with every new
-    commit — a commit-keyed baseline would need updating on every push even
-    when no *new* fixture is introduced. A missing baseline file is an empty
-    baseline (every hit is new) — stricter, never permissive, matching the
-    convention set by ``check_ci_environment_contract.py``.
-    """
-    if not path.is_file():
-        return set()
-    entries: set[tuple[str, str]] = set()
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        file_, _, pattern = line.partition("\t")
-        if pattern:
-            entries.add((file_.strip(), pattern.strip()))
-    return entries
-
-
 def _ref_exists(repo: Path, ref: str) -> bool:
     proc = subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", ref],
@@ -319,9 +307,14 @@ def _ref_exists(repo: Path, ref: str) -> bool:
     return proc.returncode == 0
 
 
-def check(
-    repo_root: Path, base: str | None, baseline_path: Path = BASELINE_PATH
-) -> tuple[int, dict]:
+def check(repo_root: Path, base: str | None) -> tuple[int, dict]:
+    """Absolute, forward-looking gate — no allowlist file (2026-08-27).
+
+    Every credential-shaped hit in ``<base>..HEAD`` is a hard failure. The
+    only exemption is the inline ``# sanitizer:ignore`` marker on the
+    offending line itself; there is no ``(file, pattern)`` baseline to widen
+    or go stale.
+    """
     if base is None:
         if _ref_exists(repo_root, "origin/main"):
             base = "origin/main"
@@ -343,51 +336,34 @@ def check(
     added_lines = sum(
         1 for line in patch_lines if line.startswith("+") and not line.startswith("+++")
     )
-    all_credential_hits = scan_credentials(patch_lines)
+    credential_hits = scan_credentials(patch_lines)
     entropy_hits = scan_entropy(patch_lines)
 
-    baseline = load_baseline(baseline_path)
-    new_hits = [
-        h for h in all_credential_hits if (h["file"], h["pattern"]) not in baseline
-    ]
-    baselined_hits = [
-        h for h in all_credential_hits if (h["file"], h["pattern"]) in baseline
-    ]
-    seen_pairs = {(h["file"], h["pattern"]) for h in all_credential_hits}
-    stale_baseline_entries = sorted(
-        f"{file_}\t{pattern}"
-        for file_, pattern in baseline
-        if (file_, pattern) not in seen_pairs
-    )
-
-    ok = not new_hits
+    ok = not credential_hits
     result = {
         "ok": ok,
         "range": rev_range,
         "addedLines": added_lines,
-        "credentialHits": new_hits,
-        "baselinedCredentialHits": baselined_hits,
-        "staleBaselineEntries": stale_baseline_entries,
+        "credentialHits": credential_hits,
         "entropyCandidateCount": len(entropy_hits),
         "entropySample": entropy_hits[:20],
     }
     if not ok:
         result["error"] = (
-            f"{len(new_hits)} credential-shaped pattern hit(s) in the "
-            f"{rev_range} patch text are NOT in {BASELINE_PATH.relative_to(REPO_ROOT)} "
-            "— see credentialHits. Remove the secret, rotate it if it is live, "
-            "and rewrite history before pushing. If manual review confirms this "
-            "is a synthetic fixture (matches the existing '# sanitizer:ignore' "
-            "convention used elsewhere in this repo's test suite), either add "
-            "that marker to the line, or add a reviewed "
-            "'<file>\\t<pattern>' entry to the baseline file with a comment "
-            "explaining why it is safe."
+            f"{len(credential_hits)} credential-shaped pattern hit(s) in the "
+            f"{rev_range} patch text — see credentialHits. There is no "
+            "allowlist file for this gate. Remove the secret and rotate it if "
+            "it is live (this is a go-forward fix — already-pushed history is "
+            "not rewritten), or, if manual review confirms this is a "
+            "synthetic fixture, add the inline '# sanitizer:ignore' marker to "
+            "that exact line (the only exemption this gate honors)."
         )
     return (0 if ok else 1), result
 
 
 def _self_check() -> tuple[int, dict]:
-    """Prove the credential half catches a planted secret and honors the marker."""
+    """Prove the credential half catches a planted secret and honors the
+    marker (MR-6: a gate nobody proved catches a violation is not a gate)."""
     tmp = Path(tempfile.mkdtemp(prefix="secret-history-selfcheck-"))
     try:
         subprocess.run(["git", "init", "-q"], cwd=str(tmp), check=True)
@@ -442,66 +418,14 @@ def _self_check() -> tuple[int, dict]:
         rc_good, result_good = check(tmp, base="origin-main-stand-in")
         exempted = rc_good == 0 and not result_good.get("credentialHits")
 
-        # D-CIP-14: prove the baseline ratchet in BOTH directions.
-        # (a) A hit whose (file, pattern) is baselined must NOT block, but must
-        #     still be visible (baselinedCredentialHits), not silently dropped.
-        subprocess.run(
-            ["git", "checkout", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True
-        )
-        subprocess.run(
-            ["git", "checkout", "-q", "-B", "baselined-branch"],
-            cwd=str(tmp),
-            check=True,
-        )
-        (tmp / "leak.py").write_text(bad, encoding="utf-8")
-        subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "same planted secret, now baselined"],
-            cwd=str(tmp),
-            check=True,
-        )
-        baseline_file = tmp / "baseline.txt"
-        baseline_file.write_text(
-            "# test baseline\n"
-            "b/leak.py\taws_access_key_id\n"
-            "b/leak.py\tgithub_pat_classic\n"
-            "b/leak.py\tprivate_key_block\n",
-            encoding="utf-8",
-        )
-        rc_baselined, result_baselined = check(
-            tmp, base="origin-main-stand-in", baseline_path=baseline_file
-        )
-        baseline_exempts = (
-            rc_baselined == 0
-            and not result_baselined.get("credentialHits")
-            and len(result_baselined.get("baselinedCredentialHits", [])) >= 2
-        )
-
-        # (b) A baseline entry naming a (file, pattern) that no longer appears in
-        #     the range must be reported as stale, not silently retained forever.
-        stale_baseline_file = tmp / "stale_baseline.txt"
-        stale_baseline_file.write_text(
-            "b/nonexistent-file.py\tgeneric_secret_assignment\n", encoding="utf-8"
-        )
-        _rc_stale, result_stale = check(
-            tmp, base="origin-main-stand-in", baseline_path=stale_baseline_file
-        )
-        stale_detected = (
-            "b/nonexistent-file.py\tgeneric_secret_assignment"
-            in result_stale.get("staleBaselineEntries", [])
-        )
-
-        ok = caught and exempted and baseline_exempts and stale_detected
+        ok = caught and exempted
         return (0 if ok else 1), {
             "ok": ok,
             "selfCheck": True,
             "caughtPlantedCredential": caught,
             "honoredSanitizerMarker": exempted,
-            "baselineRatchetExempts": baseline_exempts,
-            "baselineRatchetDetectsStaleEntries": stale_detected,
             "plantedRunDetail": result_bad,
             "exemptedRunDetail": result_good,
-            "baselinedRunDetail": result_baselined,
         }
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -528,8 +452,7 @@ def main() -> int:
         rc, result = _self_check()
     else:
         repo_root = args.repository_root.resolve()
-        baseline_path = repo_root / "scripts" / "security" / "secret_history_baseline.txt"
-        rc, result = check(repo_root, args.base, baseline_path=baseline_path)
+        rc, result = check(repo_root, args.base)
 
     print(json.dumps(result, indent=2))
     return rc
