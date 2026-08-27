@@ -47,14 +47,20 @@
 //! engine-specific LSN/Iceberg-snapshot correlation) — see [`lineage`]. Kept in a
 //! bounded in-memory ring (inspectable via [`LakeManager::recent_lineage`]) and, when
 //! `EPISTEMIC_GRAPH_OPENLINEAGE_URL` is set, best-effort POSTed to it over the SAME
-//! pure-Rust `ureq` client `sparql-service`/`federation-search` already link.
+//! pure-Rust `ureq` client `sparql-service`/`federation-search` already link. **With
+//! feature `lineage-transport` on** (CA-15), `push_lineage` routes through
+//! [`lineage_transport::configured_transports`] instead of calling
+//! [`lineage::maybe_push_http`] directly — a superset that still includes that same
+//! HTTP push (wrapped, unchanged) plus an optional Kafka leg (`openlineage.events` per
+//! `DEC-CA-03`, feature `lineage-transport-kafka`) when configured. See
+//! [`lineage_transport`]'s module doc for the full design and the `DEC-CA-05`
+//! reconciliation note on inbound facets.
 
 pub mod lineage;
-// OpenLineage transport (CA-15, feature `lineage-transport`, off by default). Reserved
-// and EMPTY until CA-15 implements it; landed by CA-17's single feature-stub commit so
-// CA-15 never edits this shared module list. NOTE for CA-15: a best-effort HTTP push to
-// `EPISTEMIC_GRAPH_OPENLINEAGE_URL` ALREADY EXISTS at `lineage::maybe_push_http` -- wire
-// or extend it, do not reimplement it.
+// OpenLineage transport (CA-15, feature `lineage-transport`). A best-effort HTTP push to
+// `EPISTEMIC_GRAPH_OPENLINEAGE_URL` already existed at `lineage::maybe_push_http`
+// (CA-17's stub note, preserved here) -- this module wires it into a composable
+// transport set and adds a Kafka leg, per `DEC-CA-03`/`DEC-CA-05`; see its own doc.
 #[cfg(feature = "lineage-transport")]
 pub mod lineage_transport;
 #[cfg(feature = "lake-rest")]
@@ -1070,6 +1076,16 @@ impl LakeManager {
                 ring.pop_front();
             }
         }
+        // CA-15: with `lineage-transport` on, push through every configured
+        // transport (HTTP -- byte-identical to the line below, plus Kafka
+        // when `EPISTEMIC_GRAPH_LINEAGE_KAFKA_BROKERS` is set). Without it,
+        // this stays the exact call a plain `lake` build has always made --
+        // a strict superset, never a behavior change for an unconfigured or
+        // `lineage-transport`-less deployment (see `lineage_transport`'s
+        // module doc, "Migration and rollback").
+        #[cfg(feature = "lineage-transport")]
+        lineage_transport::configured_transports().push_all(&event);
+        #[cfg(not(feature = "lineage-transport"))]
         lineage::maybe_push_http(&event);
     }
 
@@ -1448,5 +1464,47 @@ mod tests {
             "CREATE"
         );
         assert_eq!(out["facets"]["epistemicGraphLake"]["op"], "CREATE");
+    }
+
+    /// CA-15 P9 negative slice: with `lineage-transport` on, no
+    /// `EPISTEMIC_GRAPH_OPENLINEAGE_URL` and no
+    /// `EPISTEMIC_GRAPH_LINEAGE_KAFKA_BROKERS` configured (both transports
+    /// effectively unreachable/unconfigured), `drain_series` still succeeds
+    /// and the event still lands in the local ring — the drop is silent at
+    /// the transport layer, never fabricated OR lost at the materialization
+    /// layer (`lineage.rs:212-214`'s "must never fail or block" invariant,
+    /// extended to the composed transport set).
+    #[cfg(feature = "lineage-transport")]
+    #[test]
+    fn materialize_succeeds_with_lineage_transport_enabled_and_every_transport_unconfigured() {
+        // See `lineage_transport::tests`' doc on the same lock: this test
+        // also mutates the process-global lineage env vars, so it joins the
+        // same mutual-exclusion group (`crate::crypto::acquire_test_env_lock_blocking`)
+        // rather than racing them.
+        let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+        std::env::remove_var(lineage::OPENLINEAGE_URL_ENV);
+        #[cfg(feature = "lineage-transport-kafka")]
+        std::env::remove_var(lineage_transport::KafkaTransport::ENV_BROKERS);
+
+        let s = store();
+        let tsdb = SeriesStore::open_in_dir(&std::env::temp_dir().join(format!(
+            "eg-lake-test-lineage-unconfigured-{}",
+            std::process::id()
+        )))
+        .unwrap();
+        append(&tsdb, "s5", &points(0, 2));
+        let mgr = LakeManager::new();
+
+        let report = mgr
+            .drain_series(&s, &tsdb, "s5")
+            .unwrap()
+            .expect("materialization succeeds even though every lineage transport is unconfigured");
+        assert_eq!(report.op, LakeOp::Create);
+
+        // The event was still built and ring-buffered -- "silently dropped
+        // at the transport" never means "never recorded at all".
+        let events = mgr.recent_lineage(10);
+        assert_eq!(events.len(), 1);
+        assert!(events[0]["run"]["runId"].is_string());
     }
 }
