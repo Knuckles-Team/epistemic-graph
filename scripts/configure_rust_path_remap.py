@@ -68,7 +68,7 @@ ENVIRONMENT_ROOTS: tuple[tuple[str, str], ...] = (
 # from `HOME` when unset) its Cargo registry cache is `/root/.cargo/registry`.
 # This script only ever runs on the OUTER runner, so no environment variable it
 # can read ever names `/root` -- the outer runner's own `HOME` is something
-# else entirely (e.g. `/home/runner`). Worse, `maturin-action` explicitly
+# else entirely (e.g. an `/home/<ci-runner>`-shaped path). Worse, `maturin-action` explicitly
 # excludes `CARGO_HOME` from the env vars it forwards into the container (see
 # its `FORBIDDEN_ENVS`), specifically so the container does not try to reuse
 # the outer runner's host-path Cargo state -- which means the container's

@@ -37,7 +37,7 @@
 //! silently returning nothing — matches every other `EPISTEMIC_GRAPH_*` knob's contract)
 //!
 //! * [`ICEBERG_FEDERATION_CATALOG_URI_ENV`] — REST catalog base URI (e.g.
-//!   `http://lakekeeper.arpa/catalog`, or eg's own `--iceberg-addr` once reachable).
+//!   `http://lakekeeper.example/catalog`, or eg's own `--iceberg-addr` once reachable).
 //! * [`ICEBERG_FEDERATION_WAREHOUSE_ENV`] — optional warehouse identifier.
 //! * [`ICEBERG_FEDERATION_CREDENTIAL_ENV`] — optional `client_id:client_secret`
 //!   (OAuth2 client-credentials, the SAME `lakekeeper-service` Keycloak-client shape
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn catalog_props_carries_every_configured_key() {
         let cfg = IcebergCatalogConfig {
-            catalog_uri: "http://lakekeeper.arpa/catalog".to_string(),
+            catalog_uri: "http://lakekeeper.example/catalog".to_string(),
             warehouse: Some("wh".to_string()),
             credential: Some("id:secret".to_string()),
             scope: Some("lakekeeper".to_string()),
@@ -440,7 +440,7 @@ mod tests {
             token: None,
         };
         let props = cfg.catalog_props();
-        assert_eq!(props.get("uri").unwrap(), "http://lakekeeper.arpa/catalog");
+        assert_eq!(props.get("uri").unwrap(), "http://lakekeeper.example/catalog");
         assert_eq!(props.get("warehouse").unwrap(), "wh");
         assert_eq!(props.get("credential").unwrap(), "id:secret");
         assert_eq!(props.get("scope").unwrap(), "lakekeeper");

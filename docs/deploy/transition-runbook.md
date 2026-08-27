@@ -26,13 +26,13 @@ The live deployment is the **split-storage** flavor (`services/epistemic-graph/f
 
 | Piece | Where | Detail |
 |-------|-------|--------|
-| Engine | node **R510** (10.0.0.10) | pinned `node.labels.name == R510`; binary bind-mounted from `/home/genius/epistemic-graph-server-eg024`; persist `/home/genius/epistemic-graph/graph_snapshots` (redb K=4); serves TCP `:9100` |
-| graph-os (MCP) | node **RW710** (10.0.0.12) | dials the engine at `GRAPH_SERVICE_TCP_ADDR=10.0.0.10:9100` |
-| messaging / host daemon | RW710 | same — TCP clients of the R510 engine |
-| swarm manager | **R820** (10.0.0.13) | all `docker service …` run here; other nodes reached via a manager SSH hop |
+| Engine | node **ENGINE-NODE** (192.0.2.10) | pinned `node.labels.name == ENGINE-NODE`; binary bind-mounted from `/home/app/epistemic-graph-server-eg024`; persist `/home/app/epistemic-graph/graph_snapshots` (redb K=4); serves TCP `:9100` |
+| graph-os (MCP) | node **MCP-NODE** (192.0.2.12) | dials the engine at `GRAPH_SERVICE_TCP_ADDR=192.0.2.10:9100` |
+| messaging / host daemon | MCP-NODE | same — TCP clients of the ENGINE-NODE engine |
+| swarm manager | **MANAGER-NODE** (192.0.2.13) | all `docker service …` run here; other nodes reached via a manager SSH hop |
 
 `promote_engine.sh` assumed the engine is bind-mounted on the **local build host** and only
-force-restarted by service name. In split-storage that means it installs a binary the R510
+force-restarted by service name. In split-storage that means it installs a binary the ENGINE-NODE
 task never mmaps (**silent no-op**) and never checks the served path. `transition_deploy.sh`
 fixes both: it **discovers** the real node + bind path from `docker service inspect`, copies to
 the right node, and **gates on a real engine query** before declaring success.
@@ -64,7 +64,7 @@ is 200 and a *direct* TCP client to the engine works fine.
 node-local `config.json` still sets `GRAPH_SERVICE_SOCKET=/run/epistemic-graph/epistemic-graph.sock`.
 On the client node that socket path is served (when present) by a **local autostarted "tiny-daemon"
 engine** (`--idle-shutdown-secs 60`, separate near-empty store `~/.local/share/agent-utilities/graph_snapshots`).
-So a client can resolve/​autostart that **ephemeral empty local engine instead of the real R510 KG**,
+So a client can resolve/​autostart that **ephemeral empty local engine instead of the real ENGINE-NODE KG**,
 and when the tiny-daemon is in its idle-shutdown window you get Connection refused. `graph_kvcache`
 hides it (it degrades transport errors to an all-zeros miss).
 
@@ -81,7 +81,7 @@ into the graph-os / messaging / host-daemon service env):
 ```sh
 # --- client nodes: TCP-ONLY, never resolve or autostart a local engine ---
 ENGINE_MODE=remote                       # forces the remote leg; disables autostart
-ENGINE_ENDPOINT=tcp://10.0.0.10:9100     # highest-precedence endpoint (beats any stray socket)
+ENGINE_ENDPOINT=tcp://192.0.2.10:9100     # highest-precedence endpoint (beats any stray socket)
 EPISTEMIC_GRAPH_AUTOSTART=0              # belt-and-suspenders: the tiny-daemon can never spawn
 ```
 
@@ -110,9 +110,9 @@ autostarts the flapping tiny-daemon**. The swarm containers escaped it only beca
 added the TCP addr. **Fix the node config.json on every CLIENT node** (this is the durable, one-place fix):
 
 ```jsonc
-"GRAPH_SERVICE_TCP_ADDR": "10.0.0.10:9100",
+"GRAPH_SERVICE_TCP_ADDR": "192.0.2.10:9100",
 "ENGINE_MODE": "remote",
-"ENGINE_ENDPOINT": "tcp://10.0.0.10:9100",
+"ENGINE_ENDPOINT": "tcp://192.0.2.10:9100",
 "EPISTEMIC_GRAPH_AUTOSTART": "0"
 // remove GRAPH_SERVICE_SOCKET
 ```
@@ -163,11 +163,11 @@ The env hardening is reversible (`--env-rm`). On the manager:
 # graph-os (repeat for the host-daemon + messaging services):
 docker service update \
   --env-add ENGINE_MODE=remote \
-  --env-add ENGINE_ENDPOINT=tcp://10.0.0.10:9100 \
+  --env-add ENGINE_ENDPOINT=tcp://192.0.2.10:9100 \
   --env-add EPISTEMIC_GRAPH_AUTOSTART=0 \
   graph-os_graph-os
 # then verify the served path answers a real verb (not just /health), and confirm no
-# `/home/apps/workspace/.venv/bin/epistemic-graph-server --idle-shutdown-secs` tiny-daemon
+# `/home/app/workspace/.venv/bin/epistemic-graph-server --idle-shutdown-secs` tiny-daemon
 # respawns on the client node.
 ```
 
