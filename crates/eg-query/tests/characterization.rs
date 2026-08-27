@@ -14,3 +14,5 @@ mod verify_schema_migrations;
 mod insert_on_conflict_in;
 #[path = "characterization/apply_txn_op.rs"]
 mod apply_txn_op;
+#[path = "characterization/apply_schema_migration_in.rs"]
+mod apply_schema_migration_in;
