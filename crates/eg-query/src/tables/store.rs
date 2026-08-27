@@ -4964,14 +4964,40 @@ fn rename_table_in(
     if table == new_name {
         return Ok(());
     }
-    let mut schema =
+    let mut schema = load_schema_for_rename_in(wtx, table, new_name)?;
+    // Update every inbound/self FK in the same redb transaction. Leaving a
+    // child constraint pointing at the old catalog key would make a successful
+    // rename create a permanently unenforceable relationship.
+    retarget_inbound_foreign_keys_in(wtx, tenant_scope, table, new_name)?;
+    retarget_schema_foreign_keys(&mut schema, table, new_name);
+    rekey_table_catalog_entry_in(wtx, tenant_scope, table, new_name, &mut schema)?;
+    // Sequence: carry the rowid allocator forward so SERIAL ids never collide/reuse.
+    carry_forward_table_sequence_in(wtx, table, new_name)?;
+    // Rows: re-key each (table, rowid) -> (new_name, rowid).
+    rekey_table_rows_in(wtx, table, new_name)?;
+    rename_hypertable_if_present_in(wtx, table, new_name)?;
+    Ok(())
+}
+
+fn load_schema_for_rename_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    new_name: &str,
+) -> Result<TableSchema, String> {
+    let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     if get_schema_in(wtx, new_name)?.is_some() {
         return Err(format!("table `{new_name}` already exists"));
     }
-    // Update every inbound/self FK in the same redb transaction. Leaving a
-    // child constraint pointing at the old catalog key would make a successful
-    // rename create a permanently unenforceable relationship.
+    Ok(schema)
+}
+
+fn retarget_inbound_foreign_keys_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    new_name: &str,
+) -> Result<(), String> {
     let mut dependents = Vec::new();
     for child_table in list_tables_in(wtx)? {
         if child_table == table {
@@ -4980,29 +5006,40 @@ fn rename_table_in(
         let Some(mut child_schema) = get_schema_in(wtx, &child_table)? else {
             continue;
         };
-        let mut changed = false;
-        for constraint in child_schema.constraints_mut() {
-            if let TableConstraint::ForeignKey { ref_table, .. } = constraint {
-                if ref_table == table {
-                    *ref_table = new_name.to_string();
-                    changed = true;
-                }
-            }
-        }
-        if changed {
+        if retarget_schema_foreign_keys(&mut child_schema, table, new_name) {
             dependents.push(child_schema);
         }
     }
     for child_schema in &dependents {
         put_schema_in(wtx, tenant_scope, child_schema)?;
     }
+    Ok(())
+}
+
+/// Points every `FOREIGN KEY ... REFERENCES table(...)` constraint in
+/// `schema` at `new_name` instead. Returns whether anything changed (used
+/// by `retarget_inbound_foreign_keys_in` to decide which child schemas need
+/// writing back).
+fn retarget_schema_foreign_keys(schema: &mut TableSchema, table: &str, new_name: &str) -> bool {
+    let mut changed = false;
     for constraint in schema.constraints_mut() {
         if let TableConstraint::ForeignKey { ref_table, .. } = constraint {
             if ref_table == table {
                 *ref_table = new_name.to_string();
+                changed = true;
             }
         }
     }
+    changed
+}
+
+fn rekey_table_catalog_entry_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    new_name: &str,
+    schema: &mut TableSchema,
+) -> Result<(), String> {
     drop_secondary_indexes_for_table_in(wtx, tenant_scope, table)?;
     // Catalog: drop the old key, write the schema under the new name.
     schema.name = new_name.to_string();
@@ -5010,36 +5047,57 @@ fn rename_table_in(
         let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
         cat.remove(table).map_err(map_err)?;
     }
-    put_schema_in(wtx, tenant_scope, &schema)?;
-    // Sequence: carry the rowid allocator forward so SERIAL ids never collide/reuse.
-    {
-        let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
-        let val = seq.get(table).map_err(map_err)?.map(|g| g.value());
-        seq.remove(table).map_err(map_err)?;
-        if let Some(v) = val {
-            seq.insert(new_name, v).map_err(map_err)?;
-        }
+    put_schema_in(wtx, tenant_scope, schema)
+}
+
+fn carry_forward_table_sequence_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    new_name: &str,
+) -> Result<(), String> {
+    let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
+    let val = seq.get(table).map_err(map_err)?.map(|g| g.value());
+    seq.remove(table).map_err(map_err)?;
+    if let Some(v) = val {
+        seq.insert(new_name, v).map_err(map_err)?;
     }
-    // Rows: re-key each (table, rowid) → (new_name, rowid).
-    {
-        let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
-        let mut items: Vec<(u64, Vec<u8>)> = Vec::new();
-        let mut scanned_rows = 0usize;
-        let mut scanned_bytes = 0usize;
-        for r in rows
-            .range((table, 0u64)..=(table, u64::MAX))
-            .map_err(map_err)?
-        {
-            let (k, v) = r.map_err(map_err)?;
-            account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
-            items.push((k.value().1, v.value().to_vec()));
-        }
-        for (rowid, blob) in &items {
-            rows.remove((table, *rowid)).map_err(map_err)?;
-            rows.insert((new_name, *rowid), blob.as_slice())
-                .map_err(map_err)?;
-        }
+    Ok(())
+}
+
+fn rekey_table_rows_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Result<(), String> {
+    let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
+    let items = collect_table_rows_for_rekey_in(&rows, table)?;
+    for (rowid, blob) in &items {
+        rows.remove((table, *rowid)).map_err(map_err)?;
+        rows.insert((new_name, *rowid), blob.as_slice())
+            .map_err(map_err)?;
     }
+    Ok(())
+}
+
+fn collect_table_rows_for_rekey_in(
+    rows: &redb::Table<(&str, u64), &[u8]>,
+    table: &str,
+) -> Result<Vec<(u64, Vec<u8>)>, String> {
+    let mut items: Vec<(u64, Vec<u8>)> = Vec::new();
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
+    for r in rows
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (k, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
+        items.push((k.value().1, v.value().to_vec()));
+    }
+    Ok(items)
+}
+
+fn rename_hypertable_if_present_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    new_name: &str,
+) -> Result<(), String> {
     let renamed_hypertable = {
         let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
         let plan = hypertables
@@ -5049,16 +5107,16 @@ fn rename_table_in(
             .transpose()?;
         plan
     };
-    if let Some(mut plan) = renamed_hypertable {
-        plan.table = new_name.to_string();
-        let bytes =
-            rmp_serde::to_vec_named(&plan).map_err(|e| format!("encode hypertable: {e}"))?;
-        let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
-        hypertables.remove(table).map_err(map_err)?;
-        hypertables
-            .insert(new_name, bytes.as_slice())
-            .map_err(map_err)?;
-    }
+    let Some(mut plan) = renamed_hypertable else {
+        return Ok(());
+    };
+    plan.table = new_name.to_string();
+    let bytes = rmp_serde::to_vec_named(&plan).map_err(|e| format!("encode hypertable: {e}"))?;
+    let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+    hypertables.remove(table).map_err(map_err)?;
+    hypertables
+        .insert(new_name, bytes.as_slice())
+        .map_err(map_err)?;
     Ok(())
 }
 
