@@ -494,4 +494,300 @@ mod tests {
         truncated.truncate(truncated.len() - 20);
         assert!(NativeImageRuntime::decode_png(&truncated).is_none());
     }
+
+    // CXA-EG-03 characterization: `decode_png` (CCN 90, the free fn, not the
+    // `NativeImageRuntime::decode_png` wrapper) pins the chunk-walking state
+    // machine's own branches ahead of decomposing it. These deliberately do
+    // NOT try to re-cover `unfilter`/`to_rgba`/`color_layout`/`paeth` (already
+    // separate, already-passing, out of this lane's partition/CCN target) --
+    // only `decode_png`'s own guards: IHDR ordering/validation, PLTE/tRNS
+    // ordering, IDAT accounting, IEND, unknown-chunk handling, and the
+    // post-loop stream/color-consistency checks.
+
+    fn ihdr_bytes(width: u32, height: u32, bit_depth: u8, color_type: u8) -> Vec<u8> {
+        let mut data = Vec::with_capacity(13);
+        data.extend_from_slice(&width.to_be_bytes());
+        data.extend_from_slice(&height.to_be_bytes());
+        data.extend_from_slice(&[bit_depth, color_type, 0, 0, 0]);
+        data
+    }
+
+    fn assemble(chunks: &[Vec<u8>]) -> Vec<u8> {
+        let mut bytes = PNG_SIGNATURE.to_vec();
+        for c in chunks {
+            bytes.extend_from_slice(c);
+        }
+        bytes
+    }
+
+    fn deflate(raw: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(raw).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// A minimal, otherwise-valid 1x1 RGBA stream's IDAT payload (filter byte 0
+    /// + one RGBA pixel), for tests that only care about chunk-level rules.
+    fn minimal_idat() -> Vec<u8> {
+        deflate(&[0, 10, 20, 30, 255])
+    }
+
+    #[test]
+    fn bad_signature_is_rejected() {
+        let mut bytes = PNG_SIGNATURE.to_vec();
+        bytes[0] = 0;
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn duplicate_ihdr_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn ihdr_not_first_chunk_is_rejected() {
+        // A lowercase-first (ancillary) chunk before IHDR is structurally
+        // allowed through the wildcard arm, but IHDR's own guard requires
+        // `position == 8` -- i.e. IHDR must be the very first chunk.
+        let bytes = assemble(&[
+            chunk(b"gAMA", &[0, 0, 0, 1]),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn zero_width_or_height_is_rejected() {
+        let zero_w = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(0, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&zero_w).is_none());
+        let zero_h = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 0, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&zero_h).is_none());
+    }
+
+    #[test]
+    fn non_eight_bit_depth_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 16, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn unsupported_color_type_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 1)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn nonzero_ihdr_reserved_bytes_are_rejected() {
+        let mut ihdr = ihdr_bytes(1, 1, 8, 6);
+        ihdr[12] = 1; // interlace method reserved byte must be 0
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn oversized_pixel_budget_is_rejected_at_ihdr() {
+        // width*height exceeds MAX_DECODED_PIXELS; rejected during IHDR
+        // parsing itself, before any IDAT is even required.
+        let bytes = assemble(&[chunk(b"IHDR", &ihdr_bytes(100_000, 100_000, 8, 6))]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn duplicate_plte_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"PLTE", &[40, 50, 60]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn plte_length_not_multiple_of_three_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"PLTE", &[10, 20, 30, 40]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn plte_before_ihdr_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn plte_after_idat_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn trns_before_ihdr_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"tRNS", &[1]),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn iend_with_nonzero_length_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[0]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn unknown_critical_chunk_is_rejected() {
+        // Upper-case-first chunk type this parser does not recognize.
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"ZzZz", &[]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn idat_after_ancillary_chunk_closes_further_idat() {
+        // An ancillary (lower-case-first) chunk between two IDAT chunks marks
+        // the IDAT stream closed; a subsequent IDAT chunk must be rejected.
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"tEXt", &[]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn idat_before_ihdr_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn missing_idat_is_rejected() {
+        let bytes = assemble(&[chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)), chunk(b"IEND", &[])]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn trailing_bytes_after_iend_are_rejected() {
+        let mut bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        bytes.push(0xff);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn indexed_color_without_palette_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"IDAT", &deflate(&[0, 0])),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn grayscale_with_palette_is_rejected() {
+        // color_type 0 (grayscale) must never carry a PLTE chunk. PLTE's own
+        // guard doesn't check color_type, only chunk ordering, so this is
+        // caught by the post-loop color/palette consistency check.
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 0)),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"IDAT", &deflate(&[0, 128])),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn truecolor_with_transparency_is_rejected() {
+        // color_type 2 (truecolor, no alpha channel) with a tRNS chunk is
+        // rejected by the post-loop consistency check (only indexed color
+        // may pair tRNS with non-empty content here).
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 2)),
+            chunk(b"tRNS", &[1, 2, 3]),
+            chunk(b"IDAT", &deflate(&[0, 10, 20, 30])),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn indexed_color_with_valid_palette_and_transparency_decodes() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"tRNS", &[200]),
+            chunk(b"IDAT", &deflate(&[0, 0])),
+            chunk(b"IEND", &[]),
+        ]);
+        let runtime = NativeImageRuntime::decode_png(&bytes).unwrap();
+        assert_eq!(runtime.decoded().pixels.rgba, vec![10, 20, 30, 200]);
+    }
 }
