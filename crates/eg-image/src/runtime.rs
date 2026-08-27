@@ -123,109 +123,222 @@ pub fn production_probe() -> NativeProductionProbe {
     }
 }
 
-fn decode_png(bytes: &[u8]) -> Option<DecodedImage> {
-    if bytes.len() > MAX_SOURCE_BYTES || bytes.get(..8)? != PNG_SIGNATURE {
-        return None;
+// CXA-EG-03 refactor: `decode_png` was CCN 90 as one function holding a
+// chunk-walking `while`+`match` state machine AND a long post-loop
+// AND-chain of decode steps. Same two techniques as the sibling
+// `try_handle`/`apply_txn_op` dispatchers and `ChangeEnvelope::validate` in
+// this lane: (1) a `match` costs lizard ~1 regardless of arm count, so each
+// substantive arm becomes a single tail-call/statement with no `?` left
+// directly in the match; (2) a linear AND-chain of fallible steps has no
+// such shortcut (each step needs its own `?` wherever it lives), so it's
+// split into a small tree of phase functions instead of flattened. Every
+// function below is the ORIGINAL code's logic verbatim, moved and in a few
+// places pre-extracted into a bare helper (e.g. `read_chunk_header`) purely
+// to keep a caller under the cap -- same conditions, same order, same
+// error/None points.
+struct ChunkState {
+    header: Option<(u32, u32, u8, u8)>,
+    palette: Vec<u8>,
+    transparency: Vec<u8>,
+    compressed: Vec<u8>,
+    seen_palette: bool,
+    seen_transparency: bool,
+    seen_idat: bool,
+    idat_closed: bool,
+}
+
+impl ChunkState {
+    fn new() -> Self {
+        Self {
+            header: None,
+            palette: Vec::new(),
+            transparency: Vec::new(),
+            compressed: Vec::new(),
+            seen_palette: false,
+            seen_transparency: false,
+            seen_idat: false,
+            idat_closed: false,
+        }
     }
-    let mut position = 8usize;
-    let mut header = None;
-    let mut palette = Vec::new();
-    let mut transparency = Vec::new();
-    let mut compressed = Vec::new();
-    let mut ended = false;
-    let mut seen_palette = false;
-    let mut seen_transparency = false;
-    let mut seen_idat = false;
-    let mut idat_closed = false;
-    while position.checked_add(12)? <= bytes.len() {
-        let length =
-            u32::from_be_bytes(bytes.get(position..position + 4)?.try_into().ok()?) as usize;
-        let kind: [u8; 4] = bytes.get(position + 4..position + 8)?.try_into().ok()?;
-        let data_start = position + 8;
-        let data_end = data_start.checked_add(length)?;
-        let crc_end = data_end.checked_add(4)?;
-        let data = bytes.get(data_start..data_end)?;
-        let expected_crc = u32::from_be_bytes(bytes.get(data_end..crc_end)?.try_into().ok()?);
-        if !kind.iter().all(u8::is_ascii_alphabetic) || crc32_parts(&kind, data) != expected_crc {
+
+    // Guard conditions pulled into their own named predicates purely to keep
+    // `apply_chunk`'s own CCN down (a match guard's `&&`/`||` chain is
+    // counted against the function holding the match, same as an `if`) --
+    // each predicate is exactly the ORIGINAL inline guard condition, moved
+    // verbatim, not changed.
+    fn ihdr_slot_available(&self, position: usize, length: usize) -> bool {
+        position == 8 && self.header.is_none() && length == 13
+    }
+
+    fn plte_slot_available(&self, length: usize) -> bool {
+        self.header.is_some()
+            && !self.seen_palette
+            && !self.seen_idat
+            && length >= 3
+            && length.is_multiple_of(3)
+            && length <= 768
+    }
+
+    fn trns_slot_available(&self, length: usize) -> bool {
+        self.header.is_some() && !self.seen_transparency && !self.seen_idat && length <= 256
+    }
+
+    fn idat_slot_available(&self, ended: bool) -> bool {
+        self.header.is_some() && !ended && !self.idat_closed
+    }
+
+    /// Applies one already CRC-validated chunk. Returns `Some(true)` when this
+    /// was IEND (the caller must stop walking), `Some(false)` to keep walking,
+    /// `None` on any rule violation (caller must fail the whole decode).
+    fn apply_chunk(
+        &mut self,
+        kind: &[u8; 4],
+        data: &[u8],
+        length: usize,
+        position: usize,
+        ended: bool,
+    ) -> Option<bool> {
+        match kind {
+            b"IHDR" if self.ihdr_slot_available(position, length) => {
+                self.header = Some(parse_ihdr(data)?);
+                Some(false)
+            }
+            b"PLTE" if self.plte_slot_available(length) => {
+                self.seen_palette = true;
+                self.palette.extend_from_slice(data);
+                Some(false)
+            }
+            b"tRNS" if self.trns_slot_available(length) => {
+                self.seen_transparency = true;
+                self.transparency.extend_from_slice(data);
+                Some(false)
+            }
+            b"IDAT" if self.idat_slot_available(ended) => {
+                self.seen_idat = true;
+                self.apply_idat(data)?;
+                Some(false)
+            }
+            b"IEND" if length == 0 => Some(true),
+            b"IHDR" | b"PLTE" | b"tRNS" | b"IDAT" | b"IEND" => None,
+            _ if kind[0].is_ascii_uppercase() => None,
+            _ => {
+                self.close_idat_if_seen();
+                Some(false)
+            }
+        }
+    }
+
+    fn close_idat_if_seen(&mut self) {
+        if self.seen_idat {
+            self.idat_closed = true;
+        }
+    }
+
+    fn apply_idat(&mut self, data: &[u8]) -> Option<()> {
+        let (width, height, _, color_type) = self.header?;
+        let (channels, _) = color_layout(color_type)?;
+        let encoded_limit = compute_idat_limit(width, height, channels)?;
+        if self.compressed.len().checked_add(data.len())? > encoded_limit {
             return None;
         }
-        match &kind {
-            b"IHDR" if position == 8 && header.is_none() && length == 13 => {
-                let width = u32::from_be_bytes(data.get(0..4)?.try_into().ok()?);
-                let height = u32::from_be_bytes(data.get(4..8)?.try_into().ok()?);
-                let bit_depth = *data.get(8)?;
-                let color_type = *data.get(9)?;
-                if width == 0 || height == 0 || bit_depth != 8 || data.get(10..13)? != [0, 0, 0] {
-                    return None;
-                }
-                if usize::try_from(width)
-                    .ok()?
-                    .checked_mul(usize::try_from(height).ok()?)?
-                    > MAX_DECODED_PIXELS
-                {
-                    return None;
-                }
-                color_layout(color_type)?;
-                header = Some((width, height, bit_depth, color_type));
-            }
-            b"PLTE"
-                if header.is_some()
-                    && !seen_palette
-                    && !seen_idat
-                    && length >= 3
-                    && length.is_multiple_of(3)
-                    && length <= 768 =>
-            {
-                seen_palette = true;
-                palette.extend_from_slice(data);
-            }
-            b"tRNS" if header.is_some() && !seen_transparency && !seen_idat && length <= 256 => {
-                seen_transparency = true;
-                transparency.extend_from_slice(data);
-            }
-            b"IDAT" if header.is_some() && !ended && !idat_closed => {
-                seen_idat = true;
-                let (width, height, _, color_type) = header?;
-                let (channels, _) = color_layout(color_type)?;
-                let encoded_limit = usize::try_from(height)
-                    .ok()?
-                    .checked_mul(
-                        usize::try_from(width)
-                            .ok()?
-                            .checked_mul(channels)?
-                            .checked_add(1)?,
-                    )?
-                    .checked_add(MAX_ZLIB_OVERHEAD_BYTES)?;
-                if compressed.len().checked_add(data.len())? > encoded_limit {
-                    return None;
-                }
-                compressed.extend_from_slice(data);
-            }
-            b"IEND" if length == 0 => {
-                ended = true;
-                position = crc_end;
-                break;
-            }
-            b"IHDR" | b"PLTE" | b"tRNS" | b"IDAT" | b"IEND" => return None,
-            _ if kind[0].is_ascii_uppercase() => return None,
-            _ => {
-                if seen_idat {
-                    idat_closed = true;
-                }
-            }
-        }
-        position = crc_end;
+        self.compressed.extend_from_slice(data);
+        Some(())
     }
-    if !ended || position != bytes.len() || compressed.is_empty() {
-        return None;
-    }
-    let (width, height, bit_depth, color_type) = header?;
-    let pixels = usize::try_from(width)
+}
+
+fn compute_idat_limit(width: u32, height: u32, channels: usize) -> Option<usize> {
+    usize::try_from(height)
         .ok()?
-        .checked_mul(usize::try_from(height).ok()?)?;
-    if pixels > MAX_DECODED_PIXELS {
+        .checked_mul(
+            usize::try_from(width)
+                .ok()?
+                .checked_mul(channels)?
+                .checked_add(1)?,
+        )?
+        .checked_add(MAX_ZLIB_OVERHEAD_BYTES)
+}
+
+fn read_chunk_header(bytes: &[u8], position: usize) -> Option<(usize, [u8; 4], usize, usize)> {
+    let length =
+        u32::from_be_bytes(bytes.get(position..position + 4)?.try_into().ok()?) as usize;
+    let kind: [u8; 4] = bytes.get(position + 4..position + 8)?.try_into().ok()?;
+    let data_start = position + 8;
+    let data_end = data_start.checked_add(length)?;
+    let crc_end = data_end.checked_add(4)?;
+    Some((length, kind, data_end, crc_end))
+}
+
+fn read_chunk(bytes: &[u8], position: usize) -> Option<(usize, [u8; 4], &[u8], usize)> {
+    let (length, kind, data_end, crc_end) = read_chunk_header(bytes, position)?;
+    let data = bytes.get(position + 8..data_end)?;
+    let expected_crc = u32::from_be_bytes(bytes.get(data_end..crc_end)?.try_into().ok()?);
+    if !kind.iter().all(u8::is_ascii_alphabetic) || crc32_parts(&kind, data) != expected_crc {
         return None;
     }
+    Some((length, kind, data, crc_end))
+}
+
+fn parse_chunks(bytes: &[u8]) -> Option<(ChunkState, usize, bool)> {
+    let mut position = 8usize;
+    let mut state = ChunkState::new();
+    let mut ended = false;
+    while position.checked_add(12)? <= bytes.len() {
+        let (length, kind, data, crc_end) = read_chunk(bytes, position)?;
+        ended = state.apply_chunk(&kind, data, length, position, ended)?;
+        position = crc_end;
+        if ended {
+            break;
+        }
+    }
+    Some((state, position, ended))
+}
+
+fn parse_ihdr_fields(data: &[u8]) -> Option<(u32, u32, u8, u8)> {
+    let width = u32::from_be_bytes(data.get(0..4)?.try_into().ok()?);
+    let height = u32::from_be_bytes(data.get(4..8)?.try_into().ok()?);
+    let bit_depth = *data.get(8)?;
+    let color_type = *data.get(9)?;
+    Some((width, height, bit_depth, color_type))
+}
+
+fn validate_ihdr_fields(data: &[u8], width: u32, height: u32, bit_depth: u8) -> Option<()> {
+    if width == 0 || height == 0 || bit_depth != 8 || data.get(10..13)? != [0, 0, 0] {
+        return None;
+    }
+    Some(())
+}
+
+fn validate_pixel_budget(width: u32, height: u32) -> Option<()> {
+    if usize::try_from(width)
+        .ok()?
+        .checked_mul(usize::try_from(height).ok()?)?
+        > MAX_DECODED_PIXELS
+    {
+        return None;
+    }
+    Some(())
+}
+
+fn parse_ihdr(data: &[u8]) -> Option<(u32, u32, u8, u8)> {
+    let (width, height, bit_depth, color_type) = parse_ihdr_fields(data)?;
+    validate_ihdr_fields(data, width, height, bit_depth)?;
+    validate_pixel_budget(width, height)?;
+    color_layout(color_type)?;
+    Some((width, height, bit_depth, color_type))
+}
+
+fn validate_stream_complete(ended: bool, position: usize, bytes_len: usize, compressed_empty: bool) -> Option<()> {
+    if !ended || position != bytes_len || compressed_empty {
+        return None;
+    }
+    Some(())
+}
+
+fn validate_color_layout_consistency(
+    color_type: u8,
+    palette: &[u8],
+    transparency: &[u8],
+) -> Option<(usize, ImageColorSpace)> {
     let (channels, color_space) = color_layout(color_type)?;
     if (color_type == 3 && palette.is_empty())
         || (matches!(color_type, 0 | 4) && !palette.is_empty())
@@ -234,24 +347,43 @@ fn decode_png(bytes: &[u8]) -> Option<DecodedImage> {
     {
         return None;
     }
+    Some((channels, color_space))
+}
+
+fn compute_scanline_geometry(width: u32, height: u32, channels: usize) -> Option<(usize, usize)> {
     let row_bytes = usize::try_from(width).ok()?.checked_mul(channels)?;
     let expected = usize::try_from(height)
         .ok()?
         .checked_mul(row_bytes.checked_add(1)?)?;
-    let decoder = ZlibDecoder::new(compressed.as_slice());
+    Some((row_bytes, expected))
+}
+
+fn inflate_scanlines(compressed: &[u8], expected: usize) -> Option<Vec<u8>> {
+    let decoder = ZlibDecoder::new(compressed);
     let mut limited = decoder.take(expected as u64 + 1);
     let mut inflated = Vec::with_capacity(expected);
     limited.read_to_end(&mut inflated).ok()?;
     if inflated.len() != expected || limited.get_ref().total_in() != compressed.len() as u64 {
         return None;
     }
-    let raw = unfilter(
-        &inflated,
-        row_bytes,
-        channels,
-        usize::try_from(height).ok()?,
-    )?;
-    let rgba = to_rgba(&raw, color_type, &palette, &transparency)?;
+    Some(inflated)
+}
+
+fn finish_decode(
+    width: u32,
+    height: u32,
+    bit_depth: u8,
+    color_type: u8,
+    palette: &[u8],
+    transparency: &[u8],
+    compressed: &[u8],
+) -> Option<DecodedImage> {
+    validate_pixel_budget(width, height)?;
+    let (channels, color_space) = validate_color_layout_consistency(color_type, palette, transparency)?;
+    let (row_bytes, expected) = compute_scanline_geometry(width, height, channels)?;
+    let inflated = inflate_scanlines(compressed, expected)?;
+    let raw = unfilter(&inflated, row_bytes, channels, usize::try_from(height).ok()?)?;
+    let rgba = to_rgba(&raw, color_type, palette, transparency)?;
     let buffer = PixelBuffer {
         width,
         height,
@@ -267,6 +399,24 @@ fn decode_png(bytes: &[u8]) -> Option<DecodedImage> {
         },
         perceptual_hash,
     })
+}
+
+fn decode_png(bytes: &[u8]) -> Option<DecodedImage> {
+    if bytes.len() > MAX_SOURCE_BYTES || bytes.get(..8)? != PNG_SIGNATURE {
+        return None;
+    }
+    let (state, position, ended) = parse_chunks(bytes)?;
+    validate_stream_complete(ended, position, bytes.len(), state.compressed.is_empty())?;
+    let (width, height, bit_depth, color_type) = state.header?;
+    finish_decode(
+        width,
+        height,
+        bit_depth,
+        color_type,
+        &state.palette,
+        &state.transparency,
+        &state.compressed,
+    )
 }
 
 fn color_layout(color_type: u8) -> Option<(usize, ImageColorSpace)> {
@@ -493,5 +643,301 @@ mod tests {
         let mut truncated = png_fixture();
         truncated.truncate(truncated.len() - 20);
         assert!(NativeImageRuntime::decode_png(&truncated).is_none());
+    }
+
+    // CXA-EG-03 characterization: `decode_png` (CCN 90, the free fn, not the
+    // `NativeImageRuntime::decode_png` wrapper) pins the chunk-walking state
+    // machine's own branches ahead of decomposing it. These deliberately do
+    // NOT try to re-cover `unfilter`/`to_rgba`/`color_layout`/`paeth` (already
+    // separate, already-passing, out of this lane's partition/CCN target) --
+    // only `decode_png`'s own guards: IHDR ordering/validation, PLTE/tRNS
+    // ordering, IDAT accounting, IEND, unknown-chunk handling, and the
+    // post-loop stream/color-consistency checks.
+
+    fn ihdr_bytes(width: u32, height: u32, bit_depth: u8, color_type: u8) -> Vec<u8> {
+        let mut data = Vec::with_capacity(13);
+        data.extend_from_slice(&width.to_be_bytes());
+        data.extend_from_slice(&height.to_be_bytes());
+        data.extend_from_slice(&[bit_depth, color_type, 0, 0, 0]);
+        data
+    }
+
+    fn assemble(chunks: &[Vec<u8>]) -> Vec<u8> {
+        let mut bytes = PNG_SIGNATURE.to_vec();
+        for c in chunks {
+            bytes.extend_from_slice(c);
+        }
+        bytes
+    }
+
+    fn deflate(raw: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(raw).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// A minimal, otherwise-valid 1x1 RGBA stream's IDAT payload (filter byte 0
+    /// + one RGBA pixel), for tests that only care about chunk-level rules.
+    fn minimal_idat() -> Vec<u8> {
+        deflate(&[0, 10, 20, 30, 255])
+    }
+
+    #[test]
+    fn bad_signature_is_rejected() {
+        let mut bytes = PNG_SIGNATURE.to_vec();
+        bytes[0] = 0;
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn duplicate_ihdr_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn ihdr_not_first_chunk_is_rejected() {
+        // A lowercase-first (ancillary) chunk before IHDR is structurally
+        // allowed through the wildcard arm, but IHDR's own guard requires
+        // `position == 8` -- i.e. IHDR must be the very first chunk.
+        let bytes = assemble(&[
+            chunk(b"gAMA", &[0, 0, 0, 1]),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn zero_width_or_height_is_rejected() {
+        let zero_w = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(0, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&zero_w).is_none());
+        let zero_h = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 0, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&zero_h).is_none());
+    }
+
+    #[test]
+    fn non_eight_bit_depth_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 16, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn unsupported_color_type_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 1)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn nonzero_ihdr_reserved_bytes_are_rejected() {
+        let mut ihdr = ihdr_bytes(1, 1, 8, 6);
+        ihdr[12] = 1; // interlace method reserved byte must be 0
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn oversized_pixel_budget_is_rejected_at_ihdr() {
+        // width*height exceeds MAX_DECODED_PIXELS; rejected during IHDR
+        // parsing itself, before any IDAT is even required.
+        let bytes = assemble(&[chunk(b"IHDR", &ihdr_bytes(100_000, 100_000, 8, 6))]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn duplicate_plte_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"PLTE", &[40, 50, 60]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn plte_length_not_multiple_of_three_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"PLTE", &[10, 20, 30, 40]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn plte_before_ihdr_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn plte_after_idat_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn trns_before_ihdr_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"tRNS", &[1]),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn iend_with_nonzero_length_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[0]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn unknown_critical_chunk_is_rejected() {
+        // Upper-case-first chunk type this parser does not recognize.
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"ZzZz", &[]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn idat_after_ancillary_chunk_closes_further_idat() {
+        // An ancillary (lower-case-first) chunk between two IDAT chunks marks
+        // the IDAT stream closed; a subsequent IDAT chunk must be rejected.
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"tEXt", &[]),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn idat_before_ihdr_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn missing_idat_is_rejected() {
+        let bytes = assemble(&[chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)), chunk(b"IEND", &[])]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn trailing_bytes_after_iend_are_rejected() {
+        let mut bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 6)),
+            chunk(b"IDAT", &minimal_idat()),
+            chunk(b"IEND", &[]),
+        ]);
+        bytes.push(0xff);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn indexed_color_without_palette_is_rejected() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"IDAT", &deflate(&[0, 0])),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn grayscale_with_palette_is_rejected() {
+        // color_type 0 (grayscale) must never carry a PLTE chunk. PLTE's own
+        // guard doesn't check color_type, only chunk ordering, so this is
+        // caught by the post-loop color/palette consistency check.
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 0)),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"IDAT", &deflate(&[0, 128])),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn truecolor_with_transparency_is_rejected() {
+        // color_type 2 (truecolor, no alpha channel) with a tRNS chunk is
+        // rejected by the post-loop consistency check (only indexed color
+        // may pair tRNS with non-empty content here).
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 2)),
+            chunk(b"tRNS", &[1, 2, 3]),
+            chunk(b"IDAT", &deflate(&[0, 10, 20, 30])),
+            chunk(b"IEND", &[]),
+        ]);
+        assert!(NativeImageRuntime::decode_png(&bytes).is_none());
+    }
+
+    #[test]
+    fn indexed_color_with_valid_palette_and_transparency_decodes() {
+        let bytes = assemble(&[
+            chunk(b"IHDR", &ihdr_bytes(1, 1, 8, 3)),
+            chunk(b"PLTE", &[10, 20, 30]),
+            chunk(b"tRNS", &[200]),
+            chunk(b"IDAT", &deflate(&[0, 0])),
+            chunk(b"IEND", &[]),
+        ]);
+        let runtime = NativeImageRuntime::decode_png(&bytes).unwrap();
+        assert_eq!(runtime.decoded().pixels.rgba, vec![10, 20, 30, 200]);
     }
 }
