@@ -1549,30 +1549,92 @@ fn apply_mutation_batch_in_wtx(
     audited: bool,
     crashpoint: Option<MutationBatchCrashpoint>,
 ) -> Result<MutationBatchCommit, String> {
-    // `audited` is only read inside the `#[cfg(feature = "security")]` Snapshot/
-    // RowDelta branches below; this no-op keeps a `security`-disabled build
-    // warning-free without cfg-gating the parameter itself across every call site.
-    let _ = audited;
-    batch.validate()?;
-    // Terminal WorkItem operations own a row-local lease epoch/fencing CAS in
-    // `apply_work_item_rows`. They intentionally do not carry graph-wide OCC:
-    // the graph version advances on the first terminal commit, while a retry must
-    // reconstruct the exact same batch and return its stored result. Keep this
-    // exemption structurally narrow so every other non-lifecycle mutation still
-    // requires an authoritative graph version.
-    //
-    // GOC-19/GOC-20 (BUG-015 "B9"): `CommitWorkItemResult` is the ONE terminal
-    // method allowed to co-commit additional operations in the SAME batch (the
-    // shape -- at most one `CommitWorkItemResult` plus only `AddNode` alongside
-    // it -- is separately enforced, before any row is touched, in
-    // `apply_mutation_batch_in_wtx`). Every other terminal method here keeps the
-    // original strict `operations.len() == 1` requirement; widening THIS
-    // predicate's `len() == 1` to `len() >= 1` unconditionally would have
-    // silently let a graph-wide, non-fenced method ride the no-OCC exemption
-    // behind a `CancelWorkItem`/`DeferWorkItem`/resource-reservation batch, so
-    // the CommitWorkItemResult case is split out and re-validates every
-    // remaining operation itself rather than trusting `len()` alone.
-    let native_terminal_work_item_cas = batch.authoritative_state.is_none()
+    // CX-EG-05 (CCN 353 -> decomposed): this function now only orchestrates the
+    // phases below, each moved into its own named function (see immediately
+    // after this function in the file). Every phase function is a literal,
+    // behaviour-preserving relocation of the original inline code -- no
+    // validation order, error message, or table-open sequence changed.
+    let prepared = match prepare_and_validate_mutation_batch(
+        wtx,
+        graph_fname,
+        batch,
+        change,
+        authoritative_state_msgpack,
+        crossmodal.as_ref(),
+        crossmodal.is_some(),
+        crypto,
+    )? {
+        MutationBatchPrepareOutcome::Replayed(commit) => return Ok(commit),
+        MutationBatchPrepareOutcome::Fresh(plan) => plan,
+    };
+    let MutationBatchPlan {
+        native_terminal_work_item_cas: _native_terminal_work_item_cas,
+        staged_state,
+        integrity_policy_update,
+        lifecycle,
+        current_graph_version,
+        proposed_fence,
+    } = prepared;
+
+    run_mutation_batch_crashpoint(batch, crashpoint, MutationBatchCrashpoint::BeforeRows)?;
+
+    // Audit-tail updates are staged into the caller-owned `staged_audit_tail`
+    // alongside the redb transaction. The caller advances the process cache only
+    // AFTER `wtx.commit()`, so an injected/real failure that drops this transaction
+    // (or a sibling envelope aborting the shared batch transaction) never leaves a
+    // false tail.
+    let generated_result = apply_state_dispatch_rows(
+        wtx,
+        graph_fname,
+        staged_state.as_ref(),
+        batch,
+        committed_at_ms,
+        crypto,
+        #[cfg(feature = "security")]
+        staged_audit_tail,
+        audited,
+        crossmodal.is_some(),
+    )?;
+
+    apply_crossmodal_rows_phase(wtx, graph_fname, crossmodal.as_ref(), crypto)?;
+
+    apply_post_row_cleanup(
+        wtx,
+        graph_fname,
+        batch,
+        lifecycle.as_ref(),
+        authoritative_state_msgpack.is_none(),
+    )?;
+
+    run_mutation_batch_crashpoint(batch, crashpoint, MutationBatchCrashpoint::AfterRowsBeforeMetadata)?;
+
+    let record = write_mutation_batch_commit_rows(
+        wtx,
+        graph_fname,
+        batch,
+        generated_result,
+        result_msgpack,
+        committed_at_ms,
+        current_graph_version,
+        proposed_fence,
+        lifecycle,
+        integrity_policy_update,
+        change,
+        crypto,
+    )?;
+
+    // The transaction boundary (BeforeCommit crashpoint / certification fault /
+    // `wtx.commit()` / audit-tail writeback / AfterCommitBeforeAck) is owned by the
+    // caller so the shared-transaction batch path can commit MANY applied envelopes
+    // with ONE fsync. This function only stages rows into `wtx`.
+    Ok(MutationBatchCommit {
+        record,
+        replayed: false,
+    })
+}
+
+fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bool {
+    batch.authoritative_state.is_none()
         && match batch.operations.first() {
             Some(first)
                 if first.domain == MutationDomain::ControlPlane
@@ -1600,8 +1662,14 @@ fn apply_mutation_batch_in_wtx(
                     )
             }
             None => false,
-        };
-    let staged_state = match (&batch.authoritative_state, authoritative_state_msgpack) {
+        }
+}
+
+fn resolve_mutation_authoritative_state(
+    batch: &MutationBatch,
+    authoritative_state_msgpack: Option<&[u8]>,
+) -> Result<Option<AuthoritativeGraphState>, String> {
+    Ok(match (&batch.authoritative_state, authoritative_state_msgpack) {
         (Some(descriptor), Some(bytes)) => {
             use sha2::{Digest, Sha256};
             let digest = hex::encode(Sha256::digest(bytes));
@@ -1635,13 +1703,17 @@ fn apply_mutation_batch_in_wtx(
         (None, Some(_)) => {
             return Err("authoritative bytes require a MutationBatch state descriptor".to_string())
         }
-    };
+    })
+}
+
     // `None` means this mutation does not change graph control state. `Some(None)`
     // is an explicit policy-free snapshot, while `Some(Some(_))` installs a new
     // validated policy. Keeping the outer option is necessary for exact snapshot
     // replacement without confusing "unchanged" with "absent".
-    let integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>> =
-        match staged_state.as_ref() {
+fn resolve_integrity_policy_update(
+    staged_state: Option<&AuthoritativeGraphState>,
+) -> Option<Option<crate::graph::IntegrityPolicy>> {
+    match staged_state {
             Some(AuthoritativeGraphState::Snapshot(snapshot)) => {
                 Some(snapshot.integrity_policy.clone())
             }
@@ -1649,7 +1721,15 @@ fn apply_mutation_batch_in_wtx(
                 delta.integrity_policy_update().cloned().map(Some)
             }
             None => None,
-        };
+    }
+}
+
+fn validate_mutation_batch_route_and_lowering(
+    batch: &MutationBatch,
+    graph_fname: &str,
+    crossmodal: Option<&CrossModalBatchRows<'_>>,
+    staged_state_is_none: bool,
+) -> Result<(), String> {
     if graph_fname != sanitize(&batch.graph) {
         return Err(format!(
             "mutation batch graph route mismatch: batch '{}' resolved to '{}' not '{}'",
@@ -1665,7 +1745,7 @@ fn apply_mutation_batch_in_wtx(
                 Method::ApplyMutation { event_type, .. }
                     if event_type == "crossmodal_operation"
             );
-        if staged_state.is_none()
+        if staged_state_is_none
             && !supports_atomic_batch_rows(&operation.method)
             && !crossmodal_sentinel
         {
@@ -1675,7 +1755,7 @@ fn apply_mutation_batch_in_wtx(
             ));
         }
     }
-    if let Some(rows) = crossmodal.as_ref() {
+    if let Some(rows) = crossmodal {
         for method in rows.methods {
             if !supports_atomic_batch_rows(method) {
                 return Err(
@@ -1684,6 +1764,12 @@ fn apply_mutation_batch_in_wtx(
             }
         }
     }
+    Ok(())
+}
+
+fn detect_and_validate_lifecycle(
+    batch: &MutationBatch,
+) -> Result<Option<(bool, String, Option<GraphType>)>, String> {
     let lifecycle = batch
         .operations
         .iter()
@@ -1691,38 +1777,45 @@ fn apply_mutation_batch_in_wtx(
             Method::CreateGraph {
                 graph_name,
                 graph_type,
-            } => Some((true, graph_name.as_str(), Some(*graph_type))),
-            Method::DeleteGraph { graph_name } => Some((false, graph_name.as_str(), None)),
+            } => Some((true, graph_name.clone(), Some(*graph_type))),
+            Method::DeleteGraph { graph_name } => Some((false, graph_name.clone(), None)),
             _ => None,
         });
-    if let Some((_, graph_name, _)) = lifecycle {
-        if batch.operations.len() != 1 || graph_name != batch.graph {
+    if let Some((_, ref graph_name, _)) = lifecycle {
+        if batch.operations.len() != 1 || graph_name != &batch.graph {
             return Err(
                 "lifecycle MutationBatch must contain exactly one operation for its target graph"
                     .to_string(),
             );
         }
     }
+    Ok(lifecycle)
+}
 
-    // Read the current version before the idempotency check.  A retrying caller
-    // may have rebuilt the request after the acknowledgement was lost and thus
-    // carry the version it observes NOW rather than the version observed by the
-    // original request.  The durable record below remains the source of truth for
-    // the original OCC observation; this value is only used to recognize that
-    // narrow, same-key replay shape.
-    let current_graph_version = {
+fn read_current_mutation_graph_version(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+) -> Result<u64, String> {
         let versions = wtx
             .open_table(MUTATION_GRAPH_VERSION)
             .map_err(|e| e.to_string())?;
         let found = versions.get(graph_fname).map_err(|e| e.to_string())?;
-        found
+        Ok(found
             .map(|value| value.value())
-            .unwrap_or(INITIAL_GRAPH_VERSION)
-    };
+            .unwrap_or(INITIAL_GRAPH_VERSION))
+}
 
-    // Idempotency is checked INSIDE the same write transaction that will insert
-    // the new key, closing the concurrent double-commit race.
-    {
+#[allow(clippy::too_many_arguments)]
+fn check_idempotency_replay(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: Option<&ChangeEnvelope>,
+    crossmodal_present: bool,
+    current_graph_version: u64,
+    lifecycle: Option<&(bool, String, Option<GraphType>)>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<MutationBatchCommit>, String> {
         let idem = wtx
             .open_table(MUTATION_IDEMPOTENCY)
             .map_err(|e| e.to_string())?;
@@ -1770,7 +1863,7 @@ fn apply_mutation_batch_in_wtx(
             // byte/exact and a same-key different request still conflicts.
             let expected_graph_version_matches = record.batch.expected_graph_version
                 == batch.expected_graph_version
-                || (crossmodal.is_some()
+                || (crossmodal_present
                     && batch.expected_graph_version == Some(current_graph_version));
             let same_identity = record.batch.batch_id == batch.batch_id
                 && record.batch.context == batch.context
@@ -1835,33 +1928,41 @@ fn apply_mutation_batch_in_wtx(
                     ));
                 }
             }
-            return Ok(MutationBatchCommit {
+            return Ok(Some(MutationBatchCommit {
                 record,
                 replayed: true,
-            });
+            }));
         }
-    }
+    Ok(None)
+}
 
-    // `batch_id` is the global status/outbox correlation key on this shard.  A
-    // caller must never be able to pair an already-committed id with a fresh
-    // idempotency key: inserting below would overwrite the record while leaving
-    // the original idempotency row pointing at different work.
-    {
+fn check_batch_id_uniqueness(
+    wtx: &redb::WriteTransaction,
+    batch_id: &str,
+) -> Result<(), String> {
         let records = wtx
             .open_table(MUTATION_BATCHES)
             .map_err(|e| e.to_string())?;
         if records
-            .get(batch.batch_id.as_str())
+            .get(batch_id)
             .map_err(|e| e.to_string())?
             .is_some()
         {
             return Err(format!(
                 "IDEMPOTENCY_CONFLICT: batch_id '{}' is already committed under a different idempotency scope or key",
-                batch.batch_id
+                batch_id
             ));
         }
-    }
+    Ok(())
+}
 
+fn validate_change_envelope_preconditions(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    tenant: &str,
+    change: Option<&ChangeEnvelope>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
     if let Some(change) = change {
         let envelopes = wtx
             .open_table(CHANGE_ENVELOPES)
@@ -1882,7 +1983,7 @@ fn apply_mutation_batch_in_wtx(
             .map_err(|e| e.to_string())?;
         let version_key = (
             graph_fname,
-            batch.tenant.as_str(),
+            tenant,
             change.content_version.object_id.as_str(),
         );
         let current = versions
@@ -1927,7 +2028,7 @@ fn apply_mutation_batch_in_wtx(
             let cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
             let cursor_key = (
                 graph_fname,
-                batch.tenant.as_str(),
+                tenant,
                 cursor.source.as_str(),
                 cursor.partition.as_str(),
             );
@@ -1964,7 +2065,18 @@ fn apply_mutation_batch_in_wtx(
             }
         }
     }
+    Ok(())
+}
 
+fn check_occ_version_and_fence(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    current_graph_version: u64,
+    lifecycle_is_none: bool,
+    native_terminal_work_item_cas: bool,
+    crypto: DurableCrypto<'_>,
+) -> Result<DurableMutationFence, String> {
     if let Some(expected) = batch.expected_graph_version {
         if expected != current_graph_version {
             return Err(format!(
@@ -1972,7 +2084,7 @@ fn apply_mutation_batch_in_wtx(
                 batch.graph, expected, current_graph_version
             ));
         }
-    } else if lifecycle.is_none() && !native_terminal_work_item_cas {
+    } else if lifecycle_is_none && !native_terminal_work_item_cas {
         return Err(
             "authoritative non-lifecycle MutationBatch requires expected_graph_version".to_string(),
         );
@@ -2011,23 +2123,23 @@ fn apply_mutation_batch_in_wtx(
             current_fence.fencing_token,
         ));
     }
+    Ok(proposed_fence)
+}
 
-    if crashpoint == Some(MutationBatchCrashpoint::BeforeRows) {
-        return Err("injected crash before mutation rows".to_string());
-    }
-    crate::mutation_batch::apply_certification_fault(
-        batch,
-        crate::mutation_batch::MutationCommitPhase::BeforeRows,
-    )?;
-
-    // Audit-tail updates are staged into the caller-owned `staged_audit_tail`
-    // alongside the redb transaction. The caller advances the process cache only
-    // AFTER `wtx.commit()`, so an injected/real failure that drops this transaction
-    // (or a sibling envelope aborting the shared batch transaction) never leaves a
-    // false tail.
-    let mut generated_result: Option<Vec<u8>> = None;
-
-    if let Some(AuthoritativeGraphState::Snapshot(snapshot)) = staged_state.as_ref() {
+#[allow(clippy::too_many_arguments)]
+fn apply_snapshot_state(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    snapshot: &crate::graph::GraphSnapshot,
+    batch: &MutationBatch,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
+    audited: bool,
+) -> Result<(), String> {
+    // Non-`security` builds never read `audited` (it is only consulted inside
+    // the `#[cfg(feature = "security")]` block below); this keeps such a build
+    // warning-free without cfg-gating the parameter itself.
+    let _ = audited;
         let incoming_nodes = snapshot
             .nodes
             .iter()
@@ -2087,7 +2199,20 @@ fn apply_mutation_batch_in_wtx(
                 )?;
             }
         }
-    } else if let Some(AuthoritativeGraphState::RowDelta(delta)) = staged_state.as_ref() {
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_row_delta_state(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    delta: &crate::graph_delta::GraphRowDelta,
+    batch: &MutationBatch,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
+    audited: bool,
+) -> Result<(), String> {
+    let _ = audited;
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
         let native_work_items = wtx
             .open_table(work_item_capability::NATIVE_WORK_ITEMS)
@@ -2160,7 +2285,22 @@ fn apply_mutation_batch_in_wtx(
                 )?;
             }
         }
-    } else {
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_native_operations(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
+    audited: bool,
+    generated_result: &mut Option<Vec<u8>>,
+    crossmodal_present: bool,
+) -> Result<(), String> {
+    let _ = audited;
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
         let mut native_work_items = wtx
             .open_table(work_item_capability::NATIVE_WORK_ITEMS)
@@ -2346,7 +2486,7 @@ fn apply_mutation_batch_in_wtx(
                         );
                     }
                     let payload = crate::protocol::ResultPayload::raw(&result);
-                    generated_result =
+                    *generated_result =
                         Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
                 }
                 Method::SubmitWorkItems { request } => {
@@ -2369,7 +2509,7 @@ fn apply_mutation_batch_in_wtx(
                         );
                     }
                     let payload = crate::protocol::ResultPayload::raw(&result);
-                    generated_result =
+                    *generated_result =
                         Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
                 }
                 method @ (Method::ClaimWorkItem { .. }
@@ -2396,7 +2536,7 @@ fn apply_mutation_batch_in_wtx(
                                 .to_string(),
                         );
                     }
-                    generated_result =
+                    *generated_result =
                         Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
                 }
                 // GOC-19/GOC-20 (BUG-015 "B9"): split out from the shared arm
@@ -2426,7 +2566,7 @@ fn apply_mutation_batch_in_wtx(
                                 .to_string(),
                         );
                     }
-                    generated_result =
+                    *generated_result =
                         Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
                 }
                 method @ (Method::ReserveWorkItemResources { .. }
@@ -2457,11 +2597,11 @@ fn apply_mutation_batch_in_wtx(
                                 .to_string(),
                         );
                     }
-                    generated_result =
+                    *generated_result =
                         Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
                 }
                 Method::ApplyMutation { event_type, .. }
-                    if crossmodal.is_some() && event_type == "crossmodal_operation" => {}
+                    if crossmodal_present && event_type == "crossmodal_operation" => {}
                 method => apply_method_rows(
                     graph_fname,
                     method,
@@ -2499,8 +2639,215 @@ fn apply_mutation_batch_in_wtx(
         #[cfg(feature = "security")]
         drop(audit);
         development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
+    Ok(())
+}
+
+/// The compact graph/control path can replace or remove a linked WorkItem
+/// just as a snapshot/row-delta can (`clears_semantic`); a lifecycle DeleteGraph
+/// additionally purges the PRIOR incarnation's mutation-authority rows before
+/// this delete writes its own fresh tombstone record.
+fn apply_post_row_cleanup(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    lifecycle: Option<&(bool, String, Option<GraphType>)>,
+    authoritative_state_msgpack_is_none: bool,
+) -> Result<(), String> {
+    let clears_semantic = authoritative_state_msgpack_is_none
+        && (matches!(lifecycle, Some((false, _, _)))
+            || batch
+                .operations
+                .iter()
+                .any(|operation| matches!(&operation.method, Method::ClearGraph)));
+    if clears_semantic {
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+        semantic.remove(graph_fname).map_err(|e| e.to_string())?;
     }
-    if let Some(rows) = crossmodal.as_ref() {
+    if matches!(lifecycle, Some((false, _, _))) {
+        clear_change_material_rows(wtx, graph_fname)?;
+        // D-P0-U04: drop the PRIOR incarnation's mutation-authority rows
+        // (idempotency keys, outbox/delivery, projection cursors, fence,
+        // lifecycle head, graph version) before this delete writes its own
+        // fresh tombstone record below -- otherwise a same-name recreate can
+        // collide with or attempt to decrypt an old-incarnation mutation
+        // record after key loss/rotation.
+        clear_mutation_authority_rows(wtx, graph_fname)?;
+    }
+    Ok(())
+}
+
+/// Bundled result of `prepare_and_validate_mutation_batch`'s non-replay path
+/// (CX-EG-05 decomposition of the former single 353-CCN `apply_mutation_batch_in_wtx`).
+struct MutationBatchPlan {
+    native_terminal_work_item_cas: bool,
+    staged_state: Option<AuthoritativeGraphState>,
+    integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>>,
+    lifecycle: Option<(bool, String, Option<GraphType>)>,
+    current_graph_version: u64,
+    proposed_fence: DurableMutationFence,
+}
+
+enum MutationBatchPrepareOutcome {
+    /// An exact request-identity hit: `record` was read, not written, and the
+    /// caller must return it directly without touching any row.
+    Replayed(MutationBatchCommit),
+    Fresh(MutationBatchPlan),
+}
+
+/// Every validation/idempotency/OCC/fence check that must pass BEFORE a single
+/// row is touched, bundled into one call so the top-level orchestrator pays
+/// only one `?` for the whole prelude instead of one per sub-check.
+#[allow(clippy::too_many_arguments)]
+fn prepare_and_validate_mutation_batch(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: Option<&ChangeEnvelope>,
+    authoritative_state_msgpack: Option<&[u8]>,
+    crossmodal: Option<&CrossModalBatchRows<'_>>,
+    crossmodal_present: bool,
+    crypto: DurableCrypto<'_>,
+) -> Result<MutationBatchPrepareOutcome, String> {
+    batch.validate()?;
+    let native_terminal_work_item_cas = compute_native_terminal_work_item_cas(batch);
+    let staged_state = resolve_mutation_authoritative_state(batch, authoritative_state_msgpack)?;
+    let integrity_policy_update = resolve_integrity_policy_update(staged_state.as_ref());
+    validate_mutation_batch_route_and_lowering(
+        batch,
+        graph_fname,
+        crossmodal,
+        staged_state.is_none(),
+    )?;
+    let lifecycle = detect_and_validate_lifecycle(batch)?;
+    let current_graph_version = read_current_mutation_graph_version(wtx, graph_fname)?;
+    if let Some(commit) = check_idempotency_replay(
+        wtx,
+        graph_fname,
+        batch,
+        change,
+        crossmodal_present,
+        current_graph_version,
+        lifecycle.as_ref(),
+        crypto,
+    )? {
+        return Ok(MutationBatchPrepareOutcome::Replayed(commit));
+    }
+    check_batch_id_uniqueness(wtx, batch.batch_id.as_str())?;
+    validate_change_envelope_preconditions(wtx, graph_fname, batch.tenant.as_str(), change, crypto)?;
+    let proposed_fence = check_occ_version_and_fence(
+        wtx,
+        graph_fname,
+        batch,
+        current_graph_version,
+        lifecycle.is_none(),
+        native_terminal_work_item_cas,
+        crypto,
+    )?;
+    Ok(MutationBatchPrepareOutcome::Fresh(MutationBatchPlan {
+        native_terminal_work_item_cas,
+        staged_state,
+        integrity_policy_update,
+        lifecycle,
+        current_graph_version,
+        proposed_fence,
+    }))
+}
+
+/// A single injected-crashpoint check + the matching certification-fault hook,
+/// for the two crashpoints `apply_mutation_batch_in_wtx` itself observes
+/// (`BeforeCommit`/`AfterCommitBeforeAck` are the CALLER's, not this
+/// function's -- see `commit_mutation_batch_inner`).
+fn run_mutation_batch_crashpoint(
+    batch: &MutationBatch,
+    crashpoint: Option<MutationBatchCrashpoint>,
+    at: MutationBatchCrashpoint,
+) -> Result<(), String> {
+    if crashpoint == Some(at) {
+        let message = match at {
+            MutationBatchCrashpoint::BeforeRows => "injected crash before mutation rows",
+            MutationBatchCrashpoint::AfterRowsBeforeMetadata => "injected crash after mutation rows",
+            _ => "injected crash",
+        };
+        return Err(message.to_string());
+    }
+    let phase = match at {
+        MutationBatchCrashpoint::BeforeRows => crate::mutation_batch::MutationCommitPhase::BeforeRows,
+        MutationBatchCrashpoint::AfterRowsBeforeMetadata => {
+            crate::mutation_batch::MutationCommitPhase::AfterRowsBeforeMetadata
+        }
+        _ => return Ok(()),
+    };
+    crate::mutation_batch::apply_certification_fault(batch, phase)
+}
+
+/// Dispatch to whichever of the three row-application shapes this batch uses
+/// (authoritative Snapshot / authoritative RowDelta / native per-Method rows),
+/// returning the native path's `generated_result` (`None` for the other two
+/// shapes, exactly as the pre-decomposition code left `generated_result`
+/// untouched outside the native/`else` branch).
+#[allow(clippy::too_many_arguments)]
+fn apply_state_dispatch_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    staged_state: Option<&AuthoritativeGraphState>,
+    batch: &MutationBatch,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
+    audited: bool,
+    crossmodal_present: bool,
+) -> Result<Option<Vec<u8>>, String> {
+    let mut generated_result: Option<Vec<u8>> = None;
+    match staged_state {
+        Some(AuthoritativeGraphState::Snapshot(snapshot)) => {
+            apply_snapshot_state(
+                wtx,
+                graph_fname,
+                snapshot,
+                batch,
+                crypto,
+                #[cfg(feature = "security")]
+                staged_audit_tail,
+                audited,
+            )?;
+        }
+        Some(AuthoritativeGraphState::RowDelta(delta)) => {
+            apply_row_delta_state(
+                wtx,
+                graph_fname,
+                delta,
+                batch,
+                crypto,
+                #[cfg(feature = "security")]
+                staged_audit_tail,
+                audited,
+            )?;
+        }
+        None => {
+            apply_native_operations(
+                wtx,
+                graph_fname,
+                batch,
+                committed_at_ms,
+                crypto,
+                #[cfg(feature = "security")]
+                staged_audit_tail,
+                audited,
+                &mut generated_result,
+                crossmodal_present,
+            )?;
+        }
+    }
+    Ok(generated_result)
+}
+
+fn apply_crossmodal_rows_phase(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    crossmodal: Option<&CrossModalBatchRows<'_>>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if let Some(rows) = crossmodal {
         if !rows.methods.is_empty() {
             let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
             let mut native_work_items = wtx
@@ -2600,35 +2947,24 @@ fn apply_mutation_batch_in_wtx(
         // image, not only the pre-projection graph rows, is what can commit.
         development_lane::validate_current_lane_links_in_wtx(wtx, graph_fname, crypto)?;
     }
-    let clears_semantic = authoritative_state_msgpack.is_none()
-        && (matches!(lifecycle, Some((false, _, _)))
-            || batch
-                .operations
-                .iter()
-                .any(|operation| matches!(&operation.method, Method::ClearGraph)));
-    if clears_semantic {
-        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-        semantic.remove(graph_fname).map_err(|e| e.to_string())?;
-    }
-    if matches!(lifecycle, Some((false, _, _))) {
-        clear_change_material_rows(wtx, graph_fname)?;
-        // D-P0-U04: drop the PRIOR incarnation's mutation-authority rows
-        // (idempotency keys, outbox/delivery, projection cursors, fence,
-        // lifecycle head, graph version) before this delete writes its own
-        // fresh tombstone record below -- otherwise a same-name recreate can
-        // collide with or attempt to decrypt an old-incarnation mutation
-        // record after key loss/rotation.
-        clear_mutation_authority_rows(wtx, graph_fname)?;
-    }
+    Ok(())
+}
 
-    if crashpoint == Some(MutationBatchCrashpoint::AfterRowsBeforeMetadata) {
-        return Err("injected crash after mutation rows".to_string());
-    }
-    crate::mutation_batch::apply_certification_fault(
-        batch,
-        crate::mutation_batch::MutationCommitPhase::AfterRowsBeforeMetadata,
-    )?;
-
+#[allow(clippy::too_many_arguments)]
+fn write_mutation_batch_commit_rows(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    generated_result: Option<Vec<u8>>,
+    result_msgpack: Option<&[u8]>,
+    committed_at_ms: u64,
+    current_graph_version: u64,
+    proposed_fence: DurableMutationFence,
+    lifecycle: Option<(bool, String, Option<GraphType>)>,
+    integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>>,
+    change: Option<&ChangeEnvelope>,
+    crypto: DurableCrypto<'_>,
+) -> Result<MutationBatchRecord, String> {
     let record = MutationBatchRecord {
         batch: batch.clone(),
         status: MutationBatchStatus::Committed,
@@ -2937,7 +3273,7 @@ fn apply_mutation_batch_in_wtx(
         match lifecycle {
             Some((true, graph_name, Some(graph_type))) => {
                 let encoded = encode_meta_record(
-                    graph_name,
+                    &graph_name,
                     graph_type,
                     &batch.batch_id,
                     integrity_policy_update.as_ref().and_then(Option::as_ref),
@@ -2978,16 +3314,9 @@ fn apply_mutation_batch_in_wtx(
             }
         }
     }
-
-    // The transaction boundary (BeforeCommit crashpoint / certification fault /
-    // `wtx.commit()` / audit-tail writeback / AfterCommitBeforeAck) is owned by the
-    // caller so the shared-transaction batch path can commit MANY applied envelopes
-    // with ONE fsync. This function only stages rows into `wtx`.
-    Ok(MutationBatchCommit {
-        record,
-        replayed: false,
-    })
+    Ok(record)
 }
+
 
 /// Methods whose complete authoritative effect is represented by the NODES/EDGES/
 /// LEDGER row transaction below.  Anything else must first be lowered by its
@@ -4465,8 +4794,44 @@ fn apply_resource_reservation_rows(
     disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    // CX-EG-05 (CCN 186 -> decomposed): the two match arms below are each a
+    // literal, behaviour-preserving relocation of the original arm body into
+    // its own named function (see immediately after this function).
     match method {
         Method::UpdateResourceHost { request } => {
+            apply_update_resource_host_rows(request, graph, hosts, disk_policies, crypto)
+        }
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => {
+            apply_resource_reservation_lifecycle_rows(
+                graph,
+                method,
+                request,
+                nodes,
+                reservations,
+                tenant_index,
+                attempts,
+                hosts,
+                exclusivity,
+                fairness,
+                concurrency,
+                anti_affinity,
+                disk_policies,
+                crypto,
+            )
+        }
+        _ => Ok(None),
+    }
+}
+
+fn apply_update_resource_host_rows(
+    request: &ResourceHostUpdateRequest,
+    graph: &str,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
             resource_text(&request.tenant_ref, "resource host tenant_ref")?;
             resource_text(&request.host_ref, "resource host_ref")?;
             resource_labels(&request.labels, "resource host labels")?;
@@ -4598,10 +4963,25 @@ fn apply_resource_reservation_rows(
                 true,
                 ResourceHostUpdateResultReason::Accepted,
             )?))
-        }
-        Method::ReserveWorkItemResources { request }
-        | Method::ReleaseWorkItemResources { request }
-        | Method::ReclaimWorkItemResources { request } => {
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_resource_reservation_lifecycle_rows(
+    graph: &str,
+    method: &Method,
+    request: &ResourceReservationRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    attempts: &mut redb::Table<(&str, &str, u64), &str>,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    exclusivity: &mut redb::Table<(&str, &str), &str>,
+    fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    concurrency: &mut redb::Table<(&str, &str), u64>,
+    anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
             resource_validate_request(request)?;
             if request.expires_at_ms <= request.reserved_at_ms
                 || request.expires_at_ms.saturating_sub(request.reserved_at_ms)
@@ -5344,10 +5724,8 @@ fn apply_resource_reservation_rows(
                 debt,
                 vec![request.work_item_id.clone()],
             )))
-        }
-        _ => Ok(None),
-    }
 }
+
 
 fn resource_request_from_record(
     record: &ResourceReservationRecord,

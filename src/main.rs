@@ -690,11 +690,6 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-    // Capture the persist dir for the observability ingest state before `args` is
-    // moved into ServerState below (the obs listener owns its own substrate under it).
-    #[cfg(feature = "obs")]
-    let obs_persist_dir = args.persist_dir.clone();
-
     // RLS is unconditionally default-deny. Every served request carries a verified
     // tenant context and resolves through provisioned durable identity/RBAC policy
     // before any row is exposed. `run_inner` exists only under `security` (see
@@ -811,13 +806,167 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "raft")]
     state.write().await.install_local_placement_authority();
 
+
+    spawn_optional_service_listeners(
+        &state,
+        args.metrics_addr.as_deref(),
+        args.sparql_addr.as_deref(),
+        args.policy_export_addr.as_deref(),
+        args.federated_addr.as_deref(),
+        args.graphql_max_connections,
+        args.graphql_max_session_secs,
+        args.obs_addr.as_deref(),
+        args.viz_interactive_addr.as_deref(),
+        args.iceberg_addr.as_deref(),
+        args.graphql_addr.as_deref(),
+    )
+    .await?;
+
+    spawn_reasoning_cascade_and_ann_sweep(
+        &state,
+        args.decay_interval,
+        args.decay_half_life,
+        args.decay_floor,
+    )
+    .await;
+
+    spawn_memory_and_lifecycle_sweeps(&state, host_capacity, txn_ttl_secs).await;
+
+    start_raft_and_matview_reload(&state).await?;
+
+    // ── Graceful shutdown coordination (reference-counted) ────────────────
+    // ONE coordinator shared by every accept loop, the SIGTERM/SIGINT handler,
+    // and the optional idle watcher. When its signal fires, the accept loop(s)
+    // BREAK and the main listener returns, so we fall through to the persistence
+    // flush below. An acknowledged write is already committed; shutdown only
+    // drains the writer's bounded in-flight tail.
+    let shutdown = server::ShutdownCoordinator::new();
+
+    // SIGTERM (a supervisor / `kill` / agent-utilities stopping the daemon) and
+    // SIGINT (Ctrl-C) both fire the same graceful signal. On non-unix only Ctrl-C
+    // is available.
+    {
+        let sig_coord = shutdown.clone();
+        tokio::spawn(async move {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut term = match signal(SignalKind::terminate()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("failed to install SIGTERM handler: {e}");
+                        return;
+                    }
+                };
+                let mut int = match signal(SignalKind::interrupt()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("failed to install SIGINT handler: {e}");
+                        return;
+                    }
+                };
+                tokio::select! {
+                    _ = term.recv() => info!("Received SIGTERM — graceful shutdown"),
+                    _ = int.recv()  => info!("Received SIGINT — graceful shutdown"),
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    info!("Received Ctrl-C — graceful shutdown");
+                }
+            }
+            sig_coord.trigger();
+        });
+    }
+
+    // Optional reference-counted idle shutdown (CONCEPT:EG-KG.backend.tiny-shared). Only spawned
+    // when --idle-shutdown-secs N (N>0); absent/0 ⇒ no watcher ⇒ the engine is
+    // long-living/persistent and never self-terminates on idle.
+    if args.idle_shutdown_secs > 0 {
+        info!(
+            "Idle shutdown ARMED: will self-terminate after {}s with zero active connections",
+            args.idle_shutdown_secs
+        );
+        let idle_coord = shutdown.clone();
+        let secs = args.idle_shutdown_secs;
+        tokio::spawn(async move {
+            server::run_idle_watcher(idle_coord, secs).await;
+        });
+    } else {
+        info!("Idle shutdown disabled (persistent mode): engine stays up while idle");
+    }
+
+    // ── Transport ───────────────────────────────────────────────────────
+    // UDS is the primary transport on unix; Windows has no Unix Domain Sockets,
+    // so TCP is the main (and only) transport there.
+    #[cfg(unix)]
+    {
+        // TCP listener (secondary) if configured.
+        if let Some(ref tcp_addr) = args.tcp_addr {
+            let tcp_state = state.clone();
+            let tcp_shutdown = shutdown.clone();
+            let addr = tcp_addr.clone();
+            let tls = tcp_tls.clone();
+            tokio::spawn(async move {
+                if let Err(e) = server::serve_tcp(&addr, tcp_state, tcp_shutdown, tls).await {
+                    tracing::error!("TCP server error ({:?})", e.kind());
+                }
+            });
+        }
+
+        // UDS listener (main loop). Returns when the shutdown signal fires.
+        server::serve_uds(&socket_path, socket_mode, state.clone(), shutdown.clone()).await?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        // Non-unix (Windows): Tokio has no UnixListener, so AF_UNIX is unavailable.
+        // TCP loopback is the per-platform DEFAULT transport here — an explicit
+        // --tcp-addr wins; otherwise the loopback-only platform default is used.
+        // `socket_path`/`socket_mode` are still resolved+validated (above) for
+        // config/lock parity & logging.
+        let _ = &socket_path;
+        let _ = socket_mode;
+        let addr = args
+            .tcp_addr
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1:8765".to_string());
+        info!("AF_UNIX unavailable; using the configured native TCP transport");
+        server::serve_tcp(&addr, state.clone(), shutdown.clone(), tcp_tls).await?;
+    }
+
+    // Graceful shutdown: the accept loop has exited, so flush any bounded writer
+    // work that had not yet crossed its acknowledgement barrier.
+    info!("Accept loop stopped — flushing durable state");
+    if let Some(p) = &persistence_shutdown {
+        p.shutdown();
+    }
+    info!("Shutdown complete");
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn spawn_optional_service_listeners(
+    state: &Arc<tokio::sync::RwLock<ServerState>>,
+    metrics_addr_arg: Option<&str>,
+    sparql_addr_arg: Option<&str>,
+    policy_export_addr_arg: Option<&str>,
+    federated_addr_arg: Option<&str>,
+    graphql_max_connections: usize,
+    graphql_max_session_secs: u64,
+    obs_addr_arg: Option<&str>,
+    viz_interactive_addr_arg: Option<&str>,
+    iceberg_addr_arg: Option<&str>,
+    graphql_addr_arg: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // ── Prometheus metrics endpoint (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
     // Opt-in + deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): bound only when
     // --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is set. A bare enable token
     // (`1`/`on`/…) binds the safe localhost default `127.0.0.1:9101`; a bare port
     // binds loopback:port. A non-loopback address additionally requires the
     // protected-ingress two-key policy.
-    let metrics_addr = resolve_listener_addr(args.metrics_addr.as_deref(), "127.0.0.1:9101");
+    let metrics_addr = resolve_listener_addr(metrics_addr_arg, "127.0.0.1:9101");
     if let Some(ref metrics_addr) = metrics_addr {
         #[cfg(feature = "metrics")]
         {
@@ -844,7 +993,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe
     // localhost default `127.0.0.1:7878`; a bare port binds loopback:port. A
     // non-loopback address additionally requires the protected-ingress policy.
-    let sparql_addr = resolve_listener_addr(args.sparql_addr.as_deref(), "127.0.0.1:7878");
+    let sparql_addr = resolve_listener_addr(sparql_addr_arg, "127.0.0.1:7878");
     #[cfg(feature = "sparql-http")]
     if let Some(ref sparql_addr) = sparql_addr {
         let listener = tokio::net::TcpListener::bind(sparql_addr).await?;
@@ -867,7 +1016,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // starts only when built `--features policy_export` AND
     // --policy-export-addr / EPISTEMIC_GRAPH_POLICY_EXPORT_ADDR is set.
     let policy_export_addr =
-        resolve_listener_addr(args.policy_export_addr.as_deref(), "127.0.0.1:7879");
+        resolve_listener_addr(policy_export_addr_arg, "127.0.0.1:7879");
     #[cfg(feature = "policy_export")]
     if let Some(ref policy_export_addr) = policy_export_addr {
         let listener = tokio::net::TcpListener::bind(policy_export_addr).await?;
@@ -915,7 +1064,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // peers in EPISTEMIC_GRAPH_FEDERATION_PEERS AND the local store, then merges the
     // partials. Deploy-configurable (EG-022): a bare enable token binds the safe localhost
     // default `127.0.0.1:7900`.
-    let federated_addr = resolve_listener_addr(args.federated_addr.as_deref(), "127.0.0.1:7900");
+    let federated_addr = resolve_listener_addr(federated_addr_arg, "127.0.0.1:7900");
     #[cfg(feature = "federation-search")]
     if let Some(ref federated_addr) = federated_addr {
         let listener = tokio::net::TcpListener::bind(federated_addr).await?;
@@ -942,9 +1091,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // does not terminate TLS; a same-host TLS reverse proxy is the sole remote exposure
     // path. Every accepted request carries an eg2 envelope signed over the exact graph,
     // request id, and subscription document, then passes graph ACL + RLS on every frame.
-    let graphql_requested = args
-        .graphql_addr
-        .as_deref()
+    let graphql_requested = graphql_addr_arg
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let graphql_explicitly_disabled = graphql_requested.is_some_and(|value| {
@@ -964,8 +1111,8 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "graphql")]
     if let Some(ref graphql_addr) = graphql_addr {
         let graphql_config = epistemic_graph::server::graphql_sub::GraphQlSubscriptionConfig::new(
-            args.graphql_max_connections,
-            args.graphql_max_session_secs,
+            graphql_max_connections,
+            graphql_max_session_secs,
         )
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
         let listener = tokio::net::TcpListener::bind(graphql_addr).await?;
@@ -998,7 +1145,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // segments into the blob CAS. Self-contained (its own ObsState under the persist
     // dir). Deploy-configurable (EG-022): a bare enable token binds the safe localhost
     // default `127.0.0.1:5080` (O2's log-ingest port); a bare port binds loopback:port.
-    let obs_addr = resolve_listener_addr(args.obs_addr.as_deref(), "127.0.0.1:5080");
+    let obs_addr = resolve_listener_addr(obs_addr_arg, "127.0.0.1:5080");
     #[cfg(feature = "obs")]
     if let Some(ref obs_addr) = obs_addr {
         use epistemic_graph::server::obs::{
@@ -1009,7 +1156,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|v| v.parse().ok())
             .filter(|&n| n > 0)
             .unwrap_or(DEFAULT_FLUSH_RECORDS);
-        match ObsState::open(obs_persist_dir.as_deref(), flush) {
+        match ObsState::open(state.read().await.persist_dir.clone().as_deref(), flush) {
             Ok(obs_state) => {
                 let listener = tokio::net::TcpListener::bind(obs_addr).await?;
                 info!(
@@ -1095,7 +1242,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // and this HTTP path always share the SAME persistent ColumnStore/render
     // cache/provenance -- never two independent engines silently diverging.
     let viz_interactive_addr =
-        resolve_listener_addr(args.viz_interactive_addr.as_deref(), "127.0.0.1:5090");
+        resolve_listener_addr(viz_interactive_addr_arg, "127.0.0.1:5090");
     #[cfg(feature = "viz-interactive")]
     if let Some(ref viz_interactive_addr) = viz_interactive_addr {
         let viz_persist_dir = state.read().await.persist_dir.clone();
@@ -1141,7 +1288,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // catalog surface (config/namespaces/tables/load-table/commit-table) over the
     // tables the `lake` materialization tier writes. Deploy-configurable (EG-022): a
     // bare enable token binds the safe localhost default `127.0.0.1:8181`.
-    let iceberg_addr = resolve_listener_addr(args.iceberg_addr.as_deref(), "127.0.0.1:8181");
+    let iceberg_addr = resolve_listener_addr(iceberg_addr_arg, "127.0.0.1:8181");
     #[cfg(feature = "lake-rest")]
     if let Some(ref iceberg_addr) = iceberg_addr {
         // `lake-rest` implies `lake` implies `blob`, so the CAS is always configured
@@ -1656,6 +1803,15 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     }
     #[cfg(feature = "epistemic-tms")]
     epistemic_graph::server::reasoning_projection::spawn(state.clone());
+    Ok(())
+}
+
+async fn spawn_reasoning_cascade_and_ann_sweep(
+    state: &Arc<tokio::sync::RwLock<ServerState>>,
+    decay_interval: u64,
+    decay_half_life: f64,
+    decay_floor: f64,
+) {
     // ── Reasoning auto-cascade (W3.6/E16, opt-in) ─────────────────────────────────
     // CDC-triggered, debounced OWL/RL closure re-materialization, ONE graph at a
     // time, ONLY for graphs named in `REASON_ON_WRITE` (config-contract style,
@@ -1836,12 +1992,12 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // Periodic Ebbinghaus decay sweep (CONCEPT:EG-KG.compute.graph-compute-engine) — opt-in. Confidence on
     // every node/edge decays toward 0 with a configurable half-life; with a
     // non-zero floor, forgotten facts are pruned. Off by default (interval 0).
-    if args.decay_interval > 0 {
+    if decay_interval > 0 {
         let dk_state = state.clone();
-        let interval = args.decay_interval;
-        let half_life = args.decay_half_life;
-        let floor = args.decay_floor;
-        let prune = args.decay_floor > 0.0;
+        let interval = decay_interval;
+        let half_life = decay_half_life;
+        let floor = decay_floor;
+        let prune = decay_floor > 0.0;
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
             ticker.tick().await; // consume the immediate first tick
@@ -1865,6 +2021,13 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+}
+
+async fn spawn_memory_and_lifecycle_sweeps(
+    state: &Arc<tokio::sync::RwLock<ServerState>>,
+    host_capacity: epistemic_graph::autosize::Capacity,
+    txn_ttl_secs: u64,
+) {
     // ── Per-graph memory cap (CONCEPT:EG-KG.storage.nonblocking-checkpoint) — degrade, don't OOM ─────────
     // The engine keeps a bounded resident projection over the durable backend, so a graph that
     // exceeds EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is evicted (LRU) back down to it
@@ -2159,6 +2322,11 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+}
+
+async fn start_raft_and_matview_reload(
+    state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // ── In-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical) — cluster tier ──────
     // Only when built `--features raft` AND configured (EPISTEMIC_GRAPH_RAFT_NODE_ID
     // + EPISTEMIC_GRAPH_RAFT_PEERS). When the feature is off, OR on but unconfigured,
@@ -2249,117 +2417,9 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => tracing::warn!("materialized-view reload skipped: {e}"),
     }
 
-    // ── Graceful shutdown coordination (reference-counted) ────────────────
-    // ONE coordinator shared by every accept loop, the SIGTERM/SIGINT handler,
-    // and the optional idle watcher. When its signal fires, the accept loop(s)
-    // BREAK and the main listener returns, so we fall through to the persistence
-    // flush below. An acknowledged write is already committed; shutdown only
-    // drains the writer's bounded in-flight tail.
-    let shutdown = server::ShutdownCoordinator::new();
-
-    // SIGTERM (a supervisor / `kill` / agent-utilities stopping the daemon) and
-    // SIGINT (Ctrl-C) both fire the same graceful signal. On non-unix only Ctrl-C
-    // is available.
-    {
-        let sig_coord = shutdown.clone();
-        tokio::spawn(async move {
-            #[cfg(unix)]
-            {
-                use tokio::signal::unix::{signal, SignalKind};
-                let mut term = match signal(SignalKind::terminate()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::error!("failed to install SIGTERM handler: {e}");
-                        return;
-                    }
-                };
-                let mut int = match signal(SignalKind::interrupt()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::error!("failed to install SIGINT handler: {e}");
-                        return;
-                    }
-                };
-                tokio::select! {
-                    _ = term.recv() => info!("Received SIGTERM — graceful shutdown"),
-                    _ = int.recv()  => info!("Received SIGINT — graceful shutdown"),
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                if tokio::signal::ctrl_c().await.is_ok() {
-                    info!("Received Ctrl-C — graceful shutdown");
-                }
-            }
-            sig_coord.trigger();
-        });
-    }
-
-    // Optional reference-counted idle shutdown (CONCEPT:EG-KG.backend.tiny-shared). Only spawned
-    // when --idle-shutdown-secs N (N>0); absent/0 ⇒ no watcher ⇒ the engine is
-    // long-living/persistent and never self-terminates on idle.
-    if args.idle_shutdown_secs > 0 {
-        info!(
-            "Idle shutdown ARMED: will self-terminate after {}s with zero active connections",
-            args.idle_shutdown_secs
-        );
-        let idle_coord = shutdown.clone();
-        let secs = args.idle_shutdown_secs;
-        tokio::spawn(async move {
-            server::run_idle_watcher(idle_coord, secs).await;
-        });
-    } else {
-        info!("Idle shutdown disabled (persistent mode): engine stays up while idle");
-    }
-
-    // ── Transport ───────────────────────────────────────────────────────
-    // UDS is the primary transport on unix; Windows has no Unix Domain Sockets,
-    // so TCP is the main (and only) transport there.
-    #[cfg(unix)]
-    {
-        // TCP listener (secondary) if configured.
-        if let Some(ref tcp_addr) = args.tcp_addr {
-            let tcp_state = state.clone();
-            let tcp_shutdown = shutdown.clone();
-            let addr = tcp_addr.clone();
-            let tls = tcp_tls.clone();
-            tokio::spawn(async move {
-                if let Err(e) = server::serve_tcp(&addr, tcp_state, tcp_shutdown, tls).await {
-                    tracing::error!("TCP server error ({:?})", e.kind());
-                }
-            });
-        }
-
-        // UDS listener (main loop). Returns when the shutdown signal fires.
-        server::serve_uds(&socket_path, socket_mode, state.clone(), shutdown.clone()).await?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        // Non-unix (Windows): Tokio has no UnixListener, so AF_UNIX is unavailable.
-        // TCP loopback is the per-platform DEFAULT transport here — an explicit
-        // --tcp-addr wins; otherwise the loopback-only platform default is used.
-        // `socket_path`/`socket_mode` are still resolved+validated (above) for
-        // config/lock parity & logging.
-        let _ = &socket_path;
-        let _ = socket_mode;
-        let addr = args
-            .tcp_addr
-            .clone()
-            .unwrap_or_else(|| "127.0.0.1:8765".to_string());
-        info!("AF_UNIX unavailable; using the configured native TCP transport");
-        server::serve_tcp(&addr, state.clone(), shutdown.clone(), tcp_tls).await?;
-    }
-
-    // Graceful shutdown: the accept loop has exited, so flush any bounded writer
-    // work that had not yet crossed its acknowledgement barrier.
-    info!("Accept loop stopped — flushing durable state");
-    if let Some(p) = &persistence_shutdown {
-        p.shutdown();
-    }
-    info!("Shutdown complete");
     Ok(())
 }
+
 
 #[cfg(test)]
 mod listener_policy_tests {
