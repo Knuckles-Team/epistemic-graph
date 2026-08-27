@@ -2190,61 +2190,36 @@ fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Resul
         TxnOp::CreateTable {
             schema,
             if_not_exists,
-        } => {
-            create_in(wtx, schema, *if_not_exists)?;
-            Ok(0)
-        }
+        } => apply_txn_op_create_table(wtx, schema, *if_not_exists),
         TxnOp::DropTable { name, if_exists } => {
-            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, name)?;
-            drop_in(wtx, tenant_scope, name, *if_exists)?;
-            Ok(0)
+            apply_txn_op_drop_table(wtx, tenant_scope, name, *if_exists)
         }
         TxnOp::AddColumn { table, column } => {
-            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
-            add_column_in(wtx, tenant_scope, table, column)?;
-            Ok(0)
+            apply_txn_op_add_column(wtx, tenant_scope, table, column)
         }
         TxnOp::DropColumn {
             table,
             column,
             if_exists,
-        } => {
-            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
-            drop_column_in(wtx, tenant_scope, table, column, *if_exists)?;
-            Ok(0)
-        }
+        } => apply_txn_op_drop_column(wtx, tenant_scope, table, column, *if_exists),
         TxnOp::RenameColumn { table, from, to } => {
-            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
-            rename_column_in(wtx, tenant_scope, table, from, to)?;
-            Ok(0)
+            apply_txn_op_rename_column(wtx, tenant_scope, table, from, to)
         }
         TxnOp::RenameTable { table, new_name } => {
-            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
-            rename_table_in(wtx, tenant_scope, table, new_name)?;
-            Ok(0)
+            apply_txn_op_rename_table(wtx, tenant_scope, table, new_name)
         }
         TxnOp::AlterColumnType {
             table,
             column,
             new_type,
-        } => {
-            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
-            alter_column_type_in(wtx, tenant_scope, table, column, *new_type)?;
-            Ok(0)
-        }
+        } => apply_txn_op_alter_column_type(wtx, tenant_scope, table, column, *new_type),
         TxnOp::DropConstraint {
             table,
             constraint,
             if_exists,
-        } => {
-            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
-            drop_constraint_in(wtx, tenant_scope, table, constraint, *if_exists)?;
-            Ok(0)
-        }
+        } => apply_txn_op_drop_constraint(wtx, tenant_scope, table, constraint, *if_exists),
         TxnOp::AddConstraint { table, constraint } => {
-            ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
-            add_constraint_in(wtx, tenant_scope, table, constraint.clone())?;
-            Ok(0)
+            apply_txn_op_add_constraint(wtx, tenant_scope, table, constraint.clone())
         }
         TxnOp::Insert {
             table,
@@ -2263,48 +2238,208 @@ fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Resul
             name,
             select_sql,
             or_replace,
-        } => {
-            create_view_in(wtx, name, select_sql, *or_replace)?;
-            Ok(0)
-        }
-        TxnOp::DropView { name, if_exists } => {
-            drop_view_in(wtx, name, *if_exists)?;
-            Ok(0)
-        }
+        } => apply_txn_op_create_view(wtx, name, select_sql, *or_replace),
+        TxnOp::DropView { name, if_exists } => apply_txn_op_drop_view(wtx, name, *if_exists),
         TxnOp::CreateExtension {
             name,
             if_not_exists,
-        } => {
-            create_extension_in(wtx, name, *if_not_exists)?;
-            Ok(0)
-        }
+        } => apply_txn_op_create_extension(wtx, name, *if_not_exists),
         TxnOp::DropExtension { name, if_exists } => {
-            drop_extension_in(wtx, name, *if_exists)?;
-            Ok(0)
+            apply_txn_op_drop_extension(wtx, name, *if_exists)
         }
         TxnOp::CreateFunction {
             function,
             or_replace,
-        } => {
-            create_function_in(wtx, function, *or_replace)?;
-            Ok(0)
-        }
+        } => apply_txn_op_create_function(wtx, function, *or_replace),
         TxnOp::DropFunction { name, if_exists } => {
-            drop_function_in(wtx, name, *if_exists)?;
-            Ok(0)
+            apply_txn_op_drop_function(wtx, name, *if_exists)
         }
-        TxnOp::PutAnnIndex { plan } => {
-            put_ann_index_in(wtx, plan)?;
-            Ok(0)
-        }
-        TxnOp::PutHypertable { plan } => {
-            put_hypertable_in(wtx, plan)?;
-            Ok(0)
-        }
+        TxnOp::PutAnnIndex { plan } => apply_txn_op_put_ann_index(wtx, plan),
+        TxnOp::PutHypertable { plan } => apply_txn_op_put_hypertable(wtx, plan),
         TxnOp::DropAnnIndexesForColumn { table, column } => {
             drop_ann_indexes_for_column_in(wtx, table, column)
         }
     }
+}
+
+// ── apply_txn_op per-variant bodies ────────────────────────────────────────
+// One tiny helper per `TxnOp` variant, purely so `apply_txn_op`'s own match
+// arms are single tail-call expressions with no `?` of their own (a `match`
+// with N arms costs lizard ~1 regardless of arm count; each `?` operator
+// costs ~1 -- the 30 CCN this function had came entirely from ~27 `?` calls
+// spread across the 19 arms, not from the match itself). No behaviour
+// change: every helper's body is the original arm's body verbatim.
+
+fn apply_txn_op_create_table(
+    wtx: &WriteTransaction,
+    schema: &TableSchema,
+    if_not_exists: bool,
+) -> Result<usize, String> {
+    create_in(wtx, schema, if_not_exists)?;
+    Ok(0)
+}
+
+fn apply_txn_op_drop_table(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    name: &str,
+    if_exists: bool,
+) -> Result<usize, String> {
+    ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, name)?;
+    drop_in(wtx, tenant_scope, name, if_exists)?;
+    Ok(0)
+}
+
+fn apply_txn_op_add_column(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    column: &Column,
+) -> Result<usize, String> {
+    ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
+    add_column_in(wtx, tenant_scope, table, column)?;
+    Ok(0)
+}
+
+fn apply_txn_op_drop_column(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    column: &str,
+    if_exists: bool,
+) -> Result<usize, String> {
+    ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
+    drop_column_in(wtx, tenant_scope, table, column, if_exists)?;
+    Ok(0)
+}
+
+fn apply_txn_op_rename_column(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    from: &str,
+    to: &str,
+) -> Result<usize, String> {
+    ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
+    rename_column_in(wtx, tenant_scope, table, from, to)?;
+    Ok(0)
+}
+
+fn apply_txn_op_rename_table(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    new_name: &str,
+) -> Result<usize, String> {
+    ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
+    rename_table_in(wtx, tenant_scope, table, new_name)?;
+    Ok(0)
+}
+
+fn apply_txn_op_alter_column_type(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    column: &str,
+    new_type: ColumnType,
+) -> Result<usize, String> {
+    ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
+    alter_column_type_in(wtx, tenant_scope, table, column, new_type)?;
+    Ok(0)
+}
+
+fn apply_txn_op_drop_constraint(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    constraint: &str,
+    if_exists: bool,
+) -> Result<usize, String> {
+    ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
+    drop_constraint_in(wtx, tenant_scope, table, constraint, if_exists)?;
+    Ok(0)
+}
+
+fn apply_txn_op_add_constraint(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    constraint: TableConstraint,
+) -> Result<usize, String> {
+    ensure_legacy_schema_ddl_allowed_in(wtx, tenant_scope, table)?;
+    add_constraint_in(wtx, tenant_scope, table, constraint)?;
+    Ok(0)
+}
+
+fn apply_txn_op_create_view(
+    wtx: &WriteTransaction,
+    name: &str,
+    select_sql: &str,
+    or_replace: bool,
+) -> Result<usize, String> {
+    create_view_in(wtx, name, select_sql, or_replace)?;
+    Ok(0)
+}
+
+fn apply_txn_op_drop_view(
+    wtx: &WriteTransaction,
+    name: &str,
+    if_exists: bool,
+) -> Result<usize, String> {
+    drop_view_in(wtx, name, if_exists)?;
+    Ok(0)
+}
+
+fn apply_txn_op_create_extension(
+    wtx: &WriteTransaction,
+    name: &str,
+    if_not_exists: bool,
+) -> Result<usize, String> {
+    create_extension_in(wtx, name, if_not_exists)?;
+    Ok(0)
+}
+
+fn apply_txn_op_drop_extension(
+    wtx: &WriteTransaction,
+    name: &str,
+    if_exists: bool,
+) -> Result<usize, String> {
+    drop_extension_in(wtx, name, if_exists)?;
+    Ok(0)
+}
+
+fn apply_txn_op_create_function(
+    wtx: &WriteTransaction,
+    function: &StoredFunction,
+    or_replace: bool,
+) -> Result<usize, String> {
+    create_function_in(wtx, function, or_replace)?;
+    Ok(0)
+}
+
+fn apply_txn_op_drop_function(
+    wtx: &WriteTransaction,
+    name: &str,
+    if_exists: bool,
+) -> Result<usize, String> {
+    drop_function_in(wtx, name, if_exists)?;
+    Ok(0)
+}
+
+fn apply_txn_op_put_ann_index(
+    wtx: &WriteTransaction,
+    plan: &AnnIndexPlan,
+) -> Result<usize, String> {
+    put_ann_index_in(wtx, plan)?;
+    Ok(0)
+}
+
+fn apply_txn_op_put_hypertable(
+    wtx: &WriteTransaction,
+    plan: &HypertablePlan,
+) -> Result<usize, String> {
+    put_hypertable_in(wtx, plan)?;
+    Ok(0)
 }
 
 fn same_batch_identity(
