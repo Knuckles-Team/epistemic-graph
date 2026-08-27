@@ -15915,4 +15915,169 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(batch_path);
         let _ = std::fs::remove_file(single_path);
     }
+
+    // CXA-EG-02 characterization: `DeferWorkItem` and `CancelWorkItem` had NO
+    // coverage anywhere in this module (or in `mutation_batch_tests` more broadly)
+    // before this lane -- every other `apply_work_item_rows` arm (ClaimWorkItem,
+    // RenewWorkItemLease, CasWorkItemMetadata, CommitWorkItemResult) is exercised
+    // above, but these two were not. Added as part of decomposing
+    // `apply_work_item_rows` (CCN 117 -> 2) so the extraction of these two arms has
+    // a real black-box regression net, not just a clean `cargo check`. Ran GREEN
+    // against the UNMODIFIED function before the refactor landed (see the lane
+    // report for the exact `cargo test` transcript); unchanged by the refactor
+    // commit.
+    #[test]
+    fn defer_work_item_returns_leased_item_to_ready_with_bumped_epoch() {
+        let path = temp_path("work-item-defer");
+        let db = open(&path);
+
+        let mut seed = batch("work-item-defer-seed", "work-item-defer-seed-key");
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: MutationDomain::GraphRows,
+            method: ready_work_item_method("work-defer", 3),
+        }];
+        commit_at(&db, &seed, None).unwrap();
+        let claimed = commit_native_claim(
+            &db,
+            "work-item-defer-claim",
+            "work-item-defer-claim-key",
+            4,
+            Some("work-defer"),
+            "worker-a",
+            0,
+            60_000,
+            64,
+        );
+        assert!(claimed.claimed);
+        assert_eq!(claimed.lease_epoch, Some(1));
+        assert_eq!(claimed.fencing_token, Some(1));
+
+        let mut defer = batch("work-item-defer-op", "work-item-defer-op-key");
+        defer.expected_graph_version = None;
+        defer.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Job,
+            domain: MutationDomain::ControlPlane,
+            method: Method::DeferWorkItem {
+                tenant: "tenant-a".into(),
+                work_item_id: "work-defer".into(),
+                worker_id: "worker-a".into(),
+                lease_epoch: 1,
+                fencing_token: 1,
+                idempotency_key: "defer-key".into(),
+                next_retry_at_ms: 5_000,
+                reason_ref: Some("reason:sha256:one".into()),
+                now_ms: 1_000,
+            },
+        }];
+        let committed = commit_at(&db, &defer, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("defer result"),
+        )
+        .unwrap();
+        let value = match payload {
+            crate::protocol::ResultPayload::Json(value) => value,
+            other => panic!("DeferWorkItem must return a JSON result, got {other:?}"),
+        };
+        assert_eq!(value["status"], "deferred");
+        assert_eq!(value["lease_epoch"], 2);
+        assert_eq!(value["fencing_token"], 2);
+        assert_eq!(value["next_retry_at_ms"], 5_000);
+        assert_eq!(value["attempt"], 0);
+        assert_eq!(value["defer_count"], 1);
+
+        let row = read_one_node(&db, "graph-a", "work-defer", DurableCrypto::none())
+            .unwrap()
+            .expect("deferred item remains inspectable");
+        let props: serde_json::Value = decode_durable(&row).unwrap();
+        assert_eq!(props["status"], "ready");
+        assert_eq!(props["lease_owner"], serde_json::Value::Null);
+        assert_eq!(props["defer_reason_ref"], "reason:sha256:one");
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn cancel_work_item_marks_ready_item_cancelled_and_replay_is_a_noop() {
+        let path = temp_path("work-item-cancel");
+        let db = open(&path);
+
+        let mut seed = batch("work-item-cancel-seed", "work-item-cancel-seed-key");
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: MutationDomain::GraphRows,
+            method: ready_work_item_method("work-cancel", 3),
+        }];
+        commit_at(&db, &seed, None).unwrap();
+
+        let mut cancel = batch("work-item-cancel-op", "work-item-cancel-op-key");
+        cancel.expected_graph_version = None;
+        cancel.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Job,
+            domain: MutationDomain::ControlPlane,
+            method: Method::CancelWorkItem {
+                tenant: "tenant-a".into(),
+                work_item_id: "work-cancel".into(),
+                idempotency_key: "cancel-key".into(),
+                reason_ref: Some("reason:sha256:two".into()),
+                now_ms: 1_000,
+            },
+        }];
+        let committed = commit_at(&db, &cancel, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("cancel result"),
+        )
+        .unwrap();
+        let value = match payload {
+            crate::protocol::ResultPayload::Json(value) => value,
+            other => panic!("CancelWorkItem must return a JSON result, got {other:?}"),
+        };
+        assert_eq!(value["status"], "cancelled");
+
+        let row = read_one_node(&db, "graph-a", "work-cancel", DurableCrypto::none())
+            .unwrap()
+            .expect("cancelled item remains inspectable");
+        let props: serde_json::Value = decode_durable(&row).unwrap();
+        assert_eq!(props["status"], "cancelled");
+        assert_eq!(props["cancel_reason_ref"], "reason:sha256:two");
+
+        // A fresh (distinct idempotency key) CancelWorkItem operation against an
+        // ALREADY-cancelled item exercises the handler's own internal
+        // `matches!(status, "succeeded"|"failed"|"cancelled"|"dead_letter") ->
+        // noop` guard -- distinct from MutationBatch-level idempotency replay,
+        // which a different idempotency_key deliberately bypasses.
+        let mut cancel_again = cancel.clone();
+        cancel_again.batch_id = "work-item-cancel-op-2".into();
+        cancel_again.idempotency_key = "work-item-cancel-op-2-key".into();
+        cancel_again.outbox[0].key = cancel_again.batch_id.clone();
+        let replay = commit_at(&db, &cancel_again, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            replay
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("cancel replay result"),
+        )
+        .unwrap();
+        let value = match payload {
+            crate::protocol::ResultPayload::Json(value) => value,
+            other => panic!("CancelWorkItem must return a JSON result, got {other:?}"),
+        };
+        assert_eq!(value["status"], "noop");
+
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
 }
