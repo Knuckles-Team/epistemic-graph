@@ -15,7 +15,7 @@ name = "eg_query"
 default = []
 # `eg-types/query` surfaces the `Pred`/`JsonPathOp` wire enums the SQL classifier lowers
 # the Postgres/Mongo JSON operators onto (CONCEPT:EG-084) — additive, always on with `sql`.
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "dep:eg-ann", "dep:futures-util", "dep:md-5", "dep:sha1", "dep:sha2", "dep:hex", "dep:base64", "dep:ipnet", "eg-types/query"]
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "dep:eg-ann", "dep:futures-util", "dep:md-5", "dep:sha1", "dep:sha2", "dep:hex", "dep:base64", "dep:ipnet", "eg-types/query", "iceberg-federation"]
 # Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
 # engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
 # variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
@@ -60,6 +60,26 @@ finance = ["sql", "eg-compute/finance"]
 # Pi-contract holds (numeric is out of `pi`; `cargo tree --features pi` links neither
 # eg-numeric nor nalgebra).
 numeric = ["sql", "dep:eg-numeric", "dep:ndarray"]
+# CA-19 (GOC-77 W01-W05, BUG-224) — the `iceberg('namespace.table'[, snapshot_id])`
+# federated table function (`sql/iceberg_federation.rs`), registered alongside
+# `nodes`/`edges` so ONE UQL/SQL query joins an external Iceberg-REST table
+# (Lakekeeper-cataloged today; eg's OWN catalog once DEC-CA-01's W0 reachability note
+# is resolved for a given deployment). Listed as its OWN feature (not folded directly
+# into `sql`'s array) so the gate this codebase enforces — "feature-gate anything only
+# used behind a feature" — stays literal: the module is `cfg(feature =
+# "iceberg-federation")`, a real, individually-nameable feature, not an unconditional
+# `sql` extra. `sql` (above) IMPLIES it so it stays reachable under the root crate's
+# `--features full` (full -> query -> eg-query/sql) WITHOUT a root Cargo.toml edit —
+# this lane never touches that file (LANE-SPECS). Pulls the OFFICIAL apache/iceberg-rust
+# REST-catalog client alongside the `iceberg`/`iceberg-storage-opendal` crates CA-18
+# already adopted under eg-lake's `lake` feature at the SAME `0.10` line — `cargo tree -d`
+# resolves all three (and eg-lake's copies) to ONE `arrow = "58.3"`, so this is not a new
+# ABI-isolation boundary, matching CA-18's own precedent note in its Cargo.toml comment.
+# `tokio/rt-multi-thread` is added explicitly (rather than assumed transitively via
+# reqwest/hyper) because `sql/iceberg_federation.rs` bridges the sync
+# `TableFunctionImpl::call_with_args` callback to the async REST-catalog client on a
+# throwaway multi-thread runtime of its own (see that module's doc for why).
+iceberg-federation = ["dep:iceberg", "dep:iceberg-catalog-rest", "dep:iceberg-storage-opendal", "tokio/rt-multi-thread"]
 
 [dependencies]
 eg-types = { path = "../eg-types" }
@@ -100,6 +120,26 @@ datafusion = { version = "54", default-features = false, optional = true, featur
 ] }
 arrow = { version = "58.3", optional = true }
 arrow-schema = { version = "58.3", optional = true }
+# CA-19 (GOC-77 W01-W04) — the official apache/iceberg-rust reader + REST-catalog client,
+# gated behind `iceberg-federation` (implied by `sql`, see that feature's comment above).
+# SAME `0.10` line eg-lake's `lake` feature already pins (CA-18); the three RUSTSEC
+# advisories CA-18 accepted (`.cargo-audit-allow.txt`, time-bounded expires=2026-11-24)
+# cover this resolution too — no NEW advisory is introduced by adding a second crate that
+# resolves to the identical dependency versions.
+iceberg = { version = "0.10", optional = true }
+# The REST-catalog client specifically (a separate crate from `iceberg` itself as of the
+# 0.10 line) — eg-lake's own `lake` feature never needed it (eg-lake only WRITES/serves a
+# catalog; it never calls OUT to one). No Cargo features of its own to select (its
+# `reqwest` dep is pinned internally to `default-features = false, features = ["json"]`
+# by the crate itself — nothing for a downstream Cargo.toml to opt into or out of).
+iceberg-catalog-rest = { version = "0.10", optional = true }
+# Same crate CA-18 pinned under eg-lake's `lake` feature, `opendal-s3` ONLY (matches that
+# precedent exactly) — the federated leg only ever reads from an S3-compatible object
+# store (SeaweedFS today), never local-fs/memory, so `opendal-fs`/`opendal-memory` stay
+# off.
+iceberg-storage-opendal = { version = "0.10", optional = true, default-features = false, features = [
+    "opendal-s3",
+] }
 # Durable embedded KV for the user-defined table store (CONCEPT:EG-018). Same pin as
 # the engine's server-side durable tier so a `query`/`full` build links one redb.
 redb = { version = "4.1", optional = true }

@@ -51,6 +51,11 @@ mod ann;
 mod catalog;
 mod classify;
 mod exec;
+/// CA-19 (GOC-77 W01-W05, BUG-224) — the `iceberg('namespace.table'[, snapshot_id])`
+/// federated table function over the official apache/iceberg-rust REST-catalog client.
+/// Gated `iceberg-federation` (implied by `sql`, see that feature's Cargo.toml comment).
+#[cfg(feature = "iceberg-federation")]
+mod iceberg_federation;
 /// SQL stored-function (`CREATE FUNCTION … LANGUAGE sql`) expansion (CONCEPT:EG-KG.query.create-drop-function) —
 /// inline a scalar function body as a scalar subquery, expand a table function as a
 /// parameterized-view subquery in `FROM`; reuses the SQL exec path (no new evaluator).
@@ -106,3 +111,13 @@ pub use pgfamily::{
     ContinuousAggPlan, CypherCallPlan, CypherColumn, HypertablePlan, VectorMetric,
 };
 pub use providers::SqlCache;
+// CA-19 (GOC-77 W01-W05, BUG-224) — federated Iceberg read pushdown stats, exposed so a
+// test can assert real manifest-level file skipping (P1's proof shape) rather than
+// trusting an unobservable internal count.
+#[cfg(feature = "iceberg-federation")]
+pub use iceberg_federation::{
+    build_iceberg_provider, IcebergPushdownStats, IcebergTableProvider,
+    ICEBERG_FEDERATION_CATALOG_URI_ENV, ICEBERG_FEDERATION_CREDENTIAL_ENV,
+    ICEBERG_FEDERATION_OAUTH2_URI_ENV, ICEBERG_FEDERATION_SCOPE_ENV, ICEBERG_FEDERATION_TOKEN_ENV,
+    ICEBERG_FEDERATION_WAREHOUSE_ENV,
+};

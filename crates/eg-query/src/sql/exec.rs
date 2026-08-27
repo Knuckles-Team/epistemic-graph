@@ -70,6 +70,14 @@ fn register_pg_common(ctx: &SessionContext) {
     ctx.register_udf(range_contains_range_udf());
     ctx.register_udf(range_contained_by_udf());
     ctx.register_udtf("generate_series", Arc::new(GenerateSeriesFunc));
+    // CA-19 (GOC-77 W01-W05, BUG-224) — `iceberg('namespace.table'[, snapshot_id])`
+    // federated read of an external Iceberg-REST catalog table, joinable in-plan with
+    // `nodes`/`edges` exactly like `pagerank()`/`generate_series(...)` are.
+    #[cfg(feature = "iceberg-federation")]
+    ctx.register_udtf(
+        "iceberg",
+        Arc::new(super::iceberg_federation::IcebergFunc),
+    );
     // CONCEPT:EG-KG.query.sqlite-compat-scalar-udfs (turso-assimilation rank 14) —
     // crypto hash + base64 + ipaddr helpers turso ships as loadable extensions.
     ctx.register_udf(md5_udf());

@@ -66,6 +66,14 @@ pub mod iceberg_avro;
 pub use schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
 pub use snapshot::{ColumnStat, FileEntry, Lsn, SnapshotLog};
 
+/// BUG-224's `Op::AsOf` → `Lsn` closure type (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns) — see
+/// [`LakeTable::iceberg_as_of_ts`]'s doc for the full contract. A caller with access to
+/// the engine's timestamp↔LSN correlation supplies `Some(lsn)` for the latest committed
+/// LSN at/before the given millisecond timestamp, or `None` when none exists / the
+/// caller has no correlation to offer (falls back to "now", never an error — an as-of
+/// read that cannot resolve should degrade, not fail the whole query).
+pub type AsOfLsnResolver<'a> = dyn Fn(i64) -> Option<Lsn> + 'a;
+
 use catalog::IcebergRestCatalog;
 use delta::DeltaLogFile;
 use iceberg::IcebergTable;
@@ -229,6 +237,44 @@ impl LakeTable {
             &self.location,
             timestamp_ms,
         )
+    }
+
+    /// BUG-224's closure: the query-time `Op::AsOf` → `Lsn` seam, given a caller-supplied
+    /// **resolver** rather than a bare timestamp. `eg-lake` is a dependency-free LEAF
+    /// crate (module docs above) — it has no `Op::AsOf`, no WAL, and no timestamp↔LSN
+    /// correlation of its own, so it cannot resolve a raw `ts_ms` to an [`Lsn`] itself.
+    /// [`AsOfLsnResolver`] is the seam: the ENGINE-SIDE caller (the one thing that DOES
+    /// have that correlation — the versioned-snapshot/WAL sequence, CONCEPT:EG-KG.compute.preserved/2.250)
+    /// supplies a closure mapping a query-time-of-interest timestamp to the concrete
+    /// committed LSN it corresponds to. Before this method, [`Self::iceberg_as_of`] had
+    /// exactly the shape BUG-224 names — real, tested, but **no caller** anywhere in the
+    /// engine tree (`grep -rn iceberg_as_of` matched only this crate). This method IS
+    /// that caller's contract: something in the query engine can now call
+    /// `table.iceberg_as_of_ts(ts_ms, &resolver)` and get a time-consistent lake
+    /// projection instead of always reading "now".
+    ///
+    /// `None` from the resolver (no committed LSN exists at/before `ts_ms`, or the
+    /// caller has no resolver to offer) falls back to the CURRENT snapshot — the SAME
+    /// "absent as_of ⇒ current" contract the authenticated `LoadTable` HTTP route's
+    /// `?as_of=<LSN>` extension already uses (`src/server/lake/rest.rs`), so the two
+    /// as-of surfaces (HTTP query-param and query-time) agree on the empty case.
+    ///
+    /// This is a DIFFERENT problem from the federated leg's explicit-snapshot pin
+    /// (`crates/eg-query/src/sql/iceberg_federation.rs`'s `iceberg('ns.table',
+    /// <snapshot_id>)`, which needs no resolver because the caller already names a
+    /// concrete `snapshot_id = lsn` per DEC-CA-01) — this method is for eg's OWN
+    /// bi-temporal `Op::AsOf { ts, axis }` (a row-level valid-time filter over graph
+    /// node properties, `crates/eg-plan/src/exec.rs`'s `as_of_filter`) wanting a
+    /// time-consistent read of eg's OWN materialized lake projection. General
+    /// `ts -> Lsn` correlation across arbitrary historical timestamps is a bigger,
+    /// separate storage-layer problem this method does not solve on its own — it
+    /// only provides the CALLER SEAM BUG-224 was missing; the resolver's accuracy is
+    /// the caller's responsibility.
+    pub fn iceberg_as_of_ts(&self, ts_ms: i64, resolver: &AsOfLsnResolver<'_>) -> IcebergTable {
+        match resolver(ts_ms) {
+            Some(lsn) => self.iceberg_as_of(lsn, ts_ms),
+            None => self.iceberg(ts_ms),
+        }
     }
 
     /// Materialize the real Iceberg **Avro** manifest + manifest-list for the current
