@@ -602,3 +602,16 @@ repos:
     # org, same as agent-utilities.
     pass_filenames: false
     always_run: true
+
+  - id: check-root-hygiene
+    name: Repository root hygiene (manifest-declared entries only)
+    entry: python3 scripts/check_root_hygiene.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-gitignore-convergence
+    name: .gitignore carries the fleet-shared REQUIRED set
+    entry: python3 scripts/check_gitignore_convergence.py
+    language: system
+    pass_filenames: false
+    always_run: true
