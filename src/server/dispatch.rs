@@ -3994,6 +3994,54 @@ async fn dispatch_inner(
             }
         }
 
+        // CA-16 (DEC-CA-04): export the M1 row-visibility policy bundle. Gated
+        // above the match (policy:export authz_action; kg:admin also clears it
+        // via allows_method's unconditional fallback -- see
+        // eg_capabilities::policy's Method::PolicyExport entry). The calling
+        // principal's OWN live-token-verified role set (RequestContextClaims'
+        // roles ∪ scopes, ALREADY cross-checked against the verified OIDC token
+        // by bind_verified_identity -- never IsolationLayer.agents/rbac.redb)
+        // is always folded into `principals` here, so every export call is
+        // self-proving against a real verified token (DEC-CA-04 A2). See
+        // `server::policy_export`'s module doc for the full design.
+        #[cfg(feature = "policy_export")]
+        Method::PolicyExport {
+            tenant,
+            graphs,
+            mut principals,
+            marking_names,
+        } => {
+            let claims = verified_context.claims();
+            let caller_roles: Vec<String> = claims
+                .roles
+                .iter()
+                .chain(claims.scopes.iter())
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            principals.insert(claims.principal.clone(), caller_roles);
+            let input = crate::server::policy_export::GenerateBundleInput {
+                tenant,
+                graphs,
+                principals,
+                marking_names: marking_names
+                    .into_iter()
+                    .map(|name| crate::server::policy_export::MarkingDef {
+                        name,
+                        requires_audit: false,
+                    })
+                    .collect(),
+            };
+            match crate::server::policy_export::generate_bundle(&input) {
+                Ok(bundle) => match serde_json::to_value(&bundle) {
+                    Ok(val) => Response::ok(req.id, ResultPayload::Json(val)),
+                    Err(e) => Response::err(req.id, format!("Serialization error: {}", e)),
+                },
+                Err(denied) => Response::err(req.id, denied),
+            }
+        }
+
         // ── RBAC policy administration (CONCEPT:EG-KG.compute.feature) ──────────────────
         // Gated at the handler; a non-security build has no arm and falls to the
         // dispatch "not available in this build" catch-all (mirrors EG-090).
