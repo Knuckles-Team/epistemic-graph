@@ -1860,7 +1860,7 @@ impl TableStore {
         let version_key = (batch.tenant.as_str(), batch.graph.as_str());
         let (current_version, proposed_fence) =
             match prepare_mutation_commit_in(&wtx, version_key, batch)? {
-                MutationCommitPrelude::Replay(replay) => return Ok(replay),
+                MutationCommitPrelude::Replay(replay) => return Ok(*replay),
                 MutationCommitPrelude::Fresh {
                     current_version,
                     proposed_fence,
@@ -2031,7 +2031,10 @@ impl TableStore {
 /// result to return as-is, or the current version + verified fence a fresh
 /// commit proceeds with.
 enum MutationCommitPrelude {
-    Replay(MutationBatchCommit),
+    /// Boxed: a `MutationBatchCommit` carries the whole durable
+    /// `MutationBatchRecord`, hundreds of bytes larger than `Fresh`, and this
+    /// enum is returned by value on the hot fresh-commit path.
+    Replay(Box<MutationBatchCommit>),
     Fresh {
         current_version: u64,
         proposed_fence: SqlMutationFence,
@@ -2050,7 +2053,7 @@ fn prepare_mutation_commit_in(
 ) -> Result<MutationCommitPrelude, String> {
     let current_version = read_current_mutation_version_in(wtx, version_key)?;
     if let Some(replay) = check_mutation_idempotency_replay_in(wtx, batch, current_version)? {
-        return Ok(MutationCommitPrelude::Replay(replay));
+        return Ok(MutationCommitPrelude::Replay(Box::new(replay)));
     }
     check_mutation_batch_id_not_exists_in(wtx, batch)?;
     verify_mutation_occ_version(batch, current_version)?;
@@ -5553,30 +5556,55 @@ fn insert_on_conflict_in(
         &ctx.composite_cols,
     )?;
 
-    let mut affected: Vec<Vec<Cell>> = Vec::new();
-    let mut index_changes: Vec<IndexChange> = Vec::new();
+    let spec = ConflictRowSpec {
+        table,
+        col_order,
+        targets: &ctx.targets,
+        target_position_by_col: &ctx.target_position_by_col,
+        schema: &ctx.schema,
+        unique_cols: &ctx.unique_cols,
+        composite_cols: &ctx.composite_cols,
+    };
+    let mut out = ConflictInsertOutcome::default();
     let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     for row in rows {
-        process_insert_on_conflict_row(
-            wtx,
-            table,
-            col_order,
-            &ctx.targets,
-            &ctx.target_position_by_col,
-            &ctx.schema,
-            &ctx.unique_cols,
-            &ctx.composite_cols,
-            action,
-            row,
-            &mut rows_t,
-            &mut state,
-            &mut affected,
-            &mut index_changes,
-        )?;
+        process_insert_on_conflict_row(wtx, &spec, action, row, &mut rows_t, &mut state, &mut out)?;
     }
     drop(rows_t);
-    finalize_insert_on_conflict(wtx, tenant_scope, table, &ctx.schema, &index_changes, &affected)?;
-    Ok(affected)
+    finalize_insert_on_conflict(
+        wtx,
+        tenant_scope,
+        table,
+        &ctx.schema,
+        &out.index_changes,
+        &out.affected,
+    )?;
+    Ok(out.affected)
+}
+
+/// The immutable, per-`INSERT ... ON CONFLICT` resolution every row-level
+/// helper needs: the target table's name and schema plus the resolved column
+/// geometry. Borrowed, built once from [`InsertOnConflictContext`] in
+/// [`insert_on_conflict_in`] and threaded down unchanged -- the same
+/// bundle-the-parameters shape as `server::mutation::MutationCtx`.
+struct ConflictRowSpec<'a> {
+    table: &'a str,
+    col_order: &'a [String],
+    targets: &'a [usize],
+    /// `column index -> first supplied position in the INSERT`, for conflict detection.
+    target_position_by_col: &'a [Option<usize>],
+    schema: &'a TableSchema,
+    unique_cols: &'a [usize],
+    composite_cols: &'a [Vec<usize>],
+}
+
+/// The two accumulators an `ON CONFLICT` row loop appends to: the
+/// inserted-or-updated rows (for `RETURNING`) and the per-row secondary-index
+/// deltas consumed by [`finalize_insert_on_conflict`].
+#[derive(Default)]
+struct ConflictInsertOutcome {
+    affected: Vec<Vec<Cell>>,
+    index_changes: Vec<IndexChange>,
 }
 
 /// Per-call setup for `insert_on_conflict_in`: the target schema, the
@@ -5912,14 +5940,18 @@ fn validate_do_update_check_constraints(schema: &TableSchema, cells: &[Cell]) ->
 /// `index_changes` bookkeeping.
 fn apply_conflict_do_update(
     rows_t: &mut redb::Table<'_, (&'static str, u64), &'static [u8]>,
-    table: &str,
-    schema: &TableSchema,
-    unique_cols: &[usize],
-    composite_cols: &[Vec<usize>],
+    spec: &ConflictRowSpec<'_>,
     rid: u64,
     set: &serde_json::Map<String, Value>,
     state: &mut ConflictScanState,
 ) -> Result<(Vec<Cell>, Vec<Cell>), String> {
+    let ConflictRowSpec {
+        table,
+        schema,
+        unique_cols,
+        composite_cols,
+        ..
+    } = *spec;
     let index = *state.row_slot.get(&rid).expect("conflict rowid present");
     let old_cells = state.existing[index].1.clone();
     remove_row_from_conflict_index(rid, &old_cells, schema, unique_cols, composite_cols, state);
@@ -5938,15 +5970,19 @@ fn apply_conflict_do_update(
 fn apply_conflict_fresh_insert(
     wtx: &WriteTransaction,
     rows_t: &mut redb::Table<'_, (&'static str, u64), &'static [u8]>,
-    table: &str,
-    col_order: &[String],
-    targets: &[usize],
-    schema: &TableSchema,
-    unique_cols: &[usize],
-    composite_cols: &[Vec<usize>],
+    spec: &ConflictRowSpec<'_>,
     row: &[Value],
     state: &mut ConflictScanState,
 ) -> Result<(u64, Vec<Cell>), String> {
+    let ConflictRowSpec {
+        table,
+        col_order,
+        targets,
+        schema,
+        unique_cols,
+        composite_cols,
+        ..
+    } = *spec;
     let rowid = alloc_rowids(wtx, table, 1)?;
     let cells = build_insert_cells(schema, col_order, targets, row, rowid)?;
     write_conflict_row(rows_t, table, rowid, &cells)?;
@@ -5959,66 +5995,40 @@ fn apply_conflict_fresh_insert(
 /// Processes one input row of an `INSERT ... ON CONFLICT`: validates its
 /// values, detects a conflict, and dispatches to skip (DO NOTHING),
 /// `apply_conflict_do_update` (DO UPDATE), or `apply_conflict_fresh_insert`
-/// (no conflict) -- pushing the outcome into `affected`/`index_changes`.
-#[allow(clippy::too_many_arguments)]
+/// (no conflict) -- pushing the outcome into `out`.
 fn process_insert_on_conflict_row(
     wtx: &WriteTransaction,
-    table: &str,
-    col_order: &[String],
-    targets: &[usize],
-    target_position_by_col: &[Option<usize>],
-    schema: &TableSchema,
-    unique_cols: &[usize],
-    composite_cols: &[Vec<usize>],
+    spec: &ConflictRowSpec<'_>,
     action: &ConflictAction,
     row: &[Value],
     rows_t: &mut redb::Table<'_, (&'static str, u64), &'static [u8]>,
     state: &mut ConflictScanState,
-    affected: &mut Vec<Vec<Cell>>,
-    index_changes: &mut Vec<IndexChange>,
+    out: &mut ConflictInsertOutcome,
 ) -> Result<(), String> {
     for value in row {
         validate_mutation_value(value)?;
     }
     let conflict_rowid = detect_conflict_rowid(
         row,
-        target_position_by_col,
-        schema,
-        unique_cols,
-        composite_cols,
+        spec.target_position_by_col,
+        spec.schema,
+        spec.unique_cols,
+        spec.composite_cols,
         state,
     )?;
     match (conflict_rowid, action) {
         (Some(_), ConflictAction::DoNothing) => { /* skip */ }
         (Some(rid), ConflictAction::DoUpdate(set)) => {
-            let (old_cells, new_cells) = apply_conflict_do_update(
-                rows_t,
-                table,
-                schema,
-                unique_cols,
-                composite_cols,
-                rid,
-                set,
-                state,
-            )?;
-            affected.push(new_cells.clone());
-            index_changes.push((rid, Some(old_cells), Some(new_cells)));
+            let (old_cells, new_cells) =
+                apply_conflict_do_update(rows_t, spec, rid, set, state)?;
+            out.affected.push(new_cells.clone());
+            out.index_changes
+                .push((rid, Some(old_cells), Some(new_cells)));
         }
         (None, _) => {
-            let (rowid, cells) = apply_conflict_fresh_insert(
-                wtx,
-                rows_t,
-                table,
-                col_order,
-                targets,
-                schema,
-                unique_cols,
-                composite_cols,
-                row,
-                state,
-            )?;
-            affected.push(cells.clone());
-            index_changes.push((rowid, None, Some(cells)));
+            let (rowid, cells) = apply_conflict_fresh_insert(wtx, rows_t, spec, row, state)?;
+            out.affected.push(cells.clone());
+            out.index_changes.push((rowid, None, Some(cells)));
         }
     }
     Ok(())

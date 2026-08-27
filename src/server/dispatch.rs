@@ -7707,19 +7707,36 @@ async fn dispatch_op_resource_reservation_query(
         };
     }
 
-async fn dispatch_op_capacity_ops(
+/// The authenticated, placement-resolved routing context the native durable-op
+/// dispatchers below share (capacity leases, WorkItem claim capability). These
+/// values are resolved once per request in `dispatch_graph_op` and travel
+/// together; bundling them keeps each dispatcher's parameter list at the
+/// documented cap, the same shape as `crate::server::mutation::MutationCtx`.
+struct NativeOpCtx<'a> {
     req_id: u64,
-    graph_name: &str,
-    verified_context: &VerifiedRequestContext,
-    state_machine_authorized: bool,
+    graph_name: &'a str,
+    verified_context: &'a VerifiedRequestContext,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     #[cfg(feature = "raft")]
     multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
     #[cfg(feature = "raft")]
     routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+}
+
+async fn dispatch_op_capacity_ops(
+    ctx: NativeOpCtx<'_>,
+    state_machine_authorized: bool,
     method: Method,
 ) -> Response
 {
+        let req_id = ctx.req_id;
+        let graph_name = ctx.graph_name;
+        let verified_context = ctx.verified_context;
+        let persistence = ctx.persistence;
+        #[cfg(feature = "raft")]
+        let multi_raft = ctx.multi_raft;
+        #[cfg(feature = "raft")]
+        let routed_raft = ctx.routed_raft;
         #[cfg(feature = "raft")]
         if let Some(routed) = routed_raft.as_ref() {
             let leader = routed.handle.current_leader().await;
@@ -7763,7 +7780,7 @@ async fn dispatch_op_capacity_ops(
         }
         let fname = crate::persist::sanitize(graph_name);
         let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-        return match method {
+        match method {
             Method::CapacityStatus { ref request } | Method::ReconcileCapacity { ref request } => {
                 backend
                     .read_capacity_status(&fname, request)
@@ -7788,23 +7805,24 @@ async fn dispatch_op_capacity_ops(
                     Response::err(req_id, format!("native capacity commit failed: {error}"))
                 }),
             _ => unreachable!("capacity classifier and dispatch diverged"),
-        };
+        }
     }
 
 async fn dispatch_op_workitem_claim_capability(
-    req_id: u64,
-    graph_name: &str,
-    verified_context: &VerifiedRequestContext,
+    ctx: NativeOpCtx<'_>,
     #[cfg(feature = "redb")]
     graph_incarnation_id: String,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    #[cfg(feature = "raft")]
-    multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
-    #[cfg(feature = "raft")]
-    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
     method: Method,
 ) -> Response
 {
+        let req_id = ctx.req_id;
+        let graph_name = ctx.graph_name;
+        let verified_context = ctx.verified_context;
+        let persistence = ctx.persistence;
+        #[cfg(feature = "raft")]
+        let multi_raft = ctx.multi_raft;
+        #[cfg(feature = "raft")]
+        let routed_raft = ctx.routed_raft;
         #[cfg(feature = "raft")]
         if is_replicated_apply() {
             // A replicated apply has only the bounded Raft routing context;
@@ -7865,7 +7883,7 @@ async fn dispatch_op_workitem_claim_capability(
             };
             let fname = crate::persist::sanitize(graph_name);
             let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-            return match method {
+            match method {
                 Method::MintWorkItemClaimCapability { request } => redb
                     .mint_work_item_claim_capability(&fname, request, authority)
                     .await
@@ -7887,7 +7905,7 @@ async fn dispatch_op_workitem_claim_capability(
                         )
                     }),
                 _ => unreachable!("capability classifier and dispatch diverged"),
-            };
+            }
         }
         #[cfg(not(feature = "redb"))]
         {
@@ -7938,7 +7956,7 @@ async fn dispatch_op_development_lane(
         let fname = crate::persist::sanitize(graph_name);
         let now_ms = authoritative_now_ms();
         let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-        return match method {
+        match method {
             Method::QueryDevelopmentLane { ref request } => backend
                 .read_development_lane(&fname, request, now_ms)
                 .await
@@ -7963,7 +7981,7 @@ async fn dispatch_op_development_lane(
                 .unwrap_or_else(|error| {
                     Response::err(req_id, format!("development-lane commit failed: {error}"))
                 }),
-        };
+        }
     }
 
 async fn dispatch_op_workitem_mutation(
@@ -8048,24 +8066,41 @@ async fn dispatch_op_tsdb_write_fence(
     ))
 }
 
+/// Everything [`dispatch_op_knowledge_stream`] needs beyond the method itself:
+/// the resolved request identity, the graph core it pulls from, and the
+/// placement/RLS/authority handles the cursor must stay inside. Bundled to keep
+/// the dispatcher at the documented parameter cap.
 #[cfg(feature = "knowledge-batch")]
-async fn dispatch_op_knowledge_stream(
-    state: &Arc<RwLock<ServerState>>,
+struct KnowledgeStreamCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
     req_id: u64,
-    graph_name: &str,
-    verified_context: &VerifiedRequestContext,
-    read_authority: &Option<GraphReadAuthority>,
-    verified_actor: &str,
+    graph_name: &'a str,
+    verified_context: &'a VerifiedRequestContext,
+    read_authority: &'a Option<GraphReadAuthority>,
+    verified_actor: &'a str,
     core: Arc<crate::graph::GraphCore>,
     #[cfg(feature = "security")]
     rls: std::sync::Arc<crate::isolation::IsolationLayer>,
     #[cfg(feature = "raft")]
     routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
-    #[cfg(feature = "knowledge-batch")]
     knowledge_stream_authority: Option<handlers::knowledge_stream::KnowledgeStreamAuthority>,
-    method: Method,
-) -> Response
+}
+
+#[cfg(feature = "knowledge-batch")]
+async fn dispatch_op_knowledge_stream(ctx: KnowledgeStreamCtx<'_>, method: Method) -> Response
 {
+        let state = ctx.state;
+        let req_id = ctx.req_id;
+        let graph_name = ctx.graph_name;
+        let verified_context = ctx.verified_context;
+        let read_authority = ctx.read_authority;
+        let verified_actor = ctx.verified_actor;
+        let core = ctx.core;
+        #[cfg(feature = "security")]
+        let rls = ctx.rls;
+        #[cfg(feature = "raft")]
+        let routed_raft = ctx.routed_raft;
+        let knowledge_stream_authority = ctx.knowledge_stream_authority;
         let Some(authority) = knowledge_stream_authority.as_ref() else {
             return Response::err(
                 req_id,
@@ -8148,7 +8183,7 @@ async fn dispatch_op_audit_verify(
 ) -> Response
 {
         let fname = crate::persist::sanitize(graph_name);
-        return match persistence.as_ref().and_then(|p| p.as_redb()) {
+        match persistence.as_ref().and_then(|p| p.as_redb()) {
             Some(redb) => match redb.audit_verify_blocking(&fname) {
                 Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
                 Err(e) => Response::err(req_id, format!("AuditVerify error: {e}")),
@@ -8158,7 +8193,7 @@ async fn dispatch_op_audit_verify(
                 "AuditVerify requires a durable redb backend (no persist dir configured)"
                     .to_string(),
             ),
-        };
+        }
     }
 
 #[cfg(feature = "security")]
@@ -8174,7 +8209,7 @@ async fn dispatch_op_audit_prove_inclusion(
         anchor_seq,
     } = &method else { unreachable!("dispatch_op_audit_prove_inclusion: classifier/handler diverged") };
         let fname = crate::persist::sanitize(graph_name);
-        return match persistence.as_ref().and_then(|p| p.as_redb()) {
+        match persistence.as_ref().and_then(|p| p.as_redb()) {
             Some(redb) => match redb.audit_prove_inclusion_blocking(&fname, node_id, *anchor_seq) {
                 Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
                 Err(e) => Response::err(req_id, format!("AuditProveInclusion error: {e}")),
@@ -8184,30 +8219,52 @@ async fn dispatch_op_audit_prove_inclusion(
                 "AuditProveInclusion requires a durable redb backend (no persist dir configured)"
                     .to_string(),
             ),
-        };
+        }
     }
 
+/// Everything [`dispatch_op_served_modality`] needs beyond the method: the
+/// resolved request identity, the gateway authz capture, the graph core and its
+/// durability/CDC/materialization handles, plus the placement route and the
+/// derived modality authority. Bundled to keep the dispatcher at the documented
+/// parameter cap.
 #[cfg(feature = "modality-serving")]
-async fn dispatch_op_served_modality(
-    state: &Arc<RwLock<ServerState>>,
+struct ServedModalityCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
     req_id: u64,
-    graph_name: &str,
-    caller: Option<&str>,
-    verified_context: &VerifiedRequestContext,
-    tenant_scope: &str,
-    gateway_authz_ctx: &Option<crate::server::mutation::GatewayAuthzCtx>,
+    graph_name: &'a str,
+    caller: Option<&'a str>,
+    verified_context: &'a VerifiedRequestContext,
+    tenant_scope: &'a str,
+    gateway_authz_ctx: &'a Option<crate::server::mutation::GatewayAuthzCtx>,
     core: Arc<crate::graph::GraphCore>,
-    materialization_manifest: Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
+    materialization_manifest:
+        Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     #[cfg(feature = "streaming")]
     cdc: Option<Arc<crate::server::cdc::CdcHub>>,
     #[cfg(feature = "raft")]
     routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
-    #[cfg(feature = "modality-serving")]
     modality_authority: Option<handlers::modality::ModalityAuthority>,
-    method: Method,
-) -> Response
+}
+
+#[cfg(feature = "modality-serving")]
+async fn dispatch_op_served_modality(ctx: ServedModalityCtx<'_>, method: Method) -> Response
 {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let caller = ctx.caller;
+    let verified_context = ctx.verified_context;
+    let tenant_scope = ctx.tenant_scope;
+    let gateway_authz_ctx = ctx.gateway_authz_ctx;
+    let core = ctx.core;
+    let materialization_manifest = ctx.materialization_manifest;
+    let persistence = ctx.persistence;
+    #[cfg(feature = "streaming")]
+    let cdc = ctx.cdc;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    let modality_authority = ctx.modality_authority;
     let Method::ServedModality { op } = &method else { unreachable!("dispatch_op_served_modality: classifier/handler diverged") };
         if op.mutates() && persistence.is_none() {
             return Response::err(
@@ -8243,7 +8300,7 @@ async fn dispatch_op_served_modality(
                     graph_name,
                     *graph_type,
                     req_id,
-                    &tenant_scope,
+                    tenant_scope,
                     &principal_fingerprint,
                     &core,
                     backend,
@@ -8257,7 +8314,7 @@ async fn dispatch_op_served_modality(
         let ctx = crate::server::mutation::MutationCtx {
             req_id,
             caller,
-            tenant_scope: &tenant_scope,
+            tenant_scope,
             graph_name,
             graph_type: *graph_type,
             owner: owner.as_deref(),
@@ -8280,6 +8337,20 @@ async fn dispatch_op_served_modality(
         .await;
     }
 
+/// The resolved request identity the Raft write-routing barrier replays into
+/// the consensus entry. Bundled to keep the barrier at the documented parameter
+/// cap; `routed` and `method` stay explicit because the caller's
+/// `if let Some(routed)` is what proves the barrier applies at all.
+#[cfg(feature = "raft")]
+struct RaftWriteBarrierCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &'a str,
+    verified_context: &'a VerifiedRequestContext,
+    tenant_scope: &'a str,
+    graph_type: crate::protocol::GraphType,
+}
+
 /// Replicate one durable mutation through Raft consensus instead of applying it
 /// locally.
 ///
@@ -8289,15 +8360,18 @@ async fn dispatch_op_served_modality(
 /// ownership of `method` for the local pipeline below.
 #[cfg(feature = "raft")]
 async fn dispatch_op_raft_write_routing_barrier(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    graph_name: &str,
-    verified_context: &VerifiedRequestContext,
-    tenant_scope: &str,
-    graph_type: crate::protocol::GraphType,
+    ctx: RaftWriteBarrierCtx<'_>,
     routed: crate::raft::multi::RoutedRaftHandle,
     method: Method,
 ) -> Response {
+        let RaftWriteBarrierCtx {
+            state,
+            req_id,
+            graph_name,
+            verified_context,
+            tenant_scope,
+            graph_type,
+        } = ctx;
         let created_at_ms = authoritative_now_ms();
         let batch_id = crate::server::mutation_batch::opaque_request_key(
             "raft-rpc", graph_name, req_id, &method,
@@ -8409,6 +8483,20 @@ async fn check_change_envelope_placement_fence(
     Ok(())
 }
 
+/// The already-resolved graph/placement identity a replicated ChangeEnvelope
+/// commit needs; the envelope and its leader-selected timestamp stay explicit
+/// because they are what is actually being replicated.
+#[cfg(feature = "raft")]
+struct ChangeEnvelopeReplicaCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &'a str,
+    graph_type: crate::protocol::GraphType,
+    tenant_scope: &'a str,
+    fname: &'a str,
+    routed_raft: Option<&'a crate::raft::multi::RoutedRaftHandle>,
+}
+
 /// Attempt the clustered replication path for `ApplyChangeEnvelope`: one log
 /// entry, one native transaction on every replica, leader-selected timestamp
 /// for byte-stable replay/follower records. `Some(resp)` means the request
@@ -8417,16 +8505,19 @@ async fn check_change_envelope_placement_fence(
 /// through to the local `commit_change_envelope` path.
 #[cfg(feature = "raft")]
 async fn try_replicate_change_envelope(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    graph_name: &str,
-    graph_type: crate::protocol::GraphType,
-    tenant_scope: &str,
+    ctx: ChangeEnvelopeReplicaCtx<'_>,
     envelope: &eg_types::change_envelope::ChangeEnvelope,
     committed_at_ms: u64,
-    fname: &str,
-    routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
 ) -> Option<Response> {
+    let ChangeEnvelopeReplicaCtx {
+        state,
+        req_id,
+        graph_name,
+        graph_type,
+        tenant_scope,
+        fname,
+        routed_raft,
+    } = ctx;
     let routed = routed_raft?;
     let mutation = match crate::raft::RaftMutationContext::from_verified_request(
         envelope.mutation.batch_id.clone(),
@@ -8486,19 +8577,37 @@ async fn try_replicate_change_envelope(
     })
 }
 
-async fn dispatch_change_env_apply_change_envelope(
-    state: &Arc<RwLock<ServerState>>,
+/// The resolved graph context a single-envelope `ApplyChangeEnvelope` commit
+/// runs against: the live core, its durability backend, the placement route and
+/// the tenant authority. Bundled to keep the dispatcher at the documented
+/// parameter cap.
+struct ApplyChangeEnvelopeCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
     req_id: u64,
-    graph_name: &str,
+    graph_name: &'a str,
     core: Arc<crate::graph::GraphCore>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     #[cfg(feature = "raft")]
     routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
     #[cfg(feature = "raft")]
     graph_type: crate::protocol::GraphType,
-    tenant_scope: &str,
+    tenant_scope: &'a str,
+}
+
+async fn dispatch_change_env_apply_change_envelope(
+    ctx: ApplyChangeEnvelopeCtx<'_>,
     method: Method,
 ) -> Response {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let core = ctx.core;
+    let persistence = ctx.persistence;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    #[cfg(feature = "raft")]
+    let graph_type = ctx.graph_type;
+    let tenant_scope = ctx.tenant_scope;
     match method {
         Method::ApplyChangeEnvelope { envelope } => {
             if let Err(resp) = check_change_envelope_placement_fence(
@@ -8536,15 +8645,17 @@ async fn dispatch_change_env_apply_change_envelope(
 
             #[cfg(feature = "raft")]
             if let Some(resp) = try_replicate_change_envelope(
-                state,
-                req_id,
-                graph_name,
-                graph_type,
-                &tenant_scope,
+                ChangeEnvelopeReplicaCtx {
+                    state,
+                    req_id,
+                    graph_name,
+                    graph_type,
+                    tenant_scope,
+                    fname: &fname,
+                    routed_raft: routed_raft.as_ref(),
+                },
                 &envelope,
                 committed_at_ms,
-                &fname,
-                routed_raft.as_ref(),
             )
             .await
             {
@@ -8570,7 +8681,7 @@ async fn dispatch_change_env_apply_change_envelope(
                     .err()
             };
             let result = change_envelope_result(&committed, projection_error.is_some());
-            return Response::ok(req_id, ResultPayload::Json(result));
+            Response::ok(req_id, ResultPayload::Json(result))
         }
         _ => unreachable!("dispatch_change_env_apply_change_envelope: classifier/handler diverged"),
     }
@@ -8694,10 +8805,10 @@ async fn dispatch_change_env_apply_change_envelopes(
                 committed_at_ms,
             )
             .await;
-            return Response::ok(
+            Response::ok(
                 req_id,
                 ResultPayload::Json(serde_json::json!({ "results": results })),
-            );
+            )
         }
         _ => unreachable!("dispatch_change_env_apply_change_envelopes: classifier/handler diverged"),
     }
@@ -9083,16 +9194,18 @@ async fn dispatch_graph_op_inner(
     let method = match method {
                 method @ Method::ApplyChangeEnvelope { .. } => {
             return dispatch_change_env_apply_change_envelope(
-                state,
-                req_id,
-                graph_name,
-                core.clone(),
-                persistence.clone(),
-                #[cfg(feature = "raft")]
-                routed_raft.clone(),
-                #[cfg(feature = "raft")]
-                graph_type,
-                &tenant_scope,
+                ApplyChangeEnvelopeCtx {
+                    state,
+                    req_id,
+                    graph_name,
+                    core: core.clone(),
+                    persistence: persistence.clone(),
+                    #[cfg(feature = "raft")]
+                    routed_raft: routed_raft.clone(),
+                    #[cfg(feature = "raft")]
+                    graph_type,
+                    tenant_scope: &tenant_scope,
+                },
                 method,
             )
             .await
@@ -9170,15 +9283,17 @@ async fn dispatch_graph_op_inner(
     // digest is compared to the verified principal before redb sees the row.
     if crate::server::mutation_batch::is_capacity_method(&method) {
         return dispatch_op_capacity_ops(
-            req_id,
-            graph_name,
-            verified_context,
+            NativeOpCtx {
+                req_id,
+                graph_name,
+                verified_context,
+                persistence: persistence.clone(),
+                #[cfg(feature = "raft")]
+                multi_raft: multi_raft.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft: routed_raft.clone(),
+            },
             state_machine_authorized,
-            persistence.clone(),
-            #[cfg(feature = "raft")]
-            multi_raft.clone(),
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
             method,
         )
         .await;
@@ -9193,16 +9308,18 @@ async fn dispatch_graph_op_inner(
         Method::MintWorkItemClaimCapability { .. } | Method::VerifyWorkItemClaimCapability { .. }
     ) {
         return dispatch_op_workitem_claim_capability(
-            req_id,
-            graph_name,
-            verified_context,
+            NativeOpCtx {
+                req_id,
+                graph_name,
+                verified_context,
+                persistence: persistence.clone(),
+                #[cfg(feature = "raft")]
+                multi_raft: multi_raft.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft: routed_raft.clone(),
+            },
             #[cfg(feature = "redb")]
             graph_incarnation_id.clone(),
-            persistence.clone(),
-            #[cfg(feature = "raft")]
-            multi_raft.clone(),
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
             method,
         )
         .await;
@@ -9281,19 +9398,20 @@ async fn dispatch_graph_op_inner(
     #[cfg(feature = "knowledge-batch")]
     if matches!(&method, Method::KnowledgeStream { .. }) {
         return dispatch_op_knowledge_stream(
-            state,
-            req_id,
-            graph_name,
-            verified_context,
-            &read_authority,
-            verified_actor,
-            core.clone(),
-            #[cfg(feature = "security")]
-            rls.clone(),
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
-            #[cfg(feature = "knowledge-batch")]
-            knowledge_stream_authority.clone(),
+            KnowledgeStreamCtx {
+                state,
+                req_id,
+                graph_name,
+                verified_context,
+                read_authority: &read_authority,
+                verified_actor,
+                core: core.clone(),
+                #[cfg(feature = "security")]
+                rls: rls.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft: routed_raft.clone(),
+                knowledge_stream_authority: knowledge_stream_authority.clone(),
+            },
             method,
         )
         .await;
@@ -9359,22 +9477,23 @@ async fn dispatch_graph_op_inner(
     #[cfg(feature = "modality-serving")]
     if matches!(&method, Method::ServedModality { .. }) {
         return dispatch_op_served_modality(
-            state,
-            req_id,
-            graph_name,
-            caller,
-            verified_context,
-            &tenant_scope,
-            &gateway_authz_ctx,
-            core.clone(),
-            materialization_manifest.clone(),
-            persistence.clone(),
-            #[cfg(feature = "streaming")]
-            cdc.clone(),
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
-            #[cfg(feature = "modality-serving")]
-            modality_authority.clone(),
+            ServedModalityCtx {
+                state,
+                req_id,
+                graph_name,
+                caller,
+                verified_context,
+                tenant_scope: &tenant_scope,
+                gateway_authz_ctx: &gateway_authz_ctx,
+                core: core.clone(),
+                materialization_manifest: materialization_manifest.clone(),
+                persistence: persistence.clone(),
+                #[cfg(feature = "streaming")]
+                cdc: cdc.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft: routed_raft.clone(),
+                modality_authority: modality_authority.clone(),
+            },
             method.clone(),
         )
         .await;
@@ -9394,12 +9513,14 @@ async fn dispatch_graph_op_inner(
     if let Some(routed) = routed_raft.filter(|_| crate::mutation_apply::is_durable_mutation(&method))
     {
         return dispatch_op_raft_write_routing_barrier(
-            state,
-            req_id,
-            graph_name,
-            verified_context,
-            &tenant_scope,
-            graph_type,
+            RaftWriteBarrierCtx {
+                state,
+                req_id,
+                graph_name,
+                verified_context,
+                tenant_scope: &tenant_scope,
+                graph_type,
+            },
             routed,
             method,
         )
@@ -9410,25 +9531,27 @@ async fn dispatch_graph_op_inner(
 
 
     let response = run_dispatch_pipeline(
-        state,
-        req_id,
-        graph_name,
-        caller,
-        read_authority.clone(),
-        verified_actor,
-        tenant_scope.clone(),
-        gateway_authz_ctx.clone(),
-        core.clone(),
-        materialization_manifest.clone(),
-        persistence.clone(),
-        #[cfg(feature = "streaming")]
-        cdc.clone(),
-        write_coalescer.clone(),
-        routed_write_coalescer.clone(),
-        #[cfg(feature = "security")]
-        rls.clone(),
-        #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
-        tsdb_store.clone(),
+        DispatchPipelineCtx {
+            state,
+            req_id,
+            graph_name,
+            caller,
+            read_authority: read_authority.clone(),
+            verified_actor,
+            tenant_scope: tenant_scope.clone(),
+            gateway_authz_ctx: gateway_authz_ctx.clone(),
+            core: core.clone(),
+            materialization_manifest: materialization_manifest.clone(),
+            persistence: persistence.clone(),
+            #[cfg(feature = "streaming")]
+            cdc: cdc.clone(),
+            write_coalescer: write_coalescer.clone(),
+            routed_write_coalescer: routed_write_coalescer.clone(),
+            #[cfg(feature = "security")]
+            rls: rls.clone(),
+            #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
+            tsdb_store: tsdb_store.clone(),
+        },
         method,
     )
     .await;
@@ -9520,25 +9643,59 @@ fn check_materialization_valid(
 }
 
 
-#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-async fn route_query_gateway(
-    state: &Arc<RwLock<ServerState>>,
+/// Everything the runtime-conditional query/RDF gateways need from the resolved
+/// request, bundled so each router stays at the documented parameter cap. The
+/// borrowed/owned split matches how `run_dispatch_pipeline` already held these
+/// values: identity and authz captures are borrowed, the `Arc` handles are
+/// cloned per stage because the mutation gateway moves them into an async apply
+/// closure. Same shape as `crate::server::mutation::MutationCtx`.
+#[cfg(any(
+    feature = "query",
+    feature = "cypher",
+    feature = "graphql",
+    feature = "rdf"
+))]
+struct GatewayRouteCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
     req_id: u64,
-    graph_name: &str,
-    caller: Option<&str>,
-    tenant_scope: &str,
+    graph_name: &'a str,
+    caller: Option<&'a str>,
+    tenant_scope: &'a str,
     core: Arc<crate::graph::GraphCore>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     #[cfg(feature = "streaming")]
     cdc: Option<Arc<crate::server::cdc::CdcHub>>,
-    materialization_manifest: Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
-    gateway_authz_ctx: &Option<crate::server::mutation::GatewayAuthzCtx>,
-    read_authority: &Option<GraphReadAuthority>,
-    verified_actor: &str,
+    materialization_manifest:
+        Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
+    gateway_authz_ctx: &'a Option<crate::server::mutation::GatewayAuthzCtx>,
+    read_authority: &'a Option<GraphReadAuthority>,
+    verified_actor: &'a str,
     #[cfg(feature = "security")]
     rls: std::sync::Arc<crate::isolation::IsolationLayer>,
+}
+
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+async fn route_query_gateway(
+    ctx: GatewayRouteCtx<'_>,
     method: Method,
 ) -> Result<Response, Method> {
+    let GatewayRouteCtx {
+        state,
+        req_id,
+        graph_name,
+        caller,
+        tenant_scope,
+        core,
+        persistence,
+        #[cfg(feature = "streaming")]
+        cdc,
+        materialization_manifest,
+        gateway_authz_ctx,
+        read_authority,
+        verified_actor,
+        #[cfg(feature = "security")]
+        rls,
+    } = ctx;
     if crate::server::mutation::is_query_gateway_method(&method)
         && !crate::server::mutation::is_query_native_coordinator(&method)
     {
@@ -9624,23 +9781,26 @@ async fn route_query_gateway(
 
 #[cfg(feature = "rdf")]
 async fn route_rdf_gateway(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    graph_name: &str,
-    caller: Option<&str>,
-    tenant_scope: &str,
-    core: Arc<crate::graph::GraphCore>,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    #[cfg(feature = "streaming")]
-    cdc: Option<Arc<crate::server::cdc::CdcHub>>,
-    materialization_manifest: Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
-    gateway_authz_ctx: &Option<crate::server::mutation::GatewayAuthzCtx>,
-    read_authority: &Option<GraphReadAuthority>,
-    verified_actor: &str,
-    #[cfg(feature = "security")]
-    rls: std::sync::Arc<crate::isolation::IsolationLayer>,
+    ctx: GatewayRouteCtx<'_>,
     method: Method,
 ) -> Result<Response, Method> {
+    let GatewayRouteCtx {
+        state,
+        req_id,
+        graph_name,
+        caller,
+        tenant_scope,
+        core,
+        persistence,
+        #[cfg(feature = "streaming")]
+        cdc,
+        materialization_manifest,
+        gateway_authz_ctx,
+        read_authority,
+        verified_actor,
+        #[cfg(feature = "security")]
+        rls,
+    } = ctx;
     if crate::server::mutation::is_rdf_gateway_method(&method) {
         let plan = crate::server::mutation::MutationPlan::for_method(&method);
         let (iso, gtype, owner) = gateway_authz_ctx
@@ -9719,28 +9879,57 @@ async fn route_rdf_gateway(
     }
 }
 
-async fn run_dispatch_pipeline(
-    state: &Arc<RwLock<ServerState>>,
+/// Everything [`run_dispatch_pipeline`] routes with, resolved once per request
+/// by `dispatch_graph_op`: the caller's verified identity and read authority,
+/// the live graph core with its durability/CDC/materialization handles, and the
+/// two write coalescers. Bundled so the pipeline keeps ONE routing parameter
+/// beside the method it is routing, instead of a seventeen-long list.
+struct DispatchPipelineCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
     req_id: u64,
-    graph_name: &str,
-    caller: Option<&str>,
+    graph_name: &'a str,
+    caller: Option<&'a str>,
     read_authority: Option<GraphReadAuthority>,
-    verified_actor: &str,
+    verified_actor: &'a str,
     tenant_scope: String,
     gateway_authz_ctx: Option<crate::server::mutation::GatewayAuthzCtx>,
     core: Arc<crate::graph::GraphCore>,
-    materialization_manifest: Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
+    materialization_manifest:
+        Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     #[cfg(feature = "streaming")]
     cdc: Option<Arc<crate::server::cdc::CdcHub>>,
     write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
-    routed_write_coalescer: Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
+    routed_write_coalescer:
+        Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
     #[cfg(feature = "security")]
     rls: std::sync::Arc<crate::isolation::IsolationLayer>,
     #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
     tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
-    method: Method,
-) -> Response {
+}
+
+async fn run_dispatch_pipeline(ctx: DispatchPipelineCtx<'_>, method: Method) -> Response {
+    let DispatchPipelineCtx {
+        state,
+        req_id,
+        graph_name,
+        caller,
+        read_authority,
+        verified_actor,
+        tenant_scope,
+        gateway_authz_ctx,
+        core,
+        materialization_manifest,
+        persistence,
+        #[cfg(feature = "streaming")]
+        cdc,
+        write_coalescer,
+        routed_write_coalescer,
+        #[cfg(feature = "security")]
+        rls,
+        #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
+        tsdb_store,
+    } = ctx;
 'dispatch: {
         // Mutation-gateway routing (CONCEPT:EG-P0-2): the primary CRUD + agent-
         // memory writes (`mutation::GATEWAY_ROUTED`) are routed through the
@@ -9872,21 +10061,23 @@ async fn run_dispatch_pipeline(
         // the unchanged direct call in the `else` arm.
         #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
         let method = match route_query_gateway(
-            state,
-            req_id,
-            graph_name,
-            caller,
-            &tenant_scope,
-            core.clone(),
-            persistence.clone(),
-            #[cfg(feature = "streaming")]
-            cdc.clone(),
-            materialization_manifest.clone(),
-            &gateway_authz_ctx,
-            &read_authority,
-            verified_actor,
-            #[cfg(feature = "security")]
-            rls.clone(),
+            GatewayRouteCtx {
+                state,
+                req_id,
+                graph_name,
+                caller,
+                tenant_scope: &tenant_scope,
+                core: core.clone(),
+                persistence: persistence.clone(),
+                #[cfg(feature = "streaming")]
+                cdc: cdc.clone(),
+                materialization_manifest: materialization_manifest.clone(),
+                gateway_authz_ctx: &gateway_authz_ctx,
+                read_authority: &read_authority,
+                verified_actor,
+                #[cfg(feature = "security")]
+                rls: rls.clone(),
+            },
             method,
         )
         .await
@@ -9911,21 +10102,23 @@ async fn run_dispatch_pipeline(
         // call in the `else` arm.
         #[cfg(feature = "rdf")]
         let method = match route_rdf_gateway(
-            state,
-            req_id,
-            graph_name,
-            caller,
-            &tenant_scope,
-            core.clone(),
-            persistence.clone(),
-            #[cfg(feature = "streaming")]
-            cdc.clone(),
-            materialization_manifest.clone(),
-            &gateway_authz_ctx,
-            &read_authority,
-            verified_actor,
-            #[cfg(feature = "security")]
-            rls.clone(),
+            GatewayRouteCtx {
+                state,
+                req_id,
+                graph_name,
+                caller,
+                tenant_scope: &tenant_scope,
+                core: core.clone(),
+                persistence: persistence.clone(),
+                #[cfg(feature = "streaming")]
+                cdc: cdc.clone(),
+                materialization_manifest: materialization_manifest.clone(),
+                gateway_authz_ctx: &gateway_authz_ctx,
+                read_authority: &read_authority,
+                verified_actor,
+                #[cfg(feature = "security")]
+                rls: rls.clone(),
+            },
             method,
         )
         .await
