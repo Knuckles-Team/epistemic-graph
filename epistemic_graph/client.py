@@ -2459,23 +2459,33 @@ def _bytes(name: str, value: Any, *, allow_empty: bool = True) -> bytes:
     return value
 
 
+def _is_opaque_ref_segment(part: str) -> bool:
+    """One non-terminal reference segment: bounded lowercase ascii/digits/``_-``."""
+    return (
+        bool(part)
+        and len(part) <= 32
+        and all(
+            char.isascii() and (char.islower() or char.isdigit() or char in "_-")
+            for char in part
+        )
+    )
+
+
+def _is_opaque_ref_digest(part: str) -> bool:
+    """The terminal segment: 16..128 lowercase hex characters."""
+    return 16 <= len(part) <= 128 and all(
+        char in "0123456789abcdef" for char in part
+    )
+
+
 def _opaque_ref(name: str, value: Any, *, namespace: str | None = None) -> str:
     reference = _string(name, value)
     parts = reference.split(":")
     valid = (
         3 <= len(parts) <= 6
         and parts[0] == "eg"
-        and all(
-            part
-            and len(part) <= 32
-            and all(
-                char.isascii() and (char.islower() or char.isdigit() or char in "_-")
-                for char in part
-            )
-            for part in parts[1:-1]
-        )
-        and 16 <= len(parts[-1]) <= 128
-        and all(char in "0123456789abcdef" for char in parts[-1])
+        and all(_is_opaque_ref_segment(part) for part in parts[1:-1])
+        and _is_opaque_ref_digest(parts[-1])
     )
     if not valid or (namespace is not None and parts[1] != namespace):
         expected = f" in the {namespace!r} namespace" if namespace else ""
@@ -9975,6 +9985,115 @@ def _is_bounded_cursor(cursor: Any) -> bool:
     )
 
 
+class _EnvelopeV2(NamedTuple):
+    """Everything the `eg2.` envelope MAC and its JSON payload are built from."""
+
+    request_id: int
+    graph: str
+    method: str
+    body_hash: str
+    context: RequestContextClaims
+    roles: list[str]
+    scopes: list[str]
+    delegation: list[str]
+    timestamp: int
+    nonce: str
+    idempotency_key: str
+    node_id: str | None
+    priority: str | None
+
+
+def _derive_rpc_idempotency_key(
+    request: dict[str, Any], method_name: str, body_hash: str
+) -> str:
+    """The deterministic default idempotency key for one RPC."""
+    material = (
+        f"{request['id']}\0{request['graph']}\0{method_name}\0{body_hash}"
+    ).encode()
+    return "rpc:sha256:" + hashlib.sha256(material).hexdigest()
+
+
+def _stripped_claim(context: Any, key: str) -> str | None:
+    """A non-empty optional string claim, stripped; ``None`` when absent/blank."""
+    value = context.get(key)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _envelope_node_id(context: Any, connection_node_id: str | None) -> str | None:
+    """ADR-3 / W1.9 node-bound envelopes.
+
+    An explicit `node` claim on the effective verified_context wins (a caller
+    deliberately overrode it, e.g. via `use_verified_context`); otherwise fall
+    back to this CONNECTION's own `node_id` (set by `connect()`/
+    `ConnectionPool`, i.e. which endpoint this client actually talks to).
+    `None` when neither is known -- the common case today, absent any topology
+    discovery -- and the claim is omitted entirely, exactly like a client built
+    before node binding existed.
+    """
+    node_id = context.get("node")
+    if not isinstance(node_id, str) or not node_id.strip():
+        return connection_node_id
+    return node_id
+
+
+def _envelope_v2_bytes(env: _EnvelopeV2) -> bytes:
+    """The canonical MAC bytes -- byte-for-byte the Rust `build_envelope_v2_bytes`."""
+    context = env.context
+    canonical = bytearray()
+    _put_v2_text(canonical, "eg-envelope-v2")
+    canonical.extend(env.request_id.to_bytes(8, "big"))
+    _put_v2_text(canonical, env.graph)
+    _put_v2_text(canonical, env.method)
+    _put_v2_text(canonical, env.body_hash)
+    _put_v2_text(canonical, str(context["principal"]))
+    _put_v2_text(canonical, str(context["tenant"]))
+    _put_v2_text(canonical, str(context["audience"]))
+    _put_v2_text(canonical, str(context["agent_id"]))
+    _put_v2_list(canonical, env.roles)
+    _put_v2_list(canonical, env.scopes)
+    _put_v2_text(canonical, str(context["policy_version"]))
+    _put_v2_list(canonical, env.delegation)
+    canonical.extend(env.timestamp.to_bytes(8, "big"))
+    _put_v2_text(canonical, env.nonce)
+    _put_v2_text(canonical, env.idempotency_key)
+    # Appended ONLY when a node id is known -- see `build_envelope_v2_bytes`
+    # (crates/eg-types/src/protocol.rs) for the matching Rust encoding and
+    # why this must stay byte-for-byte additive.
+    if env.node_id:
+        canonical.append(1)
+        _put_v2_text(canonical, env.node_id)
+    # W2.4 engine-native QoS lanes: the advisory admission-priority claim,
+    # MAC-covered as a SECOND optional trailer with a DISTINCT tag byte
+    # (`2`, vs the node trailer's `1`) so the two trailers stay unambiguous.
+    # Matches the Rust `build_envelope_v2_bytes` encoding byte-for-byte.
+    if env.priority:
+        canonical.append(2)
+        _put_v2_text(canonical, env.priority)
+    return bytes(canonical)
+
+
+def _envelope_v2_context_payload(env: _EnvelopeV2) -> dict[str, Any]:
+    """The JSON `context` object carried alongside the MAC."""
+    context = env.context
+    payload: dict[str, Any] = {
+        "principal": str(context["principal"]),
+        "tenant": str(context["tenant"]),
+        "audience": str(context["audience"]),
+        "agent_id": str(context["agent_id"]),
+        "roles": env.roles,
+        "scopes": env.scopes,
+        "policy_version": str(context["policy_version"]),
+        "delegation": env.delegation,
+    }
+    if env.node_id:
+        payload["node"] = env.node_id
+    if env.priority:
+        payload["priority"] = env.priority
+    return payload
+
+
 def _decode_send_result(result: Any) -> Any:
     """Decode the compact result encoding (engine Phase C-D).
 
@@ -13855,99 +13974,45 @@ class EpistemicGraphClient:
             request["params"] if "params" in request else None,
         )
         body_hash = hashlib.sha256(body).hexdigest()
-        if not idempotency_key:
-            material = (
-                f"{request['id']}\0{request['graph']}\0{method_name}\0{body_hash}"
-            ).encode()
-            idempotency_key = "rpc:sha256:" + hashlib.sha256(material).hexdigest()
-        timestamp = int(time.time())
-        nonce = secrets.token_hex(24)
-        roles = [str(value) for value in context.get("roles", [])]
-        scopes = [str(value) for value in context.get("scopes", [])]
-        delegation = [str(value) for value in context.get("delegation", [])]
-        # ADR-3 / W1.9 node-bound envelopes: an explicit `node` claim on the
-        # effective verified_context wins (a caller deliberately overrode it,
-        # e.g. via `use_verified_context`); otherwise fall back to this
-        # CONNECTION's own `node_id` (set by `connect()`/`ConnectionPool`,
-        # i.e. which endpoint this client actually talks to). `None` when
-        # neither is known -- the common case today, absent any topology
-        # discovery -- and the claim is omitted entirely, exactly like a
-        # client built before node binding existed.
-        node_id = context.get("node")
-        if not isinstance(node_id, str) or not node_id.strip():
-            node_id = self._node_id
-
-        canonical = bytearray()
-        _put_v2_text(canonical, "eg-envelope-v2")
-        canonical.extend(int(request["id"]).to_bytes(8, "big"))
-        _put_v2_text(canonical, str(request["graph"]))
-        _put_v2_text(canonical, method_name)
-        _put_v2_text(canonical, body_hash)
-        _put_v2_text(canonical, str(context["principal"]))
-        _put_v2_text(canonical, str(context["tenant"]))
-        _put_v2_text(canonical, str(context["audience"]))
-        _put_v2_text(canonical, str(context["agent_id"]))
-        _put_v2_list(canonical, roles)
-        _put_v2_list(canonical, scopes)
-        _put_v2_text(canonical, str(context["policy_version"]))
-        _put_v2_list(canonical, delegation)
-        canonical.extend(timestamp.to_bytes(8, "big"))
-        _put_v2_text(canonical, nonce)
-        _put_v2_text(canonical, idempotency_key)
-        # Appended ONLY when a node id is known -- see `build_envelope_v2_bytes`
-        # (crates/eg-types/src/protocol.rs) for the matching Rust encoding and
-        # why this must stay byte-for-byte additive.
-        if node_id:
-            canonical.append(1)
-            _put_v2_text(canonical, node_id)
-        # W2.4 engine-native QoS lanes: the advisory admission-priority claim,
-        # MAC-covered as a SECOND optional trailer with a DISTINCT tag byte
-        # (`2`, vs the node trailer's `1`) so the two trailers stay unambiguous.
-        # Matches the Rust `build_envelope_v2_bytes` encoding byte-for-byte.
-        priority = context.get("priority")
-        if isinstance(priority, str) and priority.strip():
-            priority = priority.strip()
-            canonical.append(2)
-            _put_v2_text(canonical, priority)
-        else:
-            priority = None
+        envelope_parts = _EnvelopeV2(
+            request_id=int(request["id"]),
+            graph=str(request["graph"]),
+            method=method_name,
+            body_hash=body_hash,
+            context=context,
+            roles=[str(value) for value in context.get("roles", [])],
+            scopes=[str(value) for value in context.get("scopes", [])],
+            delegation=[str(value) for value in context.get("delegation", [])],
+            timestamp=int(time.time()),
+            nonce=secrets.token_hex(24),
+            idempotency_key=(
+                idempotency_key
+                or _derive_rpc_idempotency_key(request, method_name, body_hash)
+            ),
+            node_id=_envelope_node_id(context, self._node_id),
+            priority=_stripped_claim(context, "priority"),
+        )
+        mac = hmac.new(
+            self._auth_secret.encode("utf-8"),
+            _envelope_v2_bytes(envelope_parts),
+            hashlib.sha256,
+        ).hexdigest()
+        envelope: dict[str, Any] = {
+            "context": _envelope_v2_context_payload(envelope_parts),
+            "timestamp": envelope_parts.timestamp,
+            "nonce": envelope_parts.nonce,
+            "idempotency_key": envelope_parts.idempotency_key,
+            "mac": mac,
+        }
         # ADR-4 decision 5: the optional OIDC bearer/assertion. Deliberately NOT
         # folded into the canonical MAC bytes (no tag-3 trailer) -- it rides as
-        # a SIBLING top-level envelope field below, matching the Rust decode
-        # shape (`EnvelopeV2.oidc_token`) and its own documented rationale: the
+        # a SIBLING top-level envelope field, matching the Rust decode shape
+        # (`EnvelopeV2.oidc_token`) and its own documented rationale: the
         # token's own RSA/JWKS signature is the trust anchor, and the engine's
         # `bind_verified_identity` independently cross-checks its subject/
         # tenant against this SAME `context`, so MAC coverage would add no
         # real protection (see `RequestContextClaims.oidc_token`'s docstring).
-        oidc_token = context.get("oidc_token")
-        if isinstance(oidc_token, str) and oidc_token.strip():
-            oidc_token = oidc_token.strip()
-        else:
-            oidc_token = None
-        mac = hmac.new(
-            self._auth_secret.encode("utf-8"), bytes(canonical), hashlib.sha256
-        ).hexdigest()
-        context_payload: dict[str, Any] = {
-            "principal": str(context["principal"]),
-            "tenant": str(context["tenant"]),
-            "audience": str(context["audience"]),
-            "agent_id": str(context["agent_id"]),
-            "roles": roles,
-            "scopes": scopes,
-            "policy_version": str(context["policy_version"]),
-            "delegation": delegation,
-        }
-        if node_id:
-            context_payload["node"] = node_id
-        if priority:
-            context_payload["priority"] = priority
-        envelope: dict[str, Any] = {
-            "context": context_payload,
-            "timestamp": timestamp,
-            "nonce": nonce,
-            "idempotency_key": idempotency_key,
-            "mac": mac,
-        }
+        oidc_token = _stripped_claim(context, "oidc_token")
         if oidc_token:
             envelope["oidc_token"] = oidc_token
         payload = json.dumps(
