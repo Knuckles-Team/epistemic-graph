@@ -651,4 +651,299 @@ mod tests {
         both.commit_descriptor_ref = Some("commit-1".into());
         both.validate().unwrap();
     }
+
+    // CXA-EG-03 characterization: `validate()` (CCN 90) pins every branch group
+    // below against the UNMODIFIED function ahead of decomposing it into named
+    // helpers. `minimal_envelope()` is a valid baseline, so each test mutates
+    // exactly one field/collection to trip exactly one Err branch, proving the
+    // assertion actually depends on that branch (each was confirmed to FAIL
+    // against a deliberately broken helper during the refactor step, not just
+    // shown green here).
+
+    #[test]
+    fn schema_version_mismatch_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.schema_version = CHANGE_ENVELOPE_VERSION + 1;
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("unsupported ChangeEnvelope version"), "got: {err}");
+    }
+
+    #[test]
+    fn empty_envelope_id_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.envelope_id = String::new();
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("envelope_id must not be empty"), "got: {err}");
+    }
+
+    #[test]
+    fn unsafe_text_in_core_mutation_field_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.tenant = "person@example.invalid".into();
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    // NOTE (CXA-EG-03 finding, not a test): `ChangeEnvelope::validate`'s own
+    // principal/digest re-check (the `strip_prefix("principal:sha256:")` +
+    // `validate_digest` pair right after `self.mutation.validate()?`) is
+    // unreachable in practice. `self.mutation.validate()?` runs FIRST and
+    // already enforces `principal:sha256:` + exactly 64 LOWERCASE hex chars
+    // (`crates/eg-types/src/mutation_batch.rs:243` validate, principal check
+    // ~line 255) -- a strictly narrower acceptance set than this function's
+    // own `is_ascii_hexdigit()`-based recheck (which also accepts uppercase
+    // A-F). Any principal that clears the first gate therefore always clears
+    // the second; no input can trigger this function's own principal Err
+    // branches. Confirmed by attempting exactly that: both
+    // `principal:sha256:` missing and a too-short digest are caught by
+    // `mutation.validate()` first (error text "mutation principal authority
+    // must be an opaque digest"), never by this function's own
+    // "durable mutation principal must be an opaque sha256 id" /
+    // "content digest must be 64 hexadecimal characters" branches. See
+    // BUGS FOUND in the lane report. Verbatim-moved during the refactor
+    // below, not deleted (not "genuinely dead" per the 5-evidence-check bar,
+    // and behaviour-preservation forbids touching it in this lane anyway).
+
+    #[test]
+    fn unsafe_optional_context_field_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.context.purpose = Some("/home/person/notes".into());
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn outbox_intent_unsafe_topic_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.outbox.push(crate::mutation_batch::MutationOutboxIntent {
+            topic: "topic@bad".into(),
+            key: "key-1".into(),
+            payload: rmp_serde::to_vec_named(&serde_json::json!({"a": 1})).unwrap(),
+            headers: Default::default(),
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn outbox_intent_privacy_violating_payload_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.outbox.push(crate::mutation_batch::MutationOutboxIntent {
+            topic: "topic-1".into(),
+            key: "key-1".into(),
+            payload: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/person/x"}))
+                .unwrap(),
+            headers: Default::default(),
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn empty_content_object_id_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.content_version.object_id = String::new();
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("content object_id must not be empty"), "got: {err}");
+    }
+
+    #[test]
+    fn malformed_content_digest_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.content_version.digest = "not-hex".into();
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("64 hexadecimal"), "got: {err}");
+    }
+
+    #[test]
+    fn content_version_cannot_replace_itself() {
+        let mut envelope = minimal_envelope();
+        let digest = envelope.content_version.digest.clone();
+        envelope.content_version.previous_digest = Some(digest);
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("cannot replace itself"), "got: {err}");
+    }
+
+    #[test]
+    fn empty_privacy_versions_are_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.privacy.policy_version = String::new();
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("privacy policy and sanitizer versions are required"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn malformed_privacy_digest_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.privacy.sanitized_payload_digest = "short".into();
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("64 hexadecimal"), "got: {err}");
+    }
+
+    #[test]
+    fn cursor_with_empty_source_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.cursor = Some(ChangeCursor {
+            source: String::new(),
+            partition: "p0".into(),
+            position: CursorPosition::Sequence(1),
+            expected_previous: None,
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("cursor source must not be empty"), "got: {err}");
+    }
+
+    #[test]
+    fn cursor_opaque_unsafe_text_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.cursor = Some(ChangeCursor {
+            source: "src-1".into(),
+            partition: "p0".into(),
+            position: CursorPosition::Opaque {
+                cursor_type: "page_token".into(),
+                value: "cursor@bad".into(),
+            },
+            expected_previous: None,
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn source_version_opaque_unsafe_text_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.content_version.source_version = ContentVersionPosition::Opaque {
+            version_type: "vtype@bad".into(),
+            value: "v1".into(),
+        };
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn policy_tenant_mismatch_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.policies[0].tenant = "other-tenant".into();
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("policy tenant does not match mutation tenant"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn policy_missing_required_fields_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.policies[0].classification = String::new();
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("policy object, classification, and policy version are required"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn blob_missing_identity_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.blobs.push(BlobReference {
+            blob_id: String::new(),
+            operation: MaterialOperation::Upsert,
+            digest_algorithm: "sha256".into(),
+            digest: "a".repeat(64),
+            media_type: "application/octet-stream".into(),
+            length: 0,
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("blob identity and media type are required"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn evidence_without_matching_policy_is_rejected_for_missing_governance() {
+        let mut envelope = minimal_envelope();
+        envelope.evidence.push(EvidenceRecord {
+            evidence_id: "ev-1".into(),
+            operation: MaterialOperation::Upsert,
+            object_id: "ungoverned-object".into(),
+            modality: "text".into(),
+            locus_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"a": 1})).unwrap(),
+            content_digest: "d".repeat(64),
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("no policy proof for material object"), "got: {err}");
+    }
+
+    #[test]
+    fn feature_with_privacy_violating_value_is_rejected() {
+        let mut envelope = minimal_envelope();
+        // Governed by the fixture's existing policy (object-1) so the failure
+        // observed is the privacy scan, not the governance-proof check.
+        envelope.features.push(FeatureRecord {
+            feature_id: "feat-1".into(),
+            operation: MaterialOperation::Upsert,
+            object_id: "object-1".into(),
+            kind: "embedding".into(),
+            value_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/x"}))
+                .unwrap(),
+            model_version: "v1".into(),
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn lineage_with_malformed_parent_digest_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.lineage.push(LineageRecord {
+            lineage_id: "lin-1".into(),
+            operation: MaterialOperation::Upsert,
+            object_id: "object-1".into(),
+            source_artifact_digest: "a".repeat(64),
+            transform_name: "transform".into(),
+            transform_version: "v1".into(),
+            parent_content_digests: vec!["not-hex".into()],
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("64 hexadecimal"), "got: {err}");
+    }
+
+    #[test]
+    fn operation_addnode_unsafe_node_id_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.operations[0].method = crate::protocol::Method::AddNode {
+            node_id: "node@bad".into(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": 1}))
+                .unwrap(),
+        };
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn operation_addnode_privacy_violating_properties_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.operations[0].method = crate::protocol::Method::AddNode {
+            node_id: "n1".into(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/x"}))
+                .unwrap(),
+        };
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn operation_removeedge_unsafe_ids_are_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.operations[0].method = crate::protocol::Method::RemoveEdge {
+            source_id: "s@bad".into(),
+            target_id: "t1".into(),
+        };
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
 }
