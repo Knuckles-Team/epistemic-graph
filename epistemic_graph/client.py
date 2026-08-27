@@ -592,6 +592,25 @@ def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> No
     if not isinstance(method, str) or not isinstance(params, dict):
         return
 
+    _mark_method_f32_direct_fields(method, params, path=path)
+
+    if method == "Viz":
+        _mark_method_f32_viz(params)
+
+    if method == "KnowledgeStream":
+        _mark_method_f32_knowledge_stream(params, path=path)
+    elif method == "ServedModality":
+        _mark_method_f32_served_modality(params, path=path)
+    elif method == "ApplyChangeEnvelope":
+        _mark_method_f32_apply_change_envelope(params, path=path)
+    elif method == "ApplyChangeEnvelopes":
+        _mark_method_f32_apply_change_envelopes(params, path=path)
+
+
+def _mark_method_f32_direct_fields(method: str, params: dict[str, Any], *, path: str) -> None:
+    """BTreeMap key-sort, ``DsPredictEstimator`` model canonicalization, direct f32
+    vector fields, and Plan f32 fields -- every schema-declared shape that is keyed
+    directly off ``method`` rather than requiring its own nested parse."""
     for field in _BTREEMAP_SORTED_FIELDS.get(method, ()):
         _sort_btreemap_field(params, field)
 
@@ -607,82 +626,91 @@ def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> No
             path=f"{path}.{method}.params.plan",
         )
 
-    if method == "Viz":
-        op = params.get("op")
-        render = op.get("Render") if isinstance(op, dict) else None
-        if isinstance(render, dict):
-            if "spec_json" in render:
-                render["spec_json"] = _sorted_json_value(render["spec_json"])
-            dataset = render.get("dataset")
-            inline = dataset.get("InlineColumns") if isinstance(dataset, dict) else None
-            if isinstance(inline, dict):
-                _sort_btreemap_field(inline, "columns")
 
-    if method == "KnowledgeStream":
-        request = params.get("request")
-        query = request.get("query") if isinstance(request, dict) else None
-        if isinstance(query, dict) and query.get("family") == "vector":
-            _mark_f32_vector(
-                query,
-                "query_embedding",
-                path=f"{path}.KnowledgeStream.request.query.query_embedding",
+def _mark_method_f32_viz(params: dict[str, Any]) -> None:
+    op = params.get("op")
+    render = op.get("Render") if isinstance(op, dict) else None
+    if not isinstance(render, dict):
+        return
+    if "spec_json" in render:
+        render["spec_json"] = _sorted_json_value(render["spec_json"])
+    dataset = render.get("dataset")
+    inline = dataset.get("InlineColumns") if isinstance(dataset, dict) else None
+    if isinstance(inline, dict):
+        _sort_btreemap_field(inline, "columns")
+
+
+def _mark_method_f32_knowledge_stream(params: dict[str, Any], *, path: str) -> None:
+    request = params.get("request")
+    query = request.get("query") if isinstance(request, dict) else None
+    if not (isinstance(query, dict) and query.get("family") == "vector"):
+        return
+    _mark_f32_vector(
+        query,
+        "query_embedding",
+        path=f"{path}.KnowledgeStream.request.query.query_embedding",
+    )
+
+
+def _mark_method_f32_served_modality(params: dict[str, Any], *, path: str) -> None:
+    operation = params.get("op")
+    predicate = operation.get("predicate") if isinstance(operation, dict) else None
+    if not (isinstance(predicate, dict) and predicate.get("predicate") == "audio_window"):
+        return
+    _mark_f32_scalar(
+        predicate,
+        "minimum_rms",
+        path=f"{path}.ServedModality.op.predicate.minimum_rms",
+    )
+
+
+def _mark_method_f32_apply_change_envelope(params: dict[str, Any], *, path: str) -> None:
+    # The sole typed nested-Method carrier is
+    # ChangeEnvelope.mutation.operations[].method. Do not recursively inspect
+    # arbitrary maps: GraphQl.variables and GraphLearnPredict.model are
+    # serde_json::Value and keys named ``method``/``plan`` remain ordinary JSON.
+    envelope = params.get("envelope")
+    mutation = envelope.get("mutation") if isinstance(envelope, dict) else None
+    operations = mutation.get("operations") if isinstance(mutation, dict) else None
+    if not isinstance(operations, list):
+        return
+    for index, operation in enumerate(operations):
+        nested_method = operation.get("method") if isinstance(operation, dict) else None
+        if isinstance(nested_method, dict):
+            _mark_method_f32(
+                nested_method,
+                path=(
+                    f"{path}.ApplyChangeEnvelope.params.envelope.mutation"
+                    f".operations[{index}].method"
+                ),
             )
-    elif method == "ServedModality":
-        operation = params.get("op")
-        predicate = operation.get("predicate") if isinstance(operation, dict) else None
-        if isinstance(predicate, dict) and predicate.get("predicate") == "audio_window":
-            _mark_f32_scalar(
-                predicate,
-                "minimum_rms",
-                path=f"{path}.ServedModality.op.predicate.minimum_rms",
+
+
+def _mark_method_f32_apply_change_envelopes(params: dict[str, Any], *, path: str) -> None:
+    # Plural of the above: mark f32 in each batched envelope's typed nested
+    # operation methods so the batch's signed body byte-matches the server.
+    envelopes = params.get("envelopes")
+    if not isinstance(envelopes, list):
+        return
+    for env_index, envelope in enumerate(envelopes):
+        _mark_method_f32_one_envelope_operations(env_index, envelope, path=path)
+
+
+def _mark_method_f32_one_envelope_operations(env_index: int, envelope: Any, *, path: str) -> None:
+    mutation = envelope.get("mutation") if isinstance(envelope, dict) else None
+    operations = mutation.get("operations") if isinstance(mutation, dict) else None
+    if not isinstance(operations, list):
+        return
+    for index, operation in enumerate(operations):
+        nested_method = operation.get("method") if isinstance(operation, dict) else None
+        if isinstance(nested_method, dict):
+            _mark_method_f32(
+                nested_method,
+                path=(
+                    f"{path}.ApplyChangeEnvelopes.params.envelopes"
+                    f"[{env_index}].mutation.operations[{index}].method"
+                ),
             )
-    elif method == "ApplyChangeEnvelope":
-        # The sole typed nested-Method carrier is
-        # ChangeEnvelope.mutation.operations[].method. Do not recursively inspect
-        # arbitrary maps: GraphQl.variables and GraphLearnPredict.model are
-        # serde_json::Value and keys named ``method``/``plan`` remain ordinary JSON.
-        envelope = params.get("envelope")
-        mutation = envelope.get("mutation") if isinstance(envelope, dict) else None
-        operations = mutation.get("operations") if isinstance(mutation, dict) else None
-        if isinstance(operations, list):
-            for index, operation in enumerate(operations):
-                nested_method = (
-                    operation.get("method") if isinstance(operation, dict) else None
-                )
-                if isinstance(nested_method, dict):
-                    _mark_method_f32(
-                        nested_method,
-                        path=(
-                            f"{path}.ApplyChangeEnvelope.params.envelope.mutation"
-                            f".operations[{index}].method"
-                        ),
-                    )
-    elif method == "ApplyChangeEnvelopes":
-        # Plural of the above: mark f32 in each batched envelope's typed nested
-        # operation methods so the batch's signed body byte-matches the server.
-        envelopes = params.get("envelopes")
-        if isinstance(envelopes, list):
-            for env_index, envelope in enumerate(envelopes):
-                mutation = (
-                    envelope.get("mutation") if isinstance(envelope, dict) else None
-                )
-                operations = (
-                    mutation.get("operations") if isinstance(mutation, dict) else None
-                )
-                if not isinstance(operations, list):
-                    continue
-                for index, operation in enumerate(operations):
-                    nested_method = (
-                        operation.get("method") if isinstance(operation, dict) else None
-                    )
-                    if isinstance(nested_method, dict):
-                        _mark_method_f32(
-                            nested_method,
-                            path=(
-                                f"{path}.ApplyChangeEnvelopes.params.envelopes"
-                                f"[{env_index}].mutation.operations[{index}].method"
-                            ),
-                        )
 
 
 def _pack_canonical_msgpack(value: Any) -> bytes:
@@ -6600,6 +6628,34 @@ class ClusterTopologyClient:
         min_membership_epoch: int | None,
         min_placement_epoch: int | None,
     ) -> dict[str, Any]:
+        self._validate_request_bounds(
+            expected_cluster_id, min_membership_epoch, min_placement_epoch
+        )
+        self._validate_answer_shape(answer)
+        cluster_id = self._validate_cluster_id(answer, expected_cluster_id)
+        membership_epoch, placement_epoch = self._validate_epochs(
+            answer, min_membership_epoch, min_placement_epoch
+        )
+        canonical_groups, expected_leaders, leaders = self._validate_and_canonicalize_groups(
+            answer, cluster_id
+        )
+        self._validate_leaders(leaders, expected_leaders)
+        self._validate_top_leader(answer, expected_leaders)
+        context = self._validate_auth_binding(answer)
+        self._verify_signature(
+            answer, cluster_id, membership_epoch, placement_epoch, canonical_groups, context
+        )
+        self._cluster_id = cluster_id
+        self._membership_epoch = membership_epoch
+        self._placement_epoch = placement_epoch
+        return answer
+
+    def _validate_request_bounds(
+        self,
+        expected_cluster_id: str | None,
+        min_membership_epoch: int | None,
+        min_placement_epoch: int | None,
+    ) -> None:
         if expected_cluster_id is not None and not self._is_digest(expected_cluster_id):
             raise ValueError("expected_cluster_id is malformed")
         for floor, name in (
@@ -6610,6 +6666,8 @@ class ClusterTopologyClient:
                 isinstance(floor, bool) or not isinstance(floor, int) or floor < 0
             ):
                 raise ValueError(f"{name} must be a non-negative integer")
+
+    def _validate_answer_shape(self, answer: dict[str, Any]) -> None:
         if set(answer) != {
             "schema_version",
             "cluster_id",
@@ -6628,6 +6686,10 @@ class ClusterTopologyClient:
             or answer["schema_version"] != self._SCHEMA_VERSION
         ):
             raise ValueError("ClusterMembers schema version is unsupported")
+
+    def _validate_cluster_id(
+        self, answer: dict[str, Any], expected_cluster_id: str | None
+    ) -> str:
         cluster_id = answer["cluster_id"]
         if not self._is_digest(cluster_id):
             raise ValueError("ClusterMembers.cluster_id is malformed")
@@ -6635,7 +6697,14 @@ class ClusterTopologyClient:
             raise ValueError("ClusterMembers belongs to a different cluster")
         if self._cluster_id is not None and cluster_id != self._cluster_id:
             raise ValueError("ClusterMembers cluster identity changed")
+        return cluster_id
 
+    def _validate_epochs(
+        self,
+        answer: dict[str, Any],
+        min_membership_epoch: int | None,
+        min_placement_epoch: int | None,
+    ) -> tuple[int, int]:
         def non_negative_int(value: Any, field: str) -> int:
             if (
                 isinstance(value, bool)
@@ -6665,7 +6734,11 @@ class ClusterTopologyClient:
             or placement_epoch < self._placement_epoch
         ):
             raise ValueError("ClusterMembers snapshot moved backwards")
+        return membership_epoch, placement_epoch
 
+    def _validate_and_canonicalize_groups(
+        self, answer: dict[str, Any], cluster_id: str
+    ) -> tuple[list[list[Any]], list[dict[str, int]], Any]:
         groups = answer["groups"]
         leaders = answer["leaders"]
         if not isinstance(groups, list) or len(groups) > self._MAX_GROUPS:
@@ -6678,117 +6751,172 @@ class ClusterTopologyClient:
         seen_groups: set[int] = set()
         member_count = 0
         for group in groups:
-            if not isinstance(group, dict) or set(group) != {
-                "group_id",
-                "leader_id",
-                "members",
-            }:
-                raise ValueError("ClusterMembers group entry is malformed")
-            group_id = group["group_id"]
-            if (
-                isinstance(group_id, bool)
-                or not isinstance(group_id, int)
-                or not 0 <= group_id <= self._MAX_U64
-            ):
-                raise ValueError("ClusterMembers group_id is malformed")
-            if group_id in seen_groups:
-                raise ValueError("ClusterMembers contains duplicate groups")
-            seen_groups.add(group_id)
-            leader_id = group["leader_id"]
-            if leader_id is not None and (
-                isinstance(leader_id, bool)
-                or not isinstance(leader_id, int)
-                or not 0 <= leader_id <= self._MAX_U64
-            ):
-                raise ValueError("ClusterMembers leader_id is malformed")
-            members = group["members"]
-            if not isinstance(members, list):
-                raise ValueError("ClusterMembers members must be a list")
-            canonical_members: list[list[Any]] = []
-            seen_members: set[int] = set()
-            for member in members:
-                if not isinstance(member, dict) or set(member) != {
-                    "node_id",
-                    "member_identity",
-                    "role",
-                    "client_endpoint",
-                    "tls_name",
-                    "health",
-                    "certificate",
-                }:
-                    raise ValueError("ClusterMembers member entry is malformed")
-                node_id = member["node_id"]
-                if (
-                    isinstance(node_id, bool)
-                    or not isinstance(node_id, int)
-                    or not 0 <= node_id <= self._MAX_U64
-                ):
-                    raise ValueError("ClusterMembers node_id is malformed")
-                if node_id in seen_members:
-                    raise ValueError("ClusterMembers contains duplicate members")
-                seen_members.add(node_id)
-                identity = member["member_identity"]
-                if not self._is_digest(identity) or identity != self._member_identity(
-                    cluster_id, node_id
-                ):
-                    raise ValueError("ClusterMembers member identity is invalid")
-                role = member["role"]
-                if role not in ("leader", "follower", "learner"):
-                    raise ValueError("ClusterMembers member role is invalid")
-                endpoint = member["client_endpoint"]
-                if not self._endpoint_is_bounded(endpoint):
-                    raise ValueError("ClusterMembers client endpoint is invalid")
-                tls_name = member["tls_name"]
-                if tls_name is not None and (
-                    not isinstance(tls_name, str)
-                    or not tls_name
-                    or len(tls_name) > self._MAX_FIELD_BYTES
-                    or any(
-                        character.isspace()
-                        or ord(character) < 0x20
-                        or ord(character) == 0x7F
-                        for character in tls_name
-                    )
-                ):
-                    raise ValueError("ClusterMembers TLS name is invalid")
-                health = member["health"]
-                if health not in ("healthy", "degraded", "unknown"):
-                    raise ValueError("ClusterMembers member health is invalid")
-                certificate_id, rotation_epoch, not_before, not_after = (
-                    self._certificate(member)
-                )
-                canonical_members.append(
-                    [
-                        node_id,
-                        identity,
-                        role,
-                        endpoint,
-                        tls_name,
-                        health,
-                        certificate_id,
-                        rotation_epoch,
-                        not_before,
-                        not_after,
-                    ]
-                )
-                member_count += 1
-                if member_count > self._MAX_MEMBERS:
-                    raise ValueError("ClusterMembers members exceed resource limits")
+            group_id, leader_id, canonical_members, member_count = self._validate_group(
+                group, cluster_id, seen_groups, member_count
+            )
             if leader_id is not None:
-                if leader_id not in seen_members:
-                    raise ValueError("ClusterMembers leader is not a member")
-                if (
-                    sum(
-                        1
-                        for member in members
-                        if member["node_id"] == leader_id and member["role"] == "leader"
-                    )
-                    != 1
-                ):
-                    raise ValueError("ClusterMembers leader role is inconsistent")
                 expected_leaders.append({"group_id": group_id, "node_id": leader_id})
             canonical_groups.append([group_id, leader_id, canonical_members])
 
+        return canonical_groups, expected_leaders, leaders
+
+    def _validate_group(
+        self,
+        group: Any,
+        cluster_id: str,
+        seen_groups: set[int],
+        member_count: int,
+    ) -> tuple[int, int | None, list[list[Any]], int]:
+        group_id = self._validate_group_id(group, seen_groups)
+        leader_id = group["leader_id"]
+        if leader_id is not None and (
+            isinstance(leader_id, bool)
+            or not isinstance(leader_id, int)
+            or not 0 <= leader_id <= self._MAX_U64
+        ):
+            raise ValueError("ClusterMembers leader_id is malformed")
+        members = group["members"]
+        if not isinstance(members, list):
+            raise ValueError("ClusterMembers members must be a list")
+
+        canonical_members, member_count, seen_members = self._validate_group_members(
+            members, cluster_id, member_count
+        )
+        if leader_id is not None:
+            self._validate_group_leader(leader_id, seen_members, members)
+
+        return group_id, leader_id, canonical_members, member_count
+
+    def _validate_group_id(self, group: Any, seen_groups: set[int]) -> int:
+        if not isinstance(group, dict) or set(group) != {
+            "group_id",
+            "leader_id",
+            "members",
+        }:
+            raise ValueError("ClusterMembers group entry is malformed")
+        group_id = group["group_id"]
+        if (
+            isinstance(group_id, bool)
+            or not isinstance(group_id, int)
+            or not 0 <= group_id <= self._MAX_U64
+        ):
+            raise ValueError("ClusterMembers group_id is malformed")
+        if group_id in seen_groups:
+            raise ValueError("ClusterMembers contains duplicate groups")
+        seen_groups.add(group_id)
+        return group_id
+
+    def _validate_group_members(
+        self, members: list[Any], cluster_id: str, member_count: int
+    ) -> tuple[list[list[Any]], int, set[int]]:
+        canonical_members: list[list[Any]] = []
+        seen_members: set[int] = set()
+        for member in members:
+            canonical, member_count = self._validate_group_member(
+                member, cluster_id, seen_members, member_count
+            )
+            canonical_members.append(canonical)
+        return canonical_members, member_count, seen_members
+
+    def _validate_group_member(
+        self,
+        member: Any,
+        cluster_id: str,
+        seen_members: set[int],
+        member_count: int,
+    ) -> tuple[list[Any], int]:
+        node_id = self._validate_member_node_id(member, seen_members)
+        identity = member["member_identity"]
+        if not self._is_digest(identity) or identity != self._member_identity(
+            cluster_id, node_id
+        ):
+            raise ValueError("ClusterMembers member identity is invalid")
+        role = member["role"]
+        if role not in ("leader", "follower", "learner"):
+            raise ValueError("ClusterMembers member role is invalid")
+        endpoint = member["client_endpoint"]
+        if not self._endpoint_is_bounded(endpoint):
+            raise ValueError("ClusterMembers client endpoint is invalid")
+        tls_name = member["tls_name"]
+        self._validate_tls_name(tls_name)
+        health = member["health"]
+        if health not in ("healthy", "degraded", "unknown"):
+            raise ValueError("ClusterMembers member health is invalid")
+        certificate_id, rotation_epoch, not_before, not_after = self._certificate(member)
+        canonical = [
+            node_id,
+            identity,
+            role,
+            endpoint,
+            tls_name,
+            health,
+            certificate_id,
+            rotation_epoch,
+            not_before,
+            not_after,
+        ]
+        member_count += 1
+        if member_count > self._MAX_MEMBERS:
+            raise ValueError("ClusterMembers members exceed resource limits")
+        return canonical, member_count
+
+    def _validate_member_node_id(self, member: Any, seen_members: set[int]) -> int:
+        if not isinstance(member, dict) or set(member) != {
+            "node_id",
+            "member_identity",
+            "role",
+            "client_endpoint",
+            "tls_name",
+            "health",
+            "certificate",
+        }:
+            raise ValueError("ClusterMembers member entry is malformed")
+        node_id = member["node_id"]
+        if (
+            isinstance(node_id, bool)
+            or not isinstance(node_id, int)
+            or not 0 <= node_id <= self._MAX_U64
+        ):
+            raise ValueError("ClusterMembers node_id is malformed")
+        if node_id in seen_members:
+            raise ValueError("ClusterMembers contains duplicate members")
+        seen_members.add(node_id)
+        return node_id
+
+    def _validate_tls_name(self, tls_name: Any) -> None:
+        if tls_name is None:
+            return
+        if (
+            not isinstance(tls_name, str)
+            or not tls_name
+            or len(tls_name) > self._MAX_FIELD_BYTES
+            or any(
+                character.isspace()
+                or ord(character) < 0x20
+                or ord(character) == 0x7F
+                for character in tls_name
+            )
+        ):
+            raise ValueError("ClusterMembers TLS name is invalid")
+
+    def _validate_group_leader(
+        self, leader_id: int, seen_members: set[int], members: list[Any]
+    ) -> None:
+        if leader_id not in seen_members:
+            raise ValueError("ClusterMembers leader is not a member")
+        if (
+            sum(
+                1
+                for member in members
+                if member["node_id"] == leader_id and member["role"] == "leader"
+            )
+            != 1
+        ):
+            raise ValueError("ClusterMembers leader role is inconsistent")
+
+    def _validate_leaders(
+        self, leaders: Any, expected_leaders: list[dict[str, int]]
+    ) -> None:
         for leader in leaders:
             if not isinstance(leader, dict) or set(leader) != {"group_id", "node_id"}:
                 raise ValueError("ClusterMembers leader entry is malformed")
@@ -6801,6 +6929,10 @@ class ClusterTopologyClient:
                 raise ValueError("ClusterMembers leader entry is malformed")
         if leaders != expected_leaders:
             raise ValueError("ClusterMembers leaders do not match group leaders")
+
+    def _validate_top_leader(
+        self, answer: dict[str, Any], expected_leaders: list[dict[str, int]]
+    ) -> None:
         expected_leader = expected_leaders[0] if expected_leaders else None
         if answer["leader"] is not None and (
             not isinstance(answer["leader"], dict)
@@ -6816,6 +6948,7 @@ class ClusterTopologyClient:
         if answer["leader"] != expected_leader:
             raise ValueError("ClusterMembers leader does not match group leaders")
 
+    def _validate_auth_binding(self, answer: dict[str, Any]) -> dict[str, str]:
         binding = answer["auth_binding"]
         if not isinstance(binding, dict) or set(binding) != {
             "tenant_digest",
@@ -6836,7 +6969,17 @@ class ClusterTopologyClient:
             raise ValueError(
                 "ClusterMembers snapshot is bound to a different request context"
             )
+        return context
 
+    def _verify_signature(
+        self,
+        answer: dict[str, Any],
+        cluster_id: str,
+        membership_epoch: int,
+        placement_epoch: int,
+        canonical_groups: list[list[Any]],
+        context: dict[str, str],
+    ) -> None:
         signature = answer["signature"]
         if (
             not isinstance(signature, str)
@@ -6872,10 +7015,6 @@ class ClusterTopologyClient:
         )
         if not hmac.compare_digest(signature, expected_signature):
             raise ValueError("ClusterMembers signature verification failed")
-        self._cluster_id = cluster_id
-        self._membership_epoch = membership_epoch
-        self._placement_epoch = placement_epoch
-        return answer
 
     async def members(
         self,

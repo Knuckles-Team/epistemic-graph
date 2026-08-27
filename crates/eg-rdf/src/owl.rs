@@ -291,266 +291,310 @@ pub(crate) fn term_key(t: &Term) -> String {
 pub fn parse_ontology(triples: &[Triple]) -> Ontology {
     let idx = TripleIndex::build(triples);
     let mut ont = Ontology::default();
-
-    // Pre-index per-subject axiom confidences (CONCEPT:EG-KG.ontology.concept-13): `S eg:confidence "c"`.
-    let mut conf_of: HashMap<String, f64> = HashMap::new();
-    for t in triples {
-        if t.predicate.as_str() == EG_CONFIDENCE {
-            if let Term::Literal(l) = &t.object {
-                if let Ok(c) = l.value().parse::<f64>() {
-                    let s = term_key(&t.subject.clone().into());
-                    conf_of.insert(s, c.clamp(0.0, 1.0));
-                }
-            }
-        }
-    }
+    let conf_of = index_confidences(triples);
     let conf_for = |s: &str| -> f64 { conf_of.get(s).copied().unwrap_or(1.0) };
 
     for t in triples {
         let s = term_key(&t.subject.clone().into());
         let p = t.predicate.as_str();
         let o = &t.object;
-        match p {
-            RDFS_SUBCLASS_OF => {
-                let ok = term_key(o);
-                let c = conf_for(&s);
-                // C ⊑ ∀r.D (owl:allValuesFrom superclass) — RL cls-avf restriction.
-                if let Some((role, filler)) = parse_all_values(&idx, &ok) {
-                    if let Some(lhs) = parse_class_expr(&idx, &s) {
-                        for sub in lhs {
-                            if let Concept::Named(sub) = sub {
-                                ont.all_values.push((
-                                    sub.clone(),
-                                    role.clone(),
-                                    filler.clone(),
-                                    format!(
-                                        "{} ⊑ ∀{}.{}",
-                                        short(&sub),
-                                        short(&role),
-                                        short(&filler)
-                                    ),
-                                    c,
-                                ));
-                                register_class(&mut ont, &sub);
-                                register_class(&mut ont, &filler);
-                            }
-                        }
-                    }
-                }
-                // (C₁ ⊔ … ⊔ Cₙ) ⊑ D (owl:unionOf subclass) ≡ each Cᵢ ⊑ D — sound EL.
-                else if let Some(disjuncts) = parse_union(&idx, &s) {
-                    if let Some(rhs) = parse_class_expr(&idx, &ok) {
-                        for d in disjuncts {
-                            push_subclass(
-                                &mut ont,
-                                vec![d.clone()],
-                                rhs.clone(),
-                                format!("{} ⊑ {} (∪-elim)", d.key(), short(&ok)),
-                                c,
-                            );
-                        }
-                    }
-                } else if let (Some(lhs), Some(rhs)) =
-                    (parse_class_expr(&idx, &s), parse_class_expr(&idx, &ok))
-                {
-                    push_subclass(
-                        &mut ont,
-                        lhs,
-                        rhs,
-                        format!("{} ⊑ {}", short(&s), short(&ok)),
-                        c,
-                    );
-                }
-            }
-            OWL_EQUIVALENT_CLASS => {
-                let sk = term_key(o);
-                let c = conf_for(&s);
-                // A ≡ (C₁ ⊔ …): only the sound `Cᵢ ⊑ A` direction (union ⊑ A); the
-                // `A ⊑ union` case-split is DL-tableau territory and is deferred.
-                let mut handled_union = false;
-                for (named, union_node) in [(&s, &sk), (&sk, &s)] {
-                    if let (Some(Concept::Named(a)), Some(disjuncts)) = (
-                        parse_class_expr(&idx, named)
-                            .and_then(|mut v| (v.len() == 1).then(|| v.pop().unwrap())),
-                        parse_union(&idx, union_node),
-                    ) {
-                        for d in disjuncts {
-                            push_subclass(
-                                &mut ont,
-                                vec![d.clone()],
-                                vec![Concept::Named(a.clone())],
-                                format!("{} ⊑ {} (≡∪-elim)", d.key(), short(&a)),
-                                c,
-                            );
-                        }
-                        handled_union = true;
-                    }
-                }
-                if !handled_union {
-                    if let (Some(a), Some(b)) =
-                        (parse_class_expr(&idx, &s), parse_class_expr(&idx, &sk))
-                    {
-                        // A ≡ B  ⇒  A ⊑ B  AND  B ⊑ A.
-                        push_subclass(
-                            &mut ont,
-                            a.clone(),
-                            b.clone(),
-                            format!("{} ≡ {} (→⊑)", short(&s), short(&sk)),
-                            c,
-                        );
-                        push_subclass(
-                            &mut ont,
-                            b,
-                            a,
-                            format!("{} ≡ {} (←⊑)", short(&s), short(&sk)),
-                            c,
-                        );
-                    }
-                }
-            }
-            OWL_EQUIVALENT_PROPERTY => {
-                if let Term::NamedNode(sup) = o {
-                    let sup = iri(sup.as_str());
-                    let c = conf_for(&s);
-                    // r ≡ s ⇒ r ⊑ s AND s ⊑ r.
-                    ont.sub_roles.push((
-                        s.clone(),
-                        sup.clone(),
-                        format!("{} ≡ {} (→⊑)", short(&s), short(&sup)),
-                        c,
-                    ));
-                    ont.sub_roles.push((
-                        sup.clone(),
-                        s.clone(),
-                        format!("{} ≡ {} (←⊑)", short(&s), short(&sup)),
-                        c,
-                    ));
-                }
-            }
-            OWL_SAME_AS => {
-                if let Term::NamedNode(b) = o {
-                    ont.same_as.push((s.clone(), iri(b.as_str())));
-                }
-            }
-            OWL_DIFFERENT_FROM => {
-                if let Term::NamedNode(b) = o {
-                    ont.different_from.push((s.clone(), iri(b.as_str())));
-                }
-            }
-            RDFS_SUBPROPERTY_OF => {
-                if let Term::NamedNode(sup) = o {
-                    let sup = iri(sup.as_str());
-                    ont.sub_roles.push((
-                        s.clone(),
-                        sup.clone(),
-                        format!("{} ⊑ {}", short(&s), short(&sup)),
-                        conf_for(&s),
-                    ));
-                }
-            }
-            OWL_PROPERTY_CHAIN_AXIOM => {
-                let chain = parse_rdf_list(&idx, o)
-                    .into_iter()
-                    .map(|t| term_key(&t))
-                    .collect::<Vec<_>>();
-                if !chain.is_empty() {
-                    let label = format!(
-                        "{} ⊑ {}",
-                        chain
-                            .iter()
-                            .map(|c| short(c))
-                            .collect::<Vec<_>>()
-                            .join(" ∘ "),
-                        short(&s)
-                    );
-                    ont.chains.push(RoleChain {
-                        chain,
-                        sup: s.clone(),
-                        label,
-                        conf: conf_for(&s),
-                    });
-                }
-            }
-            OWL_INVERSE_OF => {
-                if let Term::NamedNode(inv) = o {
-                    ont.inverses.push((s.clone(), iri(inv.as_str())));
-                }
-            }
-            RDFS_DOMAIN => {
-                if let Term::NamedNode(d) = o {
-                    ont.domains.push((s.clone(), iri(d.as_str())));
-                }
-            }
-            RDFS_RANGE => {
-                if let Term::NamedNode(r) = o {
-                    ont.ranges.push((s.clone(), iri(r.as_str())));
-                }
-            }
-            OWL_DISJOINT_WITH => {
-                if let Term::NamedNode(b) = o {
-                    let b = iri(b.as_str());
-                    ont.disjoint.push((
-                        s.clone(),
-                        b.clone(),
-                        format!("{} ⊓ {} ⊑ ⊥", short(&s), short(&b)),
-                    ));
-                    register_class(&mut ont, &s);
-                    register_class(&mut ont, &b);
-                }
-            }
-            RDF_TYPE => {
-                if let Term::NamedNode(ty) = o {
-                    match ty.as_str() {
-                        OWL_TRANSITIVE_PROPERTY => {
-                            // r∘r ⊑ r (the EL role-chain form of transitivity).
-                            ont.chains.push(RoleChain {
-                                chain: vec![s.clone(), s.clone()],
-                                sup: s.clone(),
-                                label: format!("{0} ∘ {0} ⊑ {0} (transitive)", short(&s)),
-                                conf: conf_for(&s),
-                            });
-                        }
-                        OWL_SYMMETRIC_PROPERTY => {
-                            ont.symmetric.insert(s.clone());
-                        }
-                        OWL_FUNCTIONAL_PROPERTY => {
-                            ont.functional.insert(s.clone());
-                        }
-                        OWL_INVERSE_FUNCTIONAL_PROPERTY => {
-                            ont.inverse_functional.insert(s.clone());
-                        }
-                        OWL_CLASS => register_class(&mut ont, &s),
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
+        let c = conf_for(&s);
+        dispatch_ontology_triple(&idx, &mut ont, p, &s, o, c);
     }
 
-    // Lift domain rules into EL so they classify through existentials too:
-    // domain(r, D)  ≈  ∃r.⊤ ⊑ D.
+    lift_domains_into_el(&mut ont);
+    lift_ranges_into_el(&mut ont);
+
+    ont
+}
+
+/// Pre-index per-subject axiom confidences (CONCEPT:EG-KG.ontology.concept-13): `S eg:confidence "c"`.
+fn index_confidences(triples: &[Triple]) -> HashMap<String, f64> {
+    let mut conf_of: HashMap<String, f64> = HashMap::new();
+    for t in triples {
+        if t.predicate.as_str() != EG_CONFIDENCE {
+            continue;
+        }
+        let Term::Literal(l) = &t.object else { continue };
+        let Ok(c) = l.value().parse::<f64>() else {
+            continue;
+        };
+        let s = term_key(&t.subject.clone().into());
+        conf_of.insert(s, c.clamp(0.0, 1.0));
+    }
+    conf_of
+}
+
+/// Route one triple's predicate to its OWL/RDFS axiom handler. See [`parse_ontology`]
+/// for the full recognised-predicate list.
+fn dispatch_ontology_triple(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    p: &str,
+    s: &str,
+    o: &Term,
+    c: f64,
+) {
+    match p {
+        RDFS_SUBCLASS_OF => handle_subclass_of(idx, ont, s, o, c),
+        OWL_EQUIVALENT_CLASS => handle_equivalent_class(idx, ont, s, o, c),
+        OWL_EQUIVALENT_PROPERTY => handle_equivalent_property(ont, s, o, c),
+        OWL_SAME_AS => {
+            if let Term::NamedNode(b) = o {
+                ont.same_as.push((s.to_string(), iri(b.as_str())));
+            }
+        }
+        OWL_DIFFERENT_FROM => {
+            if let Term::NamedNode(b) = o {
+                ont.different_from.push((s.to_string(), iri(b.as_str())));
+            }
+        }
+        RDFS_SUBPROPERTY_OF => {
+            if let Term::NamedNode(sup) = o {
+                let sup = iri(sup.as_str());
+                ont.sub_roles.push((
+                    s.to_string(),
+                    sup.clone(),
+                    format!("{} ⊑ {}", short(s), short(&sup)),
+                    c,
+                ));
+            }
+        }
+        OWL_PROPERTY_CHAIN_AXIOM => handle_property_chain_axiom(idx, ont, s, o, c),
+        OWL_INVERSE_OF => {
+            if let Term::NamedNode(inv) = o {
+                ont.inverses.push((s.to_string(), iri(inv.as_str())));
+            }
+        }
+        RDFS_DOMAIN => {
+            if let Term::NamedNode(d) = o {
+                ont.domains.push((s.to_string(), iri(d.as_str())));
+            }
+        }
+        RDFS_RANGE => {
+            if let Term::NamedNode(r) = o {
+                ont.ranges.push((s.to_string(), iri(r.as_str())));
+            }
+        }
+        OWL_DISJOINT_WITH => {
+            if let Term::NamedNode(b) = o {
+                let b = iri(b.as_str());
+                ont.disjoint.push((
+                    s.to_string(),
+                    b.clone(),
+                    format!("{} ⊓ {} ⊑ ⊥", short(s), short(&b)),
+                ));
+                register_class(ont, s);
+                register_class(ont, &b);
+            }
+        }
+        RDF_TYPE => handle_rdf_type(ont, s, o, c),
+        _ => {}
+    }
+}
+
+/// `rdfs:subClassOf` triples: three EL-sound shapes recognised on the RHS/LHS —
+/// `C ⊑ ∀r.D` (allValuesFrom), `(C₁ ⊔ … ⊔ Cₙ) ⊑ D` (unionOf subclass, ≡ each `Cᵢ ⊑ D`),
+/// and the plain `C ⊑ D` fallback (checked in that priority order, matching the
+/// original if/else-if cascade: once one shape's OUTER pattern matches, the others are
+/// never attempted for this triple even if the shape's own parse comes back empty).
+fn handle_subclass_of(idx: &TripleIndex, ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let ok = term_key(o);
+    // C ⊑ ∀r.D (owl:allValuesFrom superclass) — RL cls-avf restriction.
+    if let Some((role, filler)) = parse_all_values(idx, &ok) {
+        push_all_values_subclass(idx, ont, s, &role, &filler, c);
+        return;
+    }
+    // (C₁ ⊔ … ⊔ Cₙ) ⊑ D (owl:unionOf subclass) ≡ each Cᵢ ⊑ D — sound EL.
+    if let Some(disjuncts) = parse_union(idx, s) {
+        push_union_subclass(idx, ont, disjuncts, &ok, c);
+        return;
+    }
+    if let (Some(lhs), Some(rhs)) = (parse_class_expr(idx, s), parse_class_expr(idx, &ok)) {
+        push_subclass(ont, lhs, rhs, format!("{} ⊑ {}", short(s), short(&ok)), c);
+    }
+}
+
+fn push_all_values_subclass(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    s: &str,
+    role: &str,
+    filler: &str,
+    c: f64,
+) {
+    let Some(lhs) = parse_class_expr(idx, s) else {
+        return;
+    };
+    for sub in lhs {
+        let Concept::Named(sub) = sub else { continue };
+        ont.all_values.push((
+            sub.clone(),
+            role.to_string(),
+            filler.to_string(),
+            format!("{} ⊑ ∀{}.{}", short(&sub), short(role), short(filler)),
+            c,
+        ));
+        register_class(ont, &sub);
+        register_class(ont, filler);
+    }
+}
+
+fn push_union_subclass(idx: &TripleIndex, ont: &mut Ontology, disjuncts: Vec<Concept>, ok: &str, c: f64) {
+    let Some(rhs) = parse_class_expr(idx, ok) else {
+        return;
+    };
+    for d in disjuncts {
+        push_subclass(
+            ont,
+            vec![d.clone()],
+            rhs.clone(),
+            format!("{} ⊑ {} (∪-elim)", d.key(), short(ok)),
+            c,
+        );
+    }
+}
+
+/// `owl:equivalentClass`: recognises `A ≡ (C₁ ⊔ …)` (EG-021, sound `Cᵢ ⊑ A` direction
+/// only, checked in both subject/object orientation) before falling back to the plain
+/// `A ⊑ B` + `B ⊑ A` expansion.
+fn handle_equivalent_class(idx: &TripleIndex, ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let sk = term_key(o);
+    if push_equivalent_class_union(idx, ont, s, &sk, c) {
+        return;
+    }
+    push_equivalent_class_biconditional(idx, ont, s, &sk, c);
+}
+
+/// The sound `Cᵢ ⊑ A` half of `A ≡ (C₁ ⊔ …)`, tried in both subject/object
+/// orientation. Returns `true` if either orientation matched (the caller then skips
+/// the plain biconditional expansion).
+fn push_equivalent_class_union(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    s: &str,
+    sk: &str,
+    c: f64,
+) -> bool {
+    let mut handled = false;
+    for (named, union_node) in [(s, sk), (sk, s)] {
+        let single = parse_class_expr(idx, named)
+            .and_then(|mut v| (v.len() == 1).then(|| v.pop().unwrap()));
+        let (Some(Concept::Named(a)), Some(disjuncts)) = (single, parse_union(idx, union_node))
+        else {
+            continue;
+        };
+        for d in disjuncts {
+            push_subclass(
+                ont,
+                vec![d.clone()],
+                vec![Concept::Named(a.clone())],
+                format!("{} ⊑ {} (≡∪-elim)", d.key(), short(&a)),
+                c,
+            );
+        }
+        handled = true;
+    }
+    handled
+}
+
+fn push_equivalent_class_biconditional(idx: &TripleIndex, ont: &mut Ontology, s: &str, sk: &str, c: f64) {
+    let (Some(a), Some(b)) = (parse_class_expr(idx, s), parse_class_expr(idx, sk)) else {
+        return;
+    };
+    // A ≡ B  ⇒  A ⊑ B  AND  B ⊑ A.
+    push_subclass(ont, a.clone(), b.clone(), format!("{} ≡ {} (→⊑)", short(s), short(sk)), c);
+    push_subclass(ont, b, a, format!("{} ≡ {} (←⊑)", short(s), short(sk)), c);
+}
+
+fn handle_equivalent_property(ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let Term::NamedNode(sup) = o else { return };
+    let sup = iri(sup.as_str());
+    // r ≡ s ⇒ r ⊑ s AND s ⊑ r.
+    ont.sub_roles.push((
+        s.to_string(),
+        sup.clone(),
+        format!("{} ≡ {} (→⊑)", short(s), short(&sup)),
+        c,
+    ));
+    ont.sub_roles.push((
+        sup.clone(),
+        s.to_string(),
+        format!("{} ≡ {} (←⊑)", short(s), short(&sup)),
+        c,
+    ));
+}
+
+fn handle_property_chain_axiom(idx: &TripleIndex, ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let chain: Vec<String> = parse_rdf_list(idx, o).into_iter().map(|t| term_key(&t)).collect();
+    if chain.is_empty() {
+        return;
+    }
+    let label = format!(
+        "{} ⊑ {}",
+        chain.iter().map(|c| short(c)).collect::<Vec<_>>().join(" ∘ "),
+        short(s)
+    );
+    ont.chains.push(RoleChain {
+        chain,
+        sup: s.to_string(),
+        label,
+        conf: c,
+    });
+}
+
+fn handle_rdf_type(ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let Term::NamedNode(ty) = o else { return };
+    match ty.as_str() {
+        OWL_TRANSITIVE_PROPERTY => {
+            // r∘r ⊑ r (the EL role-chain form of transitivity).
+            ont.chains.push(RoleChain {
+                chain: vec![s.to_string(), s.to_string()],
+                sup: s.to_string(),
+                label: format!("{0} ∘ {0} ⊑ {0} (transitive)", short(s)),
+                conf: c,
+            });
+        }
+        OWL_SYMMETRIC_PROPERTY => {
+            ont.symmetric.insert(s.to_string());
+        }
+        OWL_FUNCTIONAL_PROPERTY => {
+            ont.functional.insert(s.to_string());
+        }
+        OWL_INVERSE_FUNCTIONAL_PROPERTY => {
+            ont.inverse_functional.insert(s.to_string());
+        }
+        OWL_CLASS => register_class(ont, s),
+        _ => {}
+    }
+}
+
+/// Lift domain rules into EL so they classify through existentials too:
+/// `domain(r, D) ≈ ∃r.⊤ ⊑ D`.
+fn lift_domains_into_el(ont: &mut Ontology) {
     for (r, d) in ont.domains.clone() {
         push_gci(
-            &mut ont,
+            ont,
             vec![Concept::Some(r.clone(), Box::new(Concept::thing()))],
             Concept::Named(d.clone()),
             format!("dom({}) = {}", short(&r), short(&d)),
             1.0,
         );
     }
+}
 
-    // Lift range rules into EL analogously to domains (CONCEPT:EG-KG.ontology.owl-reasoning). A range
-    // `range(r, D)` is the inverse-role mirror of a domain: `range(r, D) ≈ ∃r⁻.⊤ ⊑ D`
-    // (anything that is the TARGET of an `r` edge — i.e. has an incoming `r`, an `r⁻`
-    // successor — is a `D`). Until now `ont.ranges` was consumed ONLY at the RL /
-    // instance level (`rules.rs`), so a range never constrained concept-level
-    // classification. We synthesize a dedicated inverse role `r⁻` for `r`, register the
-    // `(r, r⁻)` inverse pair so the EXISTING inverse-role completion propagates every
-    // `R(r)` pair `(A,B)` into `R(r⁻)` as `(B,A)`, then push the domain-shaped GCI
-    // `∃r⁻.⊤ ⊑ D` on `r⁻`. CR-some⁻ then classifies the range filler `B` (an `r`-target)
-    // as `D`, exactly as the domain lift classifies the `r`-source. One synthetic
-    // inverse per role is reused so several ranges on the same role share it.
+/// Lift range rules into EL analogously to domains (CONCEPT:EG-KG.ontology.owl-reasoning). A range
+/// `range(r, D)` is the inverse-role mirror of a domain: `range(r, D) ≈ ∃r⁻.⊤ ⊑ D`
+/// (anything that is the TARGET of an `r` edge — i.e. has an incoming `r`, an `r⁻`
+/// successor — is a `D`). Until now `ont.ranges` was consumed ONLY at the RL /
+/// instance level (`rules.rs`), so a range never constrained concept-level
+/// classification. We synthesize a dedicated inverse role `r⁻` for `r`, register the
+/// `(r, r⁻)` inverse pair so the EXISTING inverse-role completion propagates every
+/// `R(r)` pair `(A,B)` into `R(r⁻)` as `(B,A)`, then push the domain-shaped GCI
+/// `∃r⁻.⊤ ⊑ D` on `r⁻`. CR-some⁻ then classifies the range filler `B` (an `r`-target)
+/// as `D`, exactly as the domain lift classifies the `r`-source. One synthetic
+/// inverse per role is reused so several ranges on the same role share it.
+fn lift_ranges_into_el(ont: &mut Ontology) {
     let mut range_inv_seen: HashSet<String> = HashSet::new();
     for (r, d) in ont.ranges.clone() {
         let r_inv = range_inverse_role(&r);
@@ -558,15 +602,13 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
             ont.inverses.push((r.clone(), r_inv.clone()));
         }
         push_gci(
-            &mut ont,
+            ont,
             vec![Concept::Some(r_inv.clone(), Box::new(Concept::thing()))],
             Concept::Named(d.clone()),
             format!("range({}) = {}", short(&r), short(&d)),
             1.0,
         );
     }
-
-    ont
 }
 
 /// A stable synthetic inverse-role id used to lift `rdfs:range` into the EL completion
@@ -996,6 +1038,49 @@ type RhsAxiom = (Concept, String, f64);
 /// An existential-RHS axiom `B ⊑ ∃r.D` indexed by `B`: `(role, filler, label, conf)`.
 type SomeRhsAxiom = (String, Concept, String, f64);
 
+/// Index a single GCI into the four completion-rule indexes consulted by
+/// [`Reasoner::saturate`] (via [`Reasoner::index_gcis`]).
+fn index_one_gci(
+    g: &Gci,
+    sub_index: &mut HashMap<String, Vec<RhsAxiom>>,
+    conj_axioms: &mut Vec<(Vec<String>, Concept, String, f64)>,
+    some_rhs: &mut HashMap<String, Vec<SomeRhsAxiom>>,
+    some_lhs: &mut HashMap<(String, String), Vec<RhsAxiom>>,
+) {
+    let rhs = g.rhs.clone();
+    if g.lhs.len() != 1 {
+        // Conjunctive LHS — all conjuncts must be named in EL normal form.
+        let names: Vec<String> = g.lhs.iter().map(|c| c.key()).collect();
+        conj_axioms.push((names, rhs, g.label.clone(), g.conf));
+        return;
+    }
+    match &g.lhs[0] {
+        Concept::Named(b) => match &rhs {
+            Concept::Named(_) => {
+                sub_index
+                    .entry(b.clone())
+                    .or_default()
+                    .push((rhs, g.label.clone(), g.conf));
+            }
+            Concept::Some(r, d) => {
+                some_rhs.entry(b.clone()).or_default().push((
+                    r.clone(),
+                    (**d).clone(),
+                    g.label.clone(),
+                    g.conf,
+                ));
+            }
+        },
+        Concept::Some(r, d) => {
+            // ∃r.D ⊑ E
+            some_lhs
+                .entry((r.clone(), d.key()))
+                .or_default()
+                .push((rhs, g.label.clone(), g.conf));
+        }
+    }
+}
+
 /// A reusable completion state so a DELTA can re-run incrementally (CONCEPT:EG-KG.ontology.incremental-materialization).
 /// Holds the normalised axioms + the current `S`/`R` closure; [`Reasoner::classify`]
 /// runs the fixpoint, [`Reasoner::add_axioms`] adds axioms and re-runs only the new
@@ -1114,53 +1199,7 @@ impl Reasoner {
     ///   filler propagates unsatisfiability up an existential).
     /// * **CR-disjoint** — if `D1, D2 ∈ S(A)` and `D1 ⊓ D2 ⊑ ⊥`, add `⊥` to `S(A)`.
     fn saturate(&mut self) {
-        // Pre-index axioms by their trigger for O(1) rule lookup. Each entry carries
-        // the axiom's confidence as the last tuple element (CONCEPT:EG-KG.ontology.concept-13).
-        // single-conjunct sub: B -> [(C, axiom_label, conf)]
-        let mut sub_index: HashMap<String, Vec<RhsAxiom>> = HashMap::new();
-        // conjunctive sub: list of (conjuncts, C, label, conf)
-        let mut conj_axioms: Vec<(Vec<String>, Concept, String, f64)> = Vec::new();
-        // existential RHS: B -> [(r, D, label, conf)]  (B ⊑ ∃r.D)
-        let mut some_rhs: HashMap<String, Vec<SomeRhsAxiom>> = HashMap::new();
-        // existential LHS: (r, D) -> [(E, label, conf)]  (∃r.D ⊑ E)
-        let mut some_lhs: HashMap<(String, String), Vec<RhsAxiom>> = HashMap::new();
-
-        for g in &self.ont.gcis {
-            let rhs = g.rhs.clone();
-            if g.lhs.len() == 1 {
-                match &g.lhs[0] {
-                    Concept::Named(b) => match &rhs {
-                        Concept::Named(_) => {
-                            sub_index.entry(b.clone()).or_default().push((
-                                rhs,
-                                g.label.clone(),
-                                g.conf,
-                            ));
-                        }
-                        Concept::Some(r, d) => {
-                            some_rhs.entry(b.clone()).or_default().push((
-                                r.clone(),
-                                (**d).clone(),
-                                g.label.clone(),
-                                g.conf,
-                            ));
-                        }
-                    },
-                    Concept::Some(r, d) => {
-                        // ∃r.D ⊑ E
-                        some_lhs.entry((r.clone(), d.key())).or_default().push((
-                            rhs,
-                            g.label.clone(),
-                            g.conf,
-                        ));
-                    }
-                }
-            } else {
-                // Conjunctive LHS — all conjuncts must be named in EL normal form.
-                let names: Vec<String> = g.lhs.iter().map(|c| c.key()).collect();
-                conj_axioms.push((names, rhs, g.label.clone(), g.conf));
-            }
-        }
+        let (sub_index, conj_axioms, some_rhs, some_lhs) = self.index_gcis();
 
         // disjoint pairs by class for CR-disjoint.
         let disjoint: Vec<(String, String, String)> = self.ont.disjoint.clone();
@@ -1180,241 +1219,389 @@ impl Reasoner {
 
             // Snapshot the class set we iterate (S keys can grow; iterate a copy).
             let classes: Vec<String> = self.s.keys().cloned().collect();
-
             for a in &classes {
-                let s_a: Vec<String> = self
-                    .s
-                    .get(a)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect();
-
-                // CR-sub + CR-some⁺
-                for b in &s_a {
-                    if let Some(rules) = sub_index.get(b) {
-                        for (c, label, axiom_conf) in rules {
-                            if let Concept::Named(cn) = c {
-                                // conjunctive rule: conf(a⊑c) = conf(a⊑b) × conf(b⊑c).
-                                let conf = self.cur_conf(a, b) * axiom_conf;
-                                if self.add_sub(
-                                    a,
-                                    cn,
-                                    "CR-sub",
-                                    vec![label.clone()],
-                                    vec![(a.clone(), b.clone())],
-                                    conf,
-                                ) {
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-                    if let Some(rules) = some_rhs.get(b) {
-                        for (r, d, label, axiom_conf) in rules {
-                            if let Concept::Named(dn) = d {
-                                let conf = self.cur_conf(a, b) * axiom_conf;
-                                if self.add_role_weighted(r, a, dn, conf) {
-                                    self.just
-                                        .entry((format!("R:{r}"), format!("{a}->{dn}")))
-                                        .or_insert(Justification {
-                                            rule: "CR-some⁺",
-                                            axioms: vec![label.clone()],
-                                            premises: vec![(a.clone(), b.clone())],
-                                        });
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // CR-conj⁻
-                for (conjuncts, c, label, axiom_conf) in &conj_axioms {
-                    if conjuncts
-                        .iter()
-                        .all(|b| self.s.get(a).map(|s| s.contains(b)).unwrap_or(false))
-                    {
-                        if let Concept::Named(cn) = c {
-                            let premises: Vec<(String, String)> =
-                                conjuncts.iter().map(|b| (a.clone(), b.clone())).collect();
-                            // conjunctive rule: ∏ over every conjunct premise × axiom.
-                            let conf = conjuncts
-                                .iter()
-                                .fold(*axiom_conf, |acc, b| acc * self.cur_conf(a, b));
-                            if self.add_sub(a, cn, "CR-conj⁻", vec![label.clone()], premises, conf)
-                            {
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-
-                // CR-disjoint
-                for (d1, d2, label) in &disjoint {
-                    let has = self
-                        .s
-                        .get(a)
-                        .map(|s| s.contains(d1) && s.contains(d2))
-                        .unwrap_or(false);
-                    if has {
-                        let conf = self.cur_conf(a, d1) * self.cur_conf(a, d2);
-                        if self.add_sub(
-                            a,
-                            &nothing,
-                            "CR-disjoint",
-                            vec![label.clone()],
-                            vec![(a.clone(), d1.clone()), (a.clone(), d2.clone())],
-                            conf,
-                        ) {
-                            changed = true;
-                        }
-                    }
-                }
+                changed |= self.apply_cr_sub_and_some_plus(a, &sub_index, &some_rhs);
+                changed |= self.apply_cr_conj_minus(a, &conj_axioms);
+                changed |= self.apply_cr_disjoint(a, &disjoint, &nothing);
             }
 
-            // CR-some⁻ + CR-bot over R.
-            let roles_snapshot: Vec<(String, Vec<(String, String)>)> = self
-                .r
+            changed |= self.apply_cr_some_minus_and_bot(&some_lhs, &nothing);
+            changed |= self.apply_cr_subrole(&sub_roles);
+            changed |= self.apply_symmetric_roles(&symmetric);
+            changed |= self.apply_inverse_roles(&inverses);
+            changed |= self.apply_cr_all_values(&all_values);
+            changed |= self.apply_cr_chain(&chains);
+        }
+    }
+
+    /// Pre-index axioms by their trigger for O(1) rule lookup during [`Reasoner::saturate`].
+    /// Each entry carries the axiom's confidence as the last tuple element
+    /// (CONCEPT:EG-KG.ontology.concept-13).
+    #[allow(clippy::type_complexity)]
+    fn index_gcis(
+        &self,
+    ) -> (
+        HashMap<String, Vec<RhsAxiom>>,
+        Vec<(Vec<String>, Concept, String, f64)>,
+        HashMap<String, Vec<SomeRhsAxiom>>,
+        HashMap<(String, String), Vec<RhsAxiom>>,
+    ) {
+        // single-conjunct sub: B -> [(C, axiom_label, conf)]
+        let mut sub_index: HashMap<String, Vec<RhsAxiom>> = HashMap::new();
+        // conjunctive sub: list of (conjuncts, C, label, conf)
+        let mut conj_axioms: Vec<(Vec<String>, Concept, String, f64)> = Vec::new();
+        // existential RHS: B -> [(r, D, label, conf)]  (B ⊑ ∃r.D)
+        let mut some_rhs: HashMap<String, Vec<SomeRhsAxiom>> = HashMap::new();
+        // existential LHS: (r, D) -> [(E, label, conf)]  (∃r.D ⊑ E)
+        let mut some_lhs: HashMap<(String, String), Vec<RhsAxiom>> = HashMap::new();
+
+        for g in &self.ont.gcis {
+            index_one_gci(g, &mut sub_index, &mut conj_axioms, &mut some_rhs, &mut some_lhs);
+        }
+
+        (sub_index, conj_axioms, some_rhs, some_lhs)
+    }
+
+    /// CR-sub (`B ⊑ C`) and CR-some⁺ (`B ⊑ ∃r.D`) for class `a`, given its current `S(a)`.
+    fn apply_cr_sub_and_some_plus(
+        &mut self,
+        a: &str,
+        sub_index: &HashMap<String, Vec<RhsAxiom>>,
+        some_rhs: &HashMap<String, Vec<SomeRhsAxiom>>,
+    ) -> bool {
+        let s_a: Vec<String> = self
+            .s
+            .get(a)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let mut changed = false;
+        for b in &s_a {
+            changed |= self.apply_cr_sub_for(a, b, sub_index);
+            changed |= self.apply_cr_some_plus_for(a, b, some_rhs);
+        }
+        changed
+    }
+
+    /// CR-sub: `B ⊑ C` where `B ∈ S(a)` ⇒ `C ∈ S(a)`.
+    fn apply_cr_sub_for(
+        &mut self,
+        a: &str,
+        b: &str,
+        sub_index: &HashMap<String, Vec<RhsAxiom>>,
+    ) -> bool {
+        let Some(rules) = sub_index.get(b) else {
+            return false;
+        };
+        let mut changed = false;
+        for (c, label, axiom_conf) in rules {
+            let Concept::Named(cn) = c else { continue };
+            // conjunctive rule: conf(a⊑c) = conf(a⊑b) × conf(b⊑c).
+            let conf = self.cur_conf(a, b) * axiom_conf;
+            if self.add_sub(
+                a,
+                cn,
+                "CR-sub",
+                vec![label.clone()],
+                vec![(a.to_string(), b.to_string())],
+                conf,
+            ) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// CR-some⁺: `B ⊑ ∃r.D` where `B ∈ S(a)` ⇒ `(a,D) ∈ R(r)`.
+    fn apply_cr_some_plus_for(
+        &mut self,
+        a: &str,
+        b: &str,
+        some_rhs: &HashMap<String, Vec<SomeRhsAxiom>>,
+    ) -> bool {
+        let Some(rules) = some_rhs.get(b) else {
+            return false;
+        };
+        let mut changed = false;
+        for (r, d, label, axiom_conf) in rules {
+            let Concept::Named(dn) = d else { continue };
+            let conf = self.cur_conf(a, b) * axiom_conf;
+            if self.add_role_weighted(r, a, dn, conf) {
+                self.just
+                    .entry((format!("R:{r}"), format!("{a}->{dn}")))
+                    .or_insert(Justification {
+                        rule: "CR-some⁺",
+                        axioms: vec![label.clone()],
+                        premises: vec![(a.to_string(), b.to_string())],
+                    });
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// CR-conj⁻: if every conjunct of a conjunctive LHS is in `S(a)`, add the RHS.
+    fn apply_cr_conj_minus(
+        &mut self,
+        a: &str,
+        conj_axioms: &[(Vec<String>, Concept, String, f64)],
+    ) -> bool {
+        let mut changed = false;
+        for (conjuncts, c, label, axiom_conf) in conj_axioms {
+            let holds = conjuncts
                 .iter()
-                .map(|(r, set)| (r.clone(), set.iter().cloned().collect()))
+                .all(|b| self.s.get(a).map(|s| s.contains(b)).unwrap_or(false));
+            if !holds {
+                continue;
+            }
+            let Concept::Named(cn) = c else { continue };
+            let premises: Vec<(String, String)> = conjuncts
+                .iter()
+                .map(|b| (a.to_string(), b.clone()))
                 .collect();
-            for (r, pairs) in &roles_snapshot {
-                for (a, b) in pairs {
-                    // CR-some⁻: D ∈ S(B), ∃r.D ⊑ E ⇒ E ∈ S(A).
-                    let s_b: Vec<String> = self
-                        .s
-                        .get(b)
-                        .cloned()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .collect();
-                    for d in &s_b {
-                        if let Some(rules) = some_lhs.get(&(r.clone(), d.clone())) {
-                            for (e, label, axiom_conf) in rules {
-                                if let Concept::Named(en) = e {
-                                    let conf =
-                                        self.cur_rconf(r, a, b) * self.cur_conf(b, d) * axiom_conf;
-                                    if self.add_sub(
-                                        a,
-                                        en,
-                                        "CR-some⁻",
-                                        vec![label.clone()],
-                                        vec![(b.clone(), d.clone())],
-                                        conf,
-                                    ) {
-                                        changed = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // CR-bot: ⊥ ∈ S(B) ⇒ ⊥ ∈ S(A).
-                    if self.s.get(b).map(|s| s.contains(&nothing)).unwrap_or(false) {
-                        let conf = self.cur_rconf(r, a, b) * self.cur_conf(b, &nothing);
-                        if self.add_sub(
-                            a,
-                            &nothing,
-                            "CR-bot",
-                            vec![],
-                            vec![(b.clone(), nothing.clone())],
-                            conf,
-                        ) {
-                            changed = true;
-                        }
-                    }
-                }
+            // conjunctive rule: ∏ over every conjunct premise × axiom.
+            let conf = conjuncts
+                .iter()
+                .fold(*axiom_conf, |acc, b| acc * self.cur_conf(a, b));
+            if self.add_sub(a, cn, "CR-conj⁻", vec![label.clone()], premises, conf) {
+                changed = true;
             }
+        }
+        changed
+    }
 
-            // CR-subrole: (A,B) ∈ R(r), r ⊑ s ⇒ (A,B) ∈ R(s). And symmetric.
-            for (r, sup, _label, axiom_conf) in &sub_roles {
-                if let Some(pairs) = self.r.get(r).cloned() {
-                    for (a, b) in pairs {
-                        let conf = self.cur_rconf(r, &a, &b) * axiom_conf;
-                        if self.add_role_weighted(sup, &a, &b, conf) {
-                            changed = true;
-                        }
-                    }
-                }
+    /// CR-disjoint: `D1, D2 ∈ S(a)` and `D1 ⊓ D2 ⊑ ⊥` ⇒ `⊥ ∈ S(a)`.
+    fn apply_cr_disjoint(
+        &mut self,
+        a: &str,
+        disjoint: &[(String, String, String)],
+        nothing: &str,
+    ) -> bool {
+        let mut changed = false;
+        for (d1, d2, label) in disjoint {
+            let has = self
+                .s
+                .get(a)
+                .map(|s| s.contains(d1) && s.contains(d2))
+                .unwrap_or(false);
+            if !has {
+                continue;
             }
-            for r in &symmetric {
-                if let Some(pairs) = self.r.get(r).cloned() {
-                    for (a, b) in pairs {
-                        let conf = self.cur_rconf(r, &a, &b);
-                        if self.add_role_weighted(r, &b, &a, conf) {
-                            changed = true;
-                        }
-                    }
-                }
+            let conf = self.cur_conf(a, d1) * self.cur_conf(a, d2);
+            if self.add_sub(
+                a,
+                nothing,
+                "CR-disjoint",
+                vec![label.clone()],
+                vec![(a.to_string(), d1.clone()), (a.to_string(), d2.clone())],
+                conf,
+            ) {
+                changed = true;
             }
-            for (p1, p2) in &inverses {
-                if let Some(pairs) = self.r.get(p1).cloned() {
-                    for (a, b) in pairs {
-                        let conf = self.cur_rconf(p1, &a, &b);
-                        if self.add_role_weighted(p2, &b, &a, conf) {
-                            changed = true;
-                        }
-                    }
-                }
-                if let Some(pairs) = self.r.get(p2).cloned() {
-                    for (a, b) in pairs {
-                        let conf = self.cur_rconf(p2, &a, &b);
-                        if self.add_role_weighted(p1, &b, &a, conf) {
-                            changed = true;
-                        }
-                    }
-                }
-            }
+        }
+        changed
+    }
 
-            // CR-allValues (RL cls-avf): sub ⊑ ∀r.filler, sub ∈ S(A), (A,B) ∈ R(r) ⇒
-            // filler ∈ S(B). The universal restriction forces every r-witness of a
-            // `sub` member into `filler`. Sound + tractable; the one ∀-shape we admit.
-            for (sub, role, filler, label, axiom_conf) in &all_values {
-                if let Some(pairs) = self.r.get(role).cloned() {
-                    for (a, b) in &pairs {
-                        if self.s.get(a).map(|s| s.contains(sub)).unwrap_or(false) {
-                            let conf =
-                                self.cur_conf(a, sub) * self.cur_rconf(role, a, b) * axiom_conf;
-                            if self.add_sub(
-                                b,
-                                filler,
-                                "CR-allValues",
-                                vec![label.clone()],
-                                vec![(a.clone(), sub.clone())],
-                                conf,
-                            ) {
-                                changed = true;
-                            }
-                        }
-                    }
-                }
+    /// CR-some⁻ (`∃r.D ⊑ E`) and CR-bot (`⊥` propagates up an existential) over the
+    /// current `R`.
+    fn apply_cr_some_minus_and_bot(
+        &mut self,
+        some_lhs: &HashMap<(String, String), Vec<RhsAxiom>>,
+        nothing: &str,
+    ) -> bool {
+        let roles_snapshot: Vec<(String, Vec<(String, String)>)> = self
+            .r
+            .iter()
+            .map(|(r, set)| (r.clone(), set.iter().cloned().collect()))
+            .collect();
+        let mut changed = false;
+        for (r, pairs) in &roles_snapshot {
+            for (a, b) in pairs {
+                changed |= self.apply_cr_some_minus_for(r, a, b, some_lhs);
+                changed |= self.apply_cr_bot_for(r, a, b, nothing);
             }
+        }
+        changed
+    }
 
-            // CR-chain: (A,B) ∈ R(r1), (B,C) ∈ R(r2), r1∘r2 ⊑ s ⇒ (A,C) ∈ R(s).
-            for ch in &chains {
-                if ch.chain.len() == 2 {
-                    let (r1, r2) = (&ch.chain[0], &ch.chain[1]);
-                    let left = self.r.get(r1).cloned().unwrap_or_default();
-                    let right = self.r.get(r2).cloned().unwrap_or_default();
-                    // index right by its source
-                    let mut by_src: HashMap<String, Vec<String>> = HashMap::new();
-                    for (b, c) in &right {
-                        by_src.entry(b.clone()).or_default().push(c.clone());
-                    }
-                    for (a, b) in &left {
-                        if let Some(cs) = by_src.get(b) {
-                            for c in cs {
-                                let conf =
-                                    self.cur_rconf(r1, a, b) * self.cur_rconf(r2, b, c) * ch.conf;
-                                if self.add_role_weighted(&ch.sup, a, c, conf) {
-                                    changed = true;
-                                }
-                            }
-                        }
-                    }
+    /// CR-some⁻: `D ∈ S(b)`, `∃r.D ⊑ E`, `(a,b) ∈ R(r)` ⇒ `E ∈ S(a)`.
+    fn apply_cr_some_minus_for(
+        &mut self,
+        r: &str,
+        a: &str,
+        b: &str,
+        some_lhs: &HashMap<(String, String), Vec<RhsAxiom>>,
+    ) -> bool {
+        let s_b: Vec<String> = self
+            .s
+            .get(b)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let mut changed = false;
+        for d in &s_b {
+            let Some(rules) = some_lhs.get(&(r.to_string(), d.clone())) else {
+                continue;
+            };
+            for (e, label, axiom_conf) in rules {
+                let Concept::Named(en) = e else { continue };
+                let conf = self.cur_rconf(r, a, b) * self.cur_conf(b, d) * axiom_conf;
+                if self.add_sub(
+                    a,
+                    en,
+                    "CR-some⁻",
+                    vec![label.clone()],
+                    vec![(b.to_string(), d.clone())],
+                    conf,
+                ) {
+                    changed = true;
                 }
             }
         }
+        changed
+    }
+
+    /// CR-bot: `⊥ ∈ S(b)`, `(a,b) ∈ R(r)` ⇒ `⊥ ∈ S(a)` — the empty filler propagates
+    /// unsatisfiability up an existential.
+    fn apply_cr_bot_for(&mut self, r: &str, a: &str, b: &str, nothing: &str) -> bool {
+        if !self.s.get(b).map(|s| s.contains(nothing)).unwrap_or(false) {
+            return false;
+        }
+        let conf = self.cur_rconf(r, a, b) * self.cur_conf(b, nothing);
+        self.add_sub(
+            a,
+            nothing,
+            "CR-bot",
+            vec![],
+            vec![(b.to_string(), nothing.to_string())],
+            conf,
+        )
+    }
+
+    /// CR-subrole: `(a,b) ∈ R(r)`, `r ⊑ s` ⇒ `(a,b) ∈ R(s)`.
+    fn apply_cr_subrole(&mut self, sub_roles: &[(String, String, String, f64)]) -> bool {
+        let mut changed = false;
+        for (r, sup, _label, axiom_conf) in sub_roles {
+            let Some(pairs) = self.r.get(r).cloned() else {
+                continue;
+            };
+            for (a, b) in pairs {
+                let conf = self.cur_rconf(r, &a, &b) * axiom_conf;
+                if self.add_role_weighted(sup, &a, &b, conf) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// Symmetric roles: `(a,b) ∈ R(r)` ⇒ `(b,a) ∈ R(r)`.
+    fn apply_symmetric_roles(&mut self, symmetric: &[String]) -> bool {
+        let mut changed = false;
+        for r in symmetric {
+            let Some(pairs) = self.r.get(r).cloned() else {
+                continue;
+            };
+            for (a, b) in pairs {
+                let conf = self.cur_rconf(r, &a, &b);
+                if self.add_role_weighted(r, &b, &a, conf) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// Inverse role pairs: `(a,b) ∈ R(p1)` ⇒ `(b,a) ∈ R(p2)`, and the reverse.
+    fn apply_inverse_roles(&mut self, inverses: &[(String, String)]) -> bool {
+        let mut changed = false;
+        for (p1, p2) in inverses {
+            changed |= self.apply_inverse_role_direction(p1, p2);
+            changed |= self.apply_inverse_role_direction(p2, p1);
+        }
+        changed
+    }
+
+    fn apply_inverse_role_direction(&mut self, from: &str, to: &str) -> bool {
+        let Some(pairs) = self.r.get(from).cloned() else {
+            return false;
+        };
+        let mut changed = false;
+        for (a, b) in pairs {
+            let conf = self.cur_rconf(from, &a, &b);
+            if self.add_role_weighted(to, &b, &a, conf) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// CR-allValues (RL cls-avf): `sub ⊑ ∀r.filler`, `sub ∈ S(a)`, `(a,b) ∈ R(r)` ⇒
+    /// `filler ∈ S(b)`. The universal restriction forces every r-witness of a `sub`
+    /// member into `filler`. Sound + tractable; the one ∀-shape we admit.
+    fn apply_cr_all_values(
+        &mut self,
+        all_values: &[(String, String, String, String, f64)],
+    ) -> bool {
+        let mut changed = false;
+        for (sub, role, filler, label, axiom_conf) in all_values {
+            let Some(pairs) = self.r.get(role).cloned() else {
+                continue;
+            };
+            for (a, b) in &pairs {
+                if !self.s.get(a).map(|s| s.contains(sub)).unwrap_or(false) {
+                    continue;
+                }
+                let conf = self.cur_conf(a, sub) * self.cur_rconf(role, a, b) * axiom_conf;
+                if self.add_sub(
+                    b,
+                    filler,
+                    "CR-allValues",
+                    vec![label.clone()],
+                    vec![(a.clone(), sub.clone())],
+                    conf,
+                ) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// CR-chain: `(a,b) ∈ R(r1)`, `(b,c) ∈ R(r2)`, `r1∘r2 ⊑ s` ⇒ `(a,c) ∈ R(s)` (covers
+    /// transitivity via `r∘r ⊑ r`). Only 2-role chains are supported.
+    fn apply_cr_chain(&mut self, chains: &[RoleChain]) -> bool {
+        let mut changed = false;
+        for ch in chains {
+            if ch.chain.len() == 2 {
+                changed |= self.apply_one_cr_chain(ch);
+            }
+        }
+        changed
+    }
+
+    fn apply_one_cr_chain(&mut self, ch: &RoleChain) -> bool {
+        let (r1, r2) = (&ch.chain[0], &ch.chain[1]);
+        let left = self.r.get(r1).cloned().unwrap_or_default();
+        let right = self.r.get(r2).cloned().unwrap_or_default();
+        // index right by its source
+        let mut by_src: HashMap<String, Vec<String>> = HashMap::new();
+        for (b, c) in &right {
+            by_src.entry(b.clone()).or_default().push(c.clone());
+        }
+        let mut changed = false;
+        for (a, b) in &left {
+            let Some(cs) = by_src.get(b) else { continue };
+            for c in cs {
+                let conf = self.cur_rconf(r1, a, b) * self.cur_rconf(r2, b, c) * ch.conf;
+                if self.add_role_weighted(&ch.sup, a, c, conf) {
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 
     /// Current confidence of a subsumption `(a,b)` — `1.0` when unweighted or unseen
