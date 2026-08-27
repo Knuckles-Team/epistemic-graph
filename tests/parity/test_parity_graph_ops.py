@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import pytest
 
-# Plain (non-relative) import -- see `conftest.py`'s comment on the same
-# import: `tests/parity/` has no `__init__.py`, so pytest imports every
-# module here as a top-level module, not a package submodule.
-from _harness import assert_parity, assert_rls_isolation
+# Relative import -- see `conftest.py`'s comment on the same import and
+# `tests/parity/__init__.py` (BUG-CX-002): this directory is now a real
+# package (`parity`), distinct from the top-level `conftest` module.
+from ._harness import assert_parity, assert_rls_isolation
 
 
 @pytest.mark.asyncio
