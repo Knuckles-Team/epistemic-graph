@@ -146,6 +146,29 @@ const SCHEMA_MIGRATION_ORDER: TableDefinition<(&str, &str, u64), &str> =
 /// version gaps or duplicate assignments after restart.
 const SCHEMA_CATALOG_ORDER: TableDefinition<(&str, u64), &str> =
     TableDefinition::new("__sql_schema_catalog_order__");
+// Owned (not transaction-lifetime-bound, see `redb::ReadOnlyTable`) table handles
+// for the schema-migration catalogs, named so `verify_schema_migrations`'s
+// decomposed helpers (below) can pass them around without repeating the full
+// generic type at every call site.
+type SchemaVersionsTable = redb::ReadOnlyTable<(&'static str, &'static str), u64>;
+type SchemaOrderTable = redb::ReadOnlyTable<(&'static str, &'static str, u64), &'static str>;
+type SchemaRecordsTable =
+    redb::ReadOnlyTable<(&'static str, &'static str, &'static str), &'static [u8]>;
+type SchemaCatalogVersionsTable = redb::ReadOnlyTable<&'static str, u64>;
+type SchemaCatalogOrderTable = redb::ReadOnlyTable<(&'static str, u64), &'static str>;
+type SchemaCatalogTable = redb::ReadOnlyTable<&'static str, &'static [u8]>;
+
+/// Every table `verify_schema_migrations` needs, bundled so
+/// `open_schema_migration_tables` can hand them back in one piece.
+struct SchemaMigrationTables {
+    versions: SchemaVersionsTable,
+    order: SchemaOrderTable,
+    records: SchemaRecordsTable,
+    catalog_versions: SchemaCatalogVersionsTable,
+    catalog_order: SchemaCatalogOrderTable,
+    catalog: SchemaCatalogTable,
+}
+
 const MAX_SQL_STORED_VALUE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SQL_STORED_VALUE_ITEMS: usize = 1_000_000;
 const MAX_SQL_SCAN_ROWS: usize = 100_000;
@@ -666,8 +689,112 @@ impl TableStore {
     /// store from serving stale schema state.
     pub fn verify_schema_migrations(&self) -> Result<(), String> {
         let rtx = self.db.begin_read().map_err(map_err)?;
-        let versions = match rtx.open_table(SCHEMA_VERSIONS) {
-            Ok(table) => table,
+        let Some(tables) = self.open_schema_migration_tables(&rtx)? else {
+            return Ok(());
+        };
+        let catalog_records = self.build_schema_migration_record_map(&tables.records)?;
+        self.verify_schema_catalog_order_chain(
+            &tables.catalog_versions,
+            &tables.catalog_order,
+            &catalog_records,
+        )?;
+        self.verify_schema_version_chains(
+            &tables.versions,
+            &tables.catalog,
+            &tables.order,
+            &tables.records,
+        )?;
+        Ok(())
+    }
+
+    /// Opens every table `verify_schema_migrations` needs, or `None` when an
+    /// early "nothing to verify" fallback in one of the two grouped opens
+    /// (version-chain tables, then catalog-chain tables) already resolved
+    /// the whole check. Split from `verify_schema_migrations` itself purely
+    /// to keep that caller's own CCN low; all the actual fallback/corruption
+    /// logic lives in `open_schema_version_tables`/`open_schema_catalog_tables`
+    /// and the six single-table openers below them.
+    fn open_schema_migration_tables(
+        &self,
+        rtx: &ReadTransaction,
+    ) -> Result<Option<SchemaMigrationTables>, String> {
+        let Some((versions, order, records)) = self.open_schema_version_tables(rtx)? else {
+            return Ok(None);
+        };
+        let Some((catalog_versions, catalog_order, catalog)) =
+            self.open_schema_catalog_tables(rtx, &versions)?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(SchemaMigrationTables {
+            versions,
+            order,
+            records,
+            catalog_versions,
+            catalog_order,
+            catalog,
+        }))
+    }
+
+    /// Opens `SCHEMA_VERSIONS`/`SCHEMA_MIGRATION_ORDER`/`SCHEMA_MIGRATIONS`
+    /// together, short-circuiting to `None` the moment any one of them
+    /// reports "nothing to verify" (each opener's own `None` already means
+    /// the whole chain is trivially valid, see their doc comments).
+    fn open_schema_version_tables(
+        &self,
+        rtx: &ReadTransaction,
+    ) -> Result<Option<(SchemaVersionsTable, SchemaOrderTable, SchemaRecordsTable)>, String> {
+        let Some(versions) = self.open_schema_versions_or_ok(rtx)? else {
+            return Ok(None);
+        };
+        let Some(order) = self.open_schema_migration_order_or_ok(rtx, &versions)? else {
+            return Ok(None);
+        };
+        let Some(records) = self.open_schema_migration_records_or_ok(rtx, &versions)? else {
+            return Ok(None);
+        };
+        Ok(Some((versions, order, records)))
+    }
+
+    /// Opens `SCHEMA_CATALOG_VERSIONS`/`SCHEMA_CATALOG_ORDER`/`CATALOG`
+    /// together, mirroring `open_schema_version_tables`.
+    fn open_schema_catalog_tables(
+        &self,
+        rtx: &ReadTransaction,
+        versions: &SchemaVersionsTable,
+    ) -> Result<
+        Option<(
+            SchemaCatalogVersionsTable,
+            SchemaCatalogOrderTable,
+            SchemaCatalogTable,
+        )>,
+        String,
+    > {
+        let Some(catalog_versions) = self.open_schema_catalog_versions_or_ok(rtx, versions)?
+        else {
+            return Ok(None);
+        };
+        let Some(catalog_order) =
+            self.open_schema_catalog_order_or_ok(rtx, &catalog_versions)?
+        else {
+            return Ok(None);
+        };
+        let Some(catalog) = self.open_schema_catalog_or_ok(rtx)? else {
+            return Ok(None);
+        };
+        Ok(Some((catalog_versions, catalog_order, catalog)))
+    }
+
+    /// Opens `SCHEMA_VERSIONS`. Missing is valid for an old store UNLESS an
+    /// orphaned migration-order or migration-records catalog exists without
+    /// it, which is corruption. `Ok(None)` signals the caller to return
+    /// `Ok(())` immediately (nothing further to check).
+    fn open_schema_versions_or_ok(
+        &self,
+        rtx: &ReadTransaction,
+    ) -> Result<Option<SchemaVersionsTable>, String> {
+        match rtx.open_table(SCHEMA_VERSIONS) {
+            Ok(table) => Ok(Some(table)),
             Err(redb::TableError::TableDoesNotExist(_)) => {
                 let orphan_order = !matches!(
                     rtx.open_table(SCHEMA_MIGRATION_ORDER),
@@ -683,12 +810,22 @@ impl TableStore {
                             .to_string(),
                     );
                 }
-                return Ok(());
+                Ok(None)
             }
-            Err(error) => return Err(map_err(error)),
-        };
-        let order = match rtx.open_table(SCHEMA_MIGRATION_ORDER) {
-            Ok(table) => table,
+            Err(error) => Err(map_err(error)),
+        }
+    }
+
+    /// Opens `SCHEMA_MIGRATION_ORDER`. Missing is valid only when every
+    /// tracked version in `versions` is still zero (a store that has never
+    /// migrated anything).
+    fn open_schema_migration_order_or_ok(
+        &self,
+        rtx: &ReadTransaction,
+        versions: &SchemaVersionsTable,
+    ) -> Result<Option<SchemaOrderTable>, String> {
+        match rtx.open_table(SCHEMA_MIGRATION_ORDER) {
+            Ok(table) => Ok(Some(table)),
             Err(redb::TableError::TableDoesNotExist(_)) => {
                 for row in versions.iter().map_err(map_err)? {
                     let (key, value) = row.map_err(map_err)?;
@@ -700,12 +837,20 @@ impl TableStore {
                         ));
                     }
                 }
-                return Ok(());
+                Ok(None)
             }
-            Err(error) => return Err(map_err(error)),
-        };
-        let records = match rtx.open_table(SCHEMA_MIGRATIONS) {
-            Ok(table) => table,
+            Err(error) => Err(map_err(error)),
+        }
+    }
+
+    /// Opens `SCHEMA_MIGRATIONS`, mirroring `open_schema_migration_order_or_ok`.
+    fn open_schema_migration_records_or_ok(
+        &self,
+        rtx: &ReadTransaction,
+        versions: &SchemaVersionsTable,
+    ) -> Result<Option<SchemaRecordsTable>, String> {
+        match rtx.open_table(SCHEMA_MIGRATIONS) {
+            Ok(table) => Ok(Some(table)),
             Err(redb::TableError::TableDoesNotExist(_)) => {
                 for row in versions.iter().map_err(map_err)? {
                     let (key, value) = row.map_err(map_err)?;
@@ -717,12 +862,21 @@ impl TableStore {
                         ));
                     }
                 }
-                return Ok(());
+                Ok(None)
             }
-            Err(error) => return Err(map_err(error)),
-        };
-        let catalog_versions = match rtx.open_table(SCHEMA_CATALOG_VERSIONS) {
-            Ok(table) => table,
+            Err(error) => Err(map_err(error)),
+        }
+    }
+
+    /// Opens `SCHEMA_CATALOG_VERSIONS`. Missing is valid only when no
+    /// migration versions have been recorded at all.
+    fn open_schema_catalog_versions_or_ok(
+        &self,
+        rtx: &ReadTransaction,
+        versions: &SchemaVersionsTable,
+    ) -> Result<Option<SchemaCatalogVersionsTable>, String> {
+        match rtx.open_table(SCHEMA_CATALOG_VERSIONS) {
+            Ok(table) => Ok(Some(table)),
             Err(redb::TableError::TableDoesNotExist(_)) => {
                 for row in versions.iter().map_err(map_err)? {
                     let (_, value) = row.map_err(map_err)?;
@@ -733,12 +887,21 @@ impl TableStore {
                         );
                     }
                 }
-                return Ok(());
+                Ok(None)
             }
-            Err(error) => return Err(map_err(error)),
-        };
-        let catalog_order = match rtx.open_table(SCHEMA_CATALOG_ORDER) {
-            Ok(table) => table,
+            Err(error) => Err(map_err(error)),
+        }
+    }
+
+    /// Opens `SCHEMA_CATALOG_ORDER`. Missing is valid only when every scope's
+    /// catalog version in `catalog_versions` is still zero.
+    fn open_schema_catalog_order_or_ok(
+        &self,
+        rtx: &ReadTransaction,
+        catalog_versions: &SchemaCatalogVersionsTable,
+    ) -> Result<Option<SchemaCatalogOrderTable>, String> {
+        match rtx.open_table(SCHEMA_CATALOG_ORDER) {
+            Ok(table) => Ok(Some(table)),
             Err(redb::TableError::TableDoesNotExist(_)) => {
                 for row in catalog_versions.iter().map_err(map_err)? {
                     let (scope, value) = row.map_err(map_err)?;
@@ -749,16 +912,35 @@ impl TableStore {
                         ));
                     }
                 }
-                return Ok(());
+                Ok(None)
             }
-            Err(error) => return Err(map_err(error)),
-        };
-        let catalog = match rtx.open_table(CATALOG) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(()),
-            Err(error) => return Err(map_err(error)),
-        };
+            Err(error) => Err(map_err(error)),
+        }
+    }
 
+    /// Opens the user-table `CATALOG`. Missing means no user tables exist at
+    /// all, so there is trivially nothing to verify.
+    fn open_schema_catalog_or_ok(
+        &self,
+        rtx: &ReadTransaction,
+    ) -> Result<Option<SchemaCatalogTable>, String> {
+        match rtx.open_table(CATALOG) {
+            Ok(table) => Ok(Some(table)),
+            Err(redb::TableError::TableDoesNotExist(_)) => Ok(None),
+            Err(error) => Err(map_err(error)),
+        }
+    }
+
+    /// Validates every migration record's scope binding, identity, and
+    /// digest chain (CONCEPT unchanged), returning the `(scope, table,
+    /// migration_id) -> catalog_version` map the two verification passes
+    /// below need. The transient duplicate-catalog-version detector
+    /// (`catalog_identities` in the pre-extraction code) stays local: it is
+    /// consulted nowhere after this loop, exactly as before.
+    fn build_schema_migration_record_map(
+        &self,
+        records: &SchemaRecordsTable,
+    ) -> Result<HashMap<(String, String, String), u64>, String> {
         let mut catalog_records: HashMap<(String, String, String), u64> = HashMap::new();
         let mut catalog_identities: HashMap<(String, u64), (String, String)> = HashMap::new();
         for row in records.iter().map_err(map_err)? {
@@ -808,6 +990,18 @@ impl TableStore {
                 ));
             }
         }
+        Ok(catalog_records)
+    }
+
+    /// Validates that every scope's catalog-version chain in
+    /// `catalog_order`/`catalog_versions` is contiguous from 1 and each
+    /// entry resolves back to a record in `catalog_records`.
+    fn verify_schema_catalog_order_chain(
+        &self,
+        catalog_versions: &SchemaCatalogVersionsTable,
+        catalog_order: &SchemaCatalogOrderTable,
+        catalog_records: &HashMap<(String, String, String), u64>,
+    ) -> Result<(), String> {
         for row in catalog_versions.iter().map_err(map_err)? {
             let (scope, version) = row.map_err(map_err)?;
             if scope.value() != self.scope.as_ref() {
@@ -828,31 +1022,61 @@ impl TableStore {
                     scope.value()
                 ));
             }
-            for expected_catalog_version in 1..=current_catalog_version {
-                let identity = catalog_order
-                    .get((scope.value(), expected_catalog_version))
-                    .map_err(map_err)?
-                    .ok_or_else(|| {
-                        format!(
-                            "schema catalog version chain has a gap at {expected_catalog_version}"
-                        )
-                    })?;
-                let (table, migration_id) = identity.value().split_once('\0').ok_or_else(|| {
-                    "schema catalog order contains an invalid identity".to_string()
+            Self::verify_schema_catalog_order_chain_for_scope(
+                scope.value(),
+                current_catalog_version,
+                catalog_order,
+                catalog_records,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The inner per-scope walk of `verify_schema_catalog_order_chain`:
+    /// every catalog version from 1 to `current_catalog_version` must chain
+    /// to a real, matching migration record.
+    fn verify_schema_catalog_order_chain_for_scope(
+        scope: &str,
+        current_catalog_version: u64,
+        catalog_order: &SchemaCatalogOrderTable,
+        catalog_records: &HashMap<(String, String, String), u64>,
+    ) -> Result<(), String> {
+        for expected_catalog_version in 1..=current_catalog_version {
+            let identity = catalog_order
+                .get((scope, expected_catalog_version))
+                .map_err(map_err)?
+                .ok_or_else(|| {
+                    format!("schema catalog version chain has a gap at {expected_catalog_version}")
                 })?;
-                let record_key = (
-                    scope.value().to_string(),
-                    table.to_string(),
-                    migration_id.to_string(),
-                );
-                if catalog_records.get(&record_key) != Some(&expected_catalog_version) {
-                    return Err(format!(
-                        "schema catalog order points to missing or mismatched migration `{table}/{migration_id}`"
-                    ));
-                }
+            let (table, migration_id) = identity
+                .value()
+                .split_once('\0')
+                .ok_or_else(|| "schema catalog order contains an invalid identity".to_string())?;
+            let record_key = (
+                scope.to_string(),
+                table.to_string(),
+                migration_id.to_string(),
+            );
+            if catalog_records.get(&record_key) != Some(&expected_catalog_version) {
+                return Err(format!(
+                    "schema catalog order points to missing or mismatched migration `{table}/{migration_id}`"
+                ));
             }
         }
+        Ok(())
+    }
 
+    /// Validates every table's per-column schema-version chain: contiguous
+    /// versions walking backward from `current_version`, each migration's
+    /// digest linking to the next, and the chain terminating at the live
+    /// catalog schema's digest.
+    fn verify_schema_version_chains(
+        &self,
+        versions: &SchemaVersionsTable,
+        catalog: &SchemaCatalogTable,
+        order: &SchemaOrderTable,
+        records: &SchemaRecordsTable,
+    ) -> Result<(), String> {
         for row in versions.iter().map_err(map_err)? {
             let (key, version) = row.map_err(map_err)?;
             let (scope, table) = key.value();
@@ -862,68 +1086,162 @@ impl TableStore {
                     self.scope
                 ));
             }
-            let schema_bytes = catalog
-                .get(table)
-                .map_err(map_err)?
-                .ok_or_else(|| format!("schema version references missing table `{table}`"))?;
-            let schema = decode_stored::<TableSchema>(schema_bytes.value(), "schema")?;
-            schema.validate()?;
-            let mut previous_digest = schema.schema_digest()?;
-            let current_version = version.value();
-            for expected_version in (1..=current_version).rev() {
-                let migration_id = order
-                    .get((scope, table, expected_version))
-                    .map_err(map_err)?
-                    .ok_or_else(|| {
-                        format!(
-                            "schema migration chain for `{table}` has a version gap at {expected_version}"
-                        )
-                    })?;
-                let migration_id = migration_id.value();
-                let bytes = records
-                    .get((scope, table, migration_id))
-                    .map_err(map_err)?
-                    .ok_or_else(|| {
-                        format!(
-                            "schema migration order for `{table}` points to missing `{migration_id}`"
-                        )
-                    })?;
-                let record: SchemaMigrationRecord =
-                    decode_stored(bytes.value(), "schema migration record")?;
-                verify_migration_record(&record, scope, table, expected_version)?;
-                if record.migration.migration_id != migration_id {
-                    return Err(format!(
-                        "schema migration order for `{table}` maps version {expected_version} to a different record identity"
-                    ));
-                }
-                if record.migration.target_schema_digest != previous_digest {
-                    return Err(format!(
-                        "schema migration chain for `{table}` does not terminate at the catalog digest"
-                    ));
-                }
-                previous_digest = record.migration.expected_schema_digest.clone();
-            }
-            if current_version > 0 {
-                let first = order
-                    .get((scope, table, 1u64))
-                    .map_err(map_err)?
-                    .ok_or_else(|| {
-                        format!("schema migration chain for `{table}` starts with a gap")
-                    })?;
-                let record = records
-                    .get((scope, table, first.value()))
-                    .map_err(map_err)?
-                    .ok_or_else(|| {
-                        format!("schema migration chain for `{table}` has no first record")
-                    })?;
-                let first: SchemaMigrationRecord =
-                    decode_stored(record.value(), "schema migration record")?;
-                if first.migration.expected_schema_version != 0 {
-                    return Err(format!(
-                        "schema migration chain for `{table}` does not begin at version zero"
-                    ));
-                }
-            }
+            Self::verify_schema_version_chain_for_table(
+                scope,
+                table,
+                version.value(),
+                catalog,
+                order,
+                records,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The inner per-`(scope, table)` check of `verify_schema_version_chains`:
+    /// resolve the live catalog schema's starting digest, walk the migration
+    /// chain backward against it, then confirm the chain begins at version 0.
+    fn verify_schema_version_chain_for_table(
+        scope: &str,
+        table: &str,
+        current_version: u64,
+        catalog: &SchemaCatalogTable,
+        order: &SchemaOrderTable,
+        records: &SchemaRecordsTable,
+    ) -> Result<(), String> {
+        let schema_bytes = catalog
+            .get(table)
+            .map_err(map_err)?
+            .ok_or_else(|| format!("schema version references missing table `{table}`"))?;
+        let schema = decode_stored::<TableSchema>(schema_bytes.value(), "schema")?;
+        schema.validate()?;
+        let previous_digest = schema.schema_digest()?;
+        Self::verify_schema_migration_digest_chain(
+            scope,
+            table,
+            current_version,
+            previous_digest,
+            order,
+            records,
+        )?;
+        Self::verify_schema_chain_starts_at_zero(scope, table, current_version, order, records)
+    }
+
+    /// Walks the migration chain for `(scope, table)` backward from
+    /// `current_version` to 1, confirming versions are contiguous and each
+    /// migration's target digest links to the previous step (ending at the
+    /// live catalog schema's digest, passed in as the initial
+    /// `previous_digest`).
+    fn verify_schema_migration_digest_chain(
+        scope: &str,
+        table: &str,
+        current_version: u64,
+        mut previous_digest: String,
+        order: &SchemaOrderTable,
+        records: &SchemaRecordsTable,
+    ) -> Result<(), String> {
+        for expected_version in (1..=current_version).rev() {
+            previous_digest = Self::verify_one_schema_migration_step(
+                scope,
+                table,
+                expected_version,
+                previous_digest,
+                order,
+                records,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// One step of `verify_schema_migration_digest_chain`: resolve the
+    /// migration recorded at `expected_version`, confirm its identity, and
+    /// confirm its target digest links to `previous_digest`. Returns the
+    /// next `previous_digest` for the walk to continue with.
+    fn verify_one_schema_migration_step(
+        scope: &str,
+        table: &str,
+        expected_version: u64,
+        previous_digest: String,
+        order: &SchemaOrderTable,
+        records: &SchemaRecordsTable,
+    ) -> Result<String, String> {
+        let record = Self::resolve_schema_migration_record(
+            scope,
+            table,
+            expected_version,
+            order,
+            records,
+        )?;
+        if record.migration.target_schema_digest != previous_digest {
+            return Err(format!(
+                "schema migration chain for `{table}` does not terminate at the catalog digest"
+            ));
+        }
+        Ok(record.migration.expected_schema_digest.clone())
+    }
+
+    /// Resolves and identity-checks the migration recorded for `(scope,
+    /// table, expected_version)`: the order chain must point to a record
+    /// that exists and whose own migration_id matches.
+    fn resolve_schema_migration_record(
+        scope: &str,
+        table: &str,
+        expected_version: u64,
+        order: &SchemaOrderTable,
+        records: &SchemaRecordsTable,
+    ) -> Result<SchemaMigrationRecord, String> {
+        let migration_id = order
+            .get((scope, table, expected_version))
+            .map_err(map_err)?
+            .ok_or_else(|| {
+                format!(
+                    "schema migration chain for `{table}` has a version gap at {expected_version}"
+                )
+            })?;
+        let migration_id = migration_id.value();
+        let bytes = records
+            .get((scope, table, migration_id))
+            .map_err(map_err)?
+            .ok_or_else(|| {
+                format!("schema migration order for `{table}` points to missing `{migration_id}`")
+            })?;
+        let record: SchemaMigrationRecord = decode_stored(bytes.value(), "schema migration record")?;
+        verify_migration_record(&record, scope, table, expected_version)?;
+        if record.migration.migration_id != migration_id {
+            return Err(format!(
+                "schema migration order for `{table}` maps version {expected_version} to a different record identity"
+            ));
+        }
+        Ok(record)
+    }
+
+    /// The `current_version == 0` case is trivially valid (no chain to
+    /// check); otherwise the first migration in the chain must start at
+    /// schema version 0.
+    fn verify_schema_chain_starts_at_zero(
+        scope: &str,
+        table: &str,
+        current_version: u64,
+        order: &SchemaOrderTable,
+        records: &SchemaRecordsTable,
+    ) -> Result<(), String> {
+        if current_version == 0 {
+            return Ok(());
+        }
+        let first = order
+            .get((scope, table, 1u64))
+            .map_err(map_err)?
+            .ok_or_else(|| format!("schema migration chain for `{table}` starts with a gap"))?;
+        let record = records
+            .get((scope, table, first.value()))
+            .map_err(map_err)?
+            .ok_or_else(|| format!("schema migration chain for `{table}` has no first record"))?;
+        let first: SchemaMigrationRecord =
+            decode_stored(record.value(), "schema migration record")?;
+        if first.migration.expected_schema_version != 0 {
+            return Err(format!(
+                "schema migration chain for `{table}` does not begin at version zero"
+            ));
         }
         Ok(())
     }
