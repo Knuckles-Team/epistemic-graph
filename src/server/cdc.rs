@@ -708,7 +708,39 @@ pub enum CdcPre {
     },
 }
 
+/// Read the canonical `relationship` field out of an edge property blob, if any
+/// (the same field `eg-rdf::update`'s `edge_rel` / `eg-plan::exec`'s `rel_matches`
+/// key selection on — see the read/write model note on
+/// [`GraphCore::edge_properties`](crate::graph::GraphCore::edge_properties)).
+fn edge_relationship(blob: &[u8]) -> Option<String> {
+    eg_types::msgpack::decode_property_value(blob)
+        .ok()
+        .and_then(|v| {
+            v.get("relationship")
+                .and_then(|r| r.as_str())
+                .map(str::to_string)
+        })
+}
+
 /// Capture the pre-image for a durable mutation against `core`, BEFORE it applies.
+///
+/// A `(source, target)` pair may already carry several parallel property entries —
+/// distinct typed edges, or a bitemporal Invalidate/Supersede history (see the read/
+/// write model note on `GraphCore::edge_properties`) — so picking "one" pre-image
+/// blob out of that `Vec` is never index-arbitrary here: for `AddEdge` the pre-image
+/// is the existing entry that carries the SAME `relationship` the new edge is about
+/// to add (the entry an upsert-style caller is conceptually replacing), matching the
+/// selection rule `eg-rdf::update::add_edge_if_absent` already uses on the write
+/// side. When no existing entry shares that relationship, this is a genuinely new
+/// typed edge for the pair, not an update to one — `before` is correctly `None`,
+/// never an unrelated parallel edge's blob.
+///
+/// `RemoveEdge` has no target relationship to key against (`GraphTxn::remove_edge`
+/// drops the WHOLE pair, every parallel entry at once), and the CDC wire shape here
+/// carries a single `Option<Vec<u8>>`, not a set — so a multi-edge pair's removal
+/// reports its first entry as a best-effort representative pre-image. Downstream
+/// consumers that need the full removed set must read it before issuing the removal
+/// (`GetEdgeProperties`), not rely on this pre-image being exhaustive.
 pub fn capture_before(core: &GraphCore, method: &Method) -> CdcPre {
     match method {
         Method::AddNode { node_id, .. }
@@ -721,9 +753,25 @@ pub fn capture_before(core: &GraphCore, method: &Method) -> CdcPre {
         Method::AddEdge {
             source_id,
             target_id,
-            ..
+            properties_msgpack,
+        } => {
+            let new_relationship = edge_relationship(properties_msgpack);
+            let existing = core.get_edge_properties(source_id, target_id);
+            let before = match &new_relationship {
+                Some(rel) => existing
+                    .into_iter()
+                    .find(|blob| edge_relationship(blob).as_deref() == Some(rel.as_str())),
+                // No `relationship` on the incoming edge at all: fall back to the
+                // pre-existing best-effort "first entry" pick rather than guessing.
+                None => existing.into_iter().next(),
+            };
+            CdcPre::Edge {
+                source_id: source_id.clone(),
+                target_id: target_id.clone(),
+                before,
+            }
         }
-        | Method::RemoveEdge {
+        Method::RemoveEdge {
             source_id,
             target_id,
         } => CdcPre::Edge {
@@ -1042,6 +1090,71 @@ mod tests {
 
     fn props(v: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// `capture_before`'s `AddEdge` pre-image must select the existing entry by
+    /// `relationship`, never by Vec position (CONCEPT:EG-KG.compute.edge-write-read-model):
+    /// a `(source, target)` pair may already carry several parallel typed edges, so
+    /// "the first one written" is never a safe proxy for "the one this AddEdge is
+    /// conceptually replacing".
+    #[test]
+    fn add_edge_pre_image_matches_by_relationship_not_position() {
+        let core = GraphCore::new();
+        core.add_node("a".into(), props(serde_json::json!({})));
+        core.add_node("b".into(), props(serde_json::json!({})));
+        // Two parallel edges already exist between (a, b): PART_OF inserted first,
+        // then SUPPORTS.
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({"relationship": "PART_OF", "v": 1})),
+        )
+        .unwrap();
+        core.add_edge(
+            "a".into(),
+            "b".into(),
+            props(serde_json::json!({"relationship": "SUPPORTS", "v": 2})),
+        )
+        .unwrap();
+
+        // Re-adding a SUPPORTS edge must report the EXISTING SUPPORTS entry as
+        // `before` -- never the unrelated, positionally-first PART_OF entry.
+        let method = Method::AddEdge {
+            source_id: "a".to_string(),
+            target_id: "b".to_string(),
+            properties_msgpack: props(serde_json::json!({"relationship": "SUPPORTS", "v": 3})),
+        };
+        match capture_before(&core, &method) {
+            CdcPre::Edge { before, .. } => {
+                let before = before.expect("a SUPPORTS entry already existed for this pair");
+                let decoded: serde_json::Value = rmp_serde::from_slice(&before).unwrap();
+                assert_eq!(decoded["relationship"], "SUPPORTS");
+                assert_eq!(
+                    decoded["v"], 2,
+                    "must be the existing SUPPORTS entry, not the positionally-first PART_OF one"
+                );
+            }
+            _ => panic!("expected CdcPre::Edge"),
+        }
+
+        // Adding a genuinely NEW relationship for the pair (CAUSES) must report
+        // `before: None` -- not the unrelated PART_OF or SUPPORTS entry. Before this
+        // fix, a position-based pick would have surfaced one of them here, making a
+        // brand-new typed edge look like an update to an unrelated one.
+        let new_rel_method = Method::AddEdge {
+            source_id: "a".to_string(),
+            target_id: "b".to_string(),
+            properties_msgpack: props(serde_json::json!({"relationship": "CAUSES"})),
+        };
+        match capture_before(&core, &new_rel_method) {
+            CdcPre::Edge { before, .. } => {
+                assert!(
+                    before.is_none(),
+                    "a new relationship type is not an update to an existing one"
+                );
+            }
+            _ => panic!("expected CdcPre::Edge"),
+        }
     }
 
     /// Wiring proof (W3.6/E16): `emit` on the REAL hook only notes a write for a

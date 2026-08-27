@@ -401,17 +401,20 @@ pub fn recompute_materialization(
         .ok_or_else(|| "reasoning projection is not initialized".to_string())?;
     let fence_epoch = index.claim_recompute(node_id, expected_source_graph_version)?;
     let provenance = view.node_properties.get(node_id).map(|properties| {
+        // Yield EVERY parallel entry per outgoing pair (mirrors
+        // `eg_epistemic::incremental::register_from_graph_view`): `resolve_provenance`
+        // itself filters by each entry's `relationship`, so narrowing to
+        // `versions.last()` here would silently drop a `DERIVED_FROM`/`GENERATED_BY`
+        // edge shadowed by a later, different-relationship edge to the same target
+        // (see the read/write model note on `GraphCore::edge_properties`).
         let outgoing = view
             .edge_properties
             .iter()
-            .filter_map(|((source, target), versions)| {
-                (source == node_id)
-                    .then(|| {
-                        versions
-                            .last()
-                            .map(|properties| (target.clone(), properties.as_slice()))
-                    })
-                    .flatten()
+            .filter(|((source, _), _)| source == node_id)
+            .flat_map(|((_, target), versions)| {
+                versions
+                    .iter()
+                    .map(move |properties| (target.clone(), properties.as_slice()))
             });
         eg_epistemic::resolve_provenance(Some(properties.as_slice()), outgoing)
     });
