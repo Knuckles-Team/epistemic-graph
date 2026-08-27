@@ -10635,6 +10635,110 @@ class RdfClient:
         return rows
 
 
+class ObdaClient:
+    """CONCEPT:EG-KG.query.r2rml-virtual-graph / EG-KG.query.obda-query-rewrite — CA-13:
+    Ontology-Based Data Access as a Load/Evaluate pair, for callers (starting with au's
+    connector-manifest R2RML resolution, CA-23) that load one named mapping once and
+    then run many queries against it, instead of re-sending the mapping Turtle on every
+    call the way :meth:`RdfClient.sparql_virtual` does directly.
+
+    **W02 design decision (measured 2026-08-26, recorded in full in
+    ``src/server/obda/mod.rs``):** the engine already exposes OBDA over the wire as
+    ``Method.SparqlVirtual`` (:meth:`RdfClient.sparql_virtual`) — a STATELESS call that
+    takes the mapping Turtle and backing table name(s) on every request, matching
+    ``eg_rdf::obda``'s own "materialize transient triples, then discard" design (nothing
+    server-side ever persists a loaded mapping). CA-13 therefore adds **no new
+    ``Method`` variant and no server-side mapping registry** — :meth:`load` does its
+    bookkeeping ENTIRELY client-side (remembering ``mapping_turtle`` under
+    ``source_name``, which doubles as the engine SQL table name the mapping's
+    ``logical_source``/``rr:tableName`` must reference) and :meth:`evaluate` sends the
+    exact same ``SparqlVirtual`` request :meth:`RdfClient.sparql_virtual` would, scoped
+    to the loaded mapping. Re-:meth:`load`-ing a ``source_name`` is idempotent
+    (last-load-wins — it simply replaces the local dict entry; there is nothing
+    server-side to double-register).
+
+    ``source_name`` must already exist as a table in the engine's SQL catalog (created
+    via :class:`QueryClient` DDL or :meth:`EpistemicGraphClient.import_sqlite_file`).
+    Every :meth:`evaluate` call carries the SAME verified request context/authority as
+    any other RPC on this connection, so OBDA-materialized rows are ALWAYS subject to
+    the backing table's row-level ACL
+    (``sql_catalog_acl::open_authorized_table``/``AuthorizedTable::select`` in
+    ``src/server/handlers/rdf.rs``) exactly like a native ``Sql``/``Sparql`` read —
+    never a bypass.
+
+    **Failure semantics (P6):** an unregistered mapping never returns a silent empty
+    binding.
+
+    * :meth:`evaluate` for a ``source_name`` never :meth:`load`-ed raises ``KeyError``
+      locally — no round trip needed to know the mapping was never loaded.
+    * A ``tables``/``logical_source`` mismatch the engine can't resolve raises a typed
+      engine error (``eg_rdf::obda::ObdaSourceRegistry::resolve``, unchanged by CA-13).
+    * A query naming a predicate the loaded mapping does not declare ALSO raises a
+      typed engine error — CA-13 added this check to
+      ``eg_rdf::obda::run_outcome_virtual`` (see ``VirtualGraph::declared_predicates``)
+      because, before it, an unmapped predicate silently materialized zero triples and
+      the query returned zero solutions: indistinguishable from "this predicate has
+      data, just none matching the rest of the query" (a legitimate, correct SPARQL
+      answer the new check deliberately leaves alone — see the module docstring for the
+      exact boundary).
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+        self._mappings: dict[str, str] = {}
+
+    async def load(self, mapping_turtle: str, source_name: str) -> None:
+        """Register ``mapping_turtle`` (standard R2RML Turtle, or the compact EG-101
+        textual form — ``eg_rdf::obda`` auto-detects which) under ``source_name`` for
+        subsequent :meth:`evaluate` calls. Purely client-side bookkeeping — nothing is
+        sent to the engine until :meth:`evaluate` runs a query against it, at which
+        point a malformed mapping surfaces as the SAME parse error
+        :meth:`RdfClient.sparql_virtual` would raise. Idempotent: loading the same
+        ``source_name`` again replaces the previously loaded mapping (last-load-wins).
+        """
+        if not source_name:
+            raise ValueError("source_name must be a non-empty string")
+        if not mapping_turtle:
+            raise ValueError("mapping_turtle must be a non-empty string")
+        self._mappings[source_name] = mapping_turtle
+
+    async def evaluate(
+        self,
+        query: str,
+        source_name: str | None = None,
+    ) -> list[dict[str, str | None]]:
+        """Run SPARQL ``query`` against the mapping :meth:`load`-ed for ``source_name``.
+        ``source_name`` may be omitted only when exactly one mapping is currently
+        loaded (the common single-connector case); with zero or more than one loaded
+        mapping it is required. Returns the same row-dict shape as
+        :meth:`RdfClient.sparql_virtual`/:meth:`RdfClient.sparql`.
+
+        Raises ``KeyError`` for a ``source_name`` that was never :meth:`load`-ed (or
+        when it is omitted and loaded-mapping count != 1) — the client-side half of
+        CA-13's "an unregistered mapping never returns a silent empty binding"
+        contract; see the class docstring for the engine-side half (an unmapped
+        predicate on an otherwise-loaded mapping).
+        """
+        name = self._resolve_source_name(source_name)
+        mapping = self._mappings[name]
+        return await self._client.rdf.sparql_virtual(query, mapping, [name])
+
+    def _resolve_source_name(self, source_name: str | None) -> str:
+        if source_name is not None:
+            if source_name not in self._mappings:
+                raise KeyError(
+                    f"obda: source {source_name!r} was never loaded via "
+                    f"ObdaClient.load() (loaded: {sorted(self._mappings)})"
+                )
+            return source_name
+        if len(self._mappings) == 1:
+            return next(iter(self._mappings))
+        raise KeyError(
+            "obda: source_name is required unless exactly one mapping is loaded "
+            f"(loaded: {sorted(self._mappings)})"
+        )
+
+
 class StreamingClient:
     """CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230 — Streaming / CDC / subscriptions / triggers.
 
@@ -12519,6 +12623,7 @@ class EpistemicGraphClient:
         self.txn = TxnClient(self)
         self.timeseries = TimeSeriesClient(self)
         self.rdf = RdfClient(self)
+        self.obda = ObdaClient(self)
         self.streaming = StreamingClient(self)
         self.blob = BlobClient(self)
         # CONCEPT:EG-KG.ingest.broker-streams-namespaces — B1.7 multi-lang client drivers: broker/streams (EG-275..284/314),
@@ -13755,6 +13860,7 @@ class SyncEpistemicGraphClient:
         self.txn = self._SyncWrapper(self._client.txn, self._loop)
         self.timeseries = self._SyncWrapper(self._client.timeseries, self._loop)
         self.rdf = self._SyncWrapper(self._client.rdf, self._loop)
+        self.obda = self._SyncWrapper(self._client.obda, self._loop)
         self.streaming = self._SyncWrapper(self._client.streaming, self._loop)
         self.blob = self._SyncWrapper(self._client.blob, self._loop)
         # CONCEPT:EG-KG.ingest.broker-streams-namespaces — B1.7 broker/streams + RBAC + backup namespaces.
