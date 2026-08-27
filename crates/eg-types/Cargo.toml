@@ -130,6 +130,13 @@ matview = ["query"]
 # Engine-level security (CONCEPT:KG-2.231): gates the `AuditVerify` Method variant +
 # the `AuditReport` wire DTO. Pure serde — no dep.
 security = []
+# CA-16 RLS/marking predicate export (DEC-CA-04): gates the `PolicyExport` Method
+# variant. Pure serde — no heavy dep — mirrors the `jobs`/`viz`/`quantum`/`asr-native`
+# lockstep pattern: the root `epistemic-graph` package's `policy_export` facade
+# feature enables this AND `eg-capabilities?/policy_export` together (see root
+# Cargo.toml), so `eg-capabilities::policy()`'s exhaustive Method match and this
+# variant can never drift out of sync.
+policy_export = []
 # Query federation / foreign sources (CONCEPT:KG-2.232, Lane P): gates the
 # `ForeignSourceSpec`/`HttpFieldMap` wire DTOs + the `Op::ForeignScan` variant of the
 # cross-modal plan AST + the `RegisterForeignSource` Method. The `ForeignScan` op lives

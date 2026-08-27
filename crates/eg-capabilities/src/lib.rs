@@ -1597,6 +1597,35 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::None,
         },
+        // CA-16 (DEC-CA-04): renders the M1 row-visibility predicate set + a
+        // caller-supplied Marking bridge as one policy bundle. `authz_action` is
+        // DELIBERATELY `policy:export`, NOT `security:admin`/an `admin:`-prefixed
+        // action -- `is_admin_authz_action` routes those through
+        // `IsolationLayer::has_admin_capability` (`rbac.redb`/M7's pre-registered
+        // agent store), which is exactly the "engine RBAC store" DEC-CA-04 A2
+        // measured does NOT match the effective request-time role set. A
+        // non-admin-tier action still gates on `kg:admin` (or the exact
+        // `policy:export` scope) via `VerifiedRequestContext::allows_method`'s
+        // unconditional `kg:admin` fallback, which IS claims-derived -- see
+        // `server::policy_export`'s module doc for the full reasoning. Never a
+        // graph row read (no `GraphView`/`project_core`), so `mutates: false` /
+        // `DurabilityDomain::None` / `TxnParticipation::Snapshot`, mirroring
+        // `GetIdentity`'s read shape.
+        #[cfg(feature = "policy_export")]
+        Method::PolicyExport { .. } => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "policy:export",
+            idempotent: true,
+            // `false` mirrors `GetIdentity`: neither reaches `src/audit.rs::
+            // audit_line`'s hash-chained log today
+            // (`audited_matches_audit_rs_exactly` pins that). Wiring a real audit
+            // trail for this admin-sensitive export is a named follow-up, not
+            // claimed here without the matching `audit_line` arm.
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Snapshot,
+        },
         // GOC-34 (`OWNER-VOICE-TTS`) -- native TTS synthesis is stateless compute:
         // it validates+authorizes the carrier, runs bounded ONNX inference, and
         // returns audio inline. It writes no durable graph state (no CAS/rendition
@@ -2732,6 +2761,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("Asr", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "asr:transcribe", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "self-routes before dispatch_graph_op like Quantum/Viz; direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06)"),
         #[cfg(feature = "viz")]
         ("Viz", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "viz:render", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6)"),
+        #[cfg(feature = "policy_export")]
+        ("PolicyExport", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "policy:export", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "CA-16 (DEC-CA-04): renders the live IsolationLayer M1 row-visibility predicate set + a caller-supplied Marking bridge as one policy bundle; never reads GraphView/project_core, so no per-row RLS applies to the bundle's OWN contents -- see server::policy_export's module doc"),
         #[cfg(feature = "tts-piper")]
         ("TtsSynthesize", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "tts:synthesize", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::None }, "pure compute: native Piper-ONNX synthesis runs inline and returns audio, no durable graph write (GOC-34, no CAS/rendition publication exists yet)"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:sql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"),
@@ -3024,6 +3055,11 @@ mod smoke_tests {
         // `Ts*` family as `TsAppend`) and `TsListSeries` (the enumeration
         // primitive a retention sweep needs to discover what to evict/delete):
         // 400 + 3 = 403.
+        // Plus CA-16 `PolicyExport { .. }` (DEC-CA-04 M1 row-visibility policy
+        // bundle export, feature-gated `policy_export`, same lockstep contract
+        // as `asr-native`/`tts-piper`/`quantum`/`viz` -- see this crate's
+        // Cargo.toml and the sibling constant in `tests/consistency.rs`): +1
+        // when `policy_export` is enabled.
         let expected = 403
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
@@ -3032,7 +3068,8 @@ mod smoke_tests {
             + usize::from(cfg!(feature = "quantum"))
             + usize::from(cfg!(feature = "viz"))
             + usize::from(cfg!(feature = "asr-native"))
-            + usize::from(cfg!(feature = "tts-piper"));
+            + usize::from(cfg!(feature = "tts-piper"))
+            + usize::from(cfg!(feature = "policy_export"));
         assert_eq!(
             seen.len(),
             expected,

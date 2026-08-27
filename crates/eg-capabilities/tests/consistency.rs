@@ -1023,6 +1023,10 @@ fn all_methods_table_has_the_expected_variant_count() {
     // Plus the tsdb retention-reachability wiring's TsEvict/TsDeleteSeries/
     // TsListSeries (3 unconditional methods; matching the sibling constant in
     // `lib.rs::all_methods_table_matches_policy_fn...`): 400 + 3 = 403.
+    // Plus CA-16 `PolicyExport { .. }` (DEC-CA-04 M1 row-visibility policy
+    // bundle export, feature-gated `policy_export`, same lockstep contract as
+    // `asr-native`/`tts-piper`/`quantum`/`viz` -- see this crate's Cargo.toml
+    // and `lib.rs`'s sibling constant): +1 when `policy_export` is enabled.
     let expected = 403
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
@@ -1031,7 +1035,8 @@ fn all_methods_table_has_the_expected_variant_count() {
         + usize::from(cfg!(feature = "quantum"))
         + usize::from(cfg!(feature = "viz"))
         + usize::from(cfg!(feature = "asr-native"))
-        + usize::from(cfg!(feature = "tts-piper"));
+        + usize::from(cfg!(feature = "tts-piper"))
+        + usize::from(cfg!(feature = "policy_export"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 
