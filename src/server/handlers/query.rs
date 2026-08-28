@@ -357,6 +357,10 @@ async fn handle_sql(
     query: String,
     params_msgpack: Vec<u8>,
 ) -> Result<Response, Method> {
+    // Design §9 phase 2 — make the SQL `eg_embed(text)` function's process-wide embedder
+    // the SAME one the UQL `RANK BY ~ "text"` leg uses, before any SQL is planned. Once-
+    // guarded and a no-op after the first statement; see `bind_sql_text_embedder`.
+    bind_sql_text_embedder();
     let state = ctx.state;
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
@@ -1964,6 +1968,37 @@ fn uql_text_embedder() -> Option<&'static dyn eg_plan::TextEmbedder> {
         )
         .as_ref()
         .map(|e| e as &dyn eg_plan::TextEmbedder)
+}
+
+/// Bind the SQL `eg_embed(text)` function's process-wide embedder to the SAME
+/// `eg_plan::TextEmbedder` [`uql_text_embedder`] already gives the UQL `RANK BY ~ "text"`
+/// leg (design `plans/semantic-indexing/DESIGN-embedding-bindings.md` §9 phase 2). ONE
+/// trait, TWO callers: `eg-query` cannot name `eg_plan::TextEmbedder` (`eg-plan` depends
+/// on `eg-query`, so the reverse edge is a Cargo package cycle — see
+/// `eg_query::sql::embed_udf`'s module doc), so this facade — which depends on BOTH
+/// crates — is where the concrete embedder crosses that seam, as a closure.
+///
+/// Idempotent and cheap; called at the top of the SQL entry point rather than from a
+/// server-startup hook because `uql_text_embedder` is itself lazily resolved and
+/// `bind_text_embedder` is one-shot, so "first SQL statement" is the earliest moment the
+/// binding is both possible and needed. With no embedder configured
+/// (`EG_UQL_TEXT_EMBEDDER` unset — today's default, since the engine stores embeddings
+/// but produces them client-side) nothing is bound and `eg_embed(...)` returns its typed
+/// "no server-side text embedder is bound" error rather than a zero vector.
+///
+/// `pub(crate)` so the pgwire/wire SQL entry points can bind through this same function
+/// rather than growing a second injection site (they do not call [`handle_sql`]).
+#[cfg(feature = "query")]
+pub(crate) fn bind_sql_text_embedder() {
+    static BOUND: std::sync::Once = std::sync::Once::new();
+    BOUND.call_once(|| {
+        let Some(embedder) = uql_text_embedder() else {
+            return;
+        };
+        let _ = eg_query::sql::bind_text_embedder(std::sync::Arc::new(move |text: &str| {
+            embedder.embed(text)
+        }));
+    });
 }
 
 /// Compute a SOUND dependency set for a UQL/`UnifiedQuery` plan

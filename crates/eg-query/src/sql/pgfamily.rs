@@ -28,7 +28,8 @@
 
 use datafusion::sql::sqlparser::ast::{
     BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, LimitClause,
-    OrderByKind, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator, Value as SqlValue,
+    OrderByKind, Query, SelectItem, SetExpr, Statement, TableFactor, UnaryOperator,
+    Value as SqlValue,
 };
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -751,13 +752,12 @@ pub fn plan_ann_search(sql: &str, indexes: &[AnnIndexPlan]) -> Option<AnnSearchP
     })
 }
 
-/// Decode an `ORDER BY column <-> query` key: returns `(column, metric, query_text)`
-/// for a pgvector distance operator, else `None` (CONCEPT:EG-KG.query.real-ann-top-k).
-fn vector_order_key(expr: &Expr) -> Option<(String, VectorMetric, String)> {
-    let Expr::BinaryOp { left, op, right } = expr else {
-        return None;
-    };
-    let metric = match op {
+/// The pgvector distance metric a binary operator denotes, else `None`
+/// (CONCEPT:EG-KG.query.real-ann-top-k). Shared by [`vector_order_key`] (which decodes the
+/// whole `ORDER BY` key) and [`fold_const_embed_order_key`] (which only needs to know
+/// that the key IS a vector-distance key before folding its query operand).
+fn vector_metric_for_op(op: &BinaryOperator) -> Option<VectorMetric> {
+    match op {
         // GOC-40: sqlparser 0.62.0 promoted `<->` from a generic
         // `Custom("<->")` token to the dedicated `TwoWayArrow`/`LtDashGt`
         // token+operator pair (`PostgreSqlDialect::supports_geometric_types`),
@@ -766,18 +766,129 @@ fn vector_order_key(expr: &Expr) -> Option<(String, VectorMetric, String)> {
         // `<#>` (inner-product) has no dedicated variant in this sqlparser
         // version, so it still tokenizes as `Custom("<#>")` and that arm is
         // unaffected; kept for when it too eventually gets its own token.
-        BinaryOperator::LtDashGt => VectorMetric::L2,
-        BinaryOperator::Custom(s) if s == "<->" => VectorMetric::L2,
-        BinaryOperator::Custom(s) if s == "<#>" => VectorMetric::InnerProduct,
-        BinaryOperator::Spaceship => VectorMetric::Cosine, // `<=>`
-        _ => return None,
+        BinaryOperator::LtDashGt => Some(VectorMetric::L2),
+        BinaryOperator::Custom(s) if s == "<->" => Some(VectorMetric::L2),
+        BinaryOperator::Custom(s) if s == "<#>" => Some(VectorMetric::InnerProduct),
+        BinaryOperator::Spaceship => Some(VectorMetric::Cosine), // `<=>`
+        _ => None,
+    }
+}
+
+/// Decode an `ORDER BY column <-> query` key: returns `(column, metric, query_text)`
+/// for a pgvector distance operator, else `None` (CONCEPT:EG-KG.query.real-ann-top-k).
+fn vector_order_key(expr: &Expr) -> Option<(String, VectorMetric, String)> {
+    let Expr::BinaryOp { left, op, right } = expr else {
+        return None;
     };
+    let metric = vector_metric_for_op(op)?;
     let column = match left.as_ref() {
         Expr::Identifier(id) => id.value.clone(),
         Expr::CompoundIdentifier(ids) => ids.last()?.value.clone(),
         _ => return None,
     };
     Some((column, metric, right.to_string()))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Design §9 phase 2 — const-fold `eg_embed('literal')` for the ANN pushdown probe
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Resolve ONE literal query text to its dense query vector. `None` means "not
+/// resolvable here" (no embedder bound, the embedder failed, a non-finite element) —
+/// never an error: the caller then simply does not fold, and the query keeps the
+/// EG-115 brute-force path.
+pub(crate) type ConstEmbedFn<'a> = &'a dyn Fn(&str) -> Option<Vec<f32>>;
+
+/// Const-fold a `ORDER BY col <op> eg_embed('literal')` key's QUERY operand to the
+/// pgvector text literal it denotes (design §9 phase 2), returning the rewritten SQL —
+/// or `None` when there is nothing to fold.
+///
+/// This exists because [`plan_ann_search`] runs on PRE-desugar SQL and
+/// [`vector_order_key`] recognises only a **literal** query vector, so
+/// `ORDER BY emb <=> eg_embed('leaky pump') LIMIT 10` is a function CALL, the ANN
+/// pushdown declines, and the query silently falls back to the EG-115 brute-force exact
+/// scan — correct rows, but without the HNSW/IVF speedup that is most of the reason the
+/// index exists. Folding first lets `vector_order_key` recognise the literal it ALREADY
+/// understands; it is deliberately NOT weakened to accept arbitrary expressions.
+///
+/// Only an `eg_embed` call whose single argument is a single-quoted string literal is
+/// foldable — `eg_embed($1)` (an unresolved bind placeholder) and `eg_embed(col)` (a
+/// per-row column argument) are NOT constants, fold to `None`, and correctly keep the
+/// brute-force path. `Volatility::Immutable` (see `embed_udf`) is what makes folding a
+/// literal legitimate at all.
+///
+/// The result is for the ANN PROBE only — the SQL that actually executes is left
+/// untouched, so no `Display` round-trip of the user's statement can ever change what
+/// runs. The executed `eg_embed` call resolves to the same vector by the immutability
+/// contract.
+pub(crate) fn fold_const_embed_order_key(sql: &str, embed: ConstEmbedFn<'_>) -> Option<String> {
+    let mut stmts = Parser::parse_sql(&PostgreSqlDialect {}, sql).ok()?;
+    let [stmt] = stmts.as_mut_slice() else {
+        return None;
+    };
+    let Statement::Query(q) = stmt else {
+        return None;
+    };
+    let key = vector_order_key_query_operand(q)?;
+    let text = const_embed_literal_arg(key)?;
+    let folded = embed(&text)?;
+    *key = Expr::Value(SqlValue::SingleQuotedString(vector_to_pg_text(&folded)).with_empty_span());
+    Some(q.to_string())
+}
+
+/// The mutable QUERY operand of `q`'s single `ORDER BY column <op> query` vector-distance
+/// key — the one expression [`fold_const_embed_order_key`] may rewrite. `None` for any
+/// other `ORDER BY` shape, mirroring exactly the shape [`plan_ann_search`] recognises.
+fn vector_order_key_query_operand(q: &mut Query) -> Option<&mut Expr> {
+    let OrderByKind::Expressions(order_by) = &mut q.order_by.as_mut()?.kind else {
+        return None;
+    };
+    let [ob] = order_by.as_mut_slice() else {
+        return None;
+    };
+    let Expr::BinaryOp { op, right, .. } = &mut ob.expr else {
+        return None;
+    };
+    vector_metric_for_op(op)?;
+    Some(right.as_mut())
+}
+
+/// The literal text of an `eg_embed('…')` call — i.e. the one argument shape that is a
+/// COMPILE-TIME constant. `None` for anything else (a different function, an arity other
+/// than 1, a bind placeholder, a column reference, a nested expression).
+fn const_embed_literal_arg(expr: &Expr) -> Option<String> {
+    let Expr::Function(func) = expr else {
+        return None;
+    };
+    let name = func.name.0.last()?.as_ident()?;
+    let expected = super::embed_udf::EG_EMBED_FN;
+    if !name.value.eq_ignore_ascii_case(expected) {
+        return None;
+    }
+    let FunctionArguments::List(list) = &func.args else {
+        return None;
+    };
+    let [arg] = list.args.as_slice() else {
+        return None;
+    };
+    arg_as_string(arg)
+}
+
+/// Format a dense vector as the pgvector text literal (`[1,2,3]`) that
+/// `ann::parse_query_vector` decodes. A non-finite element would render as `inf`/`NaN`,
+/// which that decoder rejects — so such a fold degrades to "no pushdown", never to a
+/// wrong query vector.
+fn vector_to_pg_text(v: &[f32]) -> String {
+    let mut out = String::with_capacity(v.len() * 8 + 2);
+    out.push('[');
+    for (i, x) in v.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&x.to_string());
+    }
+    out.push(']');
+    out
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
