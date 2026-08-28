@@ -916,25 +916,37 @@ pub fn probability_of_backtest_overfit(insample: &[Vec<f64>], oos: &[Vec<f64>]) 
     let median_rank = (n_strat as f64 - 1.0) / 2.0;
     let mut below = 0.0;
     for s in 0..n_splits {
-        // argmax IS
-        let mut is_best = 0;
-        for j in 1..n_strat {
-            if insample[s][j] > insample[s][is_best] {
-                is_best = j;
-            }
-        }
-        // OOS rank (0 = worst) of is_best
-        let mut rank = 0usize;
-        for j in 0..n_strat {
-            if oos[s][j] < oos[s][is_best] {
-                rank += 1;
-            }
-        }
-        if (rank as f64) < median_rank {
+        if is_split_below_median_rank(&insample[s], &oos[s], n_strat, median_rank) {
             below += 1.0;
         }
     }
     below / n_splits as f64
+}
+
+/// Whether the OOS rank of one split's IS-best strategy falls below the
+/// median rank. Split out of `probability_of_backtest_overfit`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn is_split_below_median_rank(
+    insample_row: &[f64],
+    oos_row: &[f64],
+    n_strat: usize,
+    median_rank: f64,
+) -> bool {
+    // argmax IS
+    let mut is_best = 0;
+    for j in 1..n_strat {
+        if insample_row[j] > insample_row[is_best] {
+            is_best = j;
+        }
+    }
+    // OOS rank (0 = worst) of is_best
+    let mut rank = 0usize;
+    for j in 0..n_strat {
+        if oos_row[j] < oos_row[is_best] {
+            rank += 1;
+        }
+    }
+    (rank as f64) < median_rank
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1123,6 +1135,34 @@ pub fn information_ratio(ic: f64, n_independent: f64) -> f64 {
 /// Effective number of independent signals from a returns matrix
 /// (rows = signals, cols = time). Uses the participation ratio of the correlation
 /// eigenvalues: N_eff = (Σλ)² / Σλ² — collapses correlated signals.
+/// Build the k×k correlation matrix of `returns_matrix`'s rows. Split out of
+/// `effective_independent_n` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before.
+fn build_correlation_matrix(
+    returns_matrix: &[Vec<f64>],
+    means: &[f64],
+    stds: &[f64],
+    k: usize,
+    t: usize,
+) -> DMatrixLite {
+    let mut corr = DMatrixLite::zeros(k);
+    for i in 0..k {
+        for j in 0..k {
+            if stds[i] < 1e-12 || stds[j] < 1e-12 {
+                corr.set(i, j, if i == j { 1.0 } else { 0.0 });
+                continue;
+            }
+            let mut c = 0.0;
+            for s in 0..t.min(returns_matrix[i].len()).min(returns_matrix[j].len()) {
+                c += (returns_matrix[i][s] - means[i]) * (returns_matrix[j][s] - means[j]);
+            }
+            c /= t as f64 * stds[i] * stds[j];
+            corr.set(i, j, c);
+        }
+    }
+    corr
+}
+
 pub fn effective_independent_n(returns_matrix: &[Vec<f64>]) -> f64 {
     let k = returns_matrix.len();
     if k == 0 {
@@ -1144,21 +1184,7 @@ pub fn effective_independent_n(returns_matrix: &[Vec<f64>]) -> f64 {
             (r.iter().map(|x| (x - means[i]).powi(2)).sum::<f64>() / r.len() as f64).sqrt()
         })
         .collect();
-    let mut corr = DMatrixLite::zeros(k);
-    for i in 0..k {
-        for j in 0..k {
-            if stds[i] < 1e-12 || stds[j] < 1e-12 {
-                corr.set(i, j, if i == j { 1.0 } else { 0.0 });
-                continue;
-            }
-            let mut c = 0.0;
-            for s in 0..t.min(returns_matrix[i].len()).min(returns_matrix[j].len()) {
-                c += (returns_matrix[i][s] - means[i]) * (returns_matrix[j][s] - means[j]);
-            }
-            c /= t as f64 * stds[i] * stds[j];
-            corr.set(i, j, c);
-        }
-    }
+    let corr = build_correlation_matrix(returns_matrix, &means, &stds, k, t);
     // eigenvalues via symmetric Jacobi; participation ratio
     let eig = corr.jacobi_eigenvalues();
     let sum: f64 = eig.iter().sum();
@@ -1193,62 +1219,76 @@ impl DMatrixLite {
     fn jacobi_eigenvalues(&self) -> Vec<f64> {
         let n = self.n;
         let mut a = self.data.clone();
-        let idx = |i: usize, j: usize| i * n + j;
         for _sweep in 0..100 {
-            let mut off = 0.0;
-            for i in 0..n {
-                for j in (i + 1)..n {
-                    off += a[idx(i, j)].powi(2);
-                }
-            }
-            if off < 1e-14 {
+            if jacobi_off_diagonal_norm_sq(&a, n) < 1e-14 {
                 break;
             }
             for p in 0..n {
                 for qq in (p + 1)..n {
-                    let apq = a[idx(p, qq)];
-                    if apq.abs() < 1e-18 {
-                        continue;
-                    }
-                    let app = a[idx(p, p)];
-                    let aqq = a[idx(qq, qq)];
-                    // Jacobi rotation angle: ½·atan2(2·a_pq, a_pp − a_qq). When the
-                    // diagonal entries are equal this correctly yields π/4 (a full
-                    // rotation), not 0 — the case that breaks the naive formula.
-                    let phi = 0.5 * (2.0 * apq).atan2(app - aqq);
-                    let (c, s) = (phi.cos(), phi.sin());
-                    for k in 0..n {
-                        let akp = a[idx(k, p)];
-                        let akq = a[idx(k, qq)];
-                        a[idx(k, p)] = c * akp - s * akq;
-                        a[idx(k, qq)] = s * akp + c * akq;
-                    }
-                    for k in 0..n {
-                        let apk = a[idx(p, k)];
-                        let aqk = a[idx(qq, k)];
-                        a[idx(p, k)] = c * apk - s * aqk;
-                        a[idx(qq, k)] = s * apk + c * aqk;
-                    }
+                    apply_jacobi_rotation(&mut a, n, p, qq);
                 }
             }
         }
-        (0..n).map(|i| a[idx(i, i)]).collect()
+        (0..n).map(|i| a[i * n + i]).collect()
+    }
+}
+
+/// Sum of squared strictly-upper-triangle entries. Split out of
+/// `jacobi_eigenvalues` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn jacobi_off_diagonal_norm_sq(a: &[f64], n: usize) -> f64 {
+    let mut off = 0.0;
+    for i in 0..n {
+        for j in (i + 1)..n {
+            off += a[i * n + j].powi(2);
+        }
+    }
+    off
+}
+
+/// Apply one Jacobi rotation zeroing `a[p][qq]`, in place. Split out of
+/// `jacobi_eigenvalues` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before (the `apq.abs() < 1e-18` guard's `continue`
+/// becomes an early `return`, equivalent since it was the last statement in
+/// the loop body).
+fn apply_jacobi_rotation(a: &mut [f64], n: usize, p: usize, qq: usize) {
+    let idx = |i: usize, j: usize| i * n + j;
+    let apq = a[idx(p, qq)];
+    if apq.abs() < 1e-18 {
+        return;
+    }
+    let app = a[idx(p, p)];
+    let aqq = a[idx(qq, qq)];
+    // Jacobi rotation angle: ½·atan2(2·a_pq, a_pp − a_qq). When the
+    // diagonal entries are equal this correctly yields π/4 (a full
+    // rotation), not 0 — the case that breaks the naive formula.
+    let phi = 0.5 * (2.0 * apq).atan2(app - aqq);
+    let (c, s) = (phi.cos(), phi.sin());
+    for k in 0..n {
+        let akp = a[idx(k, p)];
+        let akq = a[idx(k, qq)];
+        a[idx(k, p)] = c * akp - s * akq;
+        a[idx(k, qq)] = s * akp + c * akq;
+    }
+    for k in 0..n {
+        let apk = a[idx(p, k)];
+        let aqk = a[idx(qq, k)];
+        a[idx(p, k)] = c * apk - s * aqk;
+        a[idx(qq, k)] = s * apk + c * aqk;
     }
 }
 
 /// Grinold-style alpha combination engine: combine N signals' historical return
 /// series into weights that reward independent edge and penalise shared variance.
 /// Rows = signals, cols = periods. Returns weights summing to 1 in absolute value.
-pub fn alpha_combination_engine(returns_matrix: &[Vec<f64>], lookback: usize) -> Vec<f64> {
-    let k = returns_matrix.len();
-    if k == 0 {
-        return vec![];
-    }
-    let m = returns_matrix[0].len();
-    if m < 3 {
-        return vec![1.0 / k as f64; k];
-    }
-    // serial demean + normalise each signal
+/// Serial demean + normalise each signal. Split out of
+/// `alpha_combination_engine` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before. Returns (sigma, y).
+fn demean_normalize_signals(
+    returns_matrix: &[Vec<f64>],
+    k: usize,
+    m: usize,
+) -> (Vec<f64>, Vec<Vec<f64>>) {
     let mut sigma = vec![0.0; k];
     let mut y = vec![vec![0.0; m]; k];
     for i in 0..k {
@@ -1263,7 +1303,13 @@ pub fn alpha_combination_engine(returns_matrix: &[Vec<f64>], lookback: usize) ->
             y[i][s] = (returns_matrix[i][s] - mean) / sigma[i];
         }
     }
-    // cross-sectional demean at each period → Λ
+    (sigma, y)
+}
+
+/// Cross-sectional demean at each period → Λ. Split out of
+/// `alpha_combination_engine` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before.
+fn cross_sectional_demean(y: &[Vec<f64>], k: usize, m: usize) -> Vec<Vec<f64>> {
     let mut lambda = vec![vec![0.0; m]; k];
     for s in 0..m {
         let cs_mean = (0..k).map(|i| y[i][s]).sum::<f64>() / k as f64;
@@ -1271,16 +1317,14 @@ pub fn alpha_combination_engine(returns_matrix: &[Vec<f64>], lookback: usize) ->
             lambda[i][s] = y[i][s] - cs_mean;
         }
     }
-    // expected forward return per signal over the lookback window, normalised
-    let lb = lookback.min(m).max(1);
-    let e: Vec<f64> = (0..k)
-        .map(|i| {
-            let recent = &returns_matrix[i][m - lb..];
-            (recent.iter().sum::<f64>() / lb as f64) / sigma[i]
-        })
-        .collect();
-    // residual of E on Λ rows = independent contribution. Regress E (length k)
-    // on the per-signal mean Λ exposure to remove shared structure.
+    lambda
+}
+
+/// Residual of E on Λ rows = independent contribution: regress E (length k)
+/// on the per-signal mean Λ exposure to remove shared structure. Split out
+/// of `alpha_combination_engine` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before.
+fn residualize_independent_edge(e: &[f64], lambda: &[Vec<f64>], k: usize, m: usize) -> Vec<f64> {
     let lam_mean: Vec<f64> = (0..k)
         .map(|i| lambda[i].iter().sum::<f64>() / m as f64)
         .collect();
@@ -1294,7 +1338,29 @@ pub fn alpha_combination_engine(returns_matrix: &[Vec<f64>], lookback: usize) ->
         var += (lam_mean[i] - lm_mean).powi(2);
     }
     let beta = if var > 1e-12 { cov / var } else { 0.0 };
-    let residual: Vec<f64> = (0..k).map(|i| e[i] - beta * lam_mean[i]).collect();
+    (0..k).map(|i| e[i] - beta * lam_mean[i]).collect()
+}
+
+pub fn alpha_combination_engine(returns_matrix: &[Vec<f64>], lookback: usize) -> Vec<f64> {
+    let k = returns_matrix.len();
+    if k == 0 {
+        return vec![];
+    }
+    let m = returns_matrix[0].len();
+    if m < 3 {
+        return vec![1.0 / k as f64; k];
+    }
+    let (sigma, y) = demean_normalize_signals(returns_matrix, k, m);
+    let lambda = cross_sectional_demean(&y, k, m);
+    // expected forward return per signal over the lookback window, normalised
+    let lb = lookback.min(m).max(1);
+    let e: Vec<f64> = (0..k)
+        .map(|i| {
+            let recent = &returns_matrix[i][m - lb..];
+            (recent.iter().sum::<f64>() / lb as f64) / sigma[i]
+        })
+        .collect();
+    let residual = residualize_independent_edge(&e, &lambda, k, m);
     // weight = independent edge / noise
     let mut w: Vec<f64> = (0..k).map(|i| residual[i] / sigma[i]).collect();
     let abs_sum: f64 = w.iter().map(|x| x.abs()).sum();
