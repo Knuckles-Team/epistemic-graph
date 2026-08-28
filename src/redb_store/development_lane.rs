@@ -1383,6 +1383,186 @@ fn lane_cleanup_value(
 // not just reintroduce the same fields (several borrow the table's own
 // lifetime) behind an extra indirection. No external/public callers.
 #[allow(clippy::too_many_arguments)]
+/// The projection this module keeps from a validated WorkItem row: the
+/// lifecycle intent's placement, or the cleanup correlation.
+struct WorkItemProjection {
+    host_ref: String,
+    resource_reservation_id: String,
+    cleanup: Option<DevelopmentLaneCleanupIntent>,
+    lane_intent: Option<DevelopmentLaneIntent>,
+}
+
+/// Unseal and decode one WorkItem node's properties.
+fn load_work_item_props(
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    graph: &str,
+    work_item_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<serde_json::Map<String, serde_json::Value>, LaneDecision> {
+    let bytes = nodes
+        .get((graph, work_item_id))
+        .map_err(|_| LaneDecision::Invalid)?
+        .map(|value| {
+            crypto
+                .unseal(value.value())
+                .map_err(|_| LaneDecision::Invalid)
+        })
+        .transpose()?
+        .ok_or(LaneDecision::NotFound)?;
+    decode_durable(&bytes).map_err(|_| LaneDecision::Invalid)
+}
+
+/// The row must be a WorkItem, of this tenant, of the expected kind.
+///
+/// `kind` and `work_item_fence` are the only frozen WorkItem projection
+/// fields.  Do not search generic aliases or nested metadata: an echoed
+/// `work_item_kind`/`fence` must never become an authority claim.
+fn work_item_identity_decision(
+    props: &serde_json::Map<String, serde_json::Value>,
+    tenant: &str,
+    expected_kind: DevelopmentLaneWorkItemKind,
+) -> Result<(), LaneDecision> {
+    if super::property_string(props, "node_type") != "WorkItem" {
+        return Err(LaneDecision::NotFound);
+    }
+    if super::property_string(props, "tenant") != tenant {
+        return Err(LaneDecision::WrongTenant);
+    }
+    if super::property_string(props, "kind") != work_item_kind_name(expected_kind) {
+        return Err(LaneDecision::WrongKind);
+    }
+    Ok(())
+}
+
+/// The caller's attempt/lease/fence tuple must be non-zero and must be the
+/// row's current tuple.  Each mismatch keeps its own decision.
+fn work_item_tuple_decision(
+    props: &serde_json::Map<String, serde_json::Value>,
+    attempt: u64,
+    lease_epoch: u64,
+    fencing_token: u64,
+    work_item_fence: &str,
+) -> Result<(), LaneDecision> {
+    if attempt == 0 || lease_epoch == 0 || fencing_token == 0 || work_item_fence.is_empty() {
+        return Err(LaneDecision::Invalid);
+    }
+    if super::property_u64(props, "attempt") != attempt {
+        return Err(LaneDecision::WrongAttempt);
+    }
+    if super::property_u64(props, "lease_epoch") != lease_epoch {
+        return Err(LaneDecision::WrongLeaseEpoch);
+    }
+    if super::property_u64(props, "fencing_token") != fencing_token {
+        return Err(LaneDecision::WrongFence);
+    }
+    if super::property_string(props, "work_item_fence") != work_item_fence {
+        return Err(LaneDecision::WrongFence);
+    }
+    Ok(())
+}
+
+/// Prove the row's terminality against what the caller expects and, for a
+/// live row, that its lease claim has not expired.  Returns the lease expiry.
+fn work_item_lease_decision(
+    props: &serde_json::Map<String, serde_json::Value>,
+    status: &str,
+    terminal: bool,
+    require_terminal: bool,
+    now_ms: u64,
+) -> Result<u64, LaneDecision> {
+    if require_terminal != terminal {
+        // Both directions of this mismatch (expected terminal but the row
+        // isn't yet, or expected non-terminal but it already finished) share
+        // the one coarse `Terminal` decision, matching this function's other
+        // checks (e.g. `WrongFence` above covers two distinct mismatches).
+        return Err(LaneDecision::Terminal);
+    }
+    if !terminal && !matches!(status, "leased" | "running") {
+        // A future lease timestamp on a ready/pending row is not a claim.  A
+        // lane lifecycle or cleanup action must be tied to the WorkItem's
+        // current live claim, not merely to an echoed fence tuple.
+        return Err(LaneDecision::WrongOwner);
+    }
+    let lease_expires_at_ms = (super::property_f64(props, "lease_expires_at") * 1_000.0)
+        .max(0.0)
+        .min(u64::MAX as f64) as u64;
+    if !terminal && lease_expires_at_ms <= now_ms {
+        return Err(LaneDecision::Expired);
+    }
+    Ok(lease_expires_at_ms)
+}
+
+/// A terminal or non-live row is owned by its last lease owner; a live one by
+/// its current lease owner.
+fn work_item_owner_decision(
+    props: &serde_json::Map<String, serde_json::Value>,
+    owner: Option<&str>,
+    status: &str,
+    terminal: bool,
+) -> Result<(), LaneDecision> {
+    let Some(owner) = owner else {
+        return Ok(());
+    };
+    let current_owner = if terminal || !matches!(status, "leased" | "running") {
+        super::property_string(props, "last_lease_owner")
+    } else {
+        super::property_string(props, "lease_owner")
+    };
+    if current_owner != owner {
+        return Err(LaneDecision::WrongOwner);
+    }
+    Ok(())
+}
+
+/// A lifecycle WorkItem carries the typed lane intent, which must agree with
+/// the caller's tenant/owner and, when supplied, the exact expected intent.
+fn work_item_lifecycle_projection(
+    props: &serde_json::Map<String, serde_json::Value>,
+    tenant: &str,
+    owner: Option<&str>,
+    expected_intent: Option<&DevelopmentLaneIntent>,
+) -> Result<WorkItemProjection, LaneDecision> {
+    let stored = lane_intent_value(props)?;
+    if stored.tenant_ref != tenant {
+        return Err(LaneDecision::WrongTenant);
+    }
+    if owner.is_some_and(|expected| stored.owner_id != expected) {
+        return Err(LaneDecision::WrongOwner);
+    }
+    if expected_intent.is_some_and(|expected| stored != *expected) {
+        return Err(LaneDecision::InputConflict);
+    }
+    Ok(WorkItemProjection {
+        host_ref: stored.host_ref.clone(),
+        resource_reservation_id: stored.resource_reservation_id.clone(),
+        cleanup: None,
+        lane_intent: Some(stored),
+    })
+}
+
+/// A cleanup WorkItem carries the typed cleanup correlation, which must name
+/// the exact hold/lane/revision when the caller supplies one.
+fn work_item_cleanup_projection(
+    props: &serde_json::Map<String, serde_json::Value>,
+    expected_cleanup: Option<(&str, &str, u64)>,
+) -> Result<WorkItemProjection, LaneDecision> {
+    let correlation = lane_cleanup_value(props)?;
+    if let Some((hold_id, lane_id, expected_revision)) = expected_cleanup {
+        if correlation.hold_id != hold_id
+            || correlation.lane_id != lane_id
+            || correlation.expected_hold_revision != expected_revision
+        {
+            return Err(LaneDecision::InputConflict);
+        }
+    }
+    Ok(WorkItemProjection {
+        host_ref: String::new(),
+        resource_reservation_id: String::new(),
+        cleanup: Some(correlation),
+        lane_intent: None,
+    })
+}
+
 fn load_work_item(
     nodes: &redb::Table<(&str, &str), &[u8]>,
     graph: &str,
@@ -1400,124 +1580,36 @@ fn load_work_item(
     expected_intent: Option<&DevelopmentLaneIntent>,
     expected_cleanup: Option<(&str, &str, u64)>,
 ) -> Result<LaneWorkItem, LaneDecision> {
-    let bytes = nodes
-        .get((graph, work_item_id))
-        .map_err(|_| LaneDecision::Invalid)?
-        .map(|value| {
-            crypto
-                .unseal(value.value())
-                .map_err(|_| LaneDecision::Invalid)
-        })
-        .transpose()?
-        .ok_or(LaneDecision::NotFound)?;
-    let props: serde_json::Map<String, serde_json::Value> =
-        decode_durable(&bytes).map_err(|_| LaneDecision::Invalid)?;
-    if super::property_string(&props, "node_type") != "WorkItem" {
-        return Err(LaneDecision::NotFound);
-    }
-    if super::property_string(&props, "tenant") != tenant {
-        return Err(LaneDecision::WrongTenant);
-    }
-    // `kind` and `work_item_fence` are the only frozen WorkItem projection
-    // fields.  Do not search generic aliases or nested metadata: an echoed
-    // `work_item_kind`/`fence` must never become an authority claim.
-    if super::property_string(&props, "kind") != work_item_kind_name(expected_kind) {
-        return Err(LaneDecision::WrongKind);
-    }
-    if attempt == 0 || lease_epoch == 0 || fencing_token == 0 || work_item_fence.is_empty() {
-        return Err(LaneDecision::Invalid);
-    }
-    let current_attempt = super::property_u64(&props, "attempt");
-    if current_attempt != attempt {
-        return Err(LaneDecision::WrongAttempt);
-    }
-    if super::property_u64(&props, "lease_epoch") != lease_epoch {
-        return Err(LaneDecision::WrongLeaseEpoch);
-    }
-    if super::property_u64(&props, "fencing_token") != fencing_token {
-        return Err(LaneDecision::WrongFence);
-    }
-    if super::property_string(&props, "work_item_fence") != work_item_fence {
-        return Err(LaneDecision::WrongFence);
-    }
+    let props = load_work_item_props(nodes, graph, work_item_id, crypto)?;
+    work_item_identity_decision(&props, tenant, expected_kind)?;
+    work_item_tuple_decision(&props, attempt, lease_epoch, fencing_token, work_item_fence)?;
     let status = super::property_string(&props, "status").to_string();
     let terminal = matches!(
         status.as_str(),
         "succeeded" | "failed" | "cancelled" | "dead_letter"
     );
-    if require_terminal != terminal {
-        // Both directions of this mismatch (expected terminal but the row
-        // isn't yet, or expected non-terminal but it already finished) share
-        // the one coarse `Terminal` decision, matching this function's other
-        // checks (e.g. `WrongFence` above covers two distinct mismatches).
-        return Err(LaneDecision::Terminal);
-    }
-    if !terminal && !matches!(status.as_str(), "leased" | "running") {
-        // A future lease timestamp on a ready/pending row is not a claim.  A
-        // lane lifecycle or cleanup action must be tied to the WorkItem's
-        // current live claim, not merely to an echoed fence tuple.
-        return Err(LaneDecision::WrongOwner);
-    }
-    let lease_expires_at_ms = (super::property_f64(&props, "lease_expires_at") * 1_000.0)
-        .max(0.0)
-        .min(u64::MAX as f64) as u64;
-    if !terminal && lease_expires_at_ms <= now_ms {
-        return Err(LaneDecision::Expired);
-    }
-    if let Some(owner) = owner {
-        let current_owner = if terminal || !matches!(status.as_str(), "leased" | "running") {
-            super::property_string(&props, "last_lease_owner")
-        } else {
-            super::property_string(&props, "lease_owner")
-        };
-        if current_owner != owner {
-            return Err(LaneDecision::WrongOwner);
-        }
-    }
-    let (host_ref, resource_reservation_id, cleanup, lane_intent) = match expected_kind {
+    let lease_expires_at_ms =
+        work_item_lease_decision(&props, &status, terminal, require_terminal, now_ms)?;
+    work_item_owner_decision(&props, owner, &status, terminal)?;
+    let projection = match expected_kind {
         DevelopmentLaneWorkItemKind::Lifecycle => {
-            let stored = lane_intent_value(&props)?;
-            if stored.tenant_ref != tenant {
-                return Err(LaneDecision::WrongTenant);
-            }
-            if owner.is_some_and(|expected| stored.owner_id != expected) {
-                return Err(LaneDecision::WrongOwner);
-            }
-            if let Some(expected_intent) = expected_intent {
-                if stored != *expected_intent {
-                    return Err(LaneDecision::InputConflict);
-                }
-            }
-            (
-                stored.host_ref.clone(),
-                stored.resource_reservation_id.clone(),
-                None,
-                Some(stored),
-            )
+            work_item_lifecycle_projection(&props, tenant, owner, expected_intent)?
         }
         DevelopmentLaneWorkItemKind::Cleanup => {
-            let correlation = lane_cleanup_value(&props)?;
-            if let Some((hold_id, lane_id, expected_revision)) = expected_cleanup {
-                if correlation.hold_id != hold_id
-                    || correlation.lane_id != lane_id
-                    || correlation.expected_hold_revision != expected_revision
-                {
-                    return Err(LaneDecision::InputConflict);
-                }
-            }
-            (String::new(), String::new(), Some(correlation), None)
+            work_item_cleanup_projection(&props, expected_cleanup)?
         }
     };
+    let cleanup = projection.cleanup;
     Ok(LaneWorkItem {
         status,
         terminal,
         lease_expires_at_ms,
-        host_ref,
-        resource_reservation_id,
+        host_ref: projection.host_ref,
+        resource_reservation_id: projection.resource_reservation_id,
         cleanup_hold_id: cleanup.as_ref().map(|value| value.hold_id.clone()),
         cleanup_lane_id: cleanup.as_ref().map(|value| value.lane_id.clone()),
         cleanup_expected_hold_revision: cleanup.as_ref().map(|value| value.expected_hold_revision),
-        lane_intent,
+        lane_intent: projection.lane_intent,
     })
 }
 
