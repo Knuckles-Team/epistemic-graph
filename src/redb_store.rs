@@ -10744,83 +10744,96 @@ pub type BlobRefRow = (String, String);
 /// already-open redb write transaction. The universal MutationBatch kernel calls
 /// this after graph rows and before status/outbox; the low-level cross-modal
 /// primitive uses the same row shapes. No commit occurs here.
-fn apply_crossmodal_projection_rows(
+/// Blob-ref half of the cross-modal projection: a `__blob__` reserved property
+/// carrying the digest, merged into the node row.  A node under native WorkItem
+/// authority (or one whose properties cannot be decoded) is refused.
+fn apply_crossmodal_blob_ref_rows(
     wtx: &redb::WriteTransaction,
     graph: &str,
-    vectors: &[VectorUpsert],
     blob_refs: &[BlobRefRow],
-    measurements: &[crate::MeasurementBatch],
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    if !blob_refs.is_empty() {
-        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
-        let native_work_items = wtx
-            .open_table(work_item_capability::NATIVE_WORK_ITEMS)
-            .map_err(|e| e.to_string())?;
-        for (node_id, digest) in blob_refs {
-            let current = nodes
-                .get((graph, node_id.as_str()))
-                .map_err(|e| e.to_string())?
-                .map(|value| crypto.unseal(value.value()))
-                .transpose()?;
-            if native_work_items
-                .get((graph, node_id.as_str()))
-                .map_err(|e| e.to_string())?
-                .is_some()
-                || current.as_ref().is_some_and(|bytes| {
-                    decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
-                        .map(|props| property_string(&props, "node_type") == "WorkItem")
-                        .unwrap_or(true)
-                })
-            {
-                return Err(
-                    "native WorkItem authority required for generic blob update".to_string()
-                );
-            }
-            let mut props: serde_json::Map<String, serde_json::Value> = match current {
-                Some(bytes) => decode_durable(&bytes)?,
-                None => serde_json::Map::new(),
-            };
-            props.insert(
-                "__blob__".to_string(),
-                serde_json::Value::String(digest.clone()),
-            );
-            let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
-            let sealed = crypto.seal(&bytes);
-            nodes
-                .insert((graph, node_id.as_str()), sealed.as_ref())
-                .map_err(|e| e.to_string())?;
-        }
-    }
-
-    if !vectors.is_empty() {
-        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-        let current = semantic
-            .get(graph)
+    let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let native_work_items = wtx
+        .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+        .map_err(|e| e.to_string())?;
+    for (node_id, digest) in blob_refs {
+        let current = nodes
+            .get((graph, node_id.as_str()))
             .map_err(|e| e.to_string())?
             .map(|value| crypto.unseal(value.value()))
             .transpose()?;
-        let mut store = match current {
-            Some(bytes) => decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?,
-            None => crate::compute::semantic::SemanticStore::default(),
-        };
-        for (node_id, embedding) in vectors {
-            // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): a rejected write bails via `?`
-            // BEFORE `store` is reserialized/inserted below, so a mid-batch mismatch
-            // never reaches durable storage — `store` here is a scratch decode, not
-            // the live in-RAM store, discarded on this early return.
-            store
-                .add_embedding(node_id.clone(), embedding.clone())
-                .map_err(|error| error.to_string())?;
+        if native_work_items
+            .get((graph, node_id.as_str()))
+            .map_err(|e| e.to_string())?
+            .is_some()
+            || current.as_ref().is_some_and(|bytes| {
+                decode_durable::<serde_json::Map<String, serde_json::Value>>(bytes)
+                    .map(|props| property_string(&props, "node_type") == "WorkItem")
+                    .unwrap_or(true)
+            })
+        {
+            return Err("native WorkItem authority required for generic blob update".to_string());
         }
-        let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
+        let mut props: serde_json::Map<String, serde_json::Value> = match current {
+            Some(bytes) => decode_durable(&bytes)?,
+            None => serde_json::Map::new(),
+        };
+        props.insert(
+            "__blob__".to_string(),
+            serde_json::Value::String(digest.clone()),
+        );
+        let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
         let sealed = crypto.seal(&bytes);
-        semantic
-            .insert(graph, sealed.as_ref())
+        nodes
+            .insert((graph, node_id.as_str()), sealed.as_ref())
             .map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
 
-    #[cfg(feature = "tsdb")]
+/// Vector half of the cross-modal projection: the graph's `SEMANTIC` blob is
+/// read-modify-written inside the caller's transaction.
+fn apply_crossmodal_vector_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    vectors: &[VectorUpsert],
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+    let current = semantic
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|value| crypto.unseal(value.value()))
+        .transpose()?;
+    let mut store = match current {
+        Some(bytes) => decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?,
+        None => crate::compute::semantic::SemanticStore::default(),
+    };
+    for (node_id, embedding) in vectors {
+        // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): a rejected write bails via `?`
+        // BEFORE `store` is reserialized/inserted below, so a mid-batch mismatch
+        // never reaches durable storage — `store` here is a scratch decode, not
+        // the live in-RAM store, discarded on this early return.
+        store
+            .add_embedding(node_id.clone(), embedding.clone())
+            .map_err(|error| error.to_string())?;
+    }
+    let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&bytes);
+    semantic
+        .insert(graph, sealed.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Time-series half of the cross-modal projection: each batch is appended into
+/// SERIES_CHUNKS/SERIES_META on the caller's transaction.
+#[cfg(feature = "tsdb")]
+fn apply_crossmodal_measurement_rows(
+    wtx: &redb::WriteTransaction,
+    measurements: &[crate::MeasurementBatch],
+) -> Result<(), String> {
     for (series, n_fields, bucket_ns, field_names, points) in measurements {
         if eg_tsdb::store::SeriesKey::decode(series).is_none() {
             return Err("time-series key is not canonically scoped".to_string());
@@ -10842,10 +10855,37 @@ fn apply_crossmodal_projection_rows(
         )
         .map_err(|e| e.to_string())?;
     }
-    #[cfg(not(feature = "tsdb"))]
+    Ok(())
+}
+
+/// A slim redb-only build has no time-series store, so a non-empty measurement
+/// batch is refused rather than silently dropped.
+#[cfg(not(feature = "tsdb"))]
+fn apply_crossmodal_measurement_rows(
+    _wtx: &redb::WriteTransaction,
+    measurements: &[crate::MeasurementBatch],
+) -> Result<(), String> {
     if !measurements.is_empty() {
         return Err("time-series cross-modal commit requires the `tsdb` feature".to_string());
     }
+    Ok(())
+}
+
+fn apply_crossmodal_projection_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    vectors: &[VectorUpsert],
+    blob_refs: &[BlobRefRow],
+    measurements: &[crate::MeasurementBatch],
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if !blob_refs.is_empty() {
+        apply_crossmodal_blob_ref_rows(wtx, graph, blob_refs, crypto)?;
+    }
+    if !vectors.is_empty() {
+        apply_crossmodal_vector_rows(wtx, graph, vectors, crypto)?;
+    }
+    apply_crossmodal_measurement_rows(wtx, measurements)?;
     Ok(())
 }
 
