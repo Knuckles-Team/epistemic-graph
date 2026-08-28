@@ -317,6 +317,67 @@ jobs:
         run: python3 scripts/check_status_page.py
       - name: Canonical structural property schema
         run: python3 scripts/check_canonical_property_schema.py
+      # ── Native build dependency for the `--all-features` clippy below.
+      #
+      # This is the ONLY job in this workflow that compiles the workspace with
+      # `--all-features`, which is the only way `eg-stream/cdc-kafka` (and so
+      # `rdkafka` -> `rdkafka-sys/sasl` -> `sasl2-sys`) is ever turned on --
+      # `full`, the published wheel feature set, deliberately excludes it, so
+      # none of the five `build` legs need this.
+      #
+      # `sasl2-sys` 0.1.22+2.1.28 links the SYSTEM Cyrus SASL: its build.rs
+      # `find_sasl()` path hard-panics with "Unable to find libsasl2 on your
+      # system" (build.rs:343, exit 101) when the development package is
+      # absent. `ubuntu-latest` does not ship it; every eg dev/build host does
+      # (`ii libsasl2-dev 2.1.28+dfsg1-9ubuntu3`), which is exactly why this
+      # failed ONLY on the runner and passed in every local pre-push run --
+      # it killed this job on EVERY push to `main` from 2026-08-18 through
+      # 33200059527 (2026-08-28), so `publish-pypi` never once ran and
+      # epistemic-graph has been stuck at 2.23.0 on PyPI.
+      #
+      # Vendoring instead (`sasl2-sys/vendored`) was measured and rejected on
+      # 2026-08-28: the bundled Cyrus SASL 2.1.28 `lib/md5.c` does not compile
+      # under a C23-default compiler (GCC >= 14; our hosts run GCC 15.2), and
+      # the only fix is a process-level `CFLAGS=-std=gnu17` that a Cargo
+      # manifest cannot express. See `crates/eg-stream/Cargo.toml`'s
+      # `cdc-kafka` feature comment and the WD10-P-EGCI lane report.
+      #
+      # ⚠ If you add another job that builds this workspace with
+      # `--all-features`, it needs this step too.
+      #
+      # SECOND missing package, found by running this very step on CI
+      # (run 33204989595, 2026-08-28): with libsasl2-dev in place the build
+      # got 2m30s further and then died compiling librdkafka itself --
+      #   librdkafka/src/rdkafka_conf.c:60: fatal error: curl/curl.h:
+      #   No such file or directory
+      # -- even though rdkafka-sys passes `-DWITH_CURL=0` (our `cdc-kafka`
+      # feature does not ask for rdkafka's `curl`). That is an upstream
+      # librdkafka 2.12.1 defect, not a misconfiguration: `config.h` is
+      # generated with `#cmakedefine01 WITH_OAUTHBEARER_OIDC`, which ALWAYS
+      # emits `#define WITH_OAUTHBEARER_OIDC 0|1`, and `rdkafka_conf.c:59` is
+      # the single site in the whole tree that tests it with `#ifdef` instead
+      # of `#if` (rdkafka.c, rdkafka_sasl_oauthbearer.c, rdunittest.c and the
+      # other four sites in rdkafka_conf.c itself all use `#if` correctly).
+      # So the curl HEADER is unconditionally required by any cmake build of
+      # librdkafka 2.12.1, while every actual curl CALL stays behind `#if` and
+      # nothing links against libcurl. Headers only -- hence the -dev package
+      # and no linker change. Same invisibility mechanism as libsasl2: our
+      # build hosts have `libcurl4-openssl-dev` installed.
+      #
+      # NOT installed here, deliberately: `libssl-dev` (rdkafka's `ssl` ->
+      # openssl-sys) and zlib/zstd. `ubuntu-latest` ships libssl-dev (cmake
+      # reported "Found OpenSSL ... 3.0.13" in the same run) and librdkafka is
+      # configured with `-DWITH_ZLIB=0 -DWITH_ZSTD=0`, so nothing is red.
+      # openssl-sys is nevertheless the SAME class of incidental dependency --
+      # if the runner image ever drops libssl-dev this job fails identically.
+      - name: Install librdkafka/Cyrus-SASL build headers (system-linked C deps)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
+          pkg-config --exists libsasl2 && echo "libsasl2 present: $(pkg-config --modversion libsasl2)"
+          test -f /usr/include/x86_64-linux-gnu/curl/curl.h || test -f /usr/include/curl/curl.h
+          echo "curl/curl.h present"
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
