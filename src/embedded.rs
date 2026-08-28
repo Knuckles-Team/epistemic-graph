@@ -602,6 +602,11 @@ impl EmbeddedEngine {
                         ledger: e.core.get_ledger(),
                         semantic: rmp_serde::to_vec_named(&*e.core.semantic_store.read())
                             .unwrap_or_default(),
+                        // The in-memory `GraphCore` this checkpoint snapshots never
+                        // holds native lane/resource rows (BUG-CX-096) — those live
+                        // only in redb and, for an in-place checkpoint, are meant to
+                        // stay put (see `NativeOperationDumpRows`'s doc).
+                        native: Default::default(),
                     })
                     .collect::<Vec<_>>()
             };

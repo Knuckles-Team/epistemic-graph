@@ -361,6 +361,38 @@ async fn wire_select_returns_seeded_rows() {
     assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
 }
 
+/// BUG-CX-084: `eg_embed(text)`'s process-wide embedder (design §9 phase 2) used to be
+/// bound ONLY at the top of the native RPC `handle_sql` entry point — the pgwire
+/// `do_query`/extended-`do_query` handlers never call `handle_sql` (they run the
+/// shared `WireSession::execute` core directly), so a `psql`/tokio-postgres client
+/// speaking ONLY pgwire could never reach a bound embedder: `eg_embed(...)` always
+/// fell through to its typed "no server-side text embedder is bound" error, even with
+/// `EG_UQL_TEXT_EMBEDDER` configured. This drives a real tokio-postgres client at a
+/// real pgwire listener — the actual reachability path the bug report names — and
+/// proves the SQL resolves rather than erroring closed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_eg_embed_is_reachable_over_a_pgwire_only_session() {
+    std::env::set_var("EG_UQL_TEXT_EMBEDDER", "hash");
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    let rows = client
+        .simple_query("SELECT eg_embed('leaky pump') AS v")
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "eg_embed(...) must be reachable over a pgwire-only session \
+                 (BUG-CX-084), got: {e}"
+            )
+        });
+    let data_rows = rows
+        .iter()
+        .filter(|m| matches!(m, tokio_postgres::SimpleQueryMessage::Row(_)))
+        .count();
+    assert_eq!(data_rows, 1, "a bound embedder must return exactly one row");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_insert_then_select_round_trip() {
     let state = seeded_state();
