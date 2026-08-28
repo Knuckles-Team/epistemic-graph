@@ -372,6 +372,16 @@ pub enum ObjectMap {
     TypedConstantLiteral(String, String),
 }
 
+/// Look up `c` in `row`, treating a missing OR empty value the same way: no
+/// term for this row.
+fn non_empty_column_value<'a>(row: &'a ForeignRow, c: &str) -> Option<&'a str> {
+    let v = row.get(c)?;
+    if v.is_empty() {
+        return None;
+    }
+    Some(v.as_str())
+}
+
 impl ObjectMap {
     /// The foreign columns this object map references (added to `out`).
     fn columns_into(&self, out: &mut BTreeSet<String>) {
@@ -390,25 +400,16 @@ impl ObjectMap {
     fn term_for(&self, row: &ForeignRow) -> Option<Term> {
         match self {
             ObjectMap::Column(c) => {
-                let v = row.get(c)?;
-                if v.is_empty() {
-                    return None;
-                }
+                let v = non_empty_column_value(row, c)?;
                 Some(Term::Literal(Literal::new_simple_literal(v)))
             }
             ObjectMap::TypedColumn(c, dt) => {
-                let v = row.get(c)?;
-                if v.is_empty() {
-                    return None;
-                }
+                let v = non_empty_column_value(row, c)?;
                 let datatype = NamedNode::new(dt).ok()?;
                 Some(Term::Literal(Literal::new_typed_literal(v, datatype)))
             }
             ObjectMap::LangColumn(c, lang) => {
-                let v = row.get(c)?;
-                if v.is_empty() {
-                    return None;
-                }
+                let v = non_empty_column_value(row, c)?;
                 Some(Term::Literal(
                     Literal::new_language_tagged_literal(v, lang).ok()?,
                 ))
@@ -572,62 +573,7 @@ impl VirtualGraph {
     ) -> Result<Vec<Triple>, String> {
         let mut out = Vec::new();
         for map in &self.triples_maps {
-            // Which predicate-object maps are wanted for this query?
-            let active_poms: Vec<&(String, ObjectMap)> = map
-                .predicate_object_maps
-                .iter()
-                .filter(|(pred, _)| match wanted_predicates {
-                    None => true,
-                    Some(w) => w.contains(pred),
-                })
-                .collect();
-            let class_wanted = map.class_wanted(wanted_predicates);
-
-            // Nothing from this map contributes to the query — skip its source scan.
-            if active_poms.is_empty() && !class_wanted {
-                continue;
-            }
-
-            // Needed columns = subject-template columns ∪ the active object columns.
-            let mut needed = BTreeSet::new();
-            template_columns_into(&map.subject_template, &mut needed);
-            for (_, obj) in &active_poms {
-                obj.columns_into(&mut needed);
-            }
-
-            // The SOUND subset of the query's FILTERs that constrain THIS map's columns —
-            // pushed to the source alongside the projection (CONCEPT:EG-KG.query.obda-predicate-pushdown).
-            let map_filters = map_pushable_filters(map, filters);
-            let source = reg.resolve(&map.logical_source)?;
-            let rows = source.scan(&needed, &map_filters)?;
-
-            for row in &rows {
-                let Some(subject_iri) = expand_template(&map.subject_template, row) else {
-                    continue; // a subject-template column is missing for this row
-                };
-                let Ok(subject) = NamedNode::new(&subject_iri) else {
-                    continue; // a template that doesn't yield a valid IRI is skipped
-                };
-
-                if class_wanted {
-                    if let Some(class) = &map.subject_class {
-                        if let (Ok(pred), Ok(obj)) =
-                            (NamedNode::new(RDF_TYPE_IRI), NamedNode::new(class))
-                        {
-                            out.push(Triple::new(subject.clone(), pred, obj));
-                        }
-                    }
-                }
-
-                for (pred, obj) in &active_poms {
-                    let Ok(predicate) = NamedNode::new(pred) else {
-                        continue;
-                    };
-                    if let Some(object) = obj.term_for(row) {
-                        out.push(Triple::new(subject.clone(), predicate, object));
-                    }
-                }
-            }
+            materialize_map(map, reg, wanted_predicates, filters, &mut out)?;
         }
         Ok(out)
     }
@@ -637,6 +583,87 @@ impl VirtualGraph {
     /// [`materialize`](Self::materialize) so it never pulls the whole dataset.
     pub fn materialize_all(&self, reg: &ObdaSourceRegistry) -> Result<Vec<Triple>, String> {
         self.materialize(reg, &None, &FilterContext::default())
+    }
+}
+
+/// Materialize one triples map's contribution to [`VirtualGraph::materialize`]:
+/// resolve which predicate-object maps + subject class are wanted, scan the
+/// backing source for only the needed columns (with the sound pushed
+/// filters), and emit each row's triples into `out`.
+fn materialize_map(
+    map: &TriplesMap,
+    reg: &ObdaSourceRegistry,
+    wanted_predicates: &Option<BTreeSet<String>>,
+    filters: &FilterContext,
+    out: &mut Vec<Triple>,
+) -> Result<(), String> {
+    // Which predicate-object maps are wanted for this query?
+    let active_poms: Vec<&(String, ObjectMap)> = map
+        .predicate_object_maps
+        .iter()
+        .filter(|(pred, _)| match wanted_predicates {
+            None => true,
+            Some(w) => w.contains(pred),
+        })
+        .collect();
+    let class_wanted = map.class_wanted(wanted_predicates);
+
+    // Nothing from this map contributes to the query — skip its source scan.
+    if active_poms.is_empty() && !class_wanted {
+        return Ok(());
+    }
+
+    // Needed columns = subject-template columns ∪ the active object columns.
+    let mut needed = BTreeSet::new();
+    template_columns_into(&map.subject_template, &mut needed);
+    for (_, obj) in &active_poms {
+        obj.columns_into(&mut needed);
+    }
+
+    // The SOUND subset of the query's FILTERs that constrain THIS map's columns —
+    // pushed to the source alongside the projection (CONCEPT:EG-KG.query.obda-predicate-pushdown).
+    let map_filters = map_pushable_filters(map, filters);
+    let source = reg.resolve(&map.logical_source)?;
+    let rows = source.scan(&needed, &map_filters)?;
+
+    for row in &rows {
+        materialize_row(map, &active_poms, class_wanted, row, out);
+    }
+    Ok(())
+}
+
+/// Emit one source row's triples for a triples map: the `rdf:type` triple (if
+/// its class is wanted), then one triple per active predicate-object map
+/// whose object term resolves for this row.
+fn materialize_row(
+    map: &TriplesMap,
+    active_poms: &[&(String, ObjectMap)],
+    class_wanted: bool,
+    row: &ForeignRow,
+    out: &mut Vec<Triple>,
+) {
+    let Some(subject_iri) = expand_template(&map.subject_template, row) else {
+        return; // a subject-template column is missing for this row
+    };
+    let Ok(subject) = NamedNode::new(&subject_iri) else {
+        return; // a template that doesn't yield a valid IRI is skipped
+    };
+
+    if class_wanted {
+        if let Some(class) = &map.subject_class {
+            if let (Ok(pred), Ok(obj)) = (NamedNode::new(RDF_TYPE_IRI), NamedNode::new(class)) {
+                out.push(Triple::new(subject.clone(), pred, obj));
+            }
+        }
+    }
+
+    for (pred, obj) in active_poms {
+        let Ok(predicate) = NamedNode::new(pred) else {
+            continue;
+        };
+        if let Some(object) = obj.term_for(row) {
+            out.push(Triple::new(subject.clone(), predicate, object));
+        }
     }
 }
 
@@ -866,20 +893,10 @@ fn collect_filter_context(
     ctx: &mut FilterContext,
 ) {
     use spargebra::algebra::GraphPattern as G;
-    use spargebra::term::{NamedNodePattern, TermPattern};
     match p {
         G::Bgp { patterns } => {
             if required {
-                for tp in patterns {
-                    if let (NamedNodePattern::NamedNode(pred), TermPattern::Variable(v)) =
-                        (&tp.predicate, &tp.object)
-                    {
-                        ctx.var_predicates
-                            .entry(v.as_str().to_string())
-                            .or_default()
-                            .insert(pred.as_str().to_string());
-                    }
-                }
+                collect_bgp_var_predicates(patterns, ctx);
             }
         }
         G::Filter { expr, inner } => {
@@ -917,6 +934,26 @@ fn collect_filter_context(
         // any unseen future variant (`Lateral`/sep-0006), contribute no pushdown — correctness
         // is unaffected (the evaluator re-filters), so they fall through the wildcard.
         _ => {}
+    }
+}
+
+/// Record `?var predicate` bindings from a BGP's triple patterns: every
+/// `<constant predicate> ?object` pattern binds `?object` through that
+/// predicate (CONCEPT:EG-KG.query.obda-predicate-pushdown context).
+fn collect_bgp_var_predicates(
+    patterns: &[spargebra::term::TriplePattern],
+    ctx: &mut FilterContext,
+) {
+    use spargebra::term::{NamedNodePattern, TermPattern};
+    for tp in patterns {
+        if let (NamedNodePattern::NamedNode(pred), TermPattern::Variable(v)) =
+            (&tp.predicate, &tp.object)
+        {
+            ctx.var_predicates
+                .entry(v.as_str().to_string())
+                .or_default()
+                .insert(pred.as_str().to_string());
+        }
     }
 }
 
@@ -985,30 +1022,7 @@ fn map_pushable_filters(map: &TriplesMap, fctx: &FilterContext) -> Vec<ObdaFilte
             let Some(compares) = fctx.var_compares.get(var) else {
                 continue;
             };
-            for (op, value, lit_numeric) in compares {
-                let filter = if col_numeric {
-                    // A numeric column needs a numeric literal; then ANY comparison is sound.
-                    if !lit_numeric {
-                        continue;
-                    }
-                    ObdaFilter {
-                        column: col.clone(),
-                        op: *op,
-                        value: value.clone(),
-                        numeric: true,
-                    }
-                } else {
-                    // A string column: only equality is collation-safe to push.
-                    if *op != ObdaCompare::Eq {
-                        continue;
-                    }
-                    ObdaFilter {
-                        column: col.clone(),
-                        op: ObdaCompare::Eq,
-                        value: value.clone(),
-                        numeric: false,
-                    }
-                };
+            for filter in column_filters_for_compares(col, col_numeric, compares) {
                 if !out.contains(&filter) {
                     out.push(filter);
                 }
@@ -1016,6 +1030,42 @@ fn map_pushable_filters(map: &TriplesMap, fctx: &FilterContext) -> Vec<ObdaFilte
         }
     }
     out
+}
+
+/// Build the pushable `ObdaFilter`s for one (column, comparisons) pairing: a
+/// numeric column pushes any comparison against a numeric literal; a string
+/// column only pushes equality (the only collation-safe comparison).
+fn column_filters_for_compares(
+    col: &str,
+    col_numeric: bool,
+    compares: &[(ObdaCompare, String, bool)],
+) -> Vec<ObdaFilter> {
+    let mut filters = Vec::new();
+    for (op, value, lit_numeric) in compares {
+        let filter = if col_numeric {
+            if !lit_numeric {
+                continue;
+            }
+            ObdaFilter {
+                column: col.to_string(),
+                op: *op,
+                value: value.clone(),
+                numeric: true,
+            }
+        } else {
+            if *op != ObdaCompare::Eq {
+                continue;
+            }
+            ObdaFilter {
+                column: col.to_string(),
+                op: ObdaCompare::Eq,
+                value: value.clone(),
+                numeric: false,
+            }
+        };
+        filters.push(filter);
+    }
+    filters
 }
 
 /// Whether an `xsd:` datatype IRI is one of the numeric types (so a comparison against it is
@@ -1056,37 +1106,13 @@ fn expand_template(tpl: &str, row: &ForeignRow) -> Option<String> {
     let mut chars = tpl.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '{' => {
-                if chars.peek() == Some(&'{') {
-                    chars.next();
-                    out.push('{');
-                    continue;
-                }
-                let mut name = String::new();
-                let mut closed = false;
-                for nc in chars.by_ref() {
-                    if nc == '}' {
-                        closed = true;
-                        break;
-                    }
-                    name.push(nc);
-                }
-                if !closed {
-                    return None; // unbalanced `{`
-                }
-                let val = row.get(&name)?;
-                if val.is_empty() {
-                    return None;
-                }
-                out.push_str(val);
-            }
+            '{' => expand_placeholder_into(&mut chars, row, &mut out)?,
             '}' => {
+                // A doubled `}}` is a literal brace; either way exactly one `}` is emitted.
                 if chars.peek() == Some(&'}') {
                     chars.next();
-                    out.push('}');
-                } else {
-                    out.push('}');
                 }
+                out.push('}');
             }
             other => out.push(other),
         }
@@ -1094,28 +1120,73 @@ fn expand_template(tpl: &str, row: &ForeignRow) -> Option<String> {
     Some(out)
 }
 
+/// Consume one `{`-introduced template placeholder from `chars` (already past
+/// the opening `{`): a doubled `{{` is a literal brace, otherwise read the
+/// `{col}` name and substitute `row[col]`. `None` propagates the same
+/// "no term for this row" outcome [`expand_template`] returns for an
+/// unbalanced `{`, a missing column, or an empty column value.
+fn expand_placeholder_into(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    row: &ForeignRow,
+    out: &mut String,
+) -> Option<()> {
+    if chars.peek() == Some(&'{') {
+        chars.next();
+        out.push('{');
+        return Some(());
+    }
+    let mut name = String::new();
+    let mut closed = false;
+    for nc in chars.by_ref() {
+        if nc == '}' {
+            closed = true;
+            break;
+        }
+        name.push(nc);
+    }
+    if !closed {
+        return None; // unbalanced `{`
+    }
+    let val = row.get(&name)?;
+    if val.is_empty() {
+        return None;
+    }
+    out.push_str(val);
+    Some(())
+}
+
 /// Collect the `{col}` placeholder names referenced by a template into `out`.
 fn template_columns_into(tpl: &str, out: &mut BTreeSet<String>) {
     let mut chars = tpl.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '{' {
-            if chars.peek() == Some(&'{') {
-                chars.next();
-                continue;
-            }
-            let mut name = String::new();
-            let mut closed = false;
-            for nc in chars.by_ref() {
-                if nc == '}' {
-                    closed = true;
-                    break;
-                }
-                name.push(nc);
-            }
-            if closed && !name.is_empty() {
-                out.insert(name);
-            }
+            collect_placeholder_name(&mut chars, out);
         }
+    }
+}
+
+/// Consume one `{`-introduced placeholder from `chars` (already past the
+/// opening `{`) and, unless it's a doubled `{{` literal-brace escape or an
+/// unbalanced/empty name, insert the placeholder's column name into `out`.
+fn collect_placeholder_name(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    out: &mut BTreeSet<String>,
+) {
+    if chars.peek() == Some(&'{') {
+        chars.next();
+        return;
+    }
+    let mut name = String::new();
+    let mut closed = false;
+    for nc in chars.by_ref() {
+        if nc == '}' {
+            closed = true;
+            break;
+        }
+        name.push(nc);
+    }
+    if closed && !name.is_empty() {
+        out.insert(name);
     }
 }
 
@@ -1142,49 +1213,7 @@ pub fn parse_mapping(text: &str) -> Result<VirtualGraph, String> {
     let mut cur: Option<PartialMap> = None;
 
     for (lineno, raw) in text.lines().enumerate() {
-        let line = raw.split('#').next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
-        }
-        if line == "---" {
-            if let Some(pm) = cur.take() {
-                vg.triples_maps.push(pm.finish(lineno)?);
-            }
-            continue;
-        }
-        let mut parts = line.splitn(2, char::is_whitespace);
-        let directive = parts.next().unwrap_or("").to_ascii_uppercase();
-        let rest = parts.next().unwrap_or("").trim();
-        let pm = cur.get_or_insert_with(PartialMap::default);
-        match directive.as_str() {
-            "SOURCE" => pm.source = Some(rest.to_string()),
-            "SUBJECT" => pm.subject = Some(rest.to_string()),
-            "CLASS" => pm.class = Some(rest.to_string()),
-            "COLUMN" | "REF" | "CONST" => {
-                let mut kv = rest.splitn(2, char::is_whitespace);
-                let pred = kv.next().unwrap_or("").trim().to_string();
-                let val = kv.next().unwrap_or("").trim().to_string();
-                if pred.is_empty() || val.is_empty() {
-                    return Err(format!(
-                        "obda: line {}: `{directive}` needs `<predicate> <value>` (CONCEPT:EG-KG.ontology.foreign-source-seam)",
-                        lineno + 1
-                    ));
-                }
-                let obj = match directive.as_str() {
-                    "COLUMN" => ObjectMap::Column(val),
-                    "REF" => ObjectMap::Template(val),
-                    _ if val.contains("://") => ObjectMap::ConstantIri(val),
-                    _ => ObjectMap::ConstantLiteral(val),
-                };
-                pm.poms.push((pred, obj));
-            }
-            other => {
-                return Err(format!(
-                    "obda: line {}: unknown directive `{other}` (CONCEPT:EG-KG.ontology.foreign-source-seam)",
-                    lineno + 1
-                ));
-            }
-        }
+        parse_mapping_line(lineno, raw, &mut vg, &mut cur)?;
     }
     if let Some(pm) = cur.take() {
         vg.triples_maps.push(pm.finish(text.lines().count())?);
@@ -1196,6 +1225,73 @@ pub fn parse_mapping(text: &str) -> Result<VirtualGraph, String> {
         );
     }
     Ok(vg)
+}
+
+/// Parse one line of the compact textual mapping form: a blank/comment-only
+/// line is a no-op, `---` finalizes the current block, otherwise the line's
+/// leading directive is applied to the in-progress [`PartialMap`] (started
+/// lazily on first use).
+fn parse_mapping_line(
+    lineno: usize,
+    raw: &str,
+    vg: &mut VirtualGraph,
+    cur: &mut Option<PartialMap>,
+) -> Result<(), String> {
+    let line = raw.split('#').next().unwrap_or("").trim();
+    if line.is_empty() {
+        return Ok(());
+    }
+    if line == "---" {
+        if let Some(pm) = cur.take() {
+            vg.triples_maps.push(pm.finish(lineno)?);
+        }
+        return Ok(());
+    }
+    let mut parts = line.splitn(2, char::is_whitespace);
+    let directive = parts.next().unwrap_or("").to_ascii_uppercase();
+    let rest = parts.next().unwrap_or("").trim();
+    let pm = cur.get_or_insert_with(PartialMap::default);
+    apply_mapping_directive(pm, &directive, rest, lineno)
+}
+
+/// Apply one `SOURCE`/`SUBJECT`/`CLASS`/`COLUMN`/`REF`/`CONST` directive line
+/// to the in-progress [`PartialMap`].
+fn apply_mapping_directive(
+    pm: &mut PartialMap,
+    directive: &str,
+    rest: &str,
+    lineno: usize,
+) -> Result<(), String> {
+    match directive {
+        "SOURCE" => pm.source = Some(rest.to_string()),
+        "SUBJECT" => pm.subject = Some(rest.to_string()),
+        "CLASS" => pm.class = Some(rest.to_string()),
+        "COLUMN" | "REF" | "CONST" => {
+            let mut kv = rest.splitn(2, char::is_whitespace);
+            let pred = kv.next().unwrap_or("").trim().to_string();
+            let val = kv.next().unwrap_or("").trim().to_string();
+            if pred.is_empty() || val.is_empty() {
+                return Err(format!(
+                    "obda: line {}: `{directive}` needs `<predicate> <value>` (CONCEPT:EG-KG.ontology.foreign-source-seam)",
+                    lineno + 1
+                ));
+            }
+            let obj = match directive {
+                "COLUMN" => ObjectMap::Column(val),
+                "REF" => ObjectMap::Template(val),
+                _ if val.contains("://") => ObjectMap::ConstantIri(val),
+                _ => ObjectMap::ConstantLiteral(val),
+            };
+            pm.poms.push((pred, obj));
+        }
+        other => {
+            return Err(format!(
+                "obda: line {}: unknown directive `{other}` (CONCEPT:EG-KG.ontology.foreign-source-seam)",
+                lineno + 1
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -1372,7 +1468,28 @@ pub fn parse_r2rml_turtle(doc: &str) -> Result<VirtualGraph, String> {
 /// Parse one R2RML triples map (anchored at `tm_key`) into a [`TriplesMap`]. CONCEPT:EG-KG.ontology.iri-template-object-map.
 fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, String> {
     // (1) logical source: rr:logicalTable → rr:tableName (or rr:sqlQuery best-effort).
-    let logical_source = index
+    let logical_source = parse_logical_source(index, tm_key)?;
+
+    // (2) subject map: rr:subjectMap [ rr:template|rr:column|rr:constant ; rr:class* ] or
+    //     the rr:subject constant shortcut.
+    let (subject_template, subject_class, extra_class_poms) = parse_subject_map(index, tm_key)?;
+
+    // (3) predicate-object maps: rr:predicateObjectMap [ rr:predicate* ; rr:object(Map)* ].
+    let mut predicate_object_maps = parse_predicate_object_maps(index, tm_key);
+    predicate_object_maps.extend(extra_class_poms);
+
+    Ok(TriplesMap {
+        logical_source,
+        subject_template,
+        subject_class,
+        predicate_object_maps,
+    })
+}
+
+/// Resolve a triples map's `rr:logicalTable` to its `rr:tableName` (unquoted)
+/// or, failing that, its best-effort `rr:sqlQuery`.
+fn parse_logical_source(index: &R2rmlDoc, tm_key: &str) -> Result<String, String> {
+    index
         .first_object(tm_key, rr!("logicalTable"))
         .and_then(|lt| node_key(&lt))
         .and_then(|lt_key| {
@@ -1391,10 +1508,18 @@ fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, Strin
                 "obda: R2RML triples map {tm_key} has no rr:logicalTable with \
                  rr:tableName/rr:sqlQuery (CONCEPT:EG-KG.ontology.iri-template-object-map)"
             )
-        })?;
+        })
+}
 
-    // (2) subject map: rr:subjectMap [ rr:template|rr:column|rr:constant ; rr:class* ] or
-    //     the rr:subject constant shortcut.
+/// Resolve a triples map's subject: the `rr:subjectMap` term (plus its first
+/// `rr:class` as `subject_class`, any additional classes folded into
+/// `rdf:type` constant predicate-object maps so none is dropped), or the
+/// `rr:subject` constant-IRI shortcut.
+#[allow(clippy::type_complexity)]
+fn parse_subject_map(
+    index: &R2rmlDoc,
+    tm_key: &str,
+) -> Result<(String, Option<String>, Vec<(String, ObjectMap)>), String> {
     let mut subject_class: Option<String> = None;
     let mut extra_class_poms: Vec<(String, ObjectMap)> = Vec::new();
     let subject_template = if let Some(sm) = index
@@ -1429,46 +1554,19 @@ fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, Strin
             "obda: R2RML triples map {tm_key} has no rr:subjectMap/rr:subject (CONCEPT:EG-KG.ontology.iri-template-object-map)"
         ));
     };
+    Ok((subject_template, subject_class, extra_class_poms))
+}
 
+/// Parse every `rr:predicateObjectMap` of a triples map into its R2RML
+/// cross-product of `(predicate, object map)` pairs.
+fn parse_predicate_object_maps(index: &R2rmlDoc, tm_key: &str) -> Vec<(String, ObjectMap)> {
     let mut predicate_object_maps: Vec<(String, ObjectMap)> = Vec::new();
-
-    // (3) predicate-object maps: rr:predicateObjectMap [ rr:predicate* ; rr:object(Map)* ].
     for pom in index.objects(tm_key, rr!("predicateObjectMap")) {
         let Some(pom_key) = node_key(&pom) else {
             continue;
         };
-
-        // Predicates: rr:predicate <IRI> and rr:predicateMap [ rr:constant <IRI> ].
-        let mut predicates: Vec<String> = Vec::new();
-        for p in index.objects(&pom_key, rr!("predicate")) {
-            if let Some(iri) = iri_value(&p) {
-                predicates.push(iri);
-            }
-        }
-        for pm in index.objects(&pom_key, rr!("predicateMap")) {
-            if let Some(pm_key) = node_key(&pm) {
-                if let Some(iri) = index
-                    .first_object(&pm_key, rr!("constant"))
-                    .and_then(|t| iri_value(&t))
-                {
-                    predicates.push(iri);
-                }
-            }
-        }
-
-        // Object maps: rr:object <term> (constant shortcut) and rr:objectMap [ … ].
-        let mut object_maps: Vec<ObjectMap> = Vec::new();
-        for o in index.objects(&pom_key, rr!("object")) {
-            object_maps.push(constant_object_map(&o));
-        }
-        for om in index.objects(&pom_key, rr!("objectMap")) {
-            if let Some(om_key) = node_key(&om) {
-                if let Some(obj) = parse_object_map(index, &om_key) {
-                    object_maps.push(obj);
-                }
-            }
-        }
-
+        let predicates = parse_pom_predicates(index, &pom_key);
+        let object_maps = parse_pom_object_maps(index, &pom_key);
         // R2RML cross-product: each predicate × each object map.
         for pred in &predicates {
             for obj in &object_maps {
@@ -1476,15 +1574,44 @@ fn parse_triples_map(index: &R2rmlDoc, tm_key: &str) -> Result<TriplesMap, Strin
             }
         }
     }
+    predicate_object_maps
+}
 
-    predicate_object_maps.extend(extra_class_poms);
+/// Predicates: rr:predicate <IRI> and rr:predicateMap [ rr:constant <IRI> ].
+fn parse_pom_predicates(index: &R2rmlDoc, pom_key: &str) -> Vec<String> {
+    let mut predicates: Vec<String> = Vec::new();
+    for p in index.objects(pom_key, rr!("predicate")) {
+        if let Some(iri) = iri_value(&p) {
+            predicates.push(iri);
+        }
+    }
+    for pm in index.objects(pom_key, rr!("predicateMap")) {
+        if let Some(pm_key) = node_key(&pm) {
+            if let Some(iri) = index
+                .first_object(&pm_key, rr!("constant"))
+                .and_then(|t| iri_value(&t))
+            {
+                predicates.push(iri);
+            }
+        }
+    }
+    predicates
+}
 
-    Ok(TriplesMap {
-        logical_source,
-        subject_template,
-        subject_class,
-        predicate_object_maps,
-    })
+/// Object maps: rr:object <term> (constant shortcut) and rr:objectMap [ … ].
+fn parse_pom_object_maps(index: &R2rmlDoc, pom_key: &str) -> Vec<ObjectMap> {
+    let mut object_maps: Vec<ObjectMap> = Vec::new();
+    for o in index.objects(pom_key, rr!("object")) {
+        object_maps.push(constant_object_map(&o));
+    }
+    for om in index.objects(pom_key, rr!("objectMap")) {
+        if let Some(om_key) = node_key(&om) {
+            if let Some(obj) = parse_object_map(index, &om_key) {
+                object_maps.push(obj);
+            }
+        }
+    }
+    object_maps
 }
 
 /// Resolve a subject term map's IRI-producing form to a subject template string:
@@ -1798,7 +1925,10 @@ mod tests {
             "expected a typed unmapped-predicate error, got: {err}"
         );
         assert!(err.contains("http://example.org/unmapped"), "{err}");
-        assert!(err.contains("CONCEPT:EG-KG.query.obda-query-rewrite"), "{err}");
+        assert!(
+            err.contains("CONCEPT:EG-KG.query.obda-query-rewrite"),
+            "{err}"
+        );
     }
 
     /// CA-13 — a query mixing a MAPPED and an unmapped predicate in the same BGP still
