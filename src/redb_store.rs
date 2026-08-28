@@ -13813,47 +13813,60 @@ pub(crate) fn scan_matview_operator_state(db: &Database) -> Result<Vec<(String, 
 /// even if it is already past by wall-clock time; later expiry/reclaim belongs
 /// only to an explicit authoritative transaction carrying `now_ms`.
 #[allow(clippy::too_many_arguments)]
-fn validate_checkpoint_resource_links(
+const CHECKPOINT_RESOURCE_REFUSAL: &str = "checkpoint resource domain validation failed";
+
+/// Every checkpoint resource-link failure reports the same opaque refusal, so
+/// that a dump cannot probe the durable resource domain through error text.
+fn checkpoint_resource_refusal() -> String {
+    CHECKPOINT_RESOURCE_REFUSAL.to_string()
+}
+
+/// Scan this graph's reservation rows, bounded by `MAX_RESOURCE_CLEAR_SCAN`, and
+/// return the ones still holding capacity.  The active test is the shared
+/// `resource_reservation_row_is_active` predicate -- the same disjunction this
+/// scan carried inline.
+fn collect_checkpoint_active_reservations(
     graph: &str,
-    incoming_nodes: &[(String, Vec<u8>)],
-    reservations: &mut redb::Table<(&str, &str), &[u8]>,
-    hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    reservations: &redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<(), String> {
-    const REFUSAL: &str = "checkpoint resource domain validation failed";
-    let refusal = || REFUSAL.to_string();
+) -> Result<Vec<DurableResourceReservation>, String> {
     let mut scanned = 0usize;
     let mut active_rows = Vec::new();
-    for row in reservations.range((graph, "")..).map_err(|_| refusal())? {
-        let (key, value) = row.map_err(|_| refusal())?;
+    for row in reservations
+        .range((graph, "")..)
+        .map_err(|_| checkpoint_resource_refusal())?
+    {
+        let (key, value) = row.map_err(|_| checkpoint_resource_refusal())?;
         let (row_graph, reservation_id) = key.value();
         if row_graph != graph {
             break;
         }
         scanned = scanned.saturating_add(1);
         if scanned > MAX_RESOURCE_CLEAR_SCAN {
-            return Err(refusal());
+            return Err(checkpoint_resource_refusal());
         }
         let stored: DurableResourceReservation =
-            resource_decode(value.value(), crypto).map_err(|_| refusal())?;
+            resource_decode(value.value(), crypto).map_err(|_| checkpoint_resource_refusal())?;
         if stored.record.reservation_id != reservation_id {
-            return Err(refusal());
+            return Err(checkpoint_resource_refusal());
         }
-        let active = stored.record.state == ResourceReservationRecordState::Reserved
-            || stored.held_cpu_weight != 0
-            || stored.held_memory_mib != 0
-            || stored.held_disk_mib != 0
-            || stored.held_process_slots != 0;
-        if !active {
+        if !resource_reservation_row_is_active(&stored) {
             continue;
         }
         active_rows.push(stored);
     }
+    Ok(active_rows)
+}
 
-    // Index only the bounded set of WorkItems linked by active holds.  This is
-    // one O(nodes + active-holds) pass over the incoming image instead of an
-    // O(nodes * reservations) search, while keeping index allocation tied to
-    // the native reservation scan bound rather than graph size.
+/// Index only the bounded set of WorkItems linked by active holds.  This is one
+/// O(nodes + active-holds) pass over the incoming image instead of an
+/// O(nodes * reservations) search, while keeping index allocation tied to the
+/// native reservation scan bound rather than graph size.  A duplicate id in the
+/// incoming image is a refusal.
+fn index_checkpoint_incoming_active<'n>(
+    incoming_nodes: &'n [(String, Vec<u8>)],
+    active_rows: &[DurableResourceReservation],
+) -> Result<std::collections::HashMap<&'n str, &'n [u8]>, String> {
     let active_ids: std::collections::HashSet<String> = active_rows
         .iter()
         .map(|stored| stored.record.work_item_id.clone())
@@ -13866,42 +13879,68 @@ fn validate_checkpoint_resource_links(
                 .insert(id.as_str(), bytes.as_slice())
                 .is_some()
         {
-            return Err(refusal());
+            return Err(checkpoint_resource_refusal());
         }
     }
+    Ok(incoming_active)
+}
 
-    for stored in active_rows {
-        // Validate the incoming replacement image, not the rows currently in
-        // redb.  `clear_graph_rows` runs immediately after this function, so
-        // checking the old table would accidentally approve a dump which then
-        // deletes the only linked WorkItem for an active hold.
-        let Some(item_bytes) = incoming_active
-            .get(stored.record.work_item_id.as_str())
-            .copied()
-        else {
-            return Err(refusal());
-        };
-        let props: serde_json::Map<String, serde_json::Value> =
-            decode_durable(item_bytes).map_err(|_| refusal())?;
-        let request = resource_request_from_record(&stored.record, stored.record.reserved_at_ms);
-        resource_validate_work_item(&props, &request, false).map_err(|_| refusal())?;
-        if !resource_record_work_item_live(&props, &stored.record, stored.record.reserved_at_ms) {
-            return Err(refusal());
-        }
+/// Validate ONE active hold against the incoming replacement image, not the rows
+/// currently in redb.  `clear_graph_rows` runs immediately after this validation,
+/// so checking the old table would accidentally approve a dump which then deletes
+/// the only linked WorkItem for an active hold.
+fn validate_checkpoint_active_reservation(
+    graph: &str,
+    stored: &DurableResourceReservation,
+    incoming_active: &std::collections::HashMap<&str, &[u8]>,
+    hosts: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let Some(item_bytes) = incoming_active
+        .get(stored.record.work_item_id.as_str())
+        .copied()
+    else {
+        return Err(checkpoint_resource_refusal());
+    };
+    let props: serde_json::Map<String, serde_json::Value> =
+        decode_durable(item_bytes).map_err(|_| checkpoint_resource_refusal())?;
+    let request = resource_request_from_record(&stored.record, stored.record.reserved_at_ms);
+    resource_validate_work_item(&props, &request, false)
+        .map_err(|_| checkpoint_resource_refusal())?;
+    if !resource_record_work_item_live(&props, &stored.record, stored.record.reserved_at_ms) {
+        return Err(checkpoint_resource_refusal());
+    }
 
-        let (_, extension) = resource_metadata_maps(&props).map_err(|_| refusal())?;
-        let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)
-            .map_err(|_| refusal())?
-            .ok_or_else(refusal)?;
-        if host.host_ref != stored.record.host_ref
-            || host.target_kind != resource_record_target_kind(stored.record.target_kind)
-            || host.target_alias != stored.record.target_alias
-        {
-            return Err(refusal());
-        }
-        if !resource_target_selection_matches(extension, &host).map_err(|_| refusal())? {
-            return Err(refusal());
-        }
+    let (_, extension) =
+        resource_metadata_maps(&props).map_err(|_| checkpoint_resource_refusal())?;
+    let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)
+        .map_err(|_| checkpoint_resource_refusal())?
+        .ok_or_else(checkpoint_resource_refusal)?;
+    if host.host_ref != stored.record.host_ref
+        || host.target_kind != resource_record_target_kind(stored.record.target_kind)
+        || host.target_alias != stored.record.target_alias
+    {
+        return Err(checkpoint_resource_refusal());
+    }
+    if !resource_target_selection_matches(extension, &host)
+        .map_err(|_| checkpoint_resource_refusal())?
+    {
+        return Err(checkpoint_resource_refusal());
+    }
+    Ok(())
+}
+
+fn validate_checkpoint_resource_links(
+    graph: &str,
+    incoming_nodes: &[(String, Vec<u8>)],
+    reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let active_rows = collect_checkpoint_active_reservations(graph, reservations, crypto)?;
+    let incoming_active = index_checkpoint_incoming_active(incoming_nodes, &active_rows)?;
+    for stored in &active_rows {
+        validate_checkpoint_active_reservation(graph, stored, &incoming_active, hosts, crypto)?;
     }
     Ok(())
 }
