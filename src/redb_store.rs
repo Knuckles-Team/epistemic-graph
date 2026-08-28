@@ -1010,6 +1010,72 @@ pub struct GraphDump {
     pub edges: Vec<(String, String, Vec<u8>)>,
     pub ledger: Vec<String>,
     pub semantic: Vec<u8>,
+    /// Every native `development_lane_*`/`resource_*` table row for this graph
+    /// (BUG-CX-096). Populated ONLY by [`read_graph_dump`] — every other
+    /// `GraphDump` construction site (the embedded in-memory checkpoint path,
+    /// tests) leaves this at its `Default` empty state, because those callers
+    /// have no native-authority rows to report in the first place (an
+    /// in-memory `GraphCore` never held them; they live only in redb).
+    /// [`apply_checkpoint_dump`] deliberately does NOT consume these fields —
+    /// the existing in-place-checkpoint discipline is unchanged (native rows
+    /// already durable at the destination stay put and are re-proved via
+    /// `development_lane::validate_checkpoint_lane_links`). This field exists
+    /// so a dump is no longer silently lossy: any FUTURE consumer that
+    /// relocates a graph to a different store/shard via a `GraphDump` now has
+    /// the data to carry, instead of the destination's lane/resource
+    /// validators vacuously passing because they see nothing.
+    pub native: NativeOperationDumpRows,
+}
+
+/// The graph-scoped row set of every `development_lane_*` (10 tables) and
+/// `resource_*` (9 tables) redb table, keyed by the NON-graph part of each
+/// table's real key (the dump's own `graph` field already carries the graph
+/// component). Every value blob that is sealed at rest in redb (an `&[u8]`
+/// column, decoded via `resource_decode`/`DurableLaneHold`/
+/// `DurableResourceReservation`-style wrappers elsewhere in this module) is
+/// stored here UNSEALED — the plaintext form, the same convention
+/// [`read_graph_dump`] already uses for `nodes`/`edges`/`semantic`. A plain
+/// text or numeric index column is stored as-is (never sealed on disk).
+#[derive(Default)]
+pub struct NativeOperationDumpRows {
+    /// `development_lane_holds`: `(graph, hold_id) -> sealed DurableLaneHold`.
+    pub development_lane_holds: Vec<(String, Vec<u8>)>,
+    /// `development_lane_tenant_index`: `(graph, tenant, hold_id) -> hold_id`.
+    pub development_lane_tenant_index: Vec<((String, String), String)>,
+    /// `development_lane_lane_index`: `(graph, tenant, lane_id) -> hold_id`.
+    pub development_lane_lane_index: Vec<((String, String), String)>,
+    /// `development_lane_repository_branch_index`: `(graph, tenant, branch) -> hold_id`.
+    pub development_lane_repository_branch_index: Vec<((String, String), String)>,
+    /// `development_lane_worktree_index`: `(graph, worktree) -> hold_id`.
+    pub development_lane_worktree_index: Vec<(String, String)>,
+    /// `development_lane_work_item_index`: `(graph, tenant, attempt) -> hold_id`.
+    pub development_lane_work_item_index: Vec<((String, u64), String)>,
+    /// `development_lane_counters`: `(graph, scope) -> sealed counters blob`.
+    pub development_lane_counters: Vec<(String, Vec<u8>)>,
+    /// `development_lane_pressure_index`: `(graph, tenant, scope, metric, value, counter_key) -> marker`.
+    pub development_lane_pressure_index: Vec<((String, String, String, u64, String), u8)>,
+    /// `development_lane_policies`: `(graph, tenant) -> sealed policy blob`.
+    pub development_lane_policies: Vec<(String, Vec<u8>)>,
+    /// `development_lane_invocations`: `(graph, tenant, key) -> sealed replay blob`.
+    pub development_lane_invocations: Vec<((String, String), Vec<u8>)>,
+    /// `resource_reservations`: `(graph, reservation_id) -> sealed DurableResourceReservation`.
+    pub resource_reservations: Vec<(String, Vec<u8>)>,
+    /// `resource_reservation_tenant_index`: `(graph, tenant, reservation_id) -> reservation_id`.
+    pub resource_reservation_tenant_index: Vec<((String, String), String)>,
+    /// `resource_reservation_attempts`: `(graph, work_item, attempt) -> reservation_id`.
+    pub resource_reservation_attempts: Vec<((String, u64), String)>,
+    /// `resource_hosts`: `(graph, host_ref) -> sealed DurableResourceHost`.
+    pub resource_hosts: Vec<(String, Vec<u8>)>,
+    /// `resource_exclusivity`: `(graph, key) -> reservation_id`.
+    pub resource_exclusivity: Vec<(String, String)>,
+    /// `resource_fairness`: `(graph, group) -> sealed fairness blob`.
+    pub resource_fairness: Vec<(String, Vec<u8>)>,
+    /// `resource_concurrency`: `(graph, key) -> active count`.
+    pub resource_concurrency: Vec<(String, u64)>,
+    /// `resource_anti_affinity`: `(graph, host, tag) -> count`.
+    pub resource_anti_affinity: Vec<((String, String), u64)>,
+    /// `resource_disk_policies`: `(graph, key) -> sealed disk-policy blob`.
+    pub resource_disk_policies: Vec<(String, Vec<u8>)>,
 }
 
 /// Commit all buffered mutations (and any Raft log appends) in ONE write
@@ -14710,6 +14776,255 @@ pub(crate) fn apply_checkpoint(
     Ok(count)
 }
 
+// ── BUG-CX-096: native `development_lane_*`/`resource_*` row scans ─────────────
+//
+// One small scanner per distinct (key-shape, value-shape) pair actually used by
+// the 19 tables `NativeOperationDumpRows` names (grepped mechanically from their
+// `TableDefinition`s in this file and `redb_store/development_lane.rs`: 7 of
+// shape `(graph,&str)->&[u8]`, 2 of `(graph,&str)->&str`, 1 of
+// `(graph,&str)->u64`, 4 of `(graph,&str,&str)->&str`, 1 of
+// `(graph,&str,&str)->&[u8]`, 2 of `(graph,&str,u64)->&str`, 1 of
+// `(graph,&str,&str)->u64` — 18 tables share one of these 7 shapes; the 19th,
+// `development_lane_pressure_index`, is the sole 6-tuple key and is scanned
+// inline in [`read_graph_dump`]). Every scan follows the SAME
+// range-then-`take_while` pattern this file already uses for `nodes`/`edges`
+// and the `clear_*`/`drain_*` lane/resource purge functions.
+
+fn dump_graph_2str_bytes(
+    rtx: &redb::ReadTransaction,
+    table: redb::TableDefinition<(&str, &str), &[u8]>,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let t = rtx.open_table(table).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in t.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, second) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((second.to_string(), crypto.unseal(v.value())?));
+    }
+    Ok(out)
+}
+
+fn dump_graph_2str_text(
+    rtx: &redb::ReadTransaction,
+    table: redb::TableDefinition<(&str, &str), &str>,
+    graph: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let t = rtx.open_table(table).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in t.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, second) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((second.to_string(), v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn dump_graph_2str_u64(
+    rtx: &redb::ReadTransaction,
+    table: redb::TableDefinition<(&str, &str), u64>,
+    graph: &str,
+) -> Result<Vec<(String, u64)>, String> {
+    let t = rtx.open_table(table).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in t.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, second) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((second.to_string(), v.value()));
+    }
+    Ok(out)
+}
+
+fn dump_graph_3str_text(
+    rtx: &redb::ReadTransaction,
+    table: redb::TableDefinition<(&str, &str, &str), &str>,
+    graph: &str,
+) -> Result<Vec<((String, String), String)>, String> {
+    let t = rtx.open_table(table).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in t.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, second, third) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((
+            (second.to_string(), third.to_string()),
+            v.value().to_string(),
+        ));
+    }
+    Ok(out)
+}
+
+fn dump_graph_3str_bytes(
+    rtx: &redb::ReadTransaction,
+    table: redb::TableDefinition<(&str, &str, &str), &[u8]>,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<((String, String), Vec<u8>)>, String> {
+    let t = rtx.open_table(table).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in t.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, second, third) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((
+            (second.to_string(), third.to_string()),
+            crypto.unseal(v.value())?,
+        ));
+    }
+    Ok(out)
+}
+
+fn dump_graph_str_u64_text(
+    rtx: &redb::ReadTransaction,
+    table: redb::TableDefinition<(&str, &str, u64), &str>,
+    graph: &str,
+) -> Result<Vec<((String, u64), String)>, String> {
+    let t = rtx.open_table(table).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in t.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, second, third) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push(((second.to_string(), third), v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn dump_graph_3str_u64(
+    rtx: &redb::ReadTransaction,
+    table: redb::TableDefinition<(&str, &str, &str), u64>,
+    graph: &str,
+) -> Result<Vec<((String, String), u64)>, String> {
+    let t = rtx.open_table(table).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in t.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, second, third) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push(((second.to_string(), third.to_string()), v.value()));
+    }
+    Ok(out)
+}
+
+/// Read every `development_lane_*`/`resource_*` row for `graph` (BUG-CX-096).
+/// Called once from [`read_graph_dump`]; split out purely to keep that
+/// function's own complexity from absorbing all 19 table scans.
+fn read_native_operation_dump_rows(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<NativeOperationDumpRows, String> {
+    let pressure_index = {
+        let t = rtx
+            .open_table(development_lane::PRESSURE_INDEX)
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in t
+            .range((graph, "", "", "", 0u64, "")..)
+            .map_err(|e| e.to_string())?
+        {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (g, tenant, scope, metric, value, counter_key) = k.value();
+            if g != graph {
+                break;
+            }
+            out.push((
+                (
+                    tenant.to_string(),
+                    scope.to_string(),
+                    metric.to_string(),
+                    value,
+                    counter_key.to_string(),
+                ),
+                v.value(),
+            ));
+        }
+        out
+    };
+    Ok(NativeOperationDumpRows {
+        development_lane_holds: dump_graph_2str_bytes(rtx, development_lane::HOLDS, graph, crypto)?,
+        development_lane_tenant_index: dump_graph_3str_text(
+            rtx,
+            development_lane::TENANT_INDEX,
+            graph,
+        )?,
+        development_lane_lane_index: dump_graph_3str_text(
+            rtx,
+            development_lane::LANE_INDEX,
+            graph,
+        )?,
+        development_lane_repository_branch_index: dump_graph_3str_text(
+            rtx,
+            development_lane::REPOSITORY_BRANCH_INDEX,
+            graph,
+        )?,
+        development_lane_worktree_index: dump_graph_2str_text(
+            rtx,
+            development_lane::WORKTREE_INDEX,
+            graph,
+        )?,
+        development_lane_work_item_index: dump_graph_str_u64_text(
+            rtx,
+            development_lane::WORK_ITEM_INDEX,
+            graph,
+        )?,
+        development_lane_counters: dump_graph_2str_bytes(
+            rtx,
+            development_lane::COUNTERS,
+            graph,
+            crypto,
+        )?,
+        development_lane_pressure_index: pressure_index,
+        development_lane_policies: dump_graph_2str_bytes(
+            rtx,
+            development_lane::POLICIES,
+            graph,
+            crypto,
+        )?,
+        development_lane_invocations: dump_graph_3str_bytes(
+            rtx,
+            development_lane::INVOCATIONS,
+            graph,
+            crypto,
+        )?,
+        resource_reservations: dump_graph_2str_bytes(rtx, RESOURCE_RESERVATIONS, graph, crypto)?,
+        resource_reservation_tenant_index: dump_graph_3str_text(
+            rtx,
+            RESOURCE_RESERVATION_TENANT_INDEX,
+            graph,
+        )?,
+        resource_reservation_attempts: dump_graph_str_u64_text(
+            rtx,
+            RESOURCE_RESERVATION_ATTEMPTS,
+            graph,
+        )?,
+        resource_hosts: dump_graph_2str_bytes(rtx, RESOURCE_HOSTS, graph, crypto)?,
+        resource_exclusivity: dump_graph_2str_text(rtx, RESOURCE_EXCLUSIVITY, graph)?,
+        resource_fairness: dump_graph_2str_bytes(rtx, RESOURCE_FAIRNESS, graph, crypto)?,
+        resource_concurrency: dump_graph_2str_u64(rtx, RESOURCE_CONCURRENCY, graph)?,
+        resource_anti_affinity: dump_graph_3str_u64(rtx, RESOURCE_ANTI_AFFINITY, graph)?,
+        resource_disk_policies: dump_graph_2str_bytes(rtx, RESOURCE_DISK_POLICIES, graph, crypto)?,
+    })
+}
+
 /// Read ONE graph's durable rows back into an owned [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
 /// tenant rehydration). Range-scans each table by the `graph` key prefix, so a cold
 /// tenant rehydrates from redb without reading the whole store. `None` when the graph
@@ -14779,6 +15094,9 @@ pub(crate) fn read_graph_dump(
         .map(|v| crypto.unseal(v.value()))
         .transpose()?
         .unwrap_or_default();
+    // BUG-CX-096: the native lane/resource authority rows, so a `GraphDump` is no
+    // longer silently lossy for them. See `NativeOperationDumpRows`'s doc.
+    let native = read_native_operation_dump_rows(&rtx, graph, crypto)?;
 
     Ok(Some(GraphDump {
         graph: graph.to_string(),
@@ -14791,6 +15109,7 @@ pub(crate) fn read_graph_dump(
         edges,
         ledger,
         semantic,
+        native,
     }))
 }
 
@@ -15240,6 +15559,7 @@ mod keyset_page_tests {
                 edges: edges.clone(),
                 ledger: Vec::new(),
                 semantic: Vec::new(),
+                native: Default::default(),
             }],
             DurableCrypto::none(),
         )
@@ -15330,6 +15650,7 @@ pub(crate) fn read_all_dumps(
                 edges: Vec::new(),
                 ledger: Vec::new(),
                 semantic: Vec::new(),
+                native: Default::default(),
             },
         );
     }
@@ -16792,6 +17113,257 @@ mod mutation_batch_tests {
             assert_eq!(semantic.get_embedding("a"), None);
         }
         let _ = std::fs::remove_file(path);
+    }
+
+    /// BUG-CX-096: `read_graph_dump` used to range-scan ONLY `GRAPH_META` /
+    /// `MUTATION_GRAPH_VERSION` / `NODES` / `EDGES` / `LEDGER` / `SEMANTIC` — none of
+    /// the 10 `development_lane_*` tables and none of the 9 `resource_*` tables ever
+    /// traveled in a `GraphDump`; the destination side (`validate_checkpoint_lane_links`
+    /// et al.) would see zero rows and pass, the fail-open shape BUG-CX-022 shares.
+    /// Seed one row directly into EVERY one of those 19 tables (raw redb inserts,
+    /// bypassing every native-operation precondition — the same technique
+    /// `redb_backend::tests::seed_raw_two_str_row` uses for the sibling BUG-CX-016/054
+    /// reshard/backup coverage tests), then prove every row is present on
+    /// `dump.native`. `read_graph_dump`'s scans copy these blobs through unsealed but
+    /// otherwise UNDECODED (no typed `DurableLaneHold`/`DurableResourceReservation`
+    /// deserialization — see `NativeOperationDumpRows`'s doc), so an arbitrary
+    /// byte/text/int payload is a legitimate, minimal seed here.
+    ///
+    /// Confirmed FAILING before this fix: `GraphDump` had no `native` field at all
+    /// (`cargo check` errors `no field \`native\` on type \`GraphDump\``) — the
+    /// absence of the field IS the defect this test exists to close, exactly as the
+    /// ledger names it ("None of the 10 development_lane_* tables travel in a
+    /// dump").
+    #[test]
+    fn read_graph_dump_carries_every_native_lane_and_resource_table() {
+        let path = temp_path("native-dump-coverage");
+        let db = open(&path);
+        let seed = batch("batch-native-dump-seed", "idem-native-dump-seed");
+        commit_at(&db, &seed, None).unwrap();
+
+        {
+            let wtx = db.begin_write().unwrap();
+            {
+                let mut t = wtx.open_table(development_lane::HOLDS).unwrap();
+                t.insert(("graph-a", "hold-1"), b"hold-bytes".as_slice())
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(development_lane::TENANT_INDEX).unwrap();
+                t.insert(("graph-a", "tenant-1", "hold-1"), "hold-1")
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(development_lane::LANE_INDEX).unwrap();
+                t.insert(("graph-a", "tenant-1", "lane-1"), "hold-1")
+                    .unwrap();
+            }
+            {
+                let mut t = wtx
+                    .open_table(development_lane::REPOSITORY_BRANCH_INDEX)
+                    .unwrap();
+                t.insert(("graph-a", "tenant-1", "branch-1"), "hold-1")
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(development_lane::WORKTREE_INDEX).unwrap();
+                t.insert(("graph-a", "worktree-1"), "hold-1").unwrap();
+            }
+            {
+                let mut t = wtx.open_table(development_lane::WORK_ITEM_INDEX).unwrap();
+                t.insert(("graph-a", "tenant-1", 1u64), "hold-1").unwrap();
+            }
+            {
+                let mut t = wtx.open_table(development_lane::COUNTERS).unwrap();
+                t.insert(("graph-a", "scope-1"), b"counter-bytes".as_slice())
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(development_lane::PRESSURE_INDEX).unwrap();
+                t.insert(
+                    (
+                        "graph-a",
+                        "tenant-1",
+                        "scope-1",
+                        "metric-1",
+                        5u64,
+                        "counter-1",
+                    ),
+                    1u8,
+                )
+                .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(development_lane::POLICIES).unwrap();
+                t.insert(("graph-a", "tenant-1"), b"policy-bytes".as_slice())
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(development_lane::INVOCATIONS).unwrap();
+                t.insert(
+                    ("graph-a", "tenant-1", "invocation-1"),
+                    b"invocation-bytes".as_slice(),
+                )
+                .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
+                t.insert(
+                    ("graph-a", "reservation-1"),
+                    b"reservation-bytes".as_slice(),
+                )
+                .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).unwrap();
+                t.insert(("graph-a", "tenant-1", "reservation-1"), "reservation-1")
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).unwrap();
+                t.insert(("graph-a", "work-item-1", 1u64), "reservation-1")
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_HOSTS).unwrap();
+                t.insert(("graph-a", "host-1"), b"host-bytes".as_slice())
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_EXCLUSIVITY).unwrap();
+                t.insert(("graph-a", "exclusivity-1"), "reservation-1")
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_FAIRNESS).unwrap();
+                t.insert(("graph-a", "group-1"), b"fairness-bytes".as_slice())
+                    .unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_CONCURRENCY).unwrap();
+                t.insert(("graph-a", "key-1"), 3u64).unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_ANTI_AFFINITY).unwrap();
+                t.insert(("graph-a", "host-1", "tag-1"), 2u64).unwrap();
+            }
+            {
+                let mut t = wtx.open_table(RESOURCE_DISK_POLICIES).unwrap();
+                t.insert(("graph-a", "policy-1"), b"disk-policy-bytes".as_slice())
+                    .unwrap();
+            }
+            wtx.commit().unwrap();
+        }
+
+        let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            dump.native.development_lane_holds,
+            vec![("hold-1".to_string(), b"hold-bytes".to_vec())]
+        );
+        assert_eq!(
+            dump.native.development_lane_tenant_index,
+            vec![(
+                ("tenant-1".to_string(), "hold-1".to_string()),
+                "hold-1".to_string()
+            )]
+        );
+        assert_eq!(
+            dump.native.development_lane_lane_index,
+            vec![(
+                ("tenant-1".to_string(), "lane-1".to_string()),
+                "hold-1".to_string()
+            )]
+        );
+        assert_eq!(
+            dump.native.development_lane_repository_branch_index,
+            vec![(
+                ("tenant-1".to_string(), "branch-1".to_string()),
+                "hold-1".to_string()
+            )]
+        );
+        assert_eq!(
+            dump.native.development_lane_worktree_index,
+            vec![("worktree-1".to_string(), "hold-1".to_string())]
+        );
+        assert_eq!(
+            dump.native.development_lane_work_item_index,
+            vec![(("tenant-1".to_string(), 1u64), "hold-1".to_string())]
+        );
+        assert_eq!(
+            dump.native.development_lane_counters,
+            vec![("scope-1".to_string(), b"counter-bytes".to_vec())]
+        );
+        assert_eq!(
+            dump.native.development_lane_pressure_index,
+            vec![(
+                (
+                    "tenant-1".to_string(),
+                    "scope-1".to_string(),
+                    "metric-1".to_string(),
+                    5u64,
+                    "counter-1".to_string()
+                ),
+                1u8
+            )]
+        );
+        assert_eq!(
+            dump.native.development_lane_policies,
+            vec![("tenant-1".to_string(), b"policy-bytes".to_vec())]
+        );
+        assert_eq!(
+            dump.native.development_lane_invocations,
+            vec![(
+                ("tenant-1".to_string(), "invocation-1".to_string()),
+                b"invocation-bytes".to_vec()
+            )]
+        );
+        assert_eq!(
+            dump.native.resource_reservations,
+            vec![("reservation-1".to_string(), b"reservation-bytes".to_vec())]
+        );
+        assert_eq!(
+            dump.native.resource_reservation_tenant_index,
+            vec![(
+                ("tenant-1".to_string(), "reservation-1".to_string()),
+                "reservation-1".to_string()
+            )]
+        );
+        assert_eq!(
+            dump.native.resource_reservation_attempts,
+            vec![(
+                ("work-item-1".to_string(), 1u64),
+                "reservation-1".to_string()
+            )]
+        );
+        assert_eq!(
+            dump.native.resource_hosts,
+            vec![("host-1".to_string(), b"host-bytes".to_vec())]
+        );
+        assert_eq!(
+            dump.native.resource_exclusivity,
+            vec![("exclusivity-1".to_string(), "reservation-1".to_string())]
+        );
+        assert_eq!(
+            dump.native.resource_fairness,
+            vec![("group-1".to_string(), b"fairness-bytes".to_vec())]
+        );
+        assert_eq!(
+            dump.native.resource_concurrency,
+            vec![("key-1".to_string(), 3u64)]
+        );
+        assert_eq!(
+            dump.native.resource_anti_affinity,
+            vec![(("host-1".to_string(), "tag-1".to_string()), 2u64)]
+        );
+        assert_eq!(
+            dump.native.resource_disk_policies,
+            vec![("policy-1".to_string(), b"disk-policy-bytes".to_vec())]
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
