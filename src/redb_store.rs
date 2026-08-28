@@ -1860,7 +1860,6 @@ fn read_current_mutation_graph_version(
         .unwrap_or(INITIAL_GRAPH_VERSION))
 }
 
-#[allow(clippy::too_many_arguments)]
 /// The caller-owned identity keys a replayed batch must reproduce exactly.
 fn mutation_batch_replay_identity_keys(stored: &MutationBatch, proposed: &MutationBatch) -> bool {
     stored.batch_id == proposed.batch_id
@@ -6510,12 +6509,6 @@ fn resource_admit_reserve_host_with_winner_check(
     )
 }
 
-/// Phase 1: TTL/precondition/window validation, plus the FIRST idempotency-precondition
-/// pass over any existing reservation row (tenant match, request match, the
-/// release/reclaim `expected_lifecycle_revision` precondition, and the terminal-replay
-/// short-circuit). Literal relocation of the original function's first ~110 lines;
-/// no branch was added, removed, or reordered.
-#[allow(clippy::too_many_arguments)]
 /// The two reserve-only window preconditions.
 ///
 /// A creation has no prior lifecycle revision to satisfy: accept only the
@@ -6636,6 +6629,11 @@ fn resource_existing_reservation_precheck(
     Ok(None)
 }
 
+/// Phase 1: TTL/precondition/window validation, plus the FIRST idempotency-precondition
+/// pass over any existing reservation row (tenant match, request match, the
+/// release/reclaim `expected_lifecycle_revision` precondition, and the terminal-replay
+/// short-circuit). Literal relocation of the original function's first ~110 lines;
+/// no branch was added, removed, or reordered.
 fn resource_lifecycle_precheck(
     method: &Method,
     request: &ResourceReservationRequest,
@@ -6790,14 +6788,6 @@ fn resource_validate_work_item_status_and_extension<'p>(
     Ok(ReservationLifecycleStep::Continue(extension))
 }
 
-/// Phase 4: the SECOND existing-reservation branch -- when a reservation row is
-/// already on file, this is guaranteed to fully decide the request (idempotent
-/// replay, reserve short-circuit, reclaim-not-yet-expired refusal, or the actual
-/// release/reclaim commit that decrements the host and tombstones the record).
-/// Returns `Ok(None)` only when `existing` is `None`, meaning: no decision made,
-/// continue into the reserve-admission path. Literal relocation of the original
-/// function's fourth block (`if let Some(stored) = existing.as_ref() { .. }`).
-#[allow(clippy::too_many_arguments)]
 /// Tenant / record / terminal-state prechecks of a release-or-reclaim commit.
 /// A reserve that finds a live row is itself idempotent.  `Ok(Some(..))` decides
 /// the request.
@@ -6980,6 +6970,13 @@ fn resource_release_exclusivity_and_disk(
     Ok(())
 }
 
+/// Phase 4: the SECOND existing-reservation branch -- when a reservation row is
+/// already on file, this is guaranteed to fully decide the request (idempotent
+/// replay, reserve short-circuit, reclaim-not-yet-expired refusal, or the actual
+/// release/reclaim commit that decrements the host and tombstones the record).
+/// Returns `Ok(None)` only when `existing` is `None`, meaning: no decision made,
+/// continue into the reserve-admission path. Literal relocation of the original
+/// function's fourth block (`if let Some(stored) = existing.as_ref() { .. }`).
 #[allow(clippy::too_many_arguments)]
 fn resource_commit_release_or_reclaim(
     graph: &str,
@@ -7090,17 +7087,6 @@ fn resource_check_attempt_winner_conflict(
     Ok(None)
 }
 
-/// Phase 6 (reserve-only path): every host-admission gate (freshness, labels, target
-/// selection, anti-affinity, concurrency, exclusivity, capacity, disk-policy bound and
-/// hysteresis), including the disk-policy table normalization writes that were part of
-/// the same guard chain in the original function. Literal relocation; the ONLY
-/// difference from the original is that the final "insert a fresh default policy when
-/// none existed" step (previously the last few lines before the fairness/commit phase)
-/// is included here rather than split across the phase boundary, because nothing after
-/// it in the original function ever read `existing_policy`, `policy_rows`, or
-/// `disk_key` again.
-/// Every reserve-admission refusal reports the same shape: the decision, the
-/// request, and the host snapshot it was evaluated against.
 fn resource_admission_refusal(
     decision: ResourceReservationResultDecision,
     request: &ResourceReservationRequest,
@@ -7348,6 +7334,17 @@ fn resource_admit_apply_disk_policy(
     Ok(None)
 }
 
+/// Phase 6 (reserve-only path): every host-admission gate (freshness, labels, target
+/// selection, anti-affinity, concurrency, exclusivity, capacity, disk-policy bound and
+/// hysteresis), including the disk-policy table normalization writes that were part of
+/// the same guard chain in the original function. Literal relocation; the ONLY
+/// difference from the original is that the final "insert a fresh default policy when
+/// none existed" step (previously the last few lines before the fairness/commit phase)
+/// is included here rather than split across the phase boundary, because nothing after
+/// it in the original function ever read `existing_policy`, `policy_rows`, or
+/// `disk_key` again.
+/// Every reserve-admission refusal reports the same shape: the decision, the
+/// request, and the host snapshot it was evaluated against.
 #[allow(clippy::too_many_arguments)]
 fn resource_admit_reserve_host(
     hosts: &mut redb::Table<(&str, &str), &[u8]>,
@@ -9245,7 +9242,6 @@ fn apply_work_item_rows(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// One selectable row of a claim scan: `(prio_bucket, deadline, created_at_ms,
 /// node_id, props)`.  The first four components are the sort key.
 type ClaimCandidateRow = (
@@ -9717,7 +9713,6 @@ fn apply_renew_work_item_lease_row(
     )))
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Shape validation for a `CasWorkItemMetadata` request, in the original order:
 /// exactly one settable field, a non-empty expected status set, and non-blank
 /// tenant/work-item identifiers.
@@ -11112,13 +11107,6 @@ pub type VectorUpsert = (String, Vec<f32>);
 /// graph pointer that must land atomically with the node/vector/property.
 pub type BlobRefRow = (String, String);
 
-/// Apply only the non-topology projections of a cross-modal batch inside an
-/// already-open redb write transaction. The universal MutationBatch kernel calls
-/// this after graph rows and before status/outbox; the low-level cross-modal
-/// primitive uses the same row shapes. No commit occurs here.
-/// Blob-ref half of the cross-modal projection: a `__blob__` reserved property
-/// carrying the digest, merged into the node row.  A node under native WorkItem
-/// authority (or one whose properties cannot be decoded) is refused.
 fn apply_crossmodal_blob_ref_rows(
     wtx: &redb::WriteTransaction,
     graph: &str,
@@ -11243,6 +11231,13 @@ fn apply_crossmodal_measurement_rows(
     Ok(())
 }
 
+/// Apply only the non-topology projections of a cross-modal batch inside an
+/// already-open redb write transaction. The universal MutationBatch kernel calls
+/// this after graph rows and before status/outbox; the low-level cross-modal
+/// primitive uses the same row shapes. No commit occurs here.
+/// Blob-ref half of the cross-modal projection: a `__blob__` reserved property
+/// carrying the digest, merged into the node row.  A node under native WorkItem
+/// authority (or one whose properties cannot be decoded) is refused.
 fn apply_crossmodal_projection_rows(
     wtx: &redb::WriteTransaction,
     graph: &str,
@@ -12033,13 +12028,6 @@ fn remove_durable_node_rows(
     Ok(())
 }
 
-/// Translate ONE applied method into redb row writes inside an open transaction.
-/// Mirrors `crate::mutation_apply::apply`'s method set: the durable DATA mutations only.
-// crate-internal only (no external callers): each parameter is a distinct
-// borrowed redb table handle the write touches, plus the method/graph being
-// applied -- bundling the table handles into a struct would just move the
-// same borrows behind one more layer of indirection.
-#[allow(clippy::too_many_arguments)]
 /// `Method::CompareAndSetNodeFields` row effect.  Evaluates and merges the CAS
 /// against the durable pre-image inside the held transaction; persisting
 /// `updates_msgpack` by itself discarded every untouched property and could
@@ -12111,6 +12099,13 @@ fn apply_add_edge_row(
     Ok(())
 }
 
+/// Translate ONE applied method into redb row writes inside an open transaction.
+/// Mirrors `crate::mutation_apply::apply`'s method set: the durable DATA mutations only.
+// crate-internal only (no external callers): each parameter is a distinct
+// borrowed redb table handle the write touches, plus the method/graph being
+// applied -- bundling the table handles into a struct would just move the
+// same borrows behind one more layer of indirection.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_method_rows(
     graph: &str,
     method: &Method,
@@ -12876,9 +12871,6 @@ pub fn exact_performance_probe_edge_ordinal(
         .map_err(|_| "edge-ordinal probe worker panicked".to_string())?
 }
 
-/// Apply a decoded `BatchUpdate` op-list as row writes.
-/// `BatchOperation::AddNode`.  An upsert merges over the durable pre-image
-/// first; a plain add replaces the row outright.
 fn apply_batch_add_node_row(
     graph: &str,
     index: usize,
@@ -12978,6 +12970,9 @@ fn apply_batch_add_embedding_row(
     Ok(())
 }
 
+/// Apply a decoded `BatchUpdate` op-list as row writes.
+/// `BatchOperation::AddNode`.  An upsert merges over the durable pre-image
+/// first; a plain add replaces the row outright.
 fn apply_batch_rows(
     graph: &str,
     operations_msgpack: &[u8],
@@ -13225,12 +13220,6 @@ fn check_resource_tenant_index_consistency(
     Ok(())
 }
 
-/// Clear every `(graph, key)` row of a two-part-key table for `graph`, in
-/// bounded `MAX_RESOURCE_CLEAR_SCAN`-sized passes so the caller's open
-/// `WriteTransaction` never has to allocate an unbounded key list.
-/// One bounded scan pass of `clear_resource_two_part_table`: collects at most
-/// `MAX_RESOURCE_CLEAR_SCAN` second-key parts for `graph`, starting after
-/// `cursor`.  Mirrors `collect_resource_attempts_clear_keys`.
 fn collect_resource_two_part_clear_keys<V: redb::Value + 'static>(
     table: &redb::Table<(&str, &str), V>,
     graph: &str,
@@ -13258,6 +13247,12 @@ fn collect_resource_two_part_clear_keys<V: redb::Value + 'static>(
     Ok(keys)
 }
 
+/// Clear every `(graph, key)` row of a two-part-key table for `graph`, in
+/// bounded `MAX_RESOURCE_CLEAR_SCAN`-sized passes so the caller's open
+/// `WriteTransaction` never has to allocate an unbounded key list.
+/// One bounded scan pass of `clear_resource_two_part_table`: collects at most
+/// `MAX_RESOURCE_CLEAR_SCAN` second-key parts for `graph`, starting after
+/// `cursor`.  Mirrors `collect_resource_attempts_clear_keys`.
 fn clear_resource_two_part_table<V: redb::Value + 'static>(
     table: &mut redb::Table<(&str, &str), V>,
     graph: &str,
@@ -13595,40 +13590,6 @@ pub(crate) fn clear_change_material_rows(
     Ok(())
 }
 
-/// Remove every mutation-authority row `graph`'s PRIOR incarnation owns —
-/// its `MUTATION_IDEMPOTENCY` replay keys, `MUTATION_BATCHES`/`MUTATION_OUTBOX`/
-/// `MUTATION_OUTBOX_DELIVERY` records, `MUTATION_PROJECTION_CURSOR` watermarks,
-/// and the single-row `MUTATION_GRAPH_VERSION`/`MUTATION_FENCE`/
-/// `MUTATION_LIFECYCLE_HEAD` entries (D-P0-U04, CONCEPT:EG-KG.storage.kg-kg).
-///
-/// `Method::DeleteGraph` previously cleared graph/change-material/resource/lane
-/// rows (`clear_graph_rows`/`clear_change_material_rows`/`clear_resource_rows`)
-/// but INTENTIONALLY left this mutation-authority material behind — the same
-/// history a genuinely distinct online-reshard move already purges via
-/// `server::persistence::online_reshard::purge_moved_mutation_rows`, which now
-/// calls this exact function instead of carrying its own private copy. Left in
-/// place, a same-name recreate after key loss/rotation could collide with or
-/// attempt to decrypt a PRIOR incarnation's idempotency key, outbox delivery
-/// row, projection cursor, or fence — corrupting exactly-once mutation replay
-/// for the NEW incarnation. The caller (the `Method::DeleteGraph` commit path in
-/// `commit_ops`) invokes this BEFORE it writes the delete operation's own fresh
-/// `MUTATION_BATCHES`/`MUTATION_IDEMPOTENCY`/... tombstone record, so the old
-/// incarnation's authority is atomically gone in the SAME transaction that
-/// records the deletion — never a separate, interruptible pass.
-///
-/// `MUTATION_IDEMPOTENCY` is keyed `(tenant, graph, idempotency_key) -> batch_id`
-/// — `graph` is not the leading key component, so every prior incarnation's
-/// batch_id is discovered by a full-table scan filtered on the graph component
-/// (there is no cheaper index; DeleteGraph is a rare, deliberate operation).
-/// `MUTATION_OUTBOX`/`MUTATION_OUTBOX_DELIVERY` ARE keyed by `batch_id` first,
-/// so once the batch_ids are known their rows are removed by a plain
-/// `(batch_id, ..)` range scan. Iterator/storage errors are propagated rather
-/// than silently skipped: a partially observed authority set must abort the
-/// enclosing transaction instead of allowing a recreate to inherit unknown
-/// state.
-/// Every `MUTATION_IDEMPOTENCY` batch_id recorded for `graph`.  The table is
-/// keyed `(tenant, graph, idempotency_key)`, so `graph` is not the leading
-/// component and the scan is necessarily full-table.
 fn collect_mutation_idempotency_batch_ids(
     wtx: &redb::WriteTransaction,
     graph: &str,
@@ -13770,6 +13731,40 @@ fn clear_mutation_graph_scalar_rows(
     Ok(())
 }
 
+/// Remove every mutation-authority row `graph`'s PRIOR incarnation owns —
+/// its `MUTATION_IDEMPOTENCY` replay keys, `MUTATION_BATCHES`/`MUTATION_OUTBOX`/
+/// `MUTATION_OUTBOX_DELIVERY` records, `MUTATION_PROJECTION_CURSOR` watermarks,
+/// and the single-row `MUTATION_GRAPH_VERSION`/`MUTATION_FENCE`/
+/// `MUTATION_LIFECYCLE_HEAD` entries (D-P0-U04, CONCEPT:EG-KG.storage.kg-kg).
+///
+/// `Method::DeleteGraph` previously cleared graph/change-material/resource/lane
+/// rows (`clear_graph_rows`/`clear_change_material_rows`/`clear_resource_rows`)
+/// but INTENTIONALLY left this mutation-authority material behind — the same
+/// history a genuinely distinct online-reshard move already purges via
+/// `server::persistence::online_reshard::purge_moved_mutation_rows`, which now
+/// calls this exact function instead of carrying its own private copy. Left in
+/// place, a same-name recreate after key loss/rotation could collide with or
+/// attempt to decrypt a PRIOR incarnation's idempotency key, outbox delivery
+/// row, projection cursor, or fence — corrupting exactly-once mutation replay
+/// for the NEW incarnation. The caller (the `Method::DeleteGraph` commit path in
+/// `commit_ops`) invokes this BEFORE it writes the delete operation's own fresh
+/// `MUTATION_BATCHES`/`MUTATION_IDEMPOTENCY`/... tombstone record, so the old
+/// incarnation's authority is atomically gone in the SAME transaction that
+/// records the deletion — never a separate, interruptible pass.
+///
+/// `MUTATION_IDEMPOTENCY` is keyed `(tenant, graph, idempotency_key) -> batch_id`
+/// — `graph` is not the leading key component, so every prior incarnation's
+/// batch_id is discovered by a full-table scan filtered on the graph component
+/// (there is no cheaper index; DeleteGraph is a rare, deliberate operation).
+/// `MUTATION_OUTBOX`/`MUTATION_OUTBOX_DELIVERY` ARE keyed by `batch_id` first,
+/// so once the batch_ids are known their rows are removed by a plain
+/// `(batch_id, ..)` range scan. Iterator/storage errors are propagated rather
+/// than silently skipped: a partially observed authority set must abort the
+/// enclosing transaction instead of allowing a recreate to inherit unknown
+/// state.
+/// Every `MUTATION_IDEMPOTENCY` batch_id recorded for `graph`.  The table is
+/// keyed `(tenant, graph, idempotency_key)`, so `graph` is not the leading
+/// component and the scan is necessarily full-table.
 pub(crate) fn clear_mutation_authority_rows(
     wtx: &redb::WriteTransaction,
     graph: &str,
@@ -14172,19 +14167,6 @@ pub(crate) fn scan_matview_operator_state(db: &Database) -> Result<Vec<(String, 
     Ok(out)
 }
 
-/// Validate the WorkItem side of every active native reservation before replacing
-/// a graph image from a checkpoint.  Resource rows are deliberately preserved by
-/// ordinary GraphDump restore, so accepting a dump which omits a linked WorkItem
-/// would leave a held claim with no authoritative lifecycle/fence row to release.
-/// Keep this check inside the caller's write transaction: any missing, malformed,
-/// stale, or policy-mismatched WorkItem aborts the whole checkpoint before graph
-/// rows are cleared.  The checkpoint has no caller-supplied clock; the retained
-/// reservation timestamp is the lower-bound liveness instant, while subsequent
-/// linearizable resource reads/reconciliation re-check current lease expiry.
-/// Therefore an expiry after `reserved_at_ms` is intentionally accepted here,
-/// even if it is already past by wall-clock time; later expiry/reclaim belongs
-/// only to an explicit authoritative transaction carrying `now_ms`.
-#[allow(clippy::too_many_arguments)]
 const CHECKPOINT_RESOURCE_REFUSAL: &str = "checkpoint resource domain validation failed";
 
 /// Every checkpoint resource-link failure reports the same opaque refusal, so
@@ -14302,6 +14284,18 @@ fn validate_checkpoint_active_reservation(
     Ok(())
 }
 
+/// Validate the WorkItem side of every active native reservation before replacing
+/// a graph image from a checkpoint.  Resource rows are deliberately preserved by
+/// ordinary GraphDump restore, so accepting a dump which omits a linked WorkItem
+/// would leave a held claim with no authoritative lifecycle/fence row to release.
+/// Keep this check inside the caller's write transaction: any missing, malformed,
+/// stale, or policy-mismatched WorkItem aborts the whole checkpoint before graph
+/// rows are cleared.  The checkpoint has no caller-supplied clock; the retained
+/// reservation timestamp is the lower-bound liveness instant, while subsequent
+/// linearizable resource reads/reconciliation re-check current lease expiry.
+/// Therefore an expiry after `reserved_at_ms` is intentionally accepted here,
+/// even if it is already past by wall-clock time; later expiry/reclaim belongs
+/// only to an explicit authoritative transaction carrying `now_ms`.
 fn validate_checkpoint_resource_links(
     graph: &str,
     incoming_nodes: &[(String, Vec<u8>)],
