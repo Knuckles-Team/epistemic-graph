@@ -457,96 +457,37 @@ pub struct DeleteNodes {
 /// batch, multiple statements (the shim handles one per call), a parse error, or
 /// a write whose shape this increment cannot route (e.g. a write into a table
 /// other than `nodes`, a complex WHERE, or a join/subquery in DML).
+///
+/// CX complexity cap exception (documented floor, CX cyclomatic<=10/cognitive<=15
+/// north star): cyclomatic 16, cognitive 2. Every substantive arm already
+/// delegates to its own function (`classify_query_stmt`, `classify_any_insert`,
+/// `classify_update_stmt`, `classify_any_delete`, `classify_create_table`,
+/// `classify_create_extension`, `classify_drop`, `classify_alter_table`,
+/// `classify_create_view`, `classify_copy_stmt`) — this is a flat exhaustive
+/// dispatch over `Statement`'s DML/DDL/transaction/COPY variants, one arm per
+/// variant, so cccc counts each arm toward cyclomatic while cognitive stays flat
+/// (no nesting). Collapsing arms into a `_ =>` wildcard, or re-nesting them into
+/// fewer, deeper branches, would either widen what silently falls through to
+/// "unsupported statement" or trade this flat, easy-to-audit shape for a worse
+/// one purely to move a number — see the brief's "never re-nest a flat
+/// dispatcher" rule and BUG-CX-069/090.
 pub fn classify(sql: &str) -> Result<StatementKind, String> {
-    // CONCEPT:EG-KG.query.create-drop-extension-over — `DROP EXTENSION` has no `sqlparser` AST node (no
-    // `ObjectType::Extension`), so recognize it textually BEFORE the parser (mirrors
-    // the `COPY … FROM STDIN` pre-check) and route it to the extension catalog.
-    if let Some((name, if_exists)) = parse_drop_extension(sql) {
-        return Ok(StatementKind::DropExtension { name, if_exists });
+    if let Some(result) = classify_textual_precheck(sql) {
+        return result;
     }
-    // CONCEPT:EG-KG.query.create-drop-function — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql` and `DROP FUNCTION`.
-    // The dollar-quoted `$$ … $$` body + the typed argument/`RETURNS TABLE(...)` lists do
-    // not round-trip through `sqlparser` 0.51's `CreateFunction` AST cleanly, so — exactly
-    // like AGE `cypher()` / `DROP EXTENSION` — the shape is recognized TEXTUALLY before the
-    // parser. A malformed `CREATE FUNCTION` returns a precise `Err` (never silently mis-
-    // routed to the parser, which would emit a confusing message).
-    if is_create_function(sql) {
-        return parse_create_function(sql).map(StatementKind::CreateFunction);
-    }
-    if is_drop_function(sql) {
-        return parse_drop_function(sql).map(StatementKind::DropFunction);
-    }
-    // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE `cypher('g', $$ … $$) AS (cols…)`. `sqlparser` 0.51
-    // cannot parse the typed `AS` column list on a table function, so recognize it
-    // textually before the parser (like `DROP EXTENSION`) and route to the Cypher engine.
-    if let Some(plan) = super::pgfamily::parse_cypher_call(sql) {
-        return Ok(StatementKind::CypherCall(plan));
-    }
-    // CONCEPT:EG-KG.query.real-ann-top-k — pgvector `CREATE INDEX … USING hnsw|ivfflat (col opclass)`. The
-    // opclass (and `IF NOT EXISTS` on an index) does not parse in `sqlparser` 0.51, so
-    // recognize the ANN-index shape textually. A non-ANN `CREATE INDEX` returns `None`.
-    if let Some(plan) = super::pgfamily::parse_create_ann_index(sql) {
-        return Ok(StatementKind::CreateAnnIndex(plan));
-    }
-    // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB continuous aggregate. The dotted
-    // `WITH (timescaledb.continuous)` option does not parse, so recognize it textually;
-    // a plain `CREATE MATERIALIZED VIEW` returns `None` and the parser rejects it (a
-    // documented follow-up in `classify_create_view`).
-    if let Some(plan) = super::pgfamily::parse_continuous_aggregate(sql) {
-        return Ok(StatementKind::CreateContinuousAggregate(plan));
-    }
-    // `COPY … FROM STDIN` is sent over the wire WITHOUT the inline TSV data block that
-    // `sqlparser` insists follows the `;` — so append a `;` to satisfy its grammar
-    // (it then parses an EMPTY data block). The real rows arrive as `CopyData` frames.
-    let owned;
-    let to_parse: &str = if is_copy_from_stdin(sql) {
-        owned = format!("{};", sql.trim_end().trim_end_matches(';'));
-        &owned
-    } else {
-        sql
-    };
-    let stmts = Parser::parse_sql(&PostgreSqlDialect {}, to_parse)
-        .map_err(|e| format!("parse error: {e}"))?;
-    let stmt = match stmts.as_slice() {
-        [s] => s,
-        [] => return Err("empty statement".to_string()),
-        _ => return Err("multiple statements per query are not supported".to_string()),
-    };
+    let stmts = parse_classify_stmts(sql)?;
+    let stmt = single_classify_stmt(&stmts)?;
 
     match stmt {
         // CONCEPT:EG-KG.query.continuous-aggregate-lowering — `SELECT create_hypertable('t','ts')` parses as an ordinary
         // query; detect it before falling through to the read path.
-        Statement::Query(_) => {
-            if let Some(plan) = super::pgfamily::detect_create_hypertable(stmt) {
-                return Ok(StatementKind::CreateHypertable(plan));
-            }
-            Ok(StatementKind::Read)
-        }
+        Statement::Query(_) => classify_query_stmt(stmt),
         Statement::Explain { .. }
         | Statement::ShowVariable { .. }
         | Statement::ShowColumns { .. }
         | Statement::ShowTables { .. } => Ok(StatementKind::Read),
         Statement::Insert(insert) => classify_any_insert(insert),
-        Statement::Update(update) => {
-            let from = match update.from.as_ref() {
-                None => None,
-                Some(UpdateTableFromKind::BeforeSet(tables))
-                | Some(UpdateTableFromKind::AfterSet(tables)) => match tables.as_slice() {
-                    [] => None,
-                    [table] => Some(table),
-                    _ => {
-                        return Err("UPDATE ... FROM supports exactly one source table".to_string())
-                    }
-                },
-            };
-            classify_any_update(
-                &update.table,
-                &update.assignments,
-                from,
-                update.selection.as_ref(),
-                &update.returning,
-            )
-        }
+        Statement::Update(update) => classify_update_stmt(update),
         Statement::Delete(delete) => classify_any_delete(delete),
         // ── DDL (CONCEPT:EG-KG.query.register-user-tables-alongside) ──────────────────────────────────────────────
         Statement::CreateTable(ct) => classify_create_table(ct).map(StatementKind::CreateTable),
@@ -578,16 +519,132 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
             options,
             legacy_options,
             ..
-        } => {
-            if !legacy_options.is_empty() {
-                return Err(
-                    "COPY positional options are not supported; use WITH (...) options".to_string(),
-                );
-            }
-            classify_copy(source, *to, target, options)
-        }
+        } => classify_copy_stmt(source, *to, target, options, legacy_options),
         other => Err(format!("unsupported statement: {other}")),
     }
+}
+
+/// [`classify`]'s parse step: `COPY … FROM STDIN` is sent over the wire WITHOUT
+/// the inline TSV data block that `sqlparser` insists follows the `;` — so
+/// append a `;` to satisfy its grammar (it then parses an EMPTY data block); the
+/// real rows arrive as `CopyData` frames. Every other statement parses as-is.
+fn parse_classify_stmts(sql: &str) -> Result<Vec<Statement>, String> {
+    let owned;
+    let to_parse: &str = if is_copy_from_stdin(sql) {
+        owned = format!("{};", sql.trim_end().trim_end_matches(';'));
+        &owned
+    } else {
+        sql
+    };
+    Parser::parse_sql(&PostgreSqlDialect {}, to_parse).map_err(|e| format!("parse error: {e}"))
+}
+
+/// [`classify`]'s single-statement guard: the shim handles one statement per
+/// call, so an empty or multi-statement batch is an explicit error.
+fn single_classify_stmt(stmts: &[Statement]) -> Result<&Statement, String> {
+    match stmts {
+        [s] => Ok(s),
+        [] => Err("empty statement".to_string()),
+        _ => Err("multiple statements per query are not supported".to_string()),
+    }
+}
+
+/// [`classify`]'s `Statement::Query` arm (CONCEPT:EG-KG.query.continuous-aggregate-lowering): `SELECT
+/// create_hypertable('t','ts')` parses as an ordinary query; detect it before
+/// falling through to the read path.
+fn classify_query_stmt(stmt: &Statement) -> Result<StatementKind, String> {
+    if let Some(plan) = super::pgfamily::detect_create_hypertable(stmt) {
+        return Ok(StatementKind::CreateHypertable(plan));
+    }
+    Ok(StatementKind::Read)
+}
+
+/// [`classify`]'s `Statement::Copy` arm: positional (legacy) COPY options are
+/// rejected (use `WITH (...)`), else decode via [`classify_copy`].
+fn classify_copy_stmt(
+    source: &CopySource,
+    to: bool,
+    target: &CopyTarget,
+    options: &[CopyOption],
+    legacy_options: &[datafusion::sql::sqlparser::ast::CopyLegacyOption],
+) -> Result<StatementKind, String> {
+    if !legacy_options.is_empty() {
+        return Err(
+            "COPY positional options are not supported; use WITH (...) options".to_string(),
+        );
+    }
+    classify_copy(source, to, target, options)
+}
+
+/// [`classify`]'s textual pre-parse checks: shapes `sqlparser` cannot parse
+/// cleanly (a dollar-quoted `CREATE FUNCTION` body, `DROP EXTENSION` with no AST
+/// node, AGE `cypher()`, a pgvector ANN index opclass, a TimescaleDB continuous
+/// aggregate) are recognized textually BEFORE the parser runs — same posture as
+/// the `COPY … FROM STDIN` pre-check just below. Returns `Some(result)` when one
+/// of those textual shapes matched (successfully or as a precise `Err`, never
+/// silently mis-routed to the parser); `None` to fall through to the ordinary
+/// parse path.
+fn classify_textual_precheck(sql: &str) -> Option<Result<StatementKind, String>> {
+    // CONCEPT:EG-KG.query.create-drop-extension-over — `DROP EXTENSION` has no `sqlparser` AST node (no
+    // `ObjectType::Extension`), so recognize it textually and route it to the extension
+    // catalog.
+    if let Some((name, if_exists)) = parse_drop_extension(sql) {
+        return Some(Ok(StatementKind::DropExtension { name, if_exists }));
+    }
+    // CONCEPT:EG-KG.query.create-drop-function — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql` and `DROP FUNCTION`.
+    // The dollar-quoted `$$ … $$` body + the typed argument/`RETURNS TABLE(...)` lists do
+    // not round-trip through `sqlparser` 0.51's `CreateFunction` AST cleanly, so — exactly
+    // like AGE `cypher()` / `DROP EXTENSION` — the shape is recognized TEXTUALLY before the
+    // parser.
+    if is_create_function(sql) {
+        return Some(parse_create_function(sql).map(StatementKind::CreateFunction));
+    }
+    if is_drop_function(sql) {
+        return Some(parse_drop_function(sql).map(StatementKind::DropFunction));
+    }
+    // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE `cypher('g', $$ … $$) AS (cols…)`. `sqlparser` 0.51
+    // cannot parse the typed `AS` column list on a table function, so recognize it
+    // textually (like `DROP EXTENSION`) and route to the Cypher engine.
+    if let Some(plan) = super::pgfamily::parse_cypher_call(sql) {
+        return Some(Ok(StatementKind::CypherCall(plan)));
+    }
+    // CONCEPT:EG-KG.query.real-ann-top-k — pgvector `CREATE INDEX … USING hnsw|ivfflat (col opclass)`. The
+    // opclass (and `IF NOT EXISTS` on an index) does not parse in `sqlparser` 0.51, so
+    // recognize the ANN-index shape textually. A non-ANN `CREATE INDEX` returns `None`.
+    if let Some(plan) = super::pgfamily::parse_create_ann_index(sql) {
+        return Some(Ok(StatementKind::CreateAnnIndex(plan)));
+    }
+    // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB continuous aggregate. The dotted
+    // `WITH (timescaledb.continuous)` option does not parse, so recognize it textually;
+    // a plain `CREATE MATERIALIZED VIEW` returns `None` and the parser rejects it (a
+    // documented follow-up in `classify_create_view`).
+    if let Some(plan) = super::pgfamily::parse_continuous_aggregate(sql) {
+        return Some(Ok(StatementKind::CreateContinuousAggregate(plan)));
+    }
+    None
+}
+
+/// [`classify`]'s `Statement::Update` arm: resolve the (at most one) `FROM`
+/// source table, then decode into a [`StatementKind`] the same way any UPDATE is.
+fn classify_update_stmt(
+    update: &datafusion::sql::sqlparser::ast::Update,
+) -> Result<StatementKind, String> {
+    let from = match update.from.as_ref() {
+        None => None,
+        Some(UpdateTableFromKind::BeforeSet(tables))
+        | Some(UpdateTableFromKind::AfterSet(tables)) => match tables.as_slice() {
+            [] => None,
+            [table] => Some(table),
+            _ => return Err("UPDATE ... FROM supports exactly one source table".to_string()),
+        },
+    };
+    classify_any_update(
+        &update.table,
+        &update.assignments,
+        from,
+        update.selection.as_ref(),
+        &update.returning,
+    )
 }
 
 /// A lightweight check that `sql` is a `COPY … FROM STDIN` (so `classify` can append
@@ -614,7 +671,22 @@ fn classify_copy(
     if !matches!(target, CopyTarget::Stdin) {
         return Err("COPY supports only FROM STDIN (no file/program source)".to_string());
     }
-    let (table, columns) = match source {
+    let (table, columns) = resolve_copy_source(source)?;
+    let (format, delimiter, header) = parse_copy_options(options)?;
+    Ok(StatementKind::CopyIn(CopyPlan {
+        table,
+        columns,
+        format,
+        delimiter,
+        header,
+    }))
+}
+
+/// [`classify_copy`]'s source resolution: only a plain table target is accepted
+/// (never the reserved graph table, never a `COPY (query)`), returning its leaf
+/// name and explicit column list.
+fn resolve_copy_source(source: &CopySource) -> Result<(String, Vec<String>), String> {
+    match source {
         CopySource::Table {
             table_name,
             columns,
@@ -625,15 +697,17 @@ fn classify_copy(
                     "COPY cannot target the reserved graph table `{leaf}`"
                 ));
             }
-            (leaf, columns.iter().map(|c| c.value.clone()).collect())
+            Ok((leaf, columns.iter().map(|c| c.value.clone()).collect()))
         }
         CopySource::Query(_) => {
-            return Err("COPY (query) FROM is not valid; use COPY <table> FROM STDIN".to_string())
+            Err("COPY (query) FROM is not valid; use COPY <table> FROM STDIN".to_string())
         }
-    };
+    }
+}
 
-    // Resolve format, delimiter, and header solely from the current `WITH (...)`
-    // option grammar.
+/// [`classify_copy`]'s `WITH (...)` option resolution: format, delimiter, and
+/// header, solely from the current option grammar.
+fn parse_copy_options(options: &[CopyOption]) -> Result<(CopyFormat, Option<char>, bool), String> {
     let mut format = CopyFormat::Text;
     let mut delimiter = None;
     let mut header = false;
@@ -652,13 +726,7 @@ fn classify_copy(
             _ => {}
         }
     }
-    Ok(StatementKind::CopyIn(CopyPlan {
-        table,
-        columns,
-        format,
-        delimiter,
-        header,
-    }))
+    Ok((format, delimiter, header))
 }
 
 /// Where a `$N` parameter placeholder appears, for type inference in the extended
@@ -686,6 +754,57 @@ pub enum ParamLiteralType {
     Text,
 }
 
+/// [`infer_param_sites`]'s `Statement::Update` arm: each `SET col = $n` assignment
+/// types `$n` from `col`; the WHERE clause is walked the same way any SELECT's is.
+fn record_update_param_sites(
+    update: &datafusion::sql::sqlparser::ast::Update,
+    sites: &mut std::collections::HashMap<usize, ParamSite>,
+) {
+    for a in &update.assignments {
+        if let AssignmentTarget::ColumnName(name) = &a.target {
+            record_value_site(&last_ident(name), &a.value, sites);
+        }
+    }
+    if let Some(sel) = &update.selection {
+        collect_expr_param_sites(sel, sites);
+    }
+}
+
+/// [`infer_param_sites`]'s `Statement::Insert` arm: only a literal-`VALUES` insert
+/// carries statically-known param sites — each `$n` at row/column position types
+/// from the matching column name.
+fn record_insert_param_sites(
+    insert: &Insert,
+    sites: &mut std::collections::HashMap<usize, ParamSite>,
+) {
+    let columns: Vec<String> = insert.columns.iter().map(last_ident).collect();
+    let Some(src) = &insert.source else {
+        return;
+    };
+    let SetExpr::Values(Values { rows, .. }) = src.body.as_ref() else {
+        return;
+    };
+    for row in rows {
+        for (col, expr) in columns.iter().zip(row.iter()) {
+            record_value_site(col, expr, sites);
+        }
+    }
+}
+
+/// Densify [`infer_param_sites`]'s sparse `{index: site}` map into a 1-based,
+/// `$N`-indexed vector: any gap defaults to `Literal(Text)` (no resolvable
+/// context found for that placeholder).
+fn dense_param_sites(sites: std::collections::HashMap<usize, ParamSite>) -> Vec<ParamSite> {
+    let max_n = sites.keys().copied().max().unwrap_or(0);
+    let mut out = vec![ParamSite::Literal(ParamLiteralType::Text); max_n];
+    for (idx, site) in sites {
+        if idx >= 1 && idx <= max_n {
+            out[idx - 1] = site;
+        }
+    }
+    out
+}
+
 /// Infer, for each `$N` placeholder (index `N-1` in the returned vector), WHERE it
 /// is used so the extended-protocol Describe step can report a usable parameter
 /// type (CONCEPT:EG-KG.query.describe). Pure: parses the SQL and walks the relevant clauses
@@ -709,43 +828,16 @@ pub fn infer_param_sites(sql: &str) -> Result<Vec<ParamSite>, String> {
     let mut sites: std::collections::HashMap<usize, ParamSite> = std::collections::HashMap::new();
     match stmt {
         Statement::Query(q) => collect_query_param_sites(q, &mut sites),
-        Statement::Update(update) => {
-            for a in &update.assignments {
-                if let AssignmentTarget::ColumnName(name) = &a.target {
-                    record_value_site(&last_ident(name), &a.value, &mut sites);
-                }
-            }
-            if let Some(sel) = &update.selection {
-                collect_expr_param_sites(sel, &mut sites);
-            }
-        }
+        Statement::Update(update) => record_update_param_sites(update, &mut sites),
         Statement::Delete(delete) => {
             if let Some(sel) = &delete.selection {
                 collect_expr_param_sites(sel, &mut sites);
             }
         }
-        Statement::Insert(insert) => {
-            let columns: Vec<String> = insert.columns.iter().map(last_ident).collect();
-            if let Some(src) = &insert.source {
-                if let SetExpr::Values(Values { rows, .. }) = src.body.as_ref() {
-                    for row in rows {
-                        for (col, expr) in columns.iter().zip(row.iter()) {
-                            record_value_site(col, expr, &mut sites);
-                        }
-                    }
-                }
-            }
-        }
+        Statement::Insert(insert) => record_insert_param_sites(insert, &mut sites),
         _ => {}
     }
-    let max_n = sites.keys().copied().max().unwrap_or(0);
-    let mut out = vec![ParamSite::Literal(ParamLiteralType::Text); max_n];
-    for (idx, site) in sites {
-        if idx >= 1 && idx <= max_n {
-            out[idx - 1] = site;
-        }
-    }
-    Ok(out)
+    Ok(dense_param_sites(sites))
 }
 
 /// Record the site of a `$N` whose VALUE is `expr` set/inserted into `column`.
@@ -995,102 +1087,127 @@ fn rewrite_setexpr_vector_ops(body: &mut SetExpr, changed: &mut bool) {
     }
 }
 
+/// [`rewrite_expr_vector_ops`]'s `EXTRACT(field FROM src)` → `date_part('field',
+/// src)` step (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange). DataFusion 54 here has no ExprPlanner
+/// that lowers the `EXTRACT` AST node (it errors "Extract not supported by
+/// ExprPlanner"), but the equivalent `date_part` scalar function IS registered,
+/// so rewrite to it. Recurses into `src` first so a nested vector op inside the
+/// extracted expression still desugars. Returns `true` iff `expr` was an
+/// `Extract` node (handled here, whether or not the reparse succeeded) — the
+/// caller then skips its own top-level match.
+fn try_rewrite_extract(expr: &mut Expr, changed: &mut bool) -> bool {
+    let Expr::Extract {
+        field, expr: src, ..
+    } = expr
+    else {
+        return false;
+    };
+    rewrite_expr_vector_ops(src, changed);
+    let text = format!("date_part('{}', {})", field.to_string().to_lowercase(), src);
+    if let Some(parsed) = reparse_expr(&text) {
+        *expr = parsed;
+        *changed = true;
+    }
+    true
+}
+
+/// [`rewrite_expr_vector_ops`]'s `Expr::BinaryOp` arm: recurse into both operands
+/// first (so a nested `a <-> (b <=> c)` fully desugars), then check ParadeDB
+/// `col @@@ 'query'` BM25 search (CONCEPT:EG-KG.query.paradedb-bm25 — `@@@` tokenizes as `AtAt` with a
+/// `@`(PGAbs)-wrapped right operand; rewrite to `bm25_match(col, 'query')` so
+/// DataFusion can plan a lexical filter, the eg-text BM25 pushdown + ranking
+/// being the server-side lowering) and the pgvector distance operators
+/// (`<->`/`<#>`/`<=>`). Returns the replacement UDF call expression when the
+/// operator rewrites (having already set `*changed`), else `None` — the
+/// operands are rewritten in place either way.
+fn rewrite_binary_op_vector_ops(
+    left: &mut Expr,
+    op: &BinaryOperator,
+    right: &mut Expr,
+    changed: &mut bool,
+) -> Option<Expr> {
+    rewrite_expr_vector_ops(left, changed);
+    rewrite_expr_vector_ops(right, changed);
+    if matches!(op, BinaryOperator::AtAt) {
+        if let Expr::UnaryOp {
+            op: UnaryOperator::PGAbs,
+            expr: inner,
+        } = right
+        {
+            let rhs = (**inner).clone();
+            if let Some(call) = vector_udf_call("bm25_match", left, &rhs) {
+                *changed = true;
+                return Some(call);
+            }
+        }
+    }
+    let fname = match op {
+        // GOC-40: sqlparser 0.62.0 promoted `<->` to the dedicated
+        // `LtDashGt` operator (`PostgreSqlDialect::
+        // supports_geometric_types`) instead of tokenizing it as
+        // `Custom("<->")` — see the matching fix + comment in
+        // `sql/pgfamily.rs::vector_order_key`, the ANN-pushdown half
+        // of this same desugar/pushdown pair. `<#>` has no dedicated
+        // operator in this sqlparser version yet, so it is unaffected.
+        BinaryOperator::LtDashGt => Some("vector_l2"),
+        BinaryOperator::Custom(s) if s == "<->" => Some("vector_l2"),
+        BinaryOperator::Custom(s) if s == "<#>" => Some("vector_ip"),
+        // `<=>` parses as `Spaceship`; in a pgvector context it is cosine distance.
+        BinaryOperator::Spaceship => Some("vector_cosine"),
+        _ => None,
+    };
+    let call = vector_udf_call(fname?, left, right)?;
+    *changed = true;
+    Some(call)
+}
+
+/// [`rewrite_expr_vector_ops`]'s `Expr::Function` arm (CONCEPT:EG-KG.query.paradedb-bm25): rename
+/// `paradedb.score(x)`/`paradedb.snippet(x)` to the registered
+/// `bm25_score`/`bm25_snippet` UDFs, then recurse into every argument
+/// expression.
+fn rewrite_function_vector_ops(f: &mut Function, changed: &mut bool) {
+    let parts: Vec<_> = f.name.0.iter().filter_map(|part| part.as_ident()).collect();
+    if parts.len() == 2 && parts[0].value.eq_ignore_ascii_case("paradedb") {
+        let renamed = match parts[1].value.to_ascii_lowercase().as_str() {
+            "score" => Some("bm25_score"),
+            "snippet" => Some("bm25_snippet"),
+            _ => None,
+        };
+        if let Some(new_name) = renamed {
+            f.name = ObjectName::from(datafusion::sql::sqlparser::ast::Ident::new(new_name));
+            *changed = true;
+        }
+    }
+    if let FunctionArguments::List(list) = &mut f.args {
+        for arg in &mut list.args {
+            if let FunctionArg::Unnamed(FunctionArgExpr::Expr(e))
+            | FunctionArg::Named {
+                arg: FunctionArgExpr::Expr(e),
+                ..
+            } = arg
+            {
+                rewrite_expr_vector_ops(e, changed);
+            }
+        }
+    }
+}
+
 /// Recursively rewrite vector operators in an expression tree. Recurses into operands
 /// FIRST (so a nested `a <-> (b <=> c)` fully desugars), then replaces a top-level
 /// vector-operator `BinaryOp` with the corresponding UDF call. The call node is built
 /// by re-parsing `fname(left, right)` (both operands already serialize to valid SQL),
 /// avoiding a version-fragile hand-construction of `sqlparser`'s `Function` AST.
 fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
-    // CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — `EXTRACT(field FROM src)` → `date_part('field', src)`. DataFusion
-    // 54 here has no ExprPlanner that lowers the `EXTRACT` AST node (it errors "Extract not
-    // supported by ExprPlanner"), but the equivalent `date_part` scalar function IS
-    // registered, so rewrite to it. Recurse into `src` first so a nested vector op inside
-    // the extracted expression still desugars.
-    if let Expr::Extract {
-        field, expr: src, ..
-    } = expr
-    {
-        rewrite_expr_vector_ops(src, changed);
-        let text = format!("date_part('{}', {})", field.to_string().to_lowercase(), src);
-        if let Some(parsed) = reparse_expr(&text) {
-            *expr = parsed;
-            *changed = true;
-        }
+    if try_rewrite_extract(expr, changed) {
         return;
     }
     match expr {
         Expr::BinaryOp { left, op, right } => {
-            rewrite_expr_vector_ops(left, changed);
-            rewrite_expr_vector_ops(right, changed);
-            // CONCEPT:EG-KG.query.paradedb-bm25 — ParadeDB `col @@@ 'query'` BM25 search. `@@@` tokenizes as
-            // `AtAt` with a `@`(PGAbs)-wrapped right operand; rewrite to `bm25_match(col,
-            // 'query')` so DataFusion can plan a lexical filter (the eg-text BM25 pushdown
-            // + ranking is the server-side lowering).
-            if matches!(op, BinaryOperator::AtAt) {
-                if let Expr::UnaryOp {
-                    op: UnaryOperator::PGAbs,
-                    expr: inner,
-                } = right.as_ref()
-                {
-                    let rhs = (**inner).clone();
-                    if let Some(call) = vector_udf_call("bm25_match", left, &rhs) {
-                        *expr = call;
-                        *changed = true;
-                        return;
-                    }
-                }
-            }
-            let fname = match op {
-                // GOC-40: sqlparser 0.62.0 promoted `<->` to the dedicated
-                // `LtDashGt` operator (`PostgreSqlDialect::
-                // supports_geometric_types`) instead of tokenizing it as
-                // `Custom("<->")` — see the matching fix + comment in
-                // `sql/pgfamily.rs::vector_order_key`, the ANN-pushdown half
-                // of this same desugar/pushdown pair. `<#>` has no dedicated
-                // operator in this sqlparser version yet, so it is unaffected.
-                BinaryOperator::LtDashGt => Some("vector_l2"),
-                BinaryOperator::Custom(s) if s == "<->" => Some("vector_l2"),
-                BinaryOperator::Custom(s) if s == "<#>" => Some("vector_ip"),
-                // `<=>` parses as `Spaceship`; in a pgvector context it is cosine distance.
-                BinaryOperator::Spaceship => Some("vector_cosine"),
-                _ => None,
-            };
-            if let Some(fname) = fname {
-                if let Some(call) = vector_udf_call(fname, left, right) {
-                    *expr = call;
-                    *changed = true;
-                }
+            if let Some(call) = rewrite_binary_op_vector_ops(left, op, right, changed) {
+                *expr = call;
             }
         }
-        // CONCEPT:EG-KG.query.paradedb-bm25 — `paradedb.score(x)`/`paradedb.snippet(x)` → the registered
-        // `bm25_score`/`bm25_snippet` UDFs. Rename the function + recurse into its args.
-        Expr::Function(f) => {
-            let parts: Vec<_> = f.name.0.iter().filter_map(|part| part.as_ident()).collect();
-            if parts.len() == 2 && parts[0].value.eq_ignore_ascii_case("paradedb") {
-                let renamed = match parts[1].value.to_ascii_lowercase().as_str() {
-                    "score" => Some("bm25_score"),
-                    "snippet" => Some("bm25_snippet"),
-                    _ => None,
-                };
-                if let Some(new_name) = renamed {
-                    f.name =
-                        ObjectName::from(datafusion::sql::sqlparser::ast::Ident::new(new_name));
-                    *changed = true;
-                }
-            }
-            if let FunctionArguments::List(list) = &mut f.args {
-                for arg in &mut list.args {
-                    if let FunctionArg::Unnamed(FunctionArgExpr::Expr(e))
-                    | FunctionArg::Named {
-                        arg: FunctionArgExpr::Expr(e),
-                        ..
-                    } = arg
-                    {
-                        rewrite_expr_vector_ops(e, changed);
-                    }
-                }
-            }
-        }
+        Expr::Function(f) => rewrite_function_vector_ops(f, changed),
         Expr::Nested(inner) => rewrite_expr_vector_ops(inner, changed),
         Expr::UnaryOp { expr, .. } => rewrite_expr_vector_ops(expr, changed),
         Expr::Cast { expr, .. } => rewrite_expr_vector_ops(expr, changed),
@@ -1175,34 +1292,40 @@ fn decode_on_conflict(on: Option<&OnInsert>) -> Result<Option<OnConflict>, Strin
     };
     let action = match &conflict.action {
         SqlOnConflictAction::DoNothing => OnConflictAction::DoNothing,
-        SqlOnConflictAction::DoUpdate(do_update) => {
-            if do_update.selection.is_some() {
-                return Err(
-                    "ON CONFLICT DO UPDATE … WHERE is not supported (CONCEPT:EG-KG.query.delete-returning-sees-row)".to_string(),
-                );
-            }
-            let mut set = Map::new();
-            for a in &do_update.assignments {
-                let col = match &a.target {
-                    AssignmentTarget::ColumnName(name) => last_ident(name),
-                    AssignmentTarget::Tuple(_) => {
-                        return Err(
-                            "ON CONFLICT DO UPDATE tuple assignment is not supported".to_string()
-                        )
-                    }
-                };
-                if col.eq_ignore_ascii_case("id") {
-                    return Err("ON CONFLICT DO UPDATE cannot reassign the `id` column".to_string());
-                }
-                set.insert(col, expr_to_json(&a.value)?);
-            }
-            OnConflictAction::DoUpdate(set)
-        }
+        SqlOnConflictAction::DoUpdate(do_update) => decode_on_conflict_do_update(do_update)?,
     };
     Ok(Some(OnConflict {
         target_cols,
         action,
     }))
+}
+
+/// [`decode_on_conflict`]'s `DO UPDATE` action: a `WHERE` on the update is
+/// rejected (explicit follow-up), a tuple-target assignment is rejected, and
+/// reassigning `id` is rejected (identity is immutable). Every other assignment
+/// decodes into the upsert's `SET` map.
+fn decode_on_conflict_do_update(
+    do_update: &datafusion::sql::sqlparser::ast::DoUpdate,
+) -> Result<OnConflictAction, String> {
+    if do_update.selection.is_some() {
+        return Err(
+            "ON CONFLICT DO UPDATE … WHERE is not supported (CONCEPT:EG-KG.query.delete-returning-sees-row)".to_string(),
+        );
+    }
+    let mut set = Map::new();
+    for a in &do_update.assignments {
+        let col = match &a.target {
+            AssignmentTarget::ColumnName(name) => last_ident(name),
+            AssignmentTarget::Tuple(_) => {
+                return Err("ON CONFLICT DO UPDATE tuple assignment is not supported".to_string())
+            }
+        };
+        if col.eq_ignore_ascii_case("id") {
+            return Err("ON CONFLICT DO UPDATE cannot reassign the `id` column".to_string());
+        }
+        set.insert(col, expr_to_json(&a.value)?);
+    }
+    Ok(OnConflictAction::DoUpdate(set))
 }
 
 /// Decode one `VALUES (…)` row against the column list into an [`InsertNode`].
@@ -1846,15 +1969,28 @@ fn decode_check_comparison(
     op: BinaryOperator,
     right: &Expr,
 ) -> Result<CheckExpr, String> {
-    let cmp = match op {
-        BinaryOperator::Eq => CmpOp::Eq,
-        BinaryOperator::NotEq => CmpOp::Ne,
-        BinaryOperator::Lt => CmpOp::Lt,
-        BinaryOperator::LtEq => CmpOp::Le,
-        BinaryOperator::Gt => CmpOp::Gt,
-        BinaryOperator::GtEq => CmpOp::Ge,
-        other => return Err(format!("unsupported CHECK comparison operator `{other}`")),
-    };
+    let cmp = cmp_op_from_check_binary(op)?;
+    build_check_cmp(left, cmp, right)
+}
+
+/// Resolve a comparison `BinaryOperator` to a [`CmpOp`] for a general CHECK leaf
+/// (CONCEPT:EG-KG.query.table-schema-constraints/NE-001), rejecting anything else with an explicit error.
+fn cmp_op_from_check_binary(op: BinaryOperator) -> Result<CmpOp, String> {
+    match op {
+        BinaryOperator::Eq => Ok(CmpOp::Eq),
+        BinaryOperator::NotEq => Ok(CmpOp::Ne),
+        BinaryOperator::Lt => Ok(CmpOp::Lt),
+        BinaryOperator::LtEq => Ok(CmpOp::Le),
+        BinaryOperator::Gt => Ok(CmpOp::Gt),
+        BinaryOperator::GtEq => Ok(CmpOp::Ge),
+        other => Err(format!("unsupported CHECK comparison operator `{other}`")),
+    }
+}
+
+/// [`decode_check_comparison`]'s column-side resolution: `col OP col`, `col OP
+/// literal`, or `literal OP col` (flipped via [`flip_cmp`] to `col OP' literal`)
+/// — the comparison must have a column on at least one side.
+fn build_check_cmp(left: &Expr, cmp: CmpOp, right: &Expr) -> Result<CheckExpr, String> {
     let left_col = matches!(left, Expr::Identifier(_) | Expr::CompoundIdentifier(_));
     let right_col = matches!(right, Expr::Identifier(_) | Expr::CompoundIdentifier(_));
     if left_col && right_col {
@@ -1872,17 +2008,9 @@ fn decode_check_comparison(
         });
     }
     if right_col {
-        // `literal OP col` — flip to `col OP' literal`.
-        let flipped = match cmp {
-            CmpOp::Lt => CmpOp::Gt,
-            CmpOp::Le => CmpOp::Ge,
-            CmpOp::Gt => CmpOp::Lt,
-            CmpOp::Ge => CmpOp::Le,
-            same => same,
-        };
         return Ok(CheckExpr::Cmp {
             column: ident_from_expr(right)?,
-            op: flipped,
+            op: flip_cmp(cmp),
             value: expr_to_json(left)?,
         });
     }
@@ -1906,42 +2034,46 @@ fn decode_check(expr: &Expr, col: &str) -> Result<ColCheck, String> {
         Expr::Nested(e) => e.as_ref(),
         other => other,
     };
-    if let Expr::BinaryOp { left, op, right } = inner {
-        let op = match op {
-            BinaryOperator::Eq => CmpOp::Eq,
-            BinaryOperator::NotEq => CmpOp::Ne,
-            BinaryOperator::Lt => CmpOp::Lt,
-            BinaryOperator::LtEq => CmpOp::Le,
-            BinaryOperator::Gt => CmpOp::Gt,
-            BinaryOperator::GtEq => CmpOp::Ge,
-            other => {
-                return Err(format!(
-                    "CHECK on `{col}` supports only a simple comparison, got operator `{other}`"
-                ))
-            }
-        };
-        // Accept `col OP literal` or `literal OP col`.
-        let (value, flip) = if matches!(
-            left.as_ref(),
-            Expr::Identifier(_) | Expr::CompoundIdentifier(_)
-        ) {
-            (expr_to_json(right)?, false)
-        } else if matches!(
-            right.as_ref(),
-            Expr::Identifier(_) | Expr::CompoundIdentifier(_)
-        ) {
-            (expr_to_json(left)?, true)
-        } else {
-            return Err(format!(
-                "CHECK on `{col}` must compare the column to a literal"
-            ));
-        };
-        let op = if flip { flip_cmp(op) } else { op };
-        return Ok(ColCheck { op, value });
+    let Expr::BinaryOp { left, op, right } = inner else {
+        return Err(format!(
+            "CHECK on `{col}` supports only a simple `{col} OP literal` predicate"
+        ));
+    };
+    let op = cmp_op_from_simple_check(op, col)?;
+    let (value, flip) = simple_check_value(left, right, col)?;
+    let op = if flip { flip_cmp(op) } else { op };
+    Ok(ColCheck { op, value })
+}
+
+/// [`decode_check`]'s operator resolution: the six scalar comparisons, else an
+/// explicit error naming `col`.
+fn cmp_op_from_simple_check(op: &BinaryOperator, col: &str) -> Result<CmpOp, String> {
+    match op {
+        BinaryOperator::Eq => Ok(CmpOp::Eq),
+        BinaryOperator::NotEq => Ok(CmpOp::Ne),
+        BinaryOperator::Lt => Ok(CmpOp::Lt),
+        BinaryOperator::LtEq => Ok(CmpOp::Le),
+        BinaryOperator::Gt => Ok(CmpOp::Gt),
+        BinaryOperator::GtEq => Ok(CmpOp::Ge),
+        other => Err(format!(
+            "CHECK on `{col}` supports only a simple comparison, got operator `{other}`"
+        )),
     }
-    Err(format!(
-        "CHECK on `{col}` supports only a simple `{col} OP literal` predicate"
-    ))
+}
+
+/// [`decode_check`]'s operand resolution: accept `col OP literal` (the literal
+/// value) or `literal OP col` (the literal value, flagged so the caller flips the
+/// operator); reject anything without a column on either side.
+fn simple_check_value(left: &Expr, right: &Expr, col: &str) -> Result<(Value, bool), String> {
+    if matches!(left, Expr::Identifier(_) | Expr::CompoundIdentifier(_)) {
+        Ok((expr_to_json(right)?, false))
+    } else if matches!(right, Expr::Identifier(_) | Expr::CompoundIdentifier(_)) {
+        Ok((expr_to_json(left)?, true))
+    } else {
+        Err(format!(
+            "CHECK on `{col}` must compare the column to a literal"
+        ))
+    }
 }
 
 /// Mirror a comparison operator when the column is on the RIGHT (`5 < col` ⇒ `col > 5`).
@@ -2256,35 +2388,56 @@ fn read_balanced_parens(s: &str, open: usize) -> Option<(&str, usize)> {
     let mut i = open;
     let mut in_squote = false;
     while i < bytes.len() {
-        let c = bytes[i];
         if in_squote {
-            if c == b'\'' {
+            if bytes[i] == b'\'' {
                 in_squote = false;
             }
             i += 1;
             continue;
         }
-        match c {
-            b'\'' => in_squote = true,
-            b'$' => {
-                // A dollar-quoted body — skip it wholesale.
-                if let Some((_, end)) = super::pgfamily::read_dollar_quoted(s, i) {
-                    i = end;
-                    continue;
-                }
-            }
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((&s[open + 1..i], i + 1));
-                }
-            }
-            _ => {}
+        match step_balanced_parens(s, bytes, i, &mut depth, &mut in_squote) {
+            std::ops::ControlFlow::Break(end) => return Some((&s[open + 1..i], end)),
+            std::ops::ControlFlow::Continue(next) => i = next,
         }
-        i += 1;
     }
     None
+}
+
+/// [`read_balanced_parens`]'s per-position step: enter a `'…'` string literal,
+/// skip a `$$…$$` dollar-quoted body wholesale, or track paren depth. Returns
+/// `Break(end)` once the matching close-paren is found (`end` is just past it);
+/// otherwise `Continue(next_i)`, the index to resume scanning from.
+fn step_balanced_parens(
+    s: &str,
+    bytes: &[u8],
+    i: usize,
+    depth: &mut usize,
+    in_squote: &mut bool,
+) -> std::ops::ControlFlow<usize, usize> {
+    use std::ops::ControlFlow;
+    match bytes[i] {
+        b'\'' => {
+            *in_squote = true;
+            ControlFlow::Continue(i + 1)
+        }
+        b'$' => match super::pgfamily::read_dollar_quoted(s, i) {
+            Some((_, end)) => ControlFlow::Continue(end),
+            None => ControlFlow::Continue(i + 1),
+        },
+        b'(' => {
+            *depth += 1;
+            ControlFlow::Continue(i + 1)
+        }
+        b')' => {
+            *depth -= 1;
+            if *depth == 0 {
+                ControlFlow::Break(i + 1)
+            } else {
+                ControlFlow::Continue(i + 1)
+            }
+        }
+        _ => ControlFlow::Continue(i + 1),
+    }
 }
 
 /// Split `inner` (the text between an argument list's parens) into `name type` defs at
@@ -2476,49 +2629,65 @@ fn find_top_level_kw(s: &str, kw: &str) -> Option<usize> {
     let mut in_squote = false;
     let mut i = 0usize;
     while i < bytes.len() {
-        let c = bytes[i];
         if in_squote {
-            if c == b'\'' {
+            if bytes[i] == b'\'' {
                 in_squote = false;
             }
             i += 1;
             continue;
         }
-        match c {
-            b'\'' => {
-                in_squote = true;
-                i += 1;
-                continue;
-            }
-            b'$' => {
-                if let Some((_, end)) = super::pgfamily::read_dollar_quoted(s, i) {
-                    i = end;
-                    continue;
-                }
-            }
-            b'(' => {
-                depth += 1;
-                i += 1;
-                continue;
-            }
-            b')' => {
-                depth = depth.saturating_sub(1);
-                i += 1;
-                continue;
-            }
-            _ => {}
+        if let Some(next) = skip_top_level_special(s, bytes, i, &mut depth, &mut in_squote) {
+            i = next;
+            continue;
         }
-        if depth == 0 && i + kb.len() <= bytes.len() && s[i..i + kb.len()].eq_ignore_ascii_case(kw)
-        {
-            let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
-            let after_ok = i + kb.len() == bytes.len() || !is_ident_byte(bytes[i + kb.len()]);
-            if before_ok && after_ok {
-                return Some(i);
-            }
+        if depth == 0 && top_level_kw_matches_at(s, bytes, kb, kw, i) {
+            return Some(i);
         }
         i += 1;
     }
     None
+}
+
+/// [`find_top_level_kw`]'s per-position special-character handling: a quote
+/// start, a `$$…$$` dollar-quoted body, or paren depth tracking. Returns the
+/// index to resume scanning from when `bytes[i]` was one of those (the caller
+/// `continue`s without running the keyword check there); `None` for an ordinary
+/// byte (caller falls through to the keyword check at `i`).
+fn skip_top_level_special(
+    s: &str,
+    bytes: &[u8],
+    i: usize,
+    depth: &mut usize,
+    in_squote: &mut bool,
+) -> Option<usize> {
+    match bytes[i] {
+        b'\'' => {
+            *in_squote = true;
+            Some(i + 1)
+        }
+        b'$' => super::pgfamily::read_dollar_quoted(s, i).map(|(_, end)| end),
+        b'(' => {
+            *depth += 1;
+            Some(i + 1)
+        }
+        b')' => {
+            *depth = depth.saturating_sub(1);
+            Some(i + 1)
+        }
+        _ => None,
+    }
+}
+
+/// [`find_top_level_kw`]'s keyword-match check at one position: `kw` matches
+/// case-insensitively AND sits on a word boundary (not embedded in a longer
+/// identifier).
+fn top_level_kw_matches_at(s: &str, bytes: &[u8], kb: &[u8], kw: &str, i: usize) -> bool {
+    if i + kb.len() > bytes.len() || !s[i..i + kb.len()].eq_ignore_ascii_case(kw) {
+        return false;
+    }
+    let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+    let after_ok = i + kb.len() == bytes.len() || !is_ident_byte(bytes[i + kb.len()]);
+    before_ok && after_ok
 }
 
 /// Whether `b` continues a SQL identifier (`[A-Za-z0-9_]`).
@@ -2543,37 +2712,13 @@ fn classify_alter_table(
         _ => return Err("ALTER TABLE supports exactly one operation per statement".to_string()),
     };
     let action = match op {
-        AlterTableOperation::AddColumn { column_def, .. } => {
-            let (col, inline_fk) = decode_column_def(column_def)?;
-            // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — an inline `REFERENCES` on `ADD COLUMN` has no
-            // carrier in `AlterTableAction::AddColumn` (a single-op ALTER TABLE, unlike
-            // CREATE TABLE, has no side-channel for an accompanying table constraint).
-            // Rejected with a precise error rather than silently dropped; the
-            // constraint can be added in a follow-up `ALTER TABLE ... ADD CONSTRAINT`.
-            if inline_fk.is_some() {
-                return Err(
-                    "ALTER TABLE ADD COLUMN does not support an inline REFERENCES; add the \
-                     column first, then a separate ALTER TABLE ... ADD CONSTRAINT ... \
-                     FOREIGN KEY"
-                        .to_string(),
-                );
-            }
-            AlterTableAction::AddColumn(col)
-        }
+        AlterTableOperation::AddColumn { column_def, .. } => alter_table_add_column(column_def)?,
         // CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP [COLUMN] [IF EXISTS] col`.
         AlterTableOperation::DropColumn {
             column_names,
             if_exists,
             ..
-        } => {
-            let [column_name] = column_names.as_slice() else {
-                return Err("ALTER TABLE DROP COLUMN supports exactly one column".to_string());
-            };
-            AlterTableAction::DropColumn {
-                column: column_name.value.clone(),
-                if_exists: *if_exists,
-            }
-        }
+        } => alter_table_drop_column(column_names, *if_exists)?,
         // CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME [COLUMN] a TO b`.
         AlterTableOperation::RenameColumn {
             old_column_name,
@@ -2582,33 +2727,14 @@ fn classify_alter_table(
             from: old_column_name.value.clone(),
             to: new_column_name.value.clone(),
         },
-        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME TO newtable`. Reject renaming onto a reserved graph name.
+        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME TO newtable`.
         AlterTableOperation::RenameTable { table_name } => {
-            let new_name = match table_name {
-                RenameTableNameKind::As(name) | RenameTableNameKind::To(name) => last_ident(name),
-            };
-            if is_reserved_table(&new_name) {
-                return Err(format!(
-                    "cannot rename table `{table}` onto the reserved graph table `{new_name}`"
-                ));
-            }
-            AlterTableAction::RenameTable { new_name }
+            alter_table_rename_table(&table, table_name)?
         }
-        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER [COLUMN] col [SET DATA] TYPE newtype`; only a TYPE change
-        // is supported (SET/DROP NOT NULL / DEFAULT are follow-ups).
-        AlterTableOperation::AlterColumn { column_name, op } => match op {
-            AlterColumnOperation::SetDataType { data_type, .. } => {
-                AlterTableAction::AlterColumnType {
-                    column: column_name.value.clone(),
-                    new_type: data_type.to_string(),
-                }
-            }
-            other => {
-                return Err(format!(
-                    "ALTER TABLE ALTER COLUMN supports only `TYPE <newtype>`, got `{other}`"
-                ))
-            }
-        },
+        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER [COLUMN] col [SET DATA] TYPE newtype`.
+        AlterTableOperation::AlterColumn { column_name, op } => {
+            alter_table_alter_column(column_name, op)?
+        }
         // CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP CONSTRAINT [IF EXISTS] name`.
         AlterTableOperation::DropConstraint {
             name, if_exists, ..
@@ -2627,6 +2753,75 @@ fn classify_alter_table(
         name: table,
         action,
     })
+}
+
+/// [`classify_alter_table`]'s `ADD COLUMN` arm (CONCEPT:EG-KG.query.table-schema-constraints/NE-001). An inline
+/// `REFERENCES` has no carrier in `AlterTableAction::AddColumn` (a single-op
+/// ALTER TABLE, unlike CREATE TABLE, has no side-channel for an accompanying
+/// table constraint) — rejected with a precise error rather than silently
+/// dropped; the constraint can be added in a follow-up `ALTER TABLE ... ADD
+/// CONSTRAINT`.
+fn alter_table_add_column(column_def: &SqlColumnDef) -> Result<AlterTableAction, String> {
+    let (col, inline_fk) = decode_column_def(column_def)?;
+    if inline_fk.is_some() {
+        return Err(
+            "ALTER TABLE ADD COLUMN does not support an inline REFERENCES; add the \
+             column first, then a separate ALTER TABLE ... ADD CONSTRAINT ... \
+             FOREIGN KEY"
+                .to_string(),
+        );
+    }
+    Ok(AlterTableAction::AddColumn(col))
+}
+
+/// [`classify_alter_table`]'s `DROP [COLUMN] [IF EXISTS] col` arm.
+fn alter_table_drop_column(
+    column_names: &[datafusion::sql::sqlparser::ast::Ident],
+    if_exists: bool,
+) -> Result<AlterTableAction, String> {
+    let [column_name] = column_names else {
+        return Err("ALTER TABLE DROP COLUMN supports exactly one column".to_string());
+    };
+    Ok(AlterTableAction::DropColumn {
+        column: column_name.value.clone(),
+        if_exists,
+    })
+}
+
+/// [`classify_alter_table`]'s `RENAME TO newtable` arm. Rejects renaming onto a
+/// reserved graph name.
+fn alter_table_rename_table(
+    table: &str,
+    table_name: &RenameTableNameKind,
+) -> Result<AlterTableAction, String> {
+    let new_name = match table_name {
+        RenameTableNameKind::As(name) | RenameTableNameKind::To(name) => last_ident(name),
+    };
+    if is_reserved_table(&new_name) {
+        return Err(format!(
+            "cannot rename table `{table}` onto the reserved graph table `{new_name}`"
+        ));
+    }
+    Ok(AlterTableAction::RenameTable { new_name })
+}
+
+/// [`classify_alter_table`]'s `ALTER [COLUMN] col [SET DATA] TYPE newtype` arm;
+/// only a TYPE change is supported (SET/DROP NOT NULL / DEFAULT are follow-ups).
+fn alter_table_alter_column(
+    column_name: &datafusion::sql::sqlparser::ast::Ident,
+    op: &AlterColumnOperation,
+) -> Result<AlterTableAction, String> {
+    match op {
+        AlterColumnOperation::SetDataType { data_type, .. } => {
+            Ok(AlterTableAction::AlterColumnType {
+                column: column_name.value.clone(),
+                new_type: data_type.to_string(),
+            })
+        }
+        other => Err(format!(
+            "ALTER TABLE ALTER COLUMN supports only `TYPE <newtype>`, got `{other}`"
+        )),
+    }
 }
 
 /// Decode a WHERE clause into the single simple-equality predicate the wire DML
@@ -2666,39 +2861,10 @@ fn decode_where(selection: Option<&Expr>, verb: &str) -> Result<WhereEq, String>
 /// right operands must be literals (reusing `ident_column` + `expr_to_json`).
 fn decode_predicate(expr: &Expr) -> Result<eg_types::RowPredicate, String> {
     use datafusion::sql::sqlparser::ast::UnaryOperator;
-    use eg_types::{CmpOp, RowPredicate};
+    use eg_types::RowPredicate;
     match expr {
         Expr::Nested(inner) => decode_predicate(inner),
-        Expr::BinaryOp { left, op, right } => match op {
-            BinaryOperator::And => Ok(RowPredicate::And(vec![
-                decode_predicate(left)?,
-                decode_predicate(right)?,
-            ])),
-            BinaryOperator::Or => Ok(RowPredicate::Or(vec![
-                decode_predicate(left)?,
-                decode_predicate(right)?,
-            ])),
-            BinaryOperator::Eq
-            | BinaryOperator::NotEq
-            | BinaryOperator::Lt
-            | BinaryOperator::LtEq
-            | BinaryOperator::Gt
-            | BinaryOperator::GtEq => {
-                let col = ident_column(left)?;
-                let value = expr_to_json(right)?;
-                let op = match op {
-                    BinaryOperator::Eq => CmpOp::Eq,
-                    BinaryOperator::NotEq => CmpOp::Ne,
-                    BinaryOperator::Lt => CmpOp::Lt,
-                    BinaryOperator::LtEq => CmpOp::Le,
-                    BinaryOperator::Gt => CmpOp::Gt,
-                    BinaryOperator::GtEq => CmpOp::Ge,
-                    _ => unreachable!(),
-                };
-                Ok(RowPredicate::Cmp { col, op, value })
-            }
-            other => Err(format!("unsupported operator in WHERE: `{other}`")),
-        },
+        Expr::BinaryOp { left, op, right } => decode_binary_predicate(left, op, right),
         Expr::UnaryOp {
             op: UnaryOperator::Not,
             expr,
@@ -2746,6 +2912,47 @@ fn decode_predicate(expr: &Expr) -> Result<eg_types::RowPredicate, String> {
             "unsupported WHERE predicate (CONCEPT:EG-KG.query.compound-predicate-decode supports AND/OR/NOT/IN/\
              BETWEEN/comparisons/IS [NOT] NULL): `{other}`"
         )),
+    }
+}
+
+/// [`decode_predicate`]'s `Expr::BinaryOp` arm: `AND`/`OR` recurse into both
+/// sides; the six scalar comparisons decode to a `RowPredicate::Cmp`; any other
+/// operator is an explicit error.
+fn decode_binary_predicate(
+    left: &Expr,
+    op: &BinaryOperator,
+    right: &Expr,
+) -> Result<eg_types::RowPredicate, String> {
+    use eg_types::{CmpOp, RowPredicate};
+    match op {
+        BinaryOperator::And => Ok(RowPredicate::And(vec![
+            decode_predicate(left)?,
+            decode_predicate(right)?,
+        ])),
+        BinaryOperator::Or => Ok(RowPredicate::Or(vec![
+            decode_predicate(left)?,
+            decode_predicate(right)?,
+        ])),
+        BinaryOperator::Eq
+        | BinaryOperator::NotEq
+        | BinaryOperator::Lt
+        | BinaryOperator::LtEq
+        | BinaryOperator::Gt
+        | BinaryOperator::GtEq => {
+            let col = ident_column(left)?;
+            let value = expr_to_json(right)?;
+            let op = match op {
+                BinaryOperator::Eq => CmpOp::Eq,
+                BinaryOperator::NotEq => CmpOp::Ne,
+                BinaryOperator::Lt => CmpOp::Lt,
+                BinaryOperator::LtEq => CmpOp::Le,
+                BinaryOperator::Gt => CmpOp::Gt,
+                BinaryOperator::GtEq => CmpOp::Ge,
+                _ => unreachable!(),
+            };
+            Ok(RowPredicate::Cmp { col, op, value })
+        }
+        other => Err(format!("unsupported operator in WHERE: `{other}`")),
     }
 }
 
