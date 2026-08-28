@@ -4393,134 +4393,129 @@ fn transition_terminal_hold(
     Ok(())
 }
 
+/// Is any field the finish request must carry missing?
+fn finish_request_incomplete(request: &DevelopmentLaneFinishRequest) -> bool {
+    request.tenant_ref.is_empty()
+        || request.work_item_id.is_empty()
+        || request.owner_id.is_empty()
+        || request.hold_id.is_empty()
+        || request.idempotency_key.is_empty()
+}
+
+/// Does the request reproduce the pre-terminal tuple an earlier finish
+/// retained, together with the caller identity?  A lost acknowledgement
+/// replays through this tuple rather than borrowing a new fence.
+fn finish_source_tuple_matches(
+    row: &DurableLaneHold,
+    request: &DevelopmentLaneFinishRequest,
+) -> bool {
+    terminal_source_correlations_match(row, request)
+        && row.hold.tenant_ref == request.tenant_ref
+        && row.hold.work_item_id == request.work_item_id
+        && row.hold.owner_id == request.owner_id
+}
+
+/// The hold has already released its active charge.  A fresh invocation
+/// against that terminal tombstone still proves the current lifecycle WorkItem
+/// and its typed intent; only the exact invocation key may bypass this (the
+/// replay lookup happens before `apply_finish`), so knowing a hold id and an
+/// old fence is not enough to manufacture a terminal outcome.
 #[allow(clippy::too_many_arguments)]
-fn apply_finish(
+fn finish_retained_replay(
+    graph: &str,
+    request: &DevelopmentLaneFinishRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    row: &DurableLaneHold,
+    source_tuple_matches: bool,
+    current_tuple_matches: bool,
+    policy_revision: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    // A fresh invocation against a terminal tombstone still proves the
+    // current lifecycle WorkItem and its typed intent.  Only the exact
+    // invocation key may bypass this check (the replay lookup happens
+    // before this function); knowing a hold id and old fence is not enough
+    // to manufacture a terminal outcome.
+    let (work_item_attempt, work_item_lease_epoch, work_item_fencing_token, work_item_fence) =
+        if source_tuple_matches {
+            (
+                row.hold.attempt,
+                row.hold.lease_epoch,
+                row.hold.fencing_token,
+                row.hold.work_item_fence.as_str(),
+            )
+        } else {
+            (
+                request.attempt,
+                request.lease_epoch,
+                request.fencing_token,
+                request.work_item_fence.as_str(),
+            )
+        };
+    let work_item = match load_work_item(
+        nodes,
+        graph,
+        &request.work_item_id,
+        &request.tenant_ref,
+        Some(&request.owner_id),
+        work_item_attempt,
+        work_item_lease_epoch,
+        work_item_fencing_token,
+        work_item_fence,
+        DevelopmentLaneWorkItemKind::Lifecycle,
+        true,
+        request.now_ms,
+        crypto,
+        None,
+        None,
+    ) {
+        Ok(value) => value,
+        Err(decision) => return Ok((finish_result(decision, Some(row), policy_revision)?, false)),
+    };
+    if !finish_state_matches(request.terminal_state, &work_item.status)
+        || !lane_intent_matches_hold(
+            work_item.lane_intent.as_ref(),
+            &row.hold,
+            row.ttl_ms,
+            &row.resource_reservation_id,
+        )
+    {
+        return Ok((
+            finish_result(LaneDecision::InputConflict, Some(row), policy_revision)?,
+            false,
+        ));
+    }
+    let requested = finish_state_name(request.terminal_state);
+    let terminal_revision_matches = row.terminal_expected_hold_revision
+        == Some(request.expected_hold_revision)
+        || (row.terminal_source_attempt.is_some()
+            && current_tuple_matches
+            && row.hold.hold_revision == request.expected_hold_revision);
+    let decision = row
+        .terminal_state
+        .as_deref()
+        .filter(|stored| *stored == requested)
+        .filter(|_| terminal_revision_matches)
+        .map_or(LaneDecision::InputConflict, |_| LaneDecision::Idempotent);
+    return Ok((finish_result(decision, Some(row), policy_revision)?, false));
+}
+
+/// The finish tail for a still-charged hold: prove the current lifecycle
+/// WorkItem, its terminal outcome and its intent, then release the active
+/// charge into the retained one.
+#[allow(clippy::too_many_arguments)]
+fn finish_live_hold(
     graph: &str,
     request: &DevelopmentLaneFinishRequest,
     nodes: &redb::Table<(&str, &str), &[u8]>,
     holds: &mut redb::Table<(&str, &str), &[u8]>,
     counters: &mut redb::Table<(&str, &str), &[u8]>,
     pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
-    policies: &redb::Table<(&str, &str), &[u8]>,
+    mut row: DurableLaneHold,
+    policy_revision: u64,
+    global_policy_revision: u64,
     crypto: DurableCrypto<'_>,
 ) -> Result<(Vec<u8>, bool), String> {
-    if request.tenant_ref.is_empty()
-        || request.work_item_id.is_empty()
-        || request.owner_id.is_empty()
-        || request.hold_id.is_empty()
-        || request.idempotency_key.is_empty()
-    {
-        return Ok((finish_result(LaneDecision::Invalid, None, 0)?, false));
-    }
-    let policy = current_policy(policies, graph, &request.tenant_ref, crypto)?;
-    let Some(policy) = policy else {
-        return Ok((finish_result(LaneDecision::Policy, None, 0)?, false));
-    };
-    let policy_revision = policy.policy_revision;
-    let Some(global_policy) = load_global_policy(policies, graph, crypto)? else {
-        return Ok((
-            finish_result(LaneDecision::Policy, None, policy_revision)?,
-            false,
-        ));
-    };
-    let global_policy_revision = global_policy.policy_revision;
-    let Some(mut row) = hold_load(holds, graph, &request.hold_id, crypto)? else {
-        return Ok((
-            finish_result(LaneDecision::NotFound, None, policy_revision)?,
-            false,
-        ));
-    };
-    let current_correlations = hold_correlations_match(
-        &row.hold,
-        &request.tenant_ref,
-        &request.work_item_id,
-        &request.owner_id,
-        request.attempt,
-        request.lease_epoch,
-        request.fencing_token,
-        &request.work_item_fence,
-    );
-    let current_tuple_matches = current_correlations.is_ok();
-    let source_tuple_matches = terminal_source_correlations_match(&row, request)
-        && row.hold.tenant_ref == request.tenant_ref
-        && row.hold.work_item_id == request.work_item_id
-        && row.hold.owner_id == request.owner_id;
-    if !current_tuple_matches && !source_tuple_matches {
-        let decision = current_correlations
-            .expect_err("lane finish correlation predicate changed unexpectedly");
-        return Ok((finish_result(decision, Some(&row), policy_revision)?, false));
-    }
-    if !row.hold.active_count_charged {
-        // A fresh invocation against a terminal tombstone still proves the
-        // current lifecycle WorkItem and its typed intent.  Only the exact
-        // invocation key may bypass this check (the replay lookup happens
-        // before this function); knowing a hold id and old fence is not enough
-        // to manufacture a terminal outcome.
-        let (work_item_attempt, work_item_lease_epoch, work_item_fencing_token, work_item_fence) =
-            if source_tuple_matches {
-                (
-                    row.hold.attempt,
-                    row.hold.lease_epoch,
-                    row.hold.fencing_token,
-                    row.hold.work_item_fence.as_str(),
-                )
-            } else {
-                (
-                    request.attempt,
-                    request.lease_epoch,
-                    request.fencing_token,
-                    request.work_item_fence.as_str(),
-                )
-            };
-        let work_item = match load_work_item(
-            nodes,
-            graph,
-            &request.work_item_id,
-            &request.tenant_ref,
-            Some(&request.owner_id),
-            work_item_attempt,
-            work_item_lease_epoch,
-            work_item_fencing_token,
-            work_item_fence,
-            DevelopmentLaneWorkItemKind::Lifecycle,
-            true,
-            request.now_ms,
-            crypto,
-            None,
-            None,
-        ) {
-            Ok(value) => value,
-            Err(decision) => {
-                return Ok((finish_result(decision, Some(&row), policy_revision)?, false))
-            }
-        };
-        if !finish_state_matches(request.terminal_state, &work_item.status)
-            || !lane_intent_matches_hold(
-                work_item.lane_intent.as_ref(),
-                &row.hold,
-                row.ttl_ms,
-                &row.resource_reservation_id,
-            )
-        {
-            return Ok((
-                finish_result(LaneDecision::InputConflict, Some(&row), policy_revision)?,
-                false,
-            ));
-        }
-        let requested = finish_state_name(request.terminal_state);
-        let terminal_revision_matches = row.terminal_expected_hold_revision
-            == Some(request.expected_hold_revision)
-            || (row.terminal_source_attempt.is_some()
-                && current_tuple_matches
-                && row.hold.hold_revision == request.expected_hold_revision);
-        let decision = row
-            .terminal_state
-            .as_deref()
-            .filter(|stored| *stored == requested)
-            .filter(|_| terminal_revision_matches)
-            .map_or(LaneDecision::InputConflict, |_| LaneDecision::Idempotent);
-        return Ok((finish_result(decision, Some(&row), policy_revision)?, false));
-    }
     if row.hold.hold_revision != request.expected_hold_revision {
         return Ok((
             finish_result(LaneDecision::Stale, Some(&row), policy_revision)?,
@@ -4584,6 +4579,81 @@ fn apply_finish(
         finish_result(LaneDecision::Accepted, Some(&row), policy_revision)?,
         true,
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_finish(
+    graph: &str,
+    request: &DevelopmentLaneFinishRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    if finish_request_incomplete(request) {
+        return Ok((finish_result(LaneDecision::Invalid, None, 0)?, false));
+    }
+    let policy = current_policy(policies, graph, &request.tenant_ref, crypto)?;
+    let Some(policy) = policy else {
+        return Ok((finish_result(LaneDecision::Policy, None, 0)?, false));
+    };
+    let policy_revision = policy.policy_revision;
+    let Some(global_policy) = load_global_policy(policies, graph, crypto)? else {
+        return Ok((
+            finish_result(LaneDecision::Policy, None, policy_revision)?,
+            false,
+        ));
+    };
+    let global_policy_revision = global_policy.policy_revision;
+    let Some(row) = hold_load(holds, graph, &request.hold_id, crypto)? else {
+        return Ok((
+            finish_result(LaneDecision::NotFound, None, policy_revision)?,
+            false,
+        ));
+    };
+    let current_correlations = hold_correlations_match(
+        &row.hold,
+        &request.tenant_ref,
+        &request.work_item_id,
+        &request.owner_id,
+        request.attempt,
+        request.lease_epoch,
+        request.fencing_token,
+        &request.work_item_fence,
+    );
+    let current_tuple_matches = current_correlations.is_ok();
+    let source_tuple_matches = finish_source_tuple_matches(&row, request);
+    if !current_tuple_matches && !source_tuple_matches {
+        let decision = current_correlations
+            .expect_err("lane finish correlation predicate changed unexpectedly");
+        return Ok((finish_result(decision, Some(&row), policy_revision)?, false));
+    }
+    if !row.hold.active_count_charged {
+        return finish_retained_replay(
+            graph,
+            request,
+            nodes,
+            &row,
+            source_tuple_matches,
+            current_tuple_matches,
+            policy_revision,
+            crypto,
+        );
+    }
+    finish_live_hold(
+        graph,
+        request,
+        nodes,
+        holds,
+        counters,
+        pressure_index,
+        row,
+        policy_revision,
+        global_policy_revision,
+        crypto,
+    )
 }
 
 fn remove_index(
