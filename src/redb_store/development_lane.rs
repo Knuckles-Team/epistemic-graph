@@ -5062,8 +5062,101 @@ fn apply_cleanup(
     ))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn apply_quota_update(
+/// The graph-global quota-policy CAS, reached only through the frozen
+/// sentinel tenant.  It is the one route that may enter drain while the
+/// global counter is already over pressure.
+fn apply_global_quota_update(
+    graph: &str,
+    request: &DevelopmentLaneQuotaUpdateRequest,
+    counters: &redb::Table<(&str, &str), &[u8]>,
+    policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    let current = load_global_policy(policies, graph, crypto)?;
+    let current_revision = current.as_ref().map_or(0, |value| value.policy_revision);
+    let current_charge = policy_counter_snapshot(
+        counters,
+        graph,
+        GLOBAL_POLICY_KEY,
+        0,
+        current_revision,
+        crypto,
+    )?;
+    if request.expected_policy_revision != current_revision {
+        return Ok((
+            quota_result(
+                LaneDecision::Stale,
+                current.as_ref().map(|value| value.policy.clone()),
+                current_charge,
+                current_revision,
+            )?,
+            false,
+        ));
+    }
+    if request
+        .expected_policy_version
+        .as_deref()
+        .is_some_and(|expected| {
+            current
+                .as_ref()
+                .is_none_or(|value| value.policy.policy_version != expected)
+        })
+    {
+        return Ok((
+            quota_result(
+                LaneDecision::Conflict,
+                current.as_ref().map(|value| value.policy.clone()),
+                current_charge,
+                current_revision,
+            )?,
+            false,
+        ));
+    }
+    let pressure = current_charge.global_count > request.policy.global_count_limit
+        || current_charge.global_predicted_disk_bytes > request.policy.global_predicted_disk_bytes
+        || current_charge.global_observed_disk_bytes > request.policy.global_observed_disk_bytes
+        || current_charge.global_retained_disk_bytes > request.policy.global_retained_disk_bytes;
+    if pressure && !request.policy.drain_only {
+        return Ok((
+            quota_result(
+                LaneDecision::Quota,
+                current.as_ref().map(|value| value.policy.clone()),
+                current_charge,
+                current_revision,
+            )?,
+            false,
+        ));
+    }
+    let next_revision = current_revision
+        .checked_add(1)
+        .ok_or_else(|| "development lane global policy revision overflow".to_string())?;
+    let row = DurableLanePolicy {
+        policy: request.policy.clone(),
+        policy_revision: next_revision,
+        global_policy_revision: next_revision,
+    };
+    let bytes = resource_encode(&row, crypto)?;
+    policies
+        .insert((graph, GLOBAL_POLICY_KEY), bytes.as_slice())
+        .map_err(|e| e.to_string())?;
+    let charge =
+        policy_counter_snapshot(counters, graph, GLOBAL_POLICY_KEY, 0, next_revision, crypto)?;
+    Ok((
+        quota_result(
+            LaneDecision::Accepted,
+            Some(request.policy.clone()),
+            charge,
+            next_revision,
+        )?,
+        true,
+    ))
+}
+
+/// The ordinary tenant quota-policy CAS.  A tenant may tune its local
+/// dimensions but cannot change the shared global controls, and cannot use
+/// its drain flag to undercut a live owner/session/workspace/repository/host
+/// charge.
+fn apply_tenant_quota_update(
     graph: &str,
     request: &DevelopmentLaneQuotaUpdateRequest,
     counters: &redb::Table<(&str, &str), &[u8]>,
@@ -5071,98 +5164,6 @@ fn apply_quota_update(
     policies: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(Vec<u8>, bool), String> {
-    if request.tenant_ref.is_empty() || request.idempotency_key.is_empty() {
-        return Ok((
-            quota_result(LaneDecision::Invalid, None, empty_charge(0), 0)?,
-            false,
-        ));
-    }
-    if let Err(decision) = policy_validate(&request.policy) {
-        return Ok((quota_result(decision, None, empty_charge(0), 0)?, false));
-    }
-    if request.tenant_ref == GLOBAL_POLICY_KEY {
-        let current = load_global_policy(policies, graph, crypto)?;
-        let current_revision = current.as_ref().map_or(0, |value| value.policy_revision);
-        let current_charge = policy_counter_snapshot(
-            counters,
-            graph,
-            GLOBAL_POLICY_KEY,
-            0,
-            current_revision,
-            crypto,
-        )?;
-        if request.expected_policy_revision != current_revision {
-            return Ok((
-                quota_result(
-                    LaneDecision::Stale,
-                    current.as_ref().map(|value| value.policy.clone()),
-                    current_charge,
-                    current_revision,
-                )?,
-                false,
-            ));
-        }
-        if request
-            .expected_policy_version
-            .as_deref()
-            .is_some_and(|expected| {
-                current
-                    .as_ref()
-                    .is_none_or(|value| value.policy.policy_version != expected)
-            })
-        {
-            return Ok((
-                quota_result(
-                    LaneDecision::Conflict,
-                    current.as_ref().map(|value| value.policy.clone()),
-                    current_charge,
-                    current_revision,
-                )?,
-                false,
-            ));
-        }
-        let pressure = current_charge.global_count > request.policy.global_count_limit
-            || current_charge.global_predicted_disk_bytes
-                > request.policy.global_predicted_disk_bytes
-            || current_charge.global_observed_disk_bytes
-                > request.policy.global_observed_disk_bytes
-            || current_charge.global_retained_disk_bytes
-                > request.policy.global_retained_disk_bytes;
-        if pressure && !request.policy.drain_only {
-            return Ok((
-                quota_result(
-                    LaneDecision::Quota,
-                    current.as_ref().map(|value| value.policy.clone()),
-                    current_charge,
-                    current_revision,
-                )?,
-                false,
-            ));
-        }
-        let next_revision = current_revision
-            .checked_add(1)
-            .ok_or_else(|| "development lane global policy revision overflow".to_string())?;
-        let row = DurableLanePolicy {
-            policy: request.policy.clone(),
-            policy_revision: next_revision,
-            global_policy_revision: next_revision,
-        };
-        let bytes = resource_encode(&row, crypto)?;
-        policies
-            .insert((graph, GLOBAL_POLICY_KEY), bytes.as_slice())
-            .map_err(|e| e.to_string())?;
-        let charge =
-            policy_counter_snapshot(counters, graph, GLOBAL_POLICY_KEY, 0, next_revision, crypto)?;
-        return Ok((
-            quota_result(
-                LaneDecision::Accepted,
-                Some(request.policy.clone()),
-                charge,
-                next_revision,
-            )?,
-            true,
-        ));
-    }
     let current = load_policy(policies, graph, &request.tenant_ref, crypto)?;
     let current_revision = current.as_ref().map_or(0, |value| value.policy_revision);
     let global = load_global_policy(policies, graph, crypto)?;
@@ -5205,21 +5206,22 @@ fn apply_quota_update(
             false,
         ));
     }
-    if let Some(global) = global.as_ref() {
-        if !global_policy_equal(&request.policy, &global.policy) {
-            // There is one graph-global policy authority.  A tenant may tune
-            // its local dimensions, but cannot silently change the shared
-            // counter's limits/freshness/drain semantics.
-            return Ok((
-                quota_result(
-                    LaneDecision::Conflict,
-                    current.as_ref().map(|value| value.policy.clone()),
-                    current_charge,
-                    current_revision,
-                )?,
-                false,
-            ));
-        }
+    // There is one graph-global policy authority.  A tenant may tune its local
+    // dimensions, but cannot silently change the shared counter's
+    // limits/freshness/drain semantics.
+    if global
+        .as_ref()
+        .is_some_and(|global| !global_policy_equal(&request.policy, &global.policy))
+    {
+        return Ok((
+            quota_result(
+                LaneDecision::Conflict,
+                current.as_ref().map(|value| value.policy.clone()),
+                current_charge,
+                current_revision,
+            )?,
+            false,
+        ));
     }
     let next_revision = current_revision
         .checked_add(1)
@@ -5248,14 +5250,17 @@ fn apply_quota_update(
             false,
         ));
     }
+    // The first tenant policy in a graph also seeds the graph-global row, so
+    // both rows start at revision 1 together.
+    let effective_global_revision = if global.is_none() {
+        1
+    } else {
+        global_policy_revision
+    };
     let row = DurableLanePolicy {
         policy: request.policy.clone(),
         policy_revision: next_revision,
-        global_policy_revision: if global.is_none() {
-            1
-        } else {
-            global_policy_revision
-        },
+        global_policy_revision: effective_global_revision,
     };
     let bytes = resource_encode(&row, crypto)?;
     policies
@@ -5272,17 +5277,12 @@ fn apply_quota_update(
             .insert((graph, GLOBAL_POLICY_KEY), global_bytes.as_slice())
             .map_err(|e| e.to_string())?;
     }
-    let global_policy_revision = if global.is_none() {
-        1
-    } else {
-        global_policy_revision
-    };
     let charge = policy_counter_snapshot(
         counters,
         graph,
         &request.tenant_ref,
         next_revision,
-        global_policy_revision,
+        effective_global_revision,
         crypto,
     )?;
     Ok((
@@ -5294,6 +5294,30 @@ fn apply_quota_update(
         )?,
         true,
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_quota_update(
+    graph: &str,
+    request: &DevelopmentLaneQuotaUpdateRequest,
+    counters: &redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    if request.tenant_ref.is_empty() || request.idempotency_key.is_empty() {
+        return Ok((
+            quota_result(LaneDecision::Invalid, None, empty_charge(0), 0)?,
+            false,
+        ));
+    }
+    if let Err(decision) = policy_validate(&request.policy) {
+        return Ok((quota_result(decision, None, empty_charge(0), 0)?, false));
+    }
+    if request.tenant_ref == GLOBAL_POLICY_KEY {
+        return apply_global_quota_update(graph, request, counters, policies, crypto);
+    }
+    apply_tenant_quota_update(graph, request, counters, pressure_index, policies, crypto)
 }
 
 /// Replay one already-committed invocation, or report an input conflict when
