@@ -24,6 +24,7 @@ import ssl
 import struct
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Literal, NamedTuple, NoReturn, TypedDict, cast
 
@@ -180,7 +181,7 @@ _SCALAR_REQUEST_CONTEXT_CLAIMS = (
 _LIST_REQUEST_CONTEXT_CLAIMS = ("roles", "scopes", "delegation")
 
 
-def _validate_request_context_fields(context: dict[str, Any]) -> None:
+def _validate_request_context_fields(context: Mapping[str, Any]) -> None:
     """Reject a context whose claim NAMES are wrong (missing or unsupported)."""
     present = set(context)
     missing = sorted(_REQUIRED_REQUEST_CONTEXT_FIELDS - present)
@@ -195,7 +196,7 @@ def _validate_request_context_fields(context: dict[str, Any]) -> None:
         )
 
 
-def _validate_request_context_optional_claims(context: dict[str, Any]) -> None:
+def _validate_request_context_optional_claims(context: Mapping[str, Any]) -> None:
     """Optional scalar claims must be non-empty strings WHEN PRESENT."""
     for name in _OPTIONAL_REQUEST_CONTEXT_CLAIMS:
         if name not in context:
@@ -248,11 +249,7 @@ def _validate_request_context_delegation(value: dict[str, Any]) -> None:
                 "verified_context.delegation must be empty when principal is the agent"
             )
         return
-    if (
-        len(delegation) < 2
-        or delegation[0] != principal
-        or delegation[-1] != agent_id
-    ):
+    if len(delegation) < 2 or delegation[0] != principal or delegation[-1] != agent_id:
         raise ValueError(
             "verified_context.delegation must run from principal to effective agent"
         )
@@ -657,7 +654,9 @@ def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> No
         _mark_method_f32_apply_change_envelopes(params, path=path)
 
 
-def _mark_method_f32_direct_fields(method: str, params: dict[str, Any], *, path: str) -> None:
+def _mark_method_f32_direct_fields(
+    method: str, params: dict[str, Any], *, path: str
+) -> None:
     """BTreeMap key-sort, ``DsPredictEstimator`` model canonicalization, direct f32
     vector fields, and Plan f32 fields -- every schema-declared shape that is keyed
     directly off ``method`` rather than requiring its own nested parse."""
@@ -705,7 +704,9 @@ def _mark_method_f32_knowledge_stream(params: dict[str, Any], *, path: str) -> N
 def _mark_method_f32_served_modality(params: dict[str, Any], *, path: str) -> None:
     operation = params.get("op")
     predicate = operation.get("predicate") if isinstance(operation, dict) else None
-    if not (isinstance(predicate, dict) and predicate.get("predicate") == "audio_window"):
+    if not (
+        isinstance(predicate, dict) and predicate.get("predicate") == "audio_window"
+    ):
         return
     _mark_f32_scalar(
         predicate,
@@ -714,7 +715,9 @@ def _mark_method_f32_served_modality(params: dict[str, Any], *, path: str) -> No
     )
 
 
-def _mark_method_f32_apply_change_envelope(params: dict[str, Any], *, path: str) -> None:
+def _mark_method_f32_apply_change_envelope(
+    params: dict[str, Any], *, path: str
+) -> None:
     # The sole typed nested-Method carrier is
     # ChangeEnvelope.mutation.operations[].method. Do not recursively inspect
     # arbitrary maps: GraphQl.variables and GraphLearnPredict.model are
@@ -736,7 +739,9 @@ def _mark_method_f32_apply_change_envelope(params: dict[str, Any], *, path: str)
             )
 
 
-def _mark_method_f32_apply_change_envelopes(params: dict[str, Any], *, path: str) -> None:
+def _mark_method_f32_apply_change_envelopes(
+    params: dict[str, Any], *, path: str
+) -> None:
     # Plural of the above: mark f32 in each batched envelope's typed nested
     # operation methods so the batch's signed body byte-matches the server.
     envelopes = params.get("envelopes")
@@ -746,7 +751,9 @@ def _mark_method_f32_apply_change_envelopes(params: dict[str, Any], *, path: str
         _mark_method_f32_one_envelope_operations(env_index, envelope, path=path)
 
 
-def _mark_method_f32_one_envelope_operations(env_index: int, envelope: Any, *, path: str) -> None:
+def _mark_method_f32_one_envelope_operations(
+    env_index: int, envelope: Any, *, path: str
+) -> None:
     mutation = envelope.get("mutation") if isinstance(envelope, dict) else None
     operations = mutation.get("operations") if isinstance(mutation, dict) else None
     if not isinstance(operations, list):
@@ -1576,9 +1583,7 @@ def _reservation_request_placement(request: dict[str, Any]) -> None:
         request,
         alias_label="ResourceReservation.target_alias",
         kind_error="ResourceReservation.target_kind is invalid",
-        mismatch_error=(
-            "ResourceReservation target_alias does not match target_kind"
-        ),
+        mismatch_error=("ResourceReservation target_alias does not match target_kind"),
     )
     if request["concurrency_limit"] is not None:
         _integer(
@@ -1758,9 +1763,7 @@ def _reservation_record_identity(record: dict[str, Any]) -> None:
 
 def _reservation_record_counters(record: dict[str, Any]) -> None:
     """Attempt/revision counters and the monotonic lease/time counters."""
-    _integers(
-        "ResourceReservation record", record, ("attempt", "revision"), minimum=1
-    )
+    _integers("ResourceReservation record", record, ("attempt", "revision"), minimum=1)
     for field in _RESOURCE_RESERVATION_RECORD_COUNTERS:
         _integer(
             f"ResourceReservation record.{field}",
@@ -1784,9 +1787,7 @@ def _reservation_record_capacity(record: dict[str, Any]) -> None:
         record["capacity_snapshot"],
         _RESOURCE_CAPACITY_SNAPSHOT_FIELDS,
     )
-    _integers(
-        "ResourceReservation record.capacity_snapshot", snapshot, snapshot
-    )
+    _integers("ResourceReservation record.capacity_snapshot", snapshot, snapshot)
 
 
 def _reservation_record_selected_target(record: dict[str, Any]) -> None:
@@ -2003,9 +2004,7 @@ def _resource_status_request(value: Any) -> dict[str, Any]:
         "ResourceReservationStatus", request, _RESOURCE_STATUS_OPTIONAL_STRINGS
     )
     _resource_status_request_fingerprint(request)
-    _optional_bounded_strings(
-        "ResourceReservationStatus", request, ("fairness_group",)
-    )
+    _optional_bounded_strings("ResourceReservationStatus", request, ("fairness_group",))
     _resource_status_request_counters(request)
     if (
         request["work_item_id"] is None
@@ -2088,9 +2087,7 @@ def _reservation_summary(summary_value: Any, index: int) -> None:
     )
     for field in _RESERVATION_SUMMARY_IDENTIFIERS:
         _string(f"reservation summary {index}.{field}", summary[field])
-    if any(
-        len(summary[field]) > 256 for field in _RESERVATION_SUMMARY_IDENTIFIERS
-    ):
+    if any(len(summary[field]) > 256 for field in _RESERVATION_SUMMARY_IDENTIFIERS):
         raise ValueError(f"reservation summary {index} contains an overlong identifier")
     _integers(
         f"reservation summary {index}", summary, ("attempt", "revision"), minimum=1
@@ -2213,9 +2210,7 @@ def _host_snapshot_placement(snapshot: dict[str, Any], name: str) -> None:
         raise ValueError(f"{name}.target_alias does not match target_kind")
 
 
-def _host_disk_policy(
-    policy_value: Any, name: str, index: int, seen: set[str]
-) -> None:
+def _host_disk_policy(policy_value: Any, name: str, index: int, seen: set[str]) -> None:
     """One ``disk_policies[i]`` entry, with cross-entry key uniqueness."""
     label = f"{name}.disk_policies[{index}]"
     policy = _exact_mapping(label, policy_value, _RESOURCE_DISK_POLICY_FIELDS)
@@ -2478,9 +2473,7 @@ def _is_opaque_ref_segment(part: str) -> bool:
 
 def _is_opaque_ref_digest(part: str) -> bool:
     """The terminal segment: 16..128 lowercase hex characters."""
-    return 16 <= len(part) <= 128 and all(
-        char in "0123456789abcdef" for char in part
-    )
+    return 16 <= len(part) <= 128 and all(char in "0123456789abcdef" for char in part)
 
 
 def _opaque_ref(name: str, value: Any, *, namespace: str | None = None) -> str:
@@ -4496,7 +4489,9 @@ class CapacityLeaseClient:
         if value["schema_version"] != "1":
             raise ValueError(f"{method} schema_version must be 1")
         _string(f"{method}.tenant_ref", value["tenant_ref"])
-        optional = ("cell_id", "cursor") if reclaim else ("cell_id", "lease_id", "cursor")
+        optional = (
+            ("cell_id", "cursor") if reclaim else ("cell_id", "lease_id", "cursor")
+        )
         for field in optional:
             if value[field] is not None:
                 _string(f"{method}.{field}", value[field])
@@ -4923,9 +4918,7 @@ def _development_lane_hold(value: Any) -> dict[str, Any]:
         "DevelopmentLaneHold.quota_charge", hold["quota_charge"]
     )
     _integers("DevelopmentLaneHold", hold, _DEVELOPMENT_LANE_HOLD_COUNTERS)
-    _booleans(
-        "DevelopmentLaneHold", hold, ("active_count_charged", "tombstone")
-    )
+    _booleans("DevelopmentLaneHold", hold, ("active_count_charged", "tombstone"))
     _development_lane_cleanup_fields(hold)
     return hold
 
@@ -6962,14 +6955,19 @@ class ClusterTopologyClient:
         membership_epoch, placement_epoch = self._validate_epochs(
             answer, min_membership_epoch, min_placement_epoch
         )
-        canonical_groups, expected_leaders, leaders = self._validate_and_canonicalize_groups(
-            answer, cluster_id
+        canonical_groups, expected_leaders, leaders = (
+            self._validate_and_canonicalize_groups(answer, cluster_id)
         )
         self._validate_leaders(leaders, expected_leaders)
         self._validate_top_leader(answer, expected_leaders)
         context = self._validate_auth_binding(answer)
         self._verify_signature(
-            answer, cluster_id, membership_epoch, placement_epoch, canonical_groups, context
+            answer,
+            cluster_id,
+            membership_epoch,
+            placement_epoch,
+            canonical_groups,
+            context,
         )
         self._cluster_id = cluster_id
         self._membership_epoch = membership_epoch
@@ -7168,7 +7166,9 @@ class ClusterTopologyClient:
         health = member["health"]
         if health not in ("healthy", "degraded", "unknown"):
             raise ValueError("ClusterMembers member health is invalid")
-        certificate_id, rotation_epoch, not_before, not_after = self._certificate(member)
+        certificate_id, rotation_epoch, not_before, not_after = self._certificate(
+            member
+        )
         canonical = [
             node_id,
             identity,
@@ -7217,9 +7217,7 @@ class ClusterTopologyClient:
             or not tls_name
             or len(tls_name) > self._MAX_FIELD_BYTES
             or any(
-                character.isspace()
-                or ord(character) < 0x20
-                or ord(character) == 0x7F
+                character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
                 for character in tls_name
             )
         ):
@@ -7274,7 +7272,7 @@ class ClusterTopologyClient:
         if answer["leader"] != expected_leader:
             raise ValueError("ClusterMembers leader does not match group leaders")
 
-    def _validate_auth_binding(self, answer: dict[str, Any]) -> dict[str, str]:
+    def _validate_auth_binding(self, answer: dict[str, Any]) -> RequestContextClaims:
         binding = answer["auth_binding"]
         if not isinstance(binding, dict) or set(binding) != {
             "tenant_digest",
@@ -7304,7 +7302,7 @@ class ClusterTopologyClient:
         membership_epoch: int,
         placement_epoch: int,
         canonical_groups: list[list[Any]],
-        context: dict[str, str],
+        context: RequestContextClaims,
     ) -> None:
         signature = answer["signature"]
         if (
@@ -9711,7 +9709,7 @@ def _tls_profile_mode() -> bool | None:
 
 
 def _tls_mode(
-    tls: bool | None, *, explicit_credential: bool
+    tls: bool | ssl.SSLContext | None, *, explicit_credential: bool
 ) -> tuple[bool, str]:
     """``(enabled, profile_tag)`` by explicit precedence alone.
 
@@ -10087,9 +10085,7 @@ def _validate_placement_fence(answer: dict[str, Any]) -> None:
         raise ValueError("engine returned an invalid placement fence")
 
 
-def _validate_placement_route(
-    answer: Any, tenant: str, sub_key: str
-) -> dict[str, Any]:
+def _validate_placement_route(answer: Any, tenant: str, sub_key: str) -> dict[str, Any]:
     """A complete, authoritative, correctly-addressed engine-authored route."""
     answer = _exact_mapping("PlacementRoute", answer, _PLACEMENT_ROUTE_FIELDS)
     if answer["schema_version"] != "1" or answer["authoritative"] is not True:
