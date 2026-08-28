@@ -3700,6 +3700,13 @@ fn create_secondary_index_in(
     }
     Ok(true)
 }
+/// One `(row_id, cells)` pair per row a secondary-index build reads.
+///
+/// A named alias rather than the bare tuple-in-`Option`-in-`Result`: clippy's
+/// `type_complexity` fires on the spelled-out form, and the name says what the
+/// pair means, which the tuple did not.
+type IndexBuildRows = Vec<(u64, Vec<Cell>)>;
+
 
 /// Every stored row of `spec.table`, for the initial directory construction.
 /// Intentionally bounded and atomic: a large table asks its owner to
@@ -3708,7 +3715,7 @@ fn create_secondary_index_in(
 fn secondary_index_build_rows_in(
     wtx: &WriteTransaction,
     spec: &SecondaryIndexSpec,
-) -> Result<Option<Vec<(u64, Vec<Cell>)>>, String> {
+) -> Result<Option<IndexBuildRows>, String> {
     let rows = match wtx.open_table(ROWS) {
         Ok(table) => table,
         Err(_) => return Ok(None),
