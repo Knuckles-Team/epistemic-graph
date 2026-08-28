@@ -763,6 +763,38 @@ impl Completion {
 
     /// A clash in the current graph: `⊥`, `{A,¬A}`, `{ {a},¬{a} }`, a self-inequality,
     /// or a `≤n r.C` with `n+1` pairwise-distinct `C`-witnesses.
+    /// Whether node `i`'s own label clashes (contains `⊥`, a directly
+    /// negated atom/nominal, or a violated `≤n r.f` cardinality). Split out
+    /// of `has_clash` (extract-method, cx/wD8) — same terms, same order as
+    /// before.
+    fn node_has_clash(&self, i: usize) -> bool {
+        let label = &self.nodes[i].label;
+        if label.contains(&Dl::Bottom) {
+            return true;
+        }
+        for c in label {
+            match c {
+                Dl::Not(inner)
+                    if matches!(**inner, Dl::Atom(_) | Dl::Nominal(_)) && label.contains(inner) =>
+                {
+                    return true;
+                }
+                Dl::Max(n, r, f) => {
+                    let neigh: Vec<usize> = self
+                        .role_neighbors(i, r)
+                        .into_iter()
+                        .filter(|&y| self.qualifies(y, f))
+                        .collect();
+                    if neigh.len() > *n && self.all_pairwise_distinct(&neigh) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     fn has_clash(&self) -> bool {
         // Forced self-inequality (from a merge of two ≠ nodes).
         for (a, b) in &self.neq {
@@ -771,30 +803,8 @@ impl Completion {
             }
         }
         for i in self.reps() {
-            let label = &self.nodes[i].label;
-            if label.contains(&Dl::Bottom) {
+            if self.node_has_clash(i) {
                 return true;
-            }
-            for c in label {
-                match c {
-                    Dl::Not(inner)
-                        if matches!(**inner, Dl::Atom(_) | Dl::Nominal(_))
-                            && label.contains(inner) =>
-                    {
-                        return true;
-                    }
-                    Dl::Max(n, r, f) => {
-                        let neigh: Vec<usize> = self
-                            .role_neighbors(i, r)
-                            .into_iter()
-                            .filter(|&y| self.qualifies(y, f))
-                            .collect();
-                        if neigh.len() > *n && self.all_pairwise_distinct(&neigh) {
-                            return true;
-                        }
-                    }
-                    _ => {}
-                }
             }
         }
         false
@@ -1120,29 +1130,44 @@ impl Completion {
     /// Is there a clash-free complete completion reachable from this graph? The tableau
     /// decision procedure: saturate deterministically, branch on the first
     /// non-determinism, and recurse. `true` ⇒ satisfiable.
+    /// Saturate the non-generating deterministic rules to fixpoint, checking
+    /// for a clash before and after. Split out of `expand`'s step (1)
+    /// (extract-method, cx/wD8) — same terms, same order as before. Returns
+    /// whether a clash was found.
+    fn saturate_nongenerating(&mut self) -> bool {
+        let mut changed = true;
+        while changed {
+            if self.has_clash() {
+                return true;
+            }
+            changed = self.step_nongenerating();
+        }
+        self.has_clash()
+    }
+
+    /// Try every branch of a non-deterministic choice point, recursing into
+    /// each. Split out of `expand`'s step (2) (extract-method, cx/wD8) —
+    /// same terms, same order as before.
+    fn try_nondet_branches(&mut self, branches: Vec<Branch>) -> bool {
+        for b in branches {
+            let mut child = self.clone();
+            child.apply_branch(b);
+            if child.expand() {
+                return true;
+            }
+        }
+        false
+    }
+
     fn expand(&mut self) -> bool {
         loop {
             // (1) Saturate the non-generating deterministic rules to fixpoint.
-            let mut changed = true;
-            while changed {
-                if self.has_clash() {
-                    return false;
-                }
-                changed = self.step_nongenerating();
-            }
-            if self.has_clash() {
+            if self.saturate_nongenerating() {
                 return false;
             }
             // (2) Resolve the first non-deterministic choice point (⊔ / choose / ≤).
             if let std::option::Option::Some(branches) = self.next_nondet() {
-                for b in branches {
-                    let mut child = self.clone();
-                    child.apply_branch(b);
-                    if child.expand() {
-                        return true;
-                    }
-                }
-                return false;
+                return self.try_nondet_branches(branches);
             }
             // (3) Generating rules last (∃ / ≥) so blocking is checked on stable labels.
             if self.nodes.len() >= NODE_CAP {
