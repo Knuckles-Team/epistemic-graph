@@ -570,81 +570,157 @@ impl<'a> Parser<'a> {
         Ok(out)
     }
 
+    /// `WHILE cond LOOP body END LOOP ;`. Split out of `parse_stmt`
+    /// (extract-method, cx/wD8) — same terms, same order as before.
+    fn parse_while_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let cond = self.capture_until(&["loop"])?;
+        self.expect_kw("loop")?;
+        let body = self.parse_stmt_list()?;
+        self.expect_kw("end")?;
+        self.expect_kw("loop")?;
+        self.eat_kw(";");
+        Ok(Stmt::While { cond, body })
+    }
+
+    /// `LOOP body END LOOP ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_bare_loop_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let body = self.parse_stmt_list()?;
+        self.expect_kw("end")?;
+        self.expect_kw("loop")?;
+        self.eat_kw(";");
+        Ok(Stmt::Loop { body })
+    }
+
+    /// `RETURN [expr] ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_return_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        if self.eat_kw(";") {
+            return Ok(Stmt::Return(None));
+        }
+        if self.peek_is("next") || self.peek_is("query") {
+            return Err(
+                "RETURN NEXT/QUERY (set-returning plpgsql) is out of scope (CONCEPT:EG-KG.query.concept-7)"
+                    .to_string(),
+            );
+        }
+        let e = self.capture_until(&[";"])?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Return(Some(e)))
+    }
+
+    /// `EXIT [WHEN cond] ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_exit_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let when = self.parse_optional_when()?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Exit { when })
+    }
+
+    /// `CONTINUE [WHEN cond] ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_continue_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let when = self.parse_optional_when()?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Continue { when })
+    }
+
+    /// `BEGIN body END ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_begin_block_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let body = self.parse_stmt_list()?;
+        if self.peek_is("exception") {
+            return Err(
+                "BEGIN … EXCEPTION handlers are out of scope (CONCEPT:EG-KG.query.concept-7)"
+                    .to_string(),
+            );
+        }
+        self.expect_kw("end")?;
+        self.eat_kw(";");
+        Ok(Stmt::Block(body))
+    }
+
+    /// `PERFORM expr ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_perform_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let e = self.capture_until(&[";"])?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Perform(format!("SELECT {e}")))
+    }
+
+    /// `ident := expr ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_assignment_stmt(&mut self) -> Result<Stmt, String> {
+        let var = self.advance().unwrap().text;
+        self.expect_kw(":=")?;
+        let expr = self.capture_until(&[";"])?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Assign { var, expr })
+    }
+
+    /// Any other embedded SQL verb we can run and discard (`INSERT`/`UPDATE`/
+    /// `DELETE`/`CALL`). Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_passthrough_sql_stmt(&mut self) -> Result<Stmt, String> {
+        let sql = self.capture_until(&[";"])?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Perform(sql))
+    }
+
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
         let t = self.peek().ok_or("unexpected end of body")?.clone();
         if t.is("if") {
             return self.parse_if();
         }
         if t.is("while") {
-            self.pos += 1;
-            let cond = self.capture_until(&["loop"])?;
-            self.expect_kw("loop")?;
-            let body = self.parse_stmt_list()?;
-            self.expect_kw("end")?;
-            self.expect_kw("loop")?;
-            self.eat_kw(";");
-            return Ok(Stmt::While { cond, body });
+            return self.parse_while_stmt();
         }
         if t.is("loop") {
-            self.pos += 1;
-            let body = self.parse_stmt_list()?;
-            self.expect_kw("end")?;
-            self.expect_kw("loop")?;
-            self.eat_kw(";");
-            return Ok(Stmt::Loop { body });
+            return self.parse_bare_loop_stmt();
         }
         if t.is("for") {
             return self.parse_for();
         }
         if t.is("return") {
-            self.pos += 1;
-            if self.eat_kw(";") {
-                return Ok(Stmt::Return(None));
-            }
-            if self.peek_is("next") || self.peek_is("query") {
-                return Err(
-                    "RETURN NEXT/QUERY (set-returning plpgsql) is out of scope (CONCEPT:EG-KG.query.concept-7)"
-                        .to_string(),
-                );
-            }
-            let e = self.capture_until(&[";"])?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Return(Some(e)));
+            return self.parse_return_stmt();
         }
         if t.is("exit") {
-            self.pos += 1;
-            let when = self.parse_optional_when()?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Exit { when });
+            return self.parse_exit_stmt();
         }
+        self.parse_stmt_kw_tail(&t)
+    }
+
+    /// The middle of `parse_stmt`'s dispatch: `CONTINUE`, `RAISE`, `BEGIN`,
+    /// `PERFORM`. Split out of `parse_stmt` (extract-method, cx/wD8) — same
+    /// terms, same order as before.
+    fn parse_stmt_kw_tail(&mut self, t: &Tok) -> Result<Stmt, String> {
         if t.is("continue") {
-            self.pos += 1;
-            let when = self.parse_optional_when()?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Continue { when });
+            return self.parse_continue_stmt();
         }
         if t.is("raise") {
             return self.parse_raise();
         }
         if t.is("begin") {
-            self.pos += 1;
-            let body = self.parse_stmt_list()?;
-            if self.peek_is("exception") {
-                return Err(
-                    "BEGIN … EXCEPTION handlers are out of scope (CONCEPT:EG-KG.query.concept-7)"
-                        .to_string(),
-                );
-            }
-            self.expect_kw("end")?;
-            self.eat_kw(";");
-            return Ok(Stmt::Block(body));
+            return self.parse_begin_block_stmt();
         }
         if t.is("perform") {
-            self.pos += 1;
-            let e = self.capture_until(&[";"])?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Perform(format!("SELECT {e}")));
+            return self.parse_perform_stmt();
         }
+        self.parse_stmt_expr_tail(t)
+    }
+
+    /// The tail of `parse_stmt`'s dispatch: `NULL ;`, `SELECT`,
+    /// assignment, a passthrough SQL verb, or the unsupported-statement
+    /// error. Split out of `parse_stmt_kw_tail` (extract-method, cx/wD8) —
+    /// same terms, same order as before.
+    fn parse_stmt_expr_tail(&mut self, t: &Tok) -> Result<Stmt, String> {
         if t.is("null") && self.toks.get(self.pos + 1).is_some_and(|n| n.text == ";") {
             self.pos += 2;
             return Ok(Stmt::Noop);
@@ -660,17 +736,11 @@ impl<'a> Parser<'a> {
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '_'))
             && self.toks.get(self.pos + 1).is_some_and(|n| n.text == ":=");
         if is_assign {
-            let var = self.advance().unwrap().text;
-            self.expect_kw(":=")?;
-            let expr = self.capture_until(&[";"])?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Assign { var, expr });
+            return self.parse_assignment_stmt();
         }
         // Any other embedded SQL verb we can run and discard.
         if t.is("insert") || t.is("update") || t.is("delete") || t.is("call") {
-            let sql = self.capture_until(&[";"])?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Perform(sql));
+            return self.parse_passthrough_sql_stmt();
         }
         Err(format!(
             "unsupported plpgsql statement starting at `{}` (CONCEPT:EG-KG.query.concept-7)",
