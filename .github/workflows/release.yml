@@ -682,10 +682,18 @@ jobs:
   # it is not what makes the kernel present.
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
-  #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip — so it
-  #    depends only on `build`. Tag-gated: only builds on a `v*` tag.
+  #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip.
+  #    Tag-gated: only builds on a `v*` tag. Also needs feature-matrix and
+  #    benchmarks (wD9-CIGATE, 2026-08-28): both are tag-gated to run on
+  #    exactly this same trigger, and without this a failing feature-build
+  #    combo or perf/recall regression could not stop this image from
+  #    shipping -- the same "continue-on-error hides debt from the publish
+  #    path" property this whole redesign exists to remove, just without
+  #    the keyword. `if:` below has no always()/failure()/cancelled(), so
+  #    GitHub's implicit success()-of-all-needs still applies with no
+  #    further change needed.
   docker-image:
-    needs: [build]
+    needs: [build, feature-matrix, benchmarks]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
@@ -724,12 +732,21 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────────────────
   # PUBLISH — GATED to a `v*` tag only; skipped entirely on a normal branch
-  # push or PR. Needs: build, so publishing is unreachable if `gates` or
-  # `build` failed.
+  # push or PR. Needs: build, feature-matrix, benchmarks, so publishing is
+  # unreachable if `gates`, `lint-and-architecture` (transitively, via
+  # `build`), `build`, `feature-matrix`, or `benchmarks` failed. The latter
+  # two were added 2026-08-28 (wD9-CIGATE): both already run on this exact
+  # tag trigger (see their own `if:`), but were not wired into this `needs:`
+  # list, so a failing feature-build combo or perf/recall regression could
+  # not stop a publish that ran in parallel with it -- the property this
+  # whole redesign exists to remove, just without the `continue-on-error`
+  # keyword. `if:` below has no always()/failure()/cancelled(), so GitHub's
+  # implicit success()-of-all-needs applies to the full `needs:` list
+  # automatically; no separate `needs.*.result` check is required.
   # ─────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish wheels to PyPI (release only)
-    needs: [build]
+    needs: [build, feature-matrix, benchmarks]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
