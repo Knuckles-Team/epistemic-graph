@@ -344,12 +344,40 @@ jobs:
       #
       # ⚠ If you add another job that builds this workspace with
       # `--all-features`, it needs this step too.
-      - name: Install libsasl2-dev (sasl2-sys links system Cyrus SASL)
+      #
+      # SECOND missing package, found by running this very step on CI
+      # (run 33204989595, 2026-08-28): with libsasl2-dev in place the build
+      # got 2m30s further and then died compiling librdkafka itself --
+      #   librdkafka/src/rdkafka_conf.c:60: fatal error: curl/curl.h:
+      #   No such file or directory
+      # -- even though rdkafka-sys passes `-DWITH_CURL=0` (our `cdc-kafka`
+      # feature does not ask for rdkafka's `curl`). That is an upstream
+      # librdkafka 2.12.1 defect, not a misconfiguration: `config.h` is
+      # generated with `#cmakedefine01 WITH_OAUTHBEARER_OIDC`, which ALWAYS
+      # emits `#define WITH_OAUTHBEARER_OIDC 0|1`, and `rdkafka_conf.c:59` is
+      # the single site in the whole tree that tests it with `#ifdef` instead
+      # of `#if` (rdkafka.c, rdkafka_sasl_oauthbearer.c, rdunittest.c and the
+      # other four sites in rdkafka_conf.c itself all use `#if` correctly).
+      # So the curl HEADER is unconditionally required by any cmake build of
+      # librdkafka 2.12.1, while every actual curl CALL stays behind `#if` and
+      # nothing links against libcurl. Headers only -- hence the -dev package
+      # and no linker change. Same invisibility mechanism as libsasl2: our
+      # build hosts have `libcurl4-openssl-dev` installed.
+      #
+      # NOT installed here, deliberately: `libssl-dev` (rdkafka's `ssl` ->
+      # openssl-sys) and zlib/zstd. `ubuntu-latest` ships libssl-dev (cmake
+      # reported "Found OpenSSL ... 3.0.13" in the same run) and librdkafka is
+      # configured with `-DWITH_ZLIB=0 -DWITH_ZSTD=0`, so nothing is red.
+      # openssl-sys is nevertheless the SAME class of incidental dependency --
+      # if the runner image ever drops libssl-dev this job fails identically.
+      - name: Install librdkafka/Cyrus-SASL build headers (system-linked C deps)
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libsasl2-dev
+          sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
           pkg-config --exists libsasl2 && echo "libsasl2 present: $(pkg-config --modversion libsasl2)"
+          test -f /usr/include/x86_64-linux-gnu/curl/curl.h || test -f /usr/include/curl/curl.h
+          echo "curl/curl.h present"
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable

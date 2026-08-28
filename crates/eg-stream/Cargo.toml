@@ -44,7 +44,8 @@ contract = ["dep:eg-modality"]
 # PLAINTEXT until CA-51, this only makes the CONFIG OPTION real rather than a
 # no-op string.
 #
-# ⚠ BUILD-HOST REQUIREMENT -- `libsasl2-dev` (wD10 / WD10-P-EGCI, 2026-08-28)
+# ⚠ BUILD-HOST REQUIREMENT -- `libsasl2-dev` + `libcurl4-openssl-dev`
+# (wD10 / WD10-P-EGCI, 2026-08-28)
 #
 # The paragraph above used to end "...just a C toolchain + cmake, both already
 # on every eg build host". That claim was true of OUR hosts and FALSE of the
@@ -59,14 +60,25 @@ contract = ["dep:eg-modality"]
 #     sasl2-sys-0.1.22+2.1.28/build.rs:343) when no system Cyrus SASL
 #     development package is present.
 #
-# So ANY build that turns `cdc-kafka` on needs `libsasl2-dev` (Debian/Ubuntu)
-# / `cyrus-sasl-devel` (RHEL) installed. Our dev + build hosts have it
-# (`ii libsasl2-dev 2.1.28+dfsg1-9ubuntu3`); the GitHub runner does not, so
+# `cmake-build` is also less hermetic than it looks: librdkafka 2.12.1
+# generates `config.h` with `#cmakedefine01 WITH_OAUTHBEARER_OIDC`, which
+# always DEFINES the macro (0 or 1), and `librdkafka/src/rdkafka_conf.c:59`
+# is the one site in the tree that tests it with `#ifdef` rather than `#if`.
+# So `#include <curl/curl.h>` is pulled in unconditionally and the curl
+# HEADERS are required even though rdkafka-sys passes `-DWITH_CURL=0`; every
+# actual curl call stays behind `#if`, so nothing links libcurl. Upstream
+# librdkafka defect, measured on CI run 33204989595.
+#
+# So ANY build that turns `cdc-kafka` on needs `libsasl2-dev` AND
+# `libcurl4-openssl-dev` (Debian/Ubuntu) / `cyrus-sasl-devel` +
+# `libcurl-devel` (RHEL) installed. Our dev + build hosts have both
+# (`ii libsasl2-dev 2.1.28+dfsg1-9ubuntu3`, `ii libcurl4-openssl-dev
+# 8.18.0-1ubuntu2.4`); the GitHub runner has neither, so
 # EVERY `Release` run on `main` since this feature landed died in
 # `lint-and-architecture`'s `cargo clippy --workspace --all-features
 # --all-targets` -- the ONE CI job that turns this feature on. (`full` does
 # NOT include `cdc-kafka`, so the five wheel legs never compile it.)
-# `.github/workflows/release.yml` now installs the package in that job; if you
+# `.github/workflows/release.yml` now installs both packages in that job; if you
 # add another job that builds `--all-features` over this workspace, it needs
 # the same step.
 #
