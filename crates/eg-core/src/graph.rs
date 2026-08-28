@@ -5254,51 +5254,75 @@ impl GraphCore {
             let Ok(val) = decode_property_value(entry.value().as_slice()) else {
                 continue;
             };
-            let Some(ntype) = val
-                .get("type")
-                .and_then(|v| v.as_str())
-                .or_else(|| val.get("node_type").and_then(|v| v.as_str()))
-            else {
+            Self::collect_ontology_terms(&val, &mut dedup);
+        }
+        Self::compile_ontology_index(dedup)
+    }
+
+    /// Fold ONE node's capability terms into the deduped term → metadata map.
+    /// A node whose type is not in [`CAPABILITY_NODE_TYPES`] contributes nothing,
+    /// and terms shorter than 3 chars are dropped (too noise-prone for whole-word
+    /// matching). First writer of a term wins, as before.
+    fn collect_ontology_terms(val: &serde_json::Value, dedup: &mut HashMap<String, OntologyMatch>) {
+        let Some(ntype) = val
+            .get("type")
+            .and_then(|v| v.as_str())
+            .or_else(|| val.get("node_type").and_then(|v| v.as_str()))
+        else {
+            return;
+        };
+        if !CAPABILITY_NODE_TYPES.contains(&ntype) {
+            return;
+        }
+        let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        // The owning fleet server: a Tool carries `mcp_server`; an MCPServer node
+        // IS the server, so fall back to its own name.
+        let server = val
+            .get("mcp_server")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| if ntype == "MCPServer" { name } else { "" });
+        for term in Self::ontology_terms(val, name) {
+            let lc = term.to_lowercase();
+            if lc.chars().count() < 3 {
+                continue;
+            }
+            dedup.entry(lc).or_insert_with(|| OntologyMatch {
+                term: term.to_string(),
+                node_type: ntype.to_string(),
+                label: name.to_string(),
+                mcp_server: server.to_string(),
+                score: term.chars().count() as f64,
+            });
+        }
+    }
+
+    /// A node's candidate capability terms: its `name` (when non-empty) followed
+    /// by every non-empty string in its `synonyms` array.
+    fn ontology_terms<'a>(val: &'a serde_json::Value, name: &'a str) -> Vec<&'a str> {
+        let mut terms: Vec<&'a str> = Vec::new();
+        if !name.is_empty() {
+            terms.push(name);
+        }
+        let Some(arr) = val.get("synonyms").and_then(|v| v.as_array()) else {
+            return terms;
+        };
+        for s in arr {
+            let Some(ss) = s.as_str() else {
                 continue;
             };
-            if !CAPABILITY_NODE_TYPES.contains(&ntype) {
-                continue;
-            }
-            let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            // The owning fleet server: a Tool carries `mcp_server`; an MCPServer node
-            // IS the server, so fall back to its own name.
-            let server = val
-                .get("mcp_server")
-                .and_then(|v| v.as_str())
-                .unwrap_or_else(|| if ntype == "MCPServer" { name } else { "" });
-            let mut terms: Vec<&str> = Vec::new();
-            if !name.is_empty() {
-                terms.push(name);
-            }
-            if let Some(arr) = val.get("synonyms").and_then(|v| v.as_array()) {
-                for s in arr {
-                    if let Some(ss) = s.as_str() {
-                        if !ss.is_empty() {
-                            terms.push(ss);
-                        }
-                    }
-                }
-            }
-            for term in terms {
-                let lc = term.to_lowercase();
-                if lc.chars().count() < 3 {
-                    continue;
-                }
-                dedup.entry(lc).or_insert_with(|| OntologyMatch {
-                    term: term.to_string(),
-                    node_type: ntype.to_string(),
-                    label: name.to_string(),
-                    mcp_server: server.to_string(),
-                    score: term.chars().count() as f64,
-                });
+            if !ss.is_empty() {
+                terms.push(ss);
             }
         }
+        terms
+    }
 
+    /// Compile the deduped term map into the aho-corasick automaton plus the
+    /// pattern-index-aligned metadata table. A build failure degrades to an empty
+    /// automaton (matches nothing) rather than panicking.
+    fn compile_ontology_index(
+        dedup: HashMap<String, OntologyMatch>,
+    ) -> (AhoCorasick, Vec<OntologyMatch>) {
         let mut patterns: Vec<String> = Vec::with_capacity(dedup.len());
         let mut metas: Vec<OntologyMatch> = Vec::with_capacity(dedup.len());
         for (lc, meta) in dedup {
@@ -6188,28 +6212,47 @@ impl GraphCore {
     pub fn get_subgraph(&self, node_ids: &[String]) -> GraphView {
         let topo = self.topo.read();
         let mut view = GraphView::default();
+        // Both halves run under the SAME held topology read guard, exactly as the
+        // single-body version did — neither takes a lock of its own.
+        self.copy_subgraph_nodes(&topo, node_ids, &mut view);
+        self.copy_subgraph_edges(&topo, &mut view);
+        view
+    }
 
-        // Copy matching nodes (those that actually exist).
+    /// Copy the requested nodes (those that actually exist) into `view`, with
+    /// their properties and their point-in-time TBox membership.
+    ///
+    /// The caller holds the topology READ guard and passes it in as `topo`.
+    fn copy_subgraph_nodes(&self, topo: &Topology, node_ids: &[String], view: &mut GraphView) {
         for nid in node_ids {
-            if topo.node_map.contains_key(nid) && !view.node_map.contains_key(nid) {
-                let new_idx = view.graph.add_node(nid.clone());
-                view.node_map.insert(nid.clone(), new_idx);
-                if let Some(props) = self.node_properties.get(nid) {
-                    view.node_properties.insert(nid.clone(), props.clone());
-                }
-                // BUG A3: point-in-time TBox membership for this induced
-                // subgraph, consulted by `filter_view`.
-                if self.is_schema_node(nid) {
-                    view.schema_node_ids.insert(nid.clone());
-                }
+            if !topo.node_map.contains_key(nid) || view.node_map.contains_key(nid) {
+                continue;
+            }
+            let new_idx = view.graph.add_node(nid.clone());
+            view.node_map.insert(nid.clone(), new_idx);
+            if let Some(props) = self.node_properties.get(nid) {
+                view.node_properties.insert(nid.clone(), props.clone());
+            }
+            // BUG A3: point-in-time TBox membership for this induced
+            // subgraph, consulted by `filter_view`.
+            if self.is_schema_node(nid) {
+                view.schema_node_ids.insert(nid.clone());
             }
         }
+    }
 
-        // Walk only outgoing adjacency of selected nodes instead of scanning the
-        // complete edge-property map. Parallel topology edges share one endpoint
-        // property vector, so visit each endpoint pair once.
+    /// Copy the induced edges into `view` by walking only the OUTGOING adjacency
+    /// of the selected nodes, instead of scanning the complete edge-property map.
+    /// Parallel topology edges share one endpoint property vector, so each
+    /// endpoint pair is visited once.
+    ///
+    /// The caller holds the topology READ guard and passes it in as `topo`. The
+    /// selected ids are materialised first so the per-pair copy can take `view`
+    /// mutably.
+    fn copy_subgraph_edges(&self, topo: &Topology, view: &mut GraphView) {
         let mut seen_pairs = std::collections::HashSet::new();
-        for src in view.node_map.keys() {
+        let sources: Vec<String> = view.node_map.keys().cloned().collect();
+        for src in &sources {
             let Some(&source_index) = topo.node_map.get(src) else {
                 continue;
             };
@@ -6223,23 +6266,29 @@ impl GraphCore {
                 {
                     continue;
                 }
-                let Some(props) = self.edge_properties.get(&(src.clone(), tgt.clone())) else {
-                    continue;
-                };
-                let (Some(&s), Some(&t)) = (view.node_map.get(src), view.node_map.get(tgt)) else {
-                    continue;
-                };
-                for prop in props.iter() {
-                    view.graph.add_edge(s, t, format!("{}:{}", src, tgt));
-                    view.edge_properties
-                        .entry((src.clone(), tgt.clone()))
-                        .or_default()
-                        .push(prop.clone());
-                }
+                self.copy_subgraph_edge_pair(src, tgt, view);
             }
         }
+    }
 
-        view
+    /// Copy every parallel edge blob between one selected `(src, tgt)` pair.
+    fn copy_subgraph_edge_pair(&self, src: &str, tgt: &str, view: &mut GraphView) {
+        let Some(props) = self
+            .edge_properties
+            .get(&(src.to_string(), tgt.to_string()))
+        else {
+            return;
+        };
+        let (Some(&s), Some(&t)) = (view.node_map.get(src), view.node_map.get(tgt)) else {
+            return;
+        };
+        for prop in props.iter() {
+            view.graph.add_edge(s, t, format!("{}:{}", src, tgt));
+            view.edge_properties
+                .entry((src.to_string(), tgt.to_string()))
+                .or_default()
+                .push(prop.clone());
+        }
     }
 
     // ── Read-Only Compute Snapshots (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
