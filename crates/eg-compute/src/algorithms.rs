@@ -208,6 +208,15 @@ pub fn degree_centrality_all(core: &GraphView) -> Vec<(String, f64)> {
 /// (Phase C-D). Each source's contribution is computed in parallel; the partials
 /// are then summed back in SOURCE ORDER, so the floating-point result is bit-for-bit
 /// identical to the sequential version (determinism preserved).
+/// (visit-order stack, predecessor DAG, shortest-path counts `sigma`) — the
+/// result of one BFS shortest-path count pass. `#[allow(clippy::type_complexity)]`-
+/// avoiding alias for [`bfs_shortest_path_counts`] (cx/wD8).
+type BfsShortestPathCounts = (
+    Vec<NodeIndex>,
+    HashMap<NodeIndex, Vec<NodeIndex>>,
+    HashMap<NodeIndex, f64>,
+);
+
 /// Single-source BFS shortest-path counting (the forward pass of Brandes'
 /// algorithm). Split out of `betweenness_centrality`'s `source_contribution`
 /// closure (extract-method, cx/wD8) — same terms, same arithmetic order as
@@ -217,11 +226,7 @@ fn bfs_shortest_path_counts(
     core: &GraphView,
     nodes: &[NodeIndex],
     source: NodeIndex,
-) -> (
-    Vec<NodeIndex>,
-    HashMap<NodeIndex, Vec<NodeIndex>>,
-    HashMap<NodeIndex, f64>,
-) {
+) -> BfsShortestPathCounts {
     let mut stack = Vec::new();
     let mut predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
     let mut sigma: HashMap<NodeIndex, f64> = HashMap::new();
@@ -1502,6 +1507,11 @@ fn find(parent: &mut [usize], mut x: usize) -> usize {
     x
 }
 
+/// (parent, degree, extends_pairs) — the union-find result of
+/// [`build_same_as_clusters`]. `#[allow(clippy::type_complexity)]`-avoiding
+/// alias (cx/wD8).
+type SameAsClusters = (Vec<usize>, Vec<usize>, Vec<(usize, usize, f64)>);
+
 /// Union-find over SAME-TYPE pairs ≥ `merge_threshold` (the same_as bar).
 /// Split out of `resolve_candidates` (extract-method, cx/wD8) — same terms,
 /// same order as before. Returns (parent, degree, extends_pairs).
@@ -1509,7 +1519,7 @@ fn build_same_as_clusters(
     nodes: &[(String, Vec<f64>, String)],
     pairs: &[(usize, usize, f64)],
     merge_threshold: f64,
-) -> (Vec<usize>, Vec<usize>, Vec<(usize, usize, f64)>) {
+) -> SameAsClusters {
     let mut parent: Vec<usize> = (0..nodes.len()).collect();
     let mut degree = vec![0usize; nodes.len()];
     let mut extends_pairs: Vec<(usize, usize, f64)> = Vec::new();
