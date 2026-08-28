@@ -282,11 +282,7 @@ fn skip_tokenize_trivia(b: &[u8], i: usize) -> Option<usize> {
 /// at `i`, kept as one token including quotes. Split out of `tokenize`
 /// (extract-method, cx/wD8) — same terms, same order as before. `Ok(None)`
 /// means `b[i]` isn't a `'`.
-fn tokenize_string_literal(
-    src: &str,
-    b: &[u8],
-    i: usize,
-) -> Result<Option<(Tok, usize)>, String> {
+fn tokenize_string_literal(src: &str, b: &[u8], i: usize) -> Result<Option<(Tok, usize)>, String> {
     if b[i] != b'\'' {
         return Ok(None);
     }
@@ -879,7 +875,10 @@ impl<'a> Parser<'a> {
     /// (extract-method, cx/wD8) — same terms, same order as before. Returns
     /// (vars, into_start, into_end) — the byte span of `INTO vars` to cut
     /// out of the reconstructed SELECT text.
-    fn parse_select_into_vars(&self, into_idx: usize) -> Result<(Vec<String>, usize, usize), String> {
+    fn parse_select_into_vars(
+        &self,
+        into_idx: usize,
+    ) -> Result<(Vec<String>, usize, usize), String> {
         let mut vars = Vec::new();
         let mut j = into_idx + 1;
         let into_start = self.toks[into_idx].start;
@@ -1020,6 +1019,111 @@ impl<'a> Interp<'a> {
         Ok(Flow::Normal)
     }
 
+    /// `IF arms... [ELSE els] END IF`. Split out of `exec` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn exec_if(
+        &mut self,
+        arms: &[(String, Vec<Stmt>)],
+        els: &Option<Vec<Stmt>>,
+    ) -> Result<Flow, String> {
+        for (cond, body) in arms {
+            if self.eval_bool(cond)? {
+                return self.exec_list(body);
+            }
+        }
+        if let Some(body) = els {
+            return self.exec_list(body);
+        }
+        Ok(Flow::Normal)
+    }
+
+    /// `WHILE cond LOOP body END LOOP`. Split out of `exec` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn exec_while(&mut self, cond: &str, body: &[Stmt]) -> Result<Flow, String> {
+        while self.eval_bool(cond)? {
+            self.tick()?;
+            match self.exec_list(body)? {
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Exit => break,
+                Flow::Continue | Flow::Normal => {}
+            }
+        }
+        Ok(Flow::Normal)
+    }
+
+    /// `LOOP body END LOOP`. Split out of `exec` (extract-method, cx/wD8) —
+    /// same terms, same order as before.
+    fn exec_loop(&mut self, body: &[Stmt]) -> Result<Flow, String> {
+        loop {
+            self.tick()?;
+            match self.exec_list(body)? {
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Exit => break,
+                Flow::Continue | Flow::Normal => {}
+            }
+        }
+        Ok(Flow::Normal)
+    }
+
+    /// `FOR var IN [REVERSE] lo..hi [BY step] LOOP body END LOOP`. Split out
+    /// of `exec` (extract-method, cx/wD8) — same terms, same order as
+    /// before.
+    #[allow(clippy::too_many_arguments)]
+    fn exec_for(
+        &mut self,
+        var: &str,
+        reverse: bool,
+        lo: &str,
+        hi: &str,
+        step: &Option<String>,
+        body: &[Stmt],
+    ) -> Result<Flow, String> {
+        let lo = self.eval(lo)?.as_int()?;
+        let hi = self.eval(hi)?.as_int()?;
+        let step = match step {
+            Some(s) => self.eval(s)?.as_int()?.abs().max(1),
+            None => 1,
+        };
+        let key = var.to_ascii_lowercase();
+        let mut i = lo;
+        // Postgres FOR range is inclusive of both bounds.
+        loop {
+            let done = if reverse { i < hi } else { i > hi };
+            if done {
+                break;
+            }
+            self.tick()?;
+            self.env.insert(key.clone(), Val::Int(i));
+            match self.exec_list(body)? {
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Exit => break,
+                Flow::Continue | Flow::Normal => {}
+            }
+            if reverse {
+                i -= step;
+            } else {
+                i += step;
+            }
+        }
+        Ok(Flow::Normal)
+    }
+
+    /// `SELECT ... INTO vars`. Split out of `exec` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn exec_select_into(&mut self, vars: &[String], select_sql: &str) -> Result<Flow, String> {
+        let sql = substitute_vars(select_sql, &self.env);
+        let res = self.query(&sql)?;
+        let row = res.rows.first();
+        for (i, var) in vars.iter().enumerate() {
+            let v = row
+                .and_then(|r| r.get(i))
+                .map(Val::from_json)
+                .unwrap_or(Val::Null);
+            self.env.insert(var.to_ascii_lowercase(), v);
+        }
+        Ok(Flow::Normal)
+    }
+
     fn exec(&mut self, stmt: &Stmt) -> Result<Flow, String> {
         match stmt {
             Stmt::Noop => Ok(Flow::Normal),
@@ -1030,39 +1134,9 @@ impl<'a> Interp<'a> {
             }
             Stmt::Return(None) => Ok(Flow::Return(Val::Null)),
             Stmt::Return(Some(e)) => Ok(Flow::Return(self.eval(e)?)),
-            Stmt::If { arms, els } => {
-                for (cond, body) in arms {
-                    if self.eval_bool(cond)? {
-                        return self.exec_list(body);
-                    }
-                }
-                if let Some(body) = els {
-                    return self.exec_list(body);
-                }
-                Ok(Flow::Normal)
-            }
-            Stmt::While { cond, body } => {
-                while self.eval_bool(cond)? {
-                    self.tick()?;
-                    match self.exec_list(body)? {
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        Flow::Exit => break,
-                        Flow::Continue | Flow::Normal => {}
-                    }
-                }
-                Ok(Flow::Normal)
-            }
-            Stmt::Loop { body } => {
-                loop {
-                    self.tick()?;
-                    match self.exec_list(body)? {
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        Flow::Exit => break,
-                        Flow::Continue | Flow::Normal => {}
-                    }
-                }
-                Ok(Flow::Normal)
-            }
+            Stmt::If { arms, els } => self.exec_if(arms, els),
+            Stmt::While { cond, body } => self.exec_while(cond, body),
+            Stmt::Loop { body } => self.exec_loop(body),
             Stmt::For {
                 var,
                 reverse,
@@ -1070,36 +1144,7 @@ impl<'a> Interp<'a> {
                 hi,
                 step,
                 body,
-            } => {
-                let lo = self.eval(lo)?.as_int()?;
-                let hi = self.eval(hi)?.as_int()?;
-                let step = match step {
-                    Some(s) => self.eval(s)?.as_int()?.abs().max(1),
-                    None => 1,
-                };
-                let key = var.to_ascii_lowercase();
-                let mut i = lo;
-                // Postgres FOR range is inclusive of both bounds.
-                loop {
-                    let done = if *reverse { i < hi } else { i > hi };
-                    if done {
-                        break;
-                    }
-                    self.tick()?;
-                    self.env.insert(key.clone(), Val::Int(i));
-                    match self.exec_list(body)? {
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        Flow::Exit => break,
-                        Flow::Continue | Flow::Normal => {}
-                    }
-                    if *reverse {
-                        i -= step;
-                    } else {
-                        i += step;
-                    }
-                }
-                Ok(Flow::Normal)
-            }
+            } => self.exec_for(var, *reverse, lo, hi, step, body),
             Stmt::Exit { when } => match when {
                 Some(c) if !self.eval_bool(c)? => Ok(Flow::Normal),
                 _ => Ok(Flow::Exit),
@@ -1116,19 +1161,7 @@ impl<'a> Interp<'a> {
                     Ok(Flow::Normal)
                 }
             }
-            Stmt::SelectInto { vars, select_sql } => {
-                let sql = substitute_vars(select_sql, &self.env);
-                let res = self.query(&sql)?;
-                let row = res.rows.first();
-                for (i, var) in vars.iter().enumerate() {
-                    let v = row
-                        .and_then(|r| r.get(i))
-                        .map(Val::from_json)
-                        .unwrap_or(Val::Null);
-                    self.env.insert(var.to_ascii_lowercase(), v);
-                }
-                Ok(Flow::Normal)
-            }
+            Stmt::SelectInto { vars, select_sql } => self.exec_select_into(vars, select_sql),
             Stmt::Perform(sql) => {
                 let sql = substitute_vars(sql, &self.env);
                 self.query(&sql)?;
