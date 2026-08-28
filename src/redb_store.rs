@@ -9463,24 +9463,12 @@ fn apply_renew_work_item_lease_row(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply_cas_work_item_metadata_row(
-    graph: &str,
+/// Shape validation for a `CasWorkItemMetadata` request, in the original order:
+/// exactly one settable field, a non-empty expected status set, and non-blank
+/// tenant/work-item identifiers.
+fn validate_cas_work_item_metadata_request(
     request: &crate::epistemic_operations_ext::CasWorkItemMetadataRequest,
-    nodes: &mut redb::Table<(&str, &str), &[u8]>,
-    crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
-    let decode = |bytes: &[u8]| -> Result<serde_json::Map<String, serde_json::Value>, String> {
-        decode_durable(bytes)
-    };
-    use crate::epistemic_operations_ext::{
-        CasWorkItemMetadataOutcome, CasWorkItemMetadataResult,
-        CasWorkItemMetadataResultSchemaVersion,
-    };
-
-    let tenant = &request.tenant_ref;
-    let work_item_id = &request.work_item_id;
-    let now_ms = request.now_ms;
-
+) -> Result<(), String> {
     let field_pairs_set = [
         request.set_checkpoint_id.is_some(),
         request.set_metadata_msgpack.is_some(),
@@ -9499,9 +9487,104 @@ fn apply_cas_work_item_metadata_row(
     if request.expected_status.is_empty() {
         return Err("CasWorkItemMetadata requires a non-empty expected_status".into());
     }
-    if tenant.trim().is_empty() || work_item_id.trim().is_empty() {
+    if request.tenant_ref.trim().is_empty() || request.work_item_id.trim().is_empty() {
         return Err("CasWorkItemMetadata requires tenant_ref and work_item_id".into());
     }
+    Ok(())
+}
+
+/// The status / tenant / lease-fence preconditions of a metadata CAS.  All three
+/// are evaluated (as before) and the conjunction decides; a `false` here is a
+/// `Conflict` outcome, not an error.
+fn cas_work_item_metadata_preconditions_ok(
+    request: &crate::epistemic_operations_ext::CasWorkItemMetadataRequest,
+    props: &serde_json::Map<String, serde_json::Value>,
+) -> bool {
+    let tenant = &request.tenant_ref;
+    let status_ok = request
+        .expected_status
+        .iter()
+        .any(|status| status == property_string(props, "status"));
+    let tenant_ok = property_string(props, "tenant") == tenant;
+    let lease_ok = match &request.expected_lease {
+        Some(fence) => {
+            property_string(props, "lease_owner") == fence.worker_ref
+                && property_u64(props, "lease_epoch") == fence.lease_epoch
+                && property_u64(props, "fencing_token") == fence.fencing_token
+        }
+        None => true,
+    };
+    status_ok && tenant_ok && lease_ok
+}
+
+/// Apply the one settable field of a metadata CAS to `props`, after checking its
+/// own expected pre-image.  Returns `Ok(false)` when that pre-image does not
+/// match -- the caller turns that into a `Conflict` outcome, exactly as the
+/// inline branches did.  `props` is only mutated on the matching path.
+fn apply_cas_work_item_metadata_field(
+    request: &crate::epistemic_operations_ext::CasWorkItemMetadataRequest,
+    props: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<bool, String> {
+    if let Some(set_checkpoint_id) = &request.set_checkpoint_id {
+        let current_checkpoint_id = props
+            .get("checkpoint_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        if current_checkpoint_id != request.expected_checkpoint_id {
+            return Ok(false);
+        }
+        props.insert(
+            "checkpoint_id".into(),
+            serde_json::Value::String(set_checkpoint_id.clone()),
+        );
+    } else if let Some(set_metadata_bytes) = &request.set_metadata_msgpack {
+        let current_metadata = props
+            .get("metadata")
+            .cloned()
+            .unwrap_or(serde_json::Value::Object(Default::default()));
+        let expected_metadata = match &request.expected_metadata_msgpack {
+            Some(bytes) => decode_durable::<serde_json::Value>(bytes)
+                .map_err(|_| "invalid expected_metadata_msgpack".to_string())?,
+            None => serde_json::Value::Object(Default::default()),
+        };
+        if current_metadata != expected_metadata {
+            return Ok(false);
+        }
+        let set_metadata = decode_durable::<serde_json::Value>(set_metadata_bytes)
+            .map_err(|_| "invalid set_metadata_msgpack".to_string())?;
+        props.insert("metadata".into(), set_metadata);
+    } else if let Some(set_prio_bucket) = request.set_prio_bucket {
+        let expected_prio_bucket = request.expected_prio_bucket.unwrap_or(0);
+        let current_prio_bucket = props
+            .get("prio_bucket")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+        if current_prio_bucket != expected_prio_bucket {
+            return Ok(false);
+        }
+        props.insert(
+            "prio_bucket".into(),
+            serde_json::Value::from(set_prio_bucket),
+        );
+    }
+    Ok(true)
+}
+
+fn apply_cas_work_item_metadata_row(
+    graph: &str,
+    request: &crate::epistemic_operations_ext::CasWorkItemMetadataRequest,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    use crate::epistemic_operations_ext::{
+        CasWorkItemMetadataOutcome, CasWorkItemMetadataResult,
+        CasWorkItemMetadataResultSchemaVersion,
+    };
+
+    let work_item_id = &request.work_item_id;
+    let now_ms = request.now_ms;
+
+    validate_cas_work_item_metadata_request(request)?;
 
     let respond = |outcome: CasWorkItemMetadataOutcome, changed: Vec<String>| {
         Ok(Some(crate::protocol::ResultPayload::raw(
@@ -9522,68 +9605,17 @@ fn apply_cas_work_item_metadata_row(
     let Some(bytes) = current else {
         return respond(CasWorkItemMetadataOutcome::NotFound, vec![]);
     };
-    let mut props = decode(&bytes)?;
+    let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
 
-    let status_ok = request
-        .expected_status
-        .iter()
-        .any(|status| status == property_string(&props, "status"));
-    let tenant_ok = property_string(&props, "tenant") == tenant;
-    let lease_ok = match &request.expected_lease {
-        Some(fence) => {
-            property_string(&props, "lease_owner") == fence.worker_ref
-                && property_u64(&props, "lease_epoch") == fence.lease_epoch
-                && property_u64(&props, "fencing_token") == fence.fencing_token
-        }
-        None => true,
-    };
-    if !status_ok || !tenant_ok || !lease_ok {
+    if !cas_work_item_metadata_preconditions_ok(request, &props) {
+        return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
+    }
+
+    if !apply_cas_work_item_metadata_field(request, &mut props)? {
         return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
     }
 
     let now_s = now_ms as f64 / 1000.0;
-    if let Some(set_checkpoint_id) = &request.set_checkpoint_id {
-        let current_checkpoint_id = props
-            .get("checkpoint_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-        if current_checkpoint_id != request.expected_checkpoint_id {
-            return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
-        }
-        props.insert(
-            "checkpoint_id".into(),
-            serde_json::Value::String(set_checkpoint_id.clone()),
-        );
-    } else if let Some(set_metadata_bytes) = &request.set_metadata_msgpack {
-        let current_metadata = props
-            .get("metadata")
-            .cloned()
-            .unwrap_or(serde_json::Value::Object(Default::default()));
-        let expected_metadata = match &request.expected_metadata_msgpack {
-            Some(bytes) => decode_durable::<serde_json::Value>(bytes)
-                .map_err(|_| "invalid expected_metadata_msgpack".to_string())?,
-            None => serde_json::Value::Object(Default::default()),
-        };
-        if current_metadata != expected_metadata {
-            return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
-        }
-        let set_metadata = decode_durable::<serde_json::Value>(set_metadata_bytes)
-            .map_err(|_| "invalid set_metadata_msgpack".to_string())?;
-        props.insert("metadata".into(), set_metadata);
-    } else if let Some(set_prio_bucket) = request.set_prio_bucket {
-        let expected_prio_bucket = request.expected_prio_bucket.unwrap_or(0);
-        let current_prio_bucket = props
-            .get("prio_bucket")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0);
-        if current_prio_bucket != expected_prio_bucket {
-            return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
-        }
-        props.insert(
-            "prio_bucket".into(),
-            serde_json::Value::from(set_prio_bucket),
-        );
-    }
     props.insert("updated_at".into(), serde_json::Value::from(now_s));
     write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
     respond(
