@@ -10042,12 +10042,12 @@ fn commit_work_item_release_downstream(
 #[allow(clippy::too_many_arguments)]
 fn apply_commit_work_item_result_row(
     graph: &str,
-    tenant: &String,
-    work_item_id: &String,
-    worker_id: &String,
+    tenant: &str,
+    work_item_id: &str,
+    worker_id: &str,
     lease_epoch: u64,
     fencing_token: u64,
-    outcome: &String,
+    outcome: &str,
     result_ref: &Option<String>,
     error_ref: &Option<String>,
     retryable: bool,
@@ -10061,7 +10061,7 @@ fn apply_commit_work_item_result_row(
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let current = nodes
-        .get((graph, work_item_id.as_str()))
+        .get((graph, work_item_id))
         .map_err(|e| e.to_string())?
         .map(|value| crypto.unseal(value.value()))
         .transpose()?;
@@ -10074,16 +10074,16 @@ fn apply_commit_work_item_result_row(
     let pre_props = props.clone();
     if let Some(payload) = commit_work_item_result_precheck(
         &props,
-        work_item_id.as_str(),
-        tenant.as_str(),
-        worker_id.as_str(),
+        work_item_id,
+        tenant,
+        worker_id,
         lease_epoch,
         fencing_token,
         now_ms,
     ) {
         return Ok(Some(payload));
     }
-    if !matches!(outcome.as_str(), "succeeded" | "failed" | "cancelled") {
+    if !matches!(outcome, "succeeded" | "failed" | "cancelled") {
         return Err("CommitWorkItemResult outcome must be succeeded, failed, or cancelled".into());
     }
     let now_s = now_ms as f64 / 1000.0;
@@ -10097,19 +10097,13 @@ fn apply_commit_work_item_result_row(
         property_u64(&props, "attempt") < property_u64(&props, "max_attempts").max(1);
     let committed_status = commit_work_item_apply_status(
         &mut props,
-        outcome.as_str(),
+        outcome,
         retryable,
         lease_epoch,
         fencing_token,
         now_s,
     );
-    commit_work_item_record_result_refs(
-        &mut props,
-        worker_id.as_str(),
-        result_ref,
-        error_ref,
-        now_s,
-    );
+    commit_work_item_record_result_refs(&mut props, worker_id, result_ref, error_ref, now_s);
     development_lane::transition_work_item_terminal_hold(
         graph,
         &pre_props,
@@ -10132,7 +10126,7 @@ fn apply_commit_work_item_result_row(
     // scheduled retry, else the terminal). The chart must independently agree.
     #[cfg(feature = "statechart")]
     {
-        let event = match outcome.as_str() {
+        let event = match outcome {
             "succeeded" => crate::work_item_statechart::EV_COMMIT_SUCCEEDED,
             "cancelled" => crate::work_item_statechart::EV_COMMIT_CANCELLED,
             _ => crate::work_item_statechart::EV_COMMIT_FAILED,
@@ -10154,7 +10148,7 @@ fn apply_commit_work_item_result_row(
     }
     write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
 
-    let mut changed = vec![work_item_id.clone()];
+    let mut changed = vec![work_item_id.to_string()];
     if committed_status == "succeeded" {
         commit_work_item_release_downstream(graph, &props, now_s, nodes, crypto, &mut changed)?;
     }
