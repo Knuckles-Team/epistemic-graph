@@ -1382,7 +1382,6 @@ fn lane_cleanup_value(
 // fencing, and expected-state checks) with no natural grouping that would
 // not just reintroduce the same fields (several borrow the table's own
 // lifetime) behind an extra indirection. No external/public callers.
-#[allow(clippy::too_many_arguments)]
 /// The projection this module keeps from a validated WorkItem row: the
 /// lifecycle intent's placement, or the cleanup correlation.
 struct WorkItemProjection {
@@ -1563,6 +1562,7 @@ fn work_item_cleanup_projection(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn load_work_item(
     nodes: &redb::Table<(&str, &str), &[u8]>,
     graph: &str,
@@ -3313,6 +3313,267 @@ where
     Ok(Some(value))
 }
 
+/// Do the reserve request's own fields disagree with its intent, or is a
+/// required identity/fence field missing?
+fn reserve_request_inconsistent(request: &DevelopmentLaneReserveRequest) -> bool {
+    request.tenant_ref != request.intent.tenant_ref
+        || request.owner_id != request.intent.owner_id
+        || request.work_item_id.is_empty()
+        || request.attempt == 0
+        || request.lease_epoch == 0
+        || request.fencing_token == 0
+        || request.work_item_fence.is_empty()
+        || request.idempotency_key.is_empty()
+}
+
+/// The reserve request's own shape, before any policy, hold or WorkItem is
+/// loaded.  Every failure here is reported with revision 0.
+fn reserve_request_decision(request: &DevelopmentLaneReserveRequest) -> Result<(), LaneDecision> {
+    intent_validate(&request.intent)?;
+    if reserve_request_inconsistent(request) {
+        return Err(LaneDecision::Invalid);
+    }
+    for (value, name) in [
+        (&request.tenant_ref, "reserve tenant"),
+        (&request.work_item_id, "reserve WorkItem"),
+        (&request.owner_id, "reserve owner"),
+        (&request.work_item_fence, "reserve fence"),
+        (&request.idempotency_key, "reserve invocation"),
+    ] {
+        if text(value, name).is_err() {
+            return Err(LaneDecision::Invalid);
+        }
+    }
+    Ok(())
+}
+
+/// Does the intent name a different policy than the tenant's current one, or
+/// ask for a TTL outside its window?
+fn reserve_policy_mismatch(
+    policy: &DevelopmentLaneQuotaPolicy,
+    intent: &DevelopmentLaneIntent,
+) -> bool {
+    policy.policy_name != intent.quota_policy_name
+        || policy.policy_version != intent.quota_policy_version
+        || intent.ttl_ms < policy.min_ttl_ms
+        || intent.ttl_ms > policy.max_ttl_ms
+}
+
+/// The outcome of the reserve policy gate: a refusal with the revision it must
+/// be reported against, or the policy the reserve is admitted under.
+enum ReservePolicyGate {
+    Refused(LaneDecision, u64),
+    Ready {
+        policy: DurableLanePolicy,
+        policy_revision: u64,
+        global_policy_revision: u64,
+    },
+}
+
+/// Load the tenant and graph-global policies and prove they agree with each
+/// other and with the request's intent.
+fn reserve_policy_gate(
+    policies: &redb::Table<(&str, &str), &[u8]>,
+    graph: &str,
+    request: &DevelopmentLaneReserveRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<ReservePolicyGate, String> {
+    let policy = load_policy(policies, graph, &request.tenant_ref, crypto)?;
+    let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
+    let global_policy = load_global_policy(policies, graph, crypto)?;
+    let global_policy_revision = global_policy
+        .as_ref()
+        .map_or(0, |value| value.policy_revision);
+    let Some(policy) = policy else {
+        return Ok(ReservePolicyGate::Refused(LaneDecision::Policy, 0));
+    };
+    let Some(global_policy) = global_policy else {
+        return Ok(ReservePolicyGate::Refused(
+            LaneDecision::Policy,
+            policy_revision,
+        ));
+    };
+    if global_policy.policy.drain_only {
+        return Ok(ReservePolicyGate::Refused(
+            LaneDecision::Drained,
+            policy_revision,
+        ));
+    }
+    if policy.global_policy_revision != global_policy_revision {
+        return Ok(ReservePolicyGate::Refused(
+            LaneDecision::Conflict,
+            policy_revision,
+        ));
+    }
+    if !global_policy_equal(&policy.policy, &global_policy.policy) {
+        return Ok(ReservePolicyGate::Refused(
+            LaneDecision::Conflict,
+            policy_revision,
+        ));
+    }
+    if reserve_policy_mismatch(&policy.policy, &request.intent) {
+        return Ok(ReservePolicyGate::Refused(
+            LaneDecision::Policy,
+            policy_revision,
+        ));
+    }
+    if policy.policy.drain_only {
+        return Ok(ReservePolicyGate::Refused(
+            LaneDecision::Drained,
+            policy_revision,
+        ));
+    }
+    Ok(ReservePolicyGate::Ready {
+        policy,
+        policy_revision,
+        global_policy_revision,
+    })
+}
+
+/// The derived hold identity is either already present -- an exact replay or
+/// an input conflict -- or already claimed for this WorkItem attempt.  `None`
+/// means the reserve may proceed to allocate.
+fn reserve_identity_gate(
+    graph: &str,
+    request: &DevelopmentLaneReserveRequest,
+    derived_hold_id: &str,
+    holds: &redb::Table<(&str, &str), &[u8]>,
+    work_item_index: &redb::Table<(&str, &str, u64), &str>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<(LaneDecision, Option<DurableLaneHold>)>, String> {
+    if let Some(existing) = hold_load(holds, graph, derived_hold_id, crypto)? {
+        if hold_immutable_equal(&existing, request) {
+            return Ok(Some((LaneDecision::Idempotent, Some(existing))));
+        }
+        return Ok(Some((LaneDecision::InputConflict, None)));
+    }
+    let Some(existing) = work_item_index_id(
+        work_item_index,
+        graph,
+        &request.work_item_id,
+        request.attempt,
+    )?
+    else {
+        return Ok(None);
+    };
+    let existing = index_hold_id(holds, graph, &existing, crypto)
+        .map_err(|_| "development lane WorkItem index is orphaned".to_string())?;
+    if existing != derived_hold_id {
+        return Ok(Some((LaneDecision::InputConflict, None)));
+    }
+    Err("development lane WorkItem index disagrees with hold identity".to_string())
+}
+
+/// Does the linked resource reservation carry a different state/lease/fence
+/// tuple than this reserve request?
+fn resource_fence_mismatch(
+    resource: &crate::epistemic_operations::ResourceReservationRecord,
+    request: &DevelopmentLaneReserveRequest,
+) -> bool {
+    resource.state != ResourceReservationRecordState::Reserved
+        || resource.expires_at_ms <= request.now_ms
+        || resource.tenant_ref != request.tenant_ref
+        || resource.work_item_id != request.work_item_id
+        || resource.owner_id != request.owner_id
+        || resource.attempt != request.attempt
+        || resource.lease_epoch != request.lease_epoch
+        || resource.fencing_token != request.fencing_token
+        || resource.fence != request.work_item_fence
+}
+
+/// Does the reservation target the exact host placement the intent asks for?
+fn resource_target_matches(
+    resource: &crate::epistemic_operations::ResourceReservationRecord,
+    intent: &DevelopmentLaneIntent,
+) -> bool {
+    match intent.host_target_kind {
+        DevelopmentLaneIntentHostTargetKind::Local => {
+            resource.target_kind
+                == crate::epistemic_operations::ResourceReservationRecordTargetKind::Local
+                && resource.target_alias.is_none()
+        }
+        DevelopmentLaneIntentHostTargetKind::InventoryAlias => {
+            resource.target_kind
+                == crate::epistemic_operations::ResourceReservationRecordTargetKind::InventoryAlias
+                && resource.target_alias == intent.host_target_alias
+        }
+    }
+}
+
+/// Does the reservation describe a different placement or content than the
+/// intent plus the host the proven WorkItem carries?
+fn resource_placement_mismatch(
+    resource: &crate::epistemic_operations::ResourceReservationRecord,
+    intent: &DevelopmentLaneIntent,
+    host_ref: &str,
+) -> bool {
+    resource.host_ref != host_ref
+        || resource.input_fingerprint != intent.input_fingerprint
+        || resource.repository_id != intent.repository_id
+        || resource.branch != intent.branch
+        || !resource_target_matches(resource, intent)
+}
+
+/// The whole reservation cross-check.  Every mismatch is one `WrongFence`
+/// decision, so the two halves may be evaluated in either order.
+fn resource_reservation_mismatch(
+    resource: &crate::epistemic_operations::ResourceReservationRecord,
+    request: &DevelopmentLaneReserveRequest,
+    host_ref: &str,
+) -> bool {
+    resource_fence_mismatch(resource, request)
+        || resource_placement_mismatch(resource, &request.intent, host_ref)
+}
+
+/// Exclusivity plus quota admission for a candidate hold.  `Some(decision)`
+/// refuses it; `None` means the caller may commit, and the returned scope
+/// counters are the ones the commit charges against.
+#[allow(clippy::too_many_arguments)]
+fn reserve_admission_gate(
+    graph: &str,
+    hold: &DevelopmentLaneHold,
+    worktree_key: &str,
+    holds: &redb::Table<(&str, &str), &[u8]>,
+    lane_index: &redb::Table<(&str, &str, &str), &str>,
+    branch_index: &redb::Table<(&str, &str, &str), &str>,
+    worktree_index: &redb::Table<(&str, &str), &str>,
+    counters: &redb::Table<(&str, &str), &[u8]>,
+    policy: &DevelopmentLaneQuotaPolicy,
+    policy_revision: u64,
+    global_policy_revision: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Option<LaneDecision>, Vec<ScopeCounter>), String> {
+    let lane_existing = get_lane_index(
+        lane_index,
+        graph,
+        hold.tenant_ref.as_str(),
+        hold.lane_id.as_str(),
+    )?;
+    if let Err(decision) = exclusive_pair(lane_existing, &hold.hold_id, holds, graph, crypto) {
+        return Ok((Some(decision), Vec::new()));
+    }
+    let branch_existing = branch_index_id(branch_index, graph, hold)?;
+    if let Err(decision) = exclusive_pair(branch_existing, &hold.hold_id, holds, graph, crypto) {
+        return Ok((Some(decision), Vec::new()));
+    }
+    let worktree_existing = get_index(worktree_index, graph, worktree_key)?;
+    if let Err(decision) = exclusive_pair(worktree_existing, &hold.hold_id, holds, graph, crypto) {
+        return Ok((Some(decision), Vec::new()));
+    }
+    let loaded = load_scope_counters(
+        counters,
+        graph,
+        hold,
+        policy_revision,
+        global_policy_revision,
+        crypto,
+    )?;
+    if let Err(decision) = reserve_counter_check(&loaded, policy, hold.predicted_disk_bytes) {
+        return Ok((Some(decision), Vec::new()));
+    }
+    Ok((None, loaded))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_reserve(
     graph: &str,
@@ -3330,109 +3591,34 @@ fn apply_reserve(
     resource_reservations: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(Vec<u8>, bool), String> {
-    if let Err(decision) = intent_validate(&request.intent) {
+    if let Err(decision) = reserve_request_decision(request) {
         return Ok((reserve_result(decision, None, 0)?, false));
     }
-    if request.tenant_ref != request.intent.tenant_ref
-        || request.owner_id != request.intent.owner_id
-        || request.work_item_id.is_empty()
-        || request.attempt == 0
-        || request.lease_epoch == 0
-        || request.fencing_token == 0
-        || request.work_item_fence.is_empty()
-        || request.idempotency_key.is_empty()
-    {
-        return Ok((reserve_result(LaneDecision::Invalid, None, 0)?, false));
-    }
-    for (value, name) in [
-        (&request.tenant_ref, "reserve tenant"),
-        (&request.work_item_id, "reserve WorkItem"),
-        (&request.owner_id, "reserve owner"),
-        (&request.work_item_fence, "reserve fence"),
-        (&request.idempotency_key, "reserve invocation"),
-    ] {
-        if text(value, name).is_err() {
-            return Ok((reserve_result(LaneDecision::Invalid, None, 0)?, false));
-        }
-    }
-    let policy = load_policy(policies, graph, &request.tenant_ref, crypto)?;
-    let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
-    let global_policy = load_global_policy(policies, graph, crypto)?;
-    let global_policy_revision = global_policy
-        .as_ref()
-        .map_or(0, |value| value.policy_revision);
-    let Some(policy) = policy else {
-        return Ok((reserve_result(LaneDecision::Policy, None, 0)?, false));
-    };
-    let Some(global_policy) = global_policy else {
-        return Ok((
-            reserve_result(LaneDecision::Policy, None, policy_revision)?,
-            false,
-        ));
-    };
-    if global_policy.policy.drain_only {
-        return Ok((
-            reserve_result(LaneDecision::Drained, None, policy_revision)?,
-            false,
-        ));
-    }
-    if policy.global_policy_revision != global_policy_revision {
-        return Ok((
-            reserve_result(LaneDecision::Conflict, None, policy_revision)?,
-            false,
-        ));
-    }
-    if !global_policy_equal(&policy.policy, &global_policy.policy) {
-        return Ok((
-            reserve_result(LaneDecision::Conflict, None, policy_revision)?,
-            false,
-        ));
-    }
-    if policy.policy.policy_name != request.intent.quota_policy_name
-        || policy.policy.policy_version != request.intent.quota_policy_version
-        || request.intent.ttl_ms < policy.policy.min_ttl_ms
-        || request.intent.ttl_ms > policy.policy.max_ttl_ms
-    {
-        return Ok((
-            reserve_result(LaneDecision::Policy, None, policy_revision)?,
-            false,
-        ));
-    }
-    if policy.policy.drain_only {
-        return Ok((
-            reserve_result(LaneDecision::Drained, None, policy_revision)?,
-            false,
-        ));
-    }
+    let (policy, policy_revision, global_policy_revision) =
+        match reserve_policy_gate(policies, graph, request, crypto)? {
+            ReservePolicyGate::Refused(decision, revision) => {
+                return Ok((reserve_result(decision, None, revision)?, false));
+            }
+            ReservePolicyGate::Ready {
+                policy,
+                policy_revision,
+                global_policy_revision,
+            } => (policy, policy_revision, global_policy_revision),
+        };
 
     let derived_hold_id = hold_id(&request.intent);
-    if let Some(existing) = hold_load(holds, graph, &derived_hold_id, crypto)? {
-        if hold_immutable_equal(&existing, request) {
-            return Ok((
-                reserve_result(LaneDecision::Idempotent, Some(&existing), policy_revision)?,
-                false,
-            ));
-        }
+    if let Some((decision, existing)) = reserve_identity_gate(
+        graph,
+        request,
+        &derived_hold_id,
+        holds,
+        work_item_index,
+        crypto,
+    )? {
         return Ok((
-            reserve_result(LaneDecision::InputConflict, None, policy_revision)?,
+            reserve_result(decision, existing.as_ref(), policy_revision)?,
             false,
         ));
-    }
-    if let Some(existing) = work_item_index_id(
-        work_item_index,
-        graph,
-        &request.work_item_id,
-        request.attempt,
-    )? {
-        let existing = index_hold_id(holds, graph, &existing, crypto)
-            .map_err(|_| "development lane WorkItem index is orphaned".to_string())?;
-        if existing != derived_hold_id {
-            return Ok((
-                reserve_result(LaneDecision::InputConflict, None, policy_revision)?,
-                false,
-            ));
-        }
-        return Err("development lane WorkItem index disagrees with hold identity".to_string());
     }
 
     let work_item = match load_work_item(
@@ -3467,33 +3653,7 @@ fn apply_reserve(
             false,
         ));
     };
-    let resource = &resource_row.record;
-    let resource_target_matches =
-        match request.intent.host_target_kind {
-            DevelopmentLaneIntentHostTargetKind::Local => {
-                resource.target_kind
-                    == crate::epistemic_operations::ResourceReservationRecordTargetKind::Local
-                    && resource.target_alias.is_none()
-            }
-            DevelopmentLaneIntentHostTargetKind::InventoryAlias => resource.target_kind
-                == crate::epistemic_operations::ResourceReservationRecordTargetKind::InventoryAlias
-                && resource.target_alias == request.intent.host_target_alias,
-        };
-    if resource_row.record.state != ResourceReservationRecordState::Reserved
-        || resource.expires_at_ms <= request.now_ms
-        || resource.tenant_ref != request.tenant_ref
-        || resource.work_item_id != request.work_item_id
-        || resource.owner_id != request.owner_id
-        || resource.attempt != request.attempt
-        || resource.lease_epoch != request.lease_epoch
-        || resource.fencing_token != request.fencing_token
-        || resource.fence != request.work_item_fence
-        || resource.host_ref != work_item.host_ref
-        || resource.input_fingerprint != request.intent.input_fingerprint
-        || resource.repository_id != request.intent.repository_id
-        || resource.branch != request.intent.branch
-        || !resource_target_matches
-    {
+    if resource_reservation_mismatch(&resource_row.record, request, &work_item.host_ref) {
         return Ok((
             reserve_result(LaneDecision::WrongFence, None, policy_revision)?,
             false,
@@ -3557,35 +3717,22 @@ fn apply_reserve(
     };
     hold.quota_charge = hold_charge(&hold, hold.hold_revision, policy_revision);
 
-    let lane_existing = get_lane_index(
-        lane_index,
-        graph,
-        hold.tenant_ref.as_str(),
-        hold.lane_id.as_str(),
-    )?;
-    if let Err(decision) = exclusive_pair(lane_existing, &hold.hold_id, holds, graph, crypto) {
-        return Ok((reserve_result(decision, None, policy_revision)?, false));
-    }
-    let branch_existing = branch_index_id(branch_index, graph, &hold)?;
-    if let Err(decision) = exclusive_pair(branch_existing, &hold.hold_id, holds, graph, crypto) {
-        return Ok((reserve_result(decision, None, policy_revision)?, false));
-    }
     let worktree_key = worktree_key(&hold);
-    let worktree_existing = get_index(worktree_index, graph, &worktree_key)?;
-    if let Err(decision) = exclusive_pair(worktree_existing, &hold.hold_id, holds, graph, crypto) {
-        return Ok((reserve_result(decision, None, policy_revision)?, false));
-    }
-
-    let loaded = load_scope_counters(
-        counters,
+    let (refusal, loaded) = reserve_admission_gate(
         graph,
         &hold,
+        &worktree_key,
+        holds,
+        lane_index,
+        branch_index,
+        worktree_index,
+        counters,
+        &policy.policy,
         policy_revision,
         global_policy_revision,
         crypto,
     )?;
-    if let Err(decision) = reserve_counter_check(&loaded, &policy.policy, hold.predicted_disk_bytes)
-    {
+    if let Some(decision) = refusal {
         return Ok((reserve_result(decision, None, policy_revision)?, false));
     }
     apply_counter_delta(
