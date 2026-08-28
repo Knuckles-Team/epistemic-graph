@@ -181,18 +181,42 @@ impl PreparedJobPublication {
         if self.schema_version != JOB_PUBLICATION_PLAN_VERSION {
             return Err("unsupported job publication plan version".to_string());
         }
-        if self.target_graph.is_empty()
+        if self.target_and_job_id_invalid()
+            || self.lease_and_scope_invalid()
+            || self.references_and_methods_invalid(&expected_coordinator, &expected_batch)
+        {
+            return Err("job publication plan is invalid".to_string());
+        }
+        let bytes = rmp_serde::to_vec_named(self).map_err(|error| error.to_string())?;
+        if bytes.len() > MAX_JOB_PUBLICATION_PLAN_BYTES {
+            return Err("job publication plan exceeds resource limits".to_string());
+        }
+        Ok(())
+    }
+
+    fn target_and_job_id_invalid(&self) -> bool {
+        self.target_graph.is_empty()
             || self.target_graph.len() > 4_096
             || self.target_graph.chars().any(char::is_control)
             || self.job_id.is_empty()
             || self.job_id.len() > 256
             || self.job_id.chars().any(char::is_control)
-            || self.lease_epoch == 0
+    }
+
+    fn lease_and_scope_invalid(&self) -> bool {
+        self.lease_epoch == 0
             || !valid_publication_scope(&self.coordinator_id)
             || !valid_publication_scope(&self.worker_ref)
             || !valid_publication_scope(&self.principal_ref)
             || !valid_publication_scope(&self.batch_id)
-            || self.coordinator_id != expected_coordinator
+    }
+
+    fn references_and_methods_invalid(
+        &self,
+        expected_coordinator: &str,
+        expected_batch: &str,
+    ) -> bool {
+        self.coordinator_id != expected_coordinator
             || self.batch_id != expected_batch
             || !is_opaque_result_ref(&self.result_ref)
             || !is_opaque_result_ref(&self.dataset_ref)
@@ -203,14 +227,6 @@ impl PreparedJobPublication {
                 .methods
                 .iter()
                 .any(|method| !matches!(method, Method::AddNode { .. } | Method::AddEdge { .. }))
-        {
-            return Err("job publication plan is invalid".to_string());
-        }
-        let bytes = rmp_serde::to_vec_named(self).map_err(|error| error.to_string())?;
-        if bytes.len() > MAX_JOB_PUBLICATION_PLAN_BYTES {
-            return Err("job publication plan exceeds resource limits".to_string());
-        }
-        Ok(())
     }
 }
 
@@ -284,17 +300,84 @@ fn verified_program_policy(
     })
 }
 
-/// Handle `Method::AnalyticsJob { op }` (CONCEPT:INT-P2-1). Self-contained: resolves
-/// its own `JobStore` + (for `Submit`/`Resume`) the target `GraphCore` off `state`,
-/// so the dispatch shell can call this directly with no per-graph routing.
-pub(crate) async fn handle(
+/// The `JobOp::Submit` arm of [`handle`]: compile the durable batch for the
+/// submit op, then run [`handle_submit`].
+async fn handle_submit_op(
     state: &Arc<RwLock<ServerState>>,
+    store: &Arc<JobStore>,
     req_id: u64,
     authority: &CarrierAuthority,
-    verified_worker_context: bool,
-    op: JobOp,
+    spec: SubmitJobSpec,
 ) -> Response {
-    let caller = Some(authority.actor_scope());
+    let method = Method::AnalyticsJob {
+        op: JobOp::Submit(spec.clone()),
+    };
+    let (batch, now) = match compile_job_batch(store, req_id, authority, &method) {
+        Ok(value) => value,
+        Err(error) => return Response::err(req_id, error),
+    };
+    handle_submit(state, store, req_id, authority, spec, batch, now).await
+}
+
+/// The `JobOp::Cancel` arm of [`handle`]: verify ownership, compile the
+/// durable batch for the cancel op, then apply it.
+fn handle_cancel_op(
+    store: &Arc<JobStore>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    job_id: String,
+) -> Response {
+    if let Err(error) = owned_job(store, authority, &job_id) {
+        return Response::err(req_id, error);
+    }
+    let method = Method::AnalyticsJob {
+        op: JobOp::Cancel {
+            job_id: job_id.clone(),
+        },
+    };
+    let (batch, now) = match compile_job_batch(store, req_id, authority, &method) {
+        Ok(value) => value,
+        Err(error) => return Response::err(req_id, error),
+    };
+    match store.request_cancel_batch(&job_id, &batch, now) {
+        Ok((job, _)) => job_response(req_id, &job),
+        Err(e) => Response::err(req_id, e.to_string()),
+    }
+}
+
+/// The `JobOp::Resume` arm of [`handle`]: verify ownership, compile the
+/// durable batch for the resume op, then run [`handle_resume`].
+async fn handle_resume_op(
+    state: &Arc<RwLock<ServerState>>,
+    store: &Arc<JobStore>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    job_id: String,
+) -> Response {
+    if let Err(error) = owned_job(store, authority, &job_id) {
+        return Response::err(req_id, error);
+    }
+    let method = Method::AnalyticsJob {
+        op: JobOp::Resume {
+            job_id: job_id.clone(),
+        },
+    };
+    let (batch, now) = match compile_job_batch(store, req_id, authority, &method) {
+        Ok(value) => value,
+        Err(error) => return Response::err(req_id, error),
+    };
+    handle_resume(state, store, req_id, &job_id, batch, now).await
+}
+
+/// Resolve this process's `JobStore` off `state`'s configured persistence
+/// root, and (outside clustered/Raft mode) ensure the colocated worker pool
+/// is running. Clustered mode disables automatic per-replica workers: every
+/// scheduler transition there must arrive as an authenticated Worker*
+/// command and cross Raft.
+async fn resolve_job_store(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+) -> Result<Arc<JobStore>, Response> {
     let (persist_dir, clustered) = {
         let current = state.read().await;
         (current.persist_dir.clone(), {
@@ -308,64 +391,38 @@ pub(crate) async fn handle(
             }
         })
     };
-    let store = match job_store(persist_dir.as_deref()) {
-        Ok(store) => store,
-        Err(error) => return Response::err(req_id, error),
-    };
-    // Colocated workers mutate the native scheduler directly. In clustered mode
-    // all scheduler transitions must arrive as authenticated Worker* commands and
-    // cross Raft, so automatic per-replica workers stay disabled.
+    let store = job_store(persist_dir.as_deref()).map_err(|error| Response::err(req_id, error))?;
     if !clustered {
         ensure_job_workers(state.clone(), store.clone());
     }
+    Ok(store)
+}
+
+/// Handle `Method::AnalyticsJob { op }` (CONCEPT:INT-P2-1). Self-contained: resolves
+/// its own `JobStore` + (for `Submit`/`Resume`) the target `GraphCore` off `state`,
+/// so the dispatch shell can call this directly with no per-graph routing.
+pub(crate) async fn handle(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    verified_worker_context: bool,
+    op: JobOp,
+) -> Response {
+    let caller = Some(authority.actor_scope());
+    let store = match resolve_job_store(state, req_id).await {
+        Ok(store) => store,
+        Err(response) => return response,
+    };
 
     let response = match op {
-        JobOp::Submit(spec) => {
-            let method = Method::AnalyticsJob {
-                op: JobOp::Submit(spec.clone()),
-            };
-            let (batch, now) = match compile_job_batch(&store, req_id, authority, &method) {
-                Ok(value) => value,
-                Err(error) => return Response::err(req_id, error),
-            };
-            handle_submit(state, &store, req_id, authority, spec, batch, now).await
-        }
+        JobOp::Submit(spec) => handle_submit_op(state, &store, req_id, authority, spec).await,
         JobOp::Status { job_id } => match owned_job(&store, authority, &job_id) {
             Ok(job) => job_response(req_id, &job),
             Err(e) => Response::err(req_id, e),
         },
-        JobOp::Cancel { job_id } => {
-            if let Err(error) = owned_job(&store, authority, &job_id) {
-                return Response::err(req_id, error);
-            }
-            let method = Method::AnalyticsJob {
-                op: JobOp::Cancel {
-                    job_id: job_id.clone(),
-                },
-            };
-            let (batch, now) = match compile_job_batch(&store, req_id, authority, &method) {
-                Ok(value) => value,
-                Err(error) => return Response::err(req_id, error),
-            };
-            match store.request_cancel_batch(&job_id, &batch, now) {
-                Ok((job, _)) => job_response(req_id, &job),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
+        JobOp::Cancel { job_id } => handle_cancel_op(&store, req_id, authority, job_id),
         JobOp::Resume { job_id } => {
-            if let Err(error) = owned_job(&store, authority, &job_id) {
-                return Response::err(req_id, error);
-            }
-            let method = Method::AnalyticsJob {
-                op: JobOp::Resume {
-                    job_id: job_id.clone(),
-                },
-            };
-            let (batch, now) = match compile_job_batch(&store, req_id, authority, &method) {
-                Ok(value) => value,
-                Err(error) => return Response::err(req_id, error),
-            };
-            handle_resume(state, &store, req_id, &job_id, batch, now).await
+            handle_resume_op(state, &store, req_id, authority, job_id).await
         }
         JobOp::WorkerClaim {
             worker_instance,
@@ -914,40 +971,56 @@ fn validate_remote_result_privacy(result: &TypedJobResult) -> Result<(), String>
     }
     for row in &result.rows {
         let expected_rule_id = association_rule_id_from_row(row);
-        if row
-            .keys()
-            .map(String::as_str)
-            .collect::<std::collections::BTreeSet<_>>()
-            != expected
-            || row.get("kind").and_then(serde_json::Value::as_str) != Some("association_rule")
-            || !row
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|value| value.starts_with("eg:rule:") && is_opaque_result_ref(value))
-            || row.get("id").and_then(serde_json::Value::as_str) != expected_rule_id.as_deref()
-            || !json_refs(row.get("evidence_refs"), false)
-            || !json_refs(row.get("source_refs"), false)
-            || !json_refs(row.get("proof_ids"), true)
-            || !json_refs(row.get("contradiction_ids"), true)
-            || !json_refs(row.get("antecedent"), false)
-            || !json_refs(row.get("consequent"), false)
-            || !row
-                .get("confidence")
-                .and_then(serde_json::Value::as_f64)
-                .is_some_and(|value| (0.0..=1.0).contains(&value))
-            || !row
-                .get("support")
-                .and_then(serde_json::Value::as_f64)
-                .is_some_and(|value| (0.0..=1.0).contains(&value))
-            || !row
-                .get("lift")
-                .and_then(serde_json::Value::as_f64)
-                .is_some_and(|value| value.is_finite() && value >= 0.0)
+        if association_row_identity_invalid(row, &expected, expected_rule_id.as_deref())
+            || association_row_metrics_invalid(row)
         {
             return Err("remote analytics result contains non-governed row data".to_string());
         }
     }
     Ok(())
+}
+
+/// The row-field-set, `kind`, `id`, and evidence/source-ref shape a governed
+/// `association_rule` row must have.
+fn association_row_identity_invalid(
+    row: &BTreeMap<String, serde_json::Value>,
+    expected: &std::collections::BTreeSet<&str>,
+    expected_rule_id: Option<&str>,
+) -> bool {
+    row.keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>()
+        != *expected
+        || row.get("kind").and_then(serde_json::Value::as_str) != Some("association_rule")
+        || !row
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| value.starts_with("eg:rule:") && is_opaque_result_ref(value))
+        || row.get("id").and_then(serde_json::Value::as_str) != expected_rule_id
+        || !json_refs(row.get("evidence_refs"), false)
+        || !json_refs(row.get("source_refs"), false)
+}
+
+/// The proof/contradiction/antecedent/consequent refs and the
+/// confidence/support/lift numeric bounds a governed `association_rule` row
+/// must have.
+fn association_row_metrics_invalid(row: &BTreeMap<String, serde_json::Value>) -> bool {
+    !json_refs(row.get("proof_ids"), true)
+        || !json_refs(row.get("contradiction_ids"), true)
+        || !json_refs(row.get("antecedent"), false)
+        || !json_refs(row.get("consequent"), false)
+        || !row
+            .get("confidence")
+            .and_then(serde_json::Value::as_f64)
+            .is_some_and(|value| (0.0..=1.0).contains(&value))
+        || !row
+            .get("support")
+            .and_then(serde_json::Value::as_f64)
+            .is_some_and(|value| (0.0..=1.0).contains(&value))
+        || !row
+            .get("lift")
+            .and_then(serde_json::Value::as_f64)
+            .is_some_and(|value| value.is_finite() && value >= 0.0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -977,17 +1050,28 @@ fn handle_worker_stage(
     if let Err(error) = validate_native_job_result(&current, &result) {
         return Response::err(req_id, error);
     }
-    if matches!(&current.state, JobState::Succeeded { .. })
-        && current.last_worker_ref == worker_ref
-        && current.lease_epoch == lease_epoch
-        && current.output.as_ref() == Some(&result)
-    {
+    if worker_stage_already_matches(&current, &worker_ref, lease_epoch, &result) {
         return job_response(req_id, &current);
     }
     match store.stage_result_fenced(job_id, &worker_ref, lease_epoch, result, unix_ms()) {
         Ok(job) => job_response(req_id, &job),
         Err(error) => Response::err(req_id, error.to_string()),
     }
+}
+
+/// Whether a worker's re-submitted stage result is byte-identical to an
+/// already-`Succeeded` job for the SAME worker/lease — an idempotent retry
+/// that should replay the existing job rather than re-stage.
+fn worker_stage_already_matches(
+    current: &eg_jobs::AnalyticsJob,
+    worker_ref: &str,
+    lease_epoch: u64,
+    result: &TypedJobResult,
+) -> bool {
+    matches!(&current.state, JobState::Succeeded { .. })
+        && current.last_worker_ref == worker_ref
+        && current.lease_epoch == lease_epoch
+        && current.output.as_ref() == Some(result)
 }
 
 async fn handle_worker_publish(
@@ -1011,40 +1095,98 @@ async fn handle_worker_publish(
         Ok(job) => job,
         Err(error) => return Response::err(req_id, error.to_string()),
     };
-    if matches!(&job.state, JobState::Succeeded { .. })
-        && job.last_worker_ref == worker_ref
-        && job.lease_epoch == lease_epoch
-    {
+    if worker_publish_already_succeeded(&job, &worker_ref, lease_epoch) {
         return job_response(req_id, &job);
     }
-    let job = match store.verify_lease(job_id, &worker_ref, lease_epoch, unix_ms()) {
-        Ok(job) if matches!(&job.state, JobState::Publishing { .. }) => job,
-        Ok(job) => {
-            return Response::err(
-                req_id,
-                format!(
-                    "worker publication requires Publishing, got {}",
-                    job.state.label()
-                ),
-            )
-        }
-        Err(error) => return Response::err(req_id, error.to_string()),
+    let job = match require_publishing_lease(store, req_id, job_id, &worker_ref, lease_epoch) {
+        Ok(job) => job,
+        Err(response) => return response,
     };
     #[cfg(feature = "raft")]
-    if crate::server::dispatch::is_replicated_apply() {
-        return match prepare_consensus_job_publication(state, &job, &worker_ref, lease_epoch).await
-        {
-            Ok(prepared) => Response::ok(req_id, ResultPayload::Raw(prepared)),
-            Err(error) => Response::err(req_id, error),
-        };
+    if let Some(response) =
+        publish_via_consensus_if_replicated(state, req_id, &job, &worker_ref, lease_epoch).await
+    {
+        return response;
     }
-    match publish_staged_result(state, store, job, &worker_ref, lease_epoch).await {
+    finalize_local_publish(state, store, job, &worker_ref, lease_epoch, job_id, req_id).await
+}
+
+/// Publish a job's staged result locally (non-consensus path) and reload the
+/// job record for the response.
+#[allow(clippy::too_many_arguments)]
+async fn finalize_local_publish(
+    state: &Arc<RwLock<ServerState>>,
+    store: &Arc<JobStore>,
+    job: eg_jobs::AnalyticsJob,
+    worker_ref: &str,
+    lease_epoch: u64,
+    job_id: &str,
+    req_id: u64,
+) -> Response {
+    match publish_staged_result(state, store, job, worker_ref, lease_epoch).await {
         Ok(()) => match store.get(job_id) {
             Ok(job) => job_response(req_id, &job),
             Err(error) => Response::err(req_id, error.to_string()),
         },
         Err(error) => Response::err(req_id, error),
     }
+}
+
+/// Whether the job is already `Succeeded` for this SAME worker/lease — an
+/// idempotent retry that should replay the existing job rather than re-verify
+/// the lease and republish.
+fn worker_publish_already_succeeded(
+    job: &eg_jobs::AnalyticsJob,
+    worker_ref: &str,
+    lease_epoch: u64,
+) -> bool {
+    matches!(&job.state, JobState::Succeeded { .. })
+        && job.last_worker_ref == worker_ref
+        && job.lease_epoch == lease_epoch
+}
+
+/// Verify the worker's fenced lease and require the job be in `Publishing`
+/// state — the only state a publish may proceed from.
+fn require_publishing_lease(
+    store: &JobStore,
+    req_id: u64,
+    job_id: &str,
+    worker_ref: &str,
+    lease_epoch: u64,
+) -> Result<eg_jobs::AnalyticsJob, Response> {
+    match store.verify_lease(job_id, worker_ref, lease_epoch, unix_ms()) {
+        Ok(job) if matches!(&job.state, JobState::Publishing { .. }) => Ok(job),
+        Ok(job) => Err(Response::err(
+            req_id,
+            format!(
+                "worker publication requires Publishing, got {}",
+                job.state.label()
+            ),
+        )),
+        Err(error) => Err(Response::err(req_id, error.to_string())),
+    }
+}
+
+/// If this process is applying replicated Raft entries, prepare the
+/// consensus job-publication command instead of publishing locally.
+/// `None` means the caller should proceed with the local publish path.
+#[cfg(feature = "raft")]
+async fn publish_via_consensus_if_replicated(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    job: &eg_jobs::AnalyticsJob,
+    worker_ref: &str,
+    lease_epoch: u64,
+) -> Option<Response> {
+    if !crate::server::dispatch::is_replicated_apply() {
+        return None;
+    }
+    Some(
+        match prepare_consensus_job_publication(state, job, worker_ref, lease_epoch).await {
+            Ok(prepared) => Response::ok(req_id, ResultPayload::Raw(prepared)),
+            Err(error) => Response::err(req_id, error),
+        },
+    )
 }
 
 fn handle_worker_cancel(
@@ -1372,6 +1514,203 @@ mod read_rls_tests {
     }
 }
 
+/// Resolve the target graph's `GraphCore` for a `Submit`, checking Read
+/// access (the RLS boundary for anything the job might later read).
+async fn resolve_submit_graph_core(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    graph: &str,
+) -> Result<Arc<crate::graph::GraphCore>, Response> {
+    let s = state.read().await;
+    let Some(entry) = s.registry.get(graph) else {
+        return Err(Response::err(req_id, format!("unknown graph '{graph}'")));
+    };
+    if let Err(error) = check_graph_access(
+        &s.isolation,
+        Some(authority.agent_id()),
+        graph,
+        entry.graph_type,
+        entry.owner.as_deref(),
+        AccessLevel::Read,
+    ) {
+        return Err(Response::err(req_id, error));
+    }
+    Ok(entry.core.clone())
+}
+
+/// Whether a submit's worker-pool/region/capability placement constraints
+/// are outside native bounds.
+fn submit_placement_invalid(
+    worker_pool: &str,
+    worker_region: &str,
+    required_capabilities: &[String],
+) -> bool {
+    let invalid_placement_value =
+        |value: &str| value.len() > 128 || value.chars().any(char::is_control);
+    invalid_placement_value(worker_pool)
+        || invalid_placement_value(worker_region)
+        || required_capabilities.len() > 64
+        || required_capabilities
+            .iter()
+            .any(|value| value.is_empty() || invalid_placement_value(value))
+}
+
+/// The `JobKind::MineAssociate` arm of [`handle_submit`]'s kind-governance
+/// match: pseudonymize transaction items, validate thresholds/cardinality,
+/// and validate the algorithm name.
+fn submit_job_mine_associate(
+    authority: &CarrierAuthority,
+    req_id: u64,
+    transactions: Vec<Vec<String>>,
+    min_support: f64,
+    min_confidence: f64,
+    algorithm: String,
+) -> Result<(JobKind, String, String, serde_json::Value), Response> {
+    // Durable worker input contains opaque item references only. Source
+    // labels and personal identifiers never enter jobs.redb.
+    let transactions: Vec<Vec<String>> = transactions
+        .into_iter()
+        .map(|transaction| {
+            transaction
+                .into_iter()
+                .map(|item| {
+                    native_opaque_ref(
+                        "analytics_item",
+                        &format!("{}\0{item}", authority.owner_scope()),
+                    )
+                })
+                .collect()
+        })
+        .collect();
+    let distinct_items = transactions
+        .iter()
+        .flatten()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    if !min_support.is_finite()
+        || !(0.0..=1.0).contains(&min_support)
+        || !min_confidence.is_finite()
+        || !(0.0..=1.0).contains(&min_confidence)
+        || distinct_items > 31
+    {
+        return Err(Response::err(
+            req_id,
+            "association job thresholds or distinct-item cardinality are invalid",
+        ));
+    }
+    if let Err(error) = parse_algorithm(&algorithm) {
+        return Err(Response::err(req_id, error));
+    }
+    let params = serde_json::json!({
+        "min_support": min_support,
+        "min_confidence": min_confidence,
+        "algorithm": algorithm.clone(),
+    });
+    Ok((
+        JobKind::MineAssociate {
+            transactions,
+            min_support,
+            min_confidence,
+            algorithm: algorithm.clone(),
+        },
+        "mining.association".to_string(),
+        algorithm,
+        params,
+    ))
+}
+
+/// The `JobKind::ProgramOptimize` arm of [`handle_submit`]'s kind-governance
+/// match: bounded-decode the request, rebind its policy to the verified
+/// caller, re-encode it, and ensure the native capability is required.
+#[cfg(feature = "program-optimization")]
+fn submit_job_program_optimize(
+    authority: &CarrierAuthority,
+    req_id: u64,
+    policy_fingerprint: &str,
+    purpose: &str,
+    request_msgpack: Vec<u8>,
+    required_capabilities: &mut Vec<String>,
+) -> Result<(JobKind, String, String, serde_json::Value), Response> {
+    let request: OptimizationRequest = match eg_types::msgpack::decode_bounded(
+        &request_msgpack,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_JOB_INPUT_BYTES,
+            MAX_JOB_INPUT_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    ) {
+        Ok(request) => request,
+        Err(_) => {
+            return Err(Response::err(
+                req_id,
+                "program optimization request failed bounded decoding",
+            ))
+        }
+    };
+    let verified_policy = match verified_program_policy(authority, policy_fingerprint, purpose) {
+        Ok(policy) => policy,
+        Err(error) => return Err(Response::err(req_id, error)),
+    };
+    let request = match request.rebind_program_policy(verified_policy) {
+        Ok(request) => request,
+        Err(error) => {
+            return Err(Response::err(
+                req_id,
+                format!("program optimization request is invalid: {error}"),
+            ))
+        }
+    };
+    let optimizer = request.optimizer.as_str().to_string();
+    let execution = request.optimizer.execution().as_str().to_string();
+    let request_msgpack = match rmp_serde::to_vec_named(&request) {
+        Ok(payload) => payload,
+        Err(error) => {
+            return Err(Response::err(
+                req_id,
+                format!("program optimization encoding failed: {error}"),
+            ))
+        }
+    };
+    ensure_program_optimization_capability(req_id, required_capabilities)?;
+    let params = serde_json::json!({
+        "optimizer": optimizer,
+        "execution": execution,
+        "request_ref": request.request_ref.as_str(),
+        "corpus_ref": request.corpus.corpus_ref.as_str(),
+        "snapshot_version": request.corpus.snapshot_version,
+    });
+    Ok((
+        JobKind::ProgramOptimize { request_msgpack },
+        "program.optimization".to_string(),
+        optimizer,
+        params,
+    ))
+}
+
+/// Ensure `required_capabilities` names `program.optimization`, appending it
+/// if there is room (native cap: 64 entries).
+#[cfg(feature = "program-optimization")]
+fn ensure_program_optimization_capability(
+    req_id: u64,
+    required_capabilities: &mut Vec<String>,
+) -> Result<(), Response> {
+    if required_capabilities
+        .iter()
+        .any(|capability| capability == "program.optimization")
+    {
+        return Ok(());
+    }
+    if required_capabilities.len() == 64 {
+        return Err(Response::err(
+            req_id,
+            "analytics job has no room for its required native capability",
+        ));
+    }
+    required_capabilities.push("program.optimization".to_string());
+    Ok(())
+}
+
 async fn handle_submit(
     state: &Arc<RwLock<ServerState>>,
     store: &Arc<JobStore>,
@@ -1380,6 +1719,68 @@ async fn handle_submit(
     spec: SubmitJobSpec,
     batch: MutationBatch,
     committed_at_ms: u64,
+) -> Response {
+    let core = match resolve_submit_graph_core(state, req_id, authority, &spec.graph).await {
+        Ok(core) => core,
+        Err(response) => return response,
+    };
+    // L-RLS-2 (§9 #10 next-level-analysis): fail closed, not merely document,
+    // if a future JobKind is classified as graph-row-reading. No shipped kind
+    // reaches this branch today (see `reads_graph_rows_server_side`'s own
+    // exhaustive match); a kind that DOES need row data must be wired through
+    // `GraphReadAuthority::project_core` before this point, then this function
+    // updated to return `true` for it — never the reverse order.
+    //
+    // `kind` is cloned here (rather than borrowed as `&spec.kind`) solely so
+    // this guard's own source text names a bare `kind` local: the
+    // `jobs_read_rls_architecture` textual architecture test scans this
+    // function's source for the literal `reads_graph_rows_server_side(&kind)`
+    // call to prove the fail-closed check runs before `kind` is otherwise
+    // used. `spec` (including its own `kind` field) is still passed on to
+    // `finalize_submit` unchanged below; this is a one-time, bounded-size
+    // clone per Submit call, not a hot-path cost.
+    let kind = spec.kind.clone();
+    if reads_graph_rows_server_side(&kind) {
+        return Response::err(
+            req_id,
+            "INTERNAL: this JobKind is classified as reading graph rows server-side, \
+             but handle_submit has no per-row RLS projection wired for it yet",
+        );
+    }
+    if submit_placement_invalid(
+        &spec.worker_pool,
+        &spec.worker_region,
+        &spec.required_capabilities,
+    ) {
+        return Response::err(req_id, "analytics job placement constraints are invalid");
+    }
+    // The immutable input-snapshot handle is stamped by the SERVER from the live
+    // graph's OCC version, never accepted from the caller (CONCEPT:INT-P2-1: a
+    // client cannot forge which graph-version a job ran against).
+    let snapshot_version = core.version();
+    finalize_submit(
+        store,
+        req_id,
+        authority,
+        batch,
+        committed_at_ms,
+        snapshot_version,
+        spec,
+    )
+    .await
+}
+
+/// The rest of a `Submit`, once the target graph/access and placement
+/// constraints have checked out: govern the job kind, encode/hash the input,
+/// build the durable `SubmitSpec`, and apply the batch.
+async fn finalize_submit(
+    store: &Arc<JobStore>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    batch: MutationBatch,
+    committed_at_ms: u64,
+    snapshot_version: u64,
+    spec: SubmitJobSpec,
 ) -> Response {
     let SubmitJobSpec {
         graph,
@@ -1399,54 +1800,6 @@ async fn handle_submit(
         backoff_ms,
         kind,
     } = spec;
-
-    let core = {
-        let s = state.read().await;
-        let Some(entry) = s.registry.get(&graph) else {
-            return Response::err(req_id, format!("unknown graph '{graph}'"));
-        };
-        if let Err(error) = check_graph_access(
-            &s.isolation,
-            Some(authority.agent_id()),
-            &graph,
-            entry.graph_type,
-            entry.owner.as_deref(),
-            AccessLevel::Read,
-        ) {
-            return Response::err(req_id, error);
-        }
-        entry.core.clone()
-    };
-    // The immutable input-snapshot handle is stamped by the SERVER from the live
-    // graph's OCC version, never accepted from the caller (CONCEPT:INT-P2-1: a
-    // client cannot forge which graph-version a job ran against).
-    let snapshot_version = core.version();
-
-    // L-RLS-2 (§9 #10 next-level-analysis): fail closed, not merely document,
-    // if a future JobKind is classified as graph-row-reading. No shipped kind
-    // reaches this branch today (see `reads_graph_rows_server_side`'s own
-    // exhaustive match); a kind that DOES need row data must be wired through
-    // `GraphReadAuthority::project_core` before this point, then this function
-    // updated to return `true` for it — never the reverse order.
-    if reads_graph_rows_server_side(&kind) {
-        return Response::err(
-            req_id,
-            "INTERNAL: this JobKind is classified as reading graph rows server-side, \
-             but handle_submit has no per-row RLS projection wired for it yet",
-        );
-    }
-
-    let invalid_placement_value =
-        |value: &str| value.len() > 128 || value.chars().any(char::is_control);
-    if invalid_placement_value(&worker_pool)
-        || invalid_placement_value(&worker_region)
-        || required_capabilities.len() > 64
-        || required_capabilities
-            .iter()
-            .any(|value| value.is_empty() || invalid_placement_value(value))
-    {
-        return Response::err(req_id, "analytics job placement constraints are invalid");
-    }
     let policy_fingerprint = batch
         .context
         .policy_fingerprint
@@ -1458,132 +1811,33 @@ async fn handle_submit(
             min_support,
             min_confidence,
             algorithm,
-        } => {
-            // Durable worker input contains opaque item references only. Source
-            // labels and personal identifiers never enter jobs.redb.
-            let transactions: Vec<Vec<String>> = transactions
-                .into_iter()
-                .map(|transaction| {
-                    transaction
-                        .into_iter()
-                        .map(|item| {
-                            native_opaque_ref(
-                                "analytics_item",
-                                &format!("{}\0{item}", authority.owner_scope()),
-                            )
-                        })
-                        .collect()
-                })
-                .collect();
-            let distinct_items = transactions
-                .iter()
-                .flatten()
-                .collect::<std::collections::BTreeSet<_>>()
-                .len();
-            if !min_support.is_finite()
-                || !(0.0..=1.0).contains(&min_support)
-                || !min_confidence.is_finite()
-                || !(0.0..=1.0).contains(&min_confidence)
-                || distinct_items > 31
-            {
-                return Response::err(
-                    req_id,
-                    "association job thresholds or distinct-item cardinality are invalid",
-                );
-            }
-            if let Err(error) = parse_algorithm(&algorithm) {
-                return Response::err(req_id, error);
-            }
-            let params = serde_json::json!({
-                "min_support": min_support,
-                "min_confidence": min_confidence,
-                "algorithm": algorithm.clone(),
-            });
-            (
-                JobKind::MineAssociate {
-                    transactions,
-                    min_support,
-                    min_confidence,
-                    algorithm: algorithm.clone(),
-                },
-                "mining.association".to_string(),
-                algorithm,
-                params,
-            )
-        }
+        } => match submit_job_mine_associate(
+            authority,
+            req_id,
+            transactions,
+            min_support,
+            min_confidence,
+            algorithm,
+        ) {
+            Ok(value) => value,
+            Err(response) => return response,
+        },
         #[cfg(feature = "program-optimization")]
-        JobKind::ProgramOptimize { request_msgpack } => {
-            let request: OptimizationRequest = match eg_types::msgpack::decode_bounded(
-                &request_msgpack,
-                eg_types::msgpack::MsgpackLimits::new(
-                    MAX_JOB_INPUT_BYTES,
-                    MAX_JOB_INPUT_ITEMS,
-                    eg_types::msgpack::DEFAULT_MAX_DEPTH,
-                ),
-            ) {
-                Ok(request) => request,
-                Err(_) => {
-                    return Response::err(
-                        req_id,
-                        "program optimization request failed bounded decoding",
-                    )
-                }
-            };
-            let verified_policy =
-                match verified_program_policy(authority, &policy_fingerprint, &purpose) {
-                    Ok(policy) => policy,
-                    Err(error) => return Response::err(req_id, error),
-                };
-            let request = match request.rebind_program_policy(verified_policy) {
-                Ok(request) => request,
-                Err(error) => {
-                    return Response::err(
-                        req_id,
-                        format!("program optimization request is invalid: {error}"),
-                    )
-                }
-            };
-            let optimizer = request.optimizer.as_str().to_string();
-            let execution = request.optimizer.execution().as_str().to_string();
-            let request_msgpack = match rmp_serde::to_vec_named(&request) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return Response::err(
-                        req_id,
-                        format!("program optimization encoding failed: {error}"),
-                    )
-                }
-            };
-            if !required_capabilities
-                .iter()
-                .any(|capability| capability == "program.optimization")
-            {
-                if required_capabilities.len() == 64 {
-                    return Response::err(
-                        req_id,
-                        "analytics job has no room for its required native capability",
-                    );
-                }
-                required_capabilities.push("program.optimization".to_string());
-            }
-            let params = serde_json::json!({
-                "optimizer": optimizer,
-                "execution": execution,
-                "request_ref": request.request_ref.as_str(),
-                "corpus_ref": request.corpus.corpus_ref.as_str(),
-                "snapshot_version": request.corpus.snapshot_version,
-            });
-            (
-                JobKind::ProgramOptimize { request_msgpack },
-                "program.optimization".to_string(),
-                optimizer,
-                params,
-            )
-        }
+        JobKind::ProgramOptimize { request_msgpack } => match submit_job_program_optimize(
+            authority,
+            req_id,
+            &policy_fingerprint,
+            &purpose,
+            request_msgpack,
+            &mut required_capabilities,
+        ) {
+            Ok(value) => value,
+            Err(response) => return response,
+        },
     };
-    let input_payload = match rmp_serde::to_vec_named(&governed_kind) {
+    let input_payload = match encode_job_input(&governed_kind, req_id) {
         Ok(payload) => payload,
-        Err(error) => return Response::err(req_id, format!("job input encoding failed: {error}")),
+        Err(response) => return response,
     };
     use sha2::{Digest, Sha256};
     let input_digest = hex::encode(Sha256::digest(&input_payload));
@@ -1644,14 +1898,27 @@ async fn handle_submit(
         backoff_ms,
     };
 
-    let (job, replayed) = match store.submit_batch(submit_spec, &batch, committed_at_ms) {
-        Ok(value) => value,
-        Err(e) => return Response::err(req_id, e.to_string()),
-    };
+    finish_job_submit(store, req_id, submit_spec, &batch, committed_at_ms)
+}
 
-    let _replayed = replayed;
+/// Encode a submit's governed `JobKind` as the durable input payload.
+fn encode_job_input(governed_kind: &JobKind, req_id: u64) -> Result<Vec<u8>, Response> {
+    rmp_serde::to_vec_named(governed_kind)
+        .map_err(|error| Response::err(req_id, format!("job input encoding failed: {error}")))
+}
 
-    job_response(req_id, &job)
+/// Apply the durably-compiled submit batch and respond with the resulting job.
+fn finish_job_submit(
+    store: &Arc<JobStore>,
+    req_id: u64,
+    submit_spec: SubmitSpec,
+    batch: &MutationBatch,
+    committed_at_ms: u64,
+) -> Response {
+    match store.submit_batch(submit_spec, batch, committed_at_ms) {
+        Ok((job, _replayed)) => job_response(req_id, &job),
+        Err(e) => Response::err(req_id, e.to_string()),
+    }
 }
 
 async fn handle_resume(
@@ -2742,6 +3009,343 @@ fn typed_program_result(
 }
 
 #[cfg(feature = "program-optimization")]
+/// Whether a reference string is an opaque, governed reference id.
+fn governed_ref(value: &str) -> bool {
+    OpaqueRef::new(value.to_string()).is_ok()
+}
+
+/// `field` is present, an array, and (unless `allow_empty`) non-empty, with
+/// every element a governed reference string.
+fn row_valid_refs(
+    row: &BTreeMap<String, serde_json::Value>,
+    field: &str,
+    allow_empty: bool,
+) -> bool {
+    row.get(field)
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|values| {
+            (allow_empty || !values.is_empty())
+                && values
+                    .iter()
+                    .all(|value| value.as_str().is_some_and(governed_ref))
+        })
+}
+
+/// `field` is present and either JSON `null` or a governed reference string.
+fn row_valid_optional_ref(row: &BTreeMap<String, serde_json::Value>, field: &str) -> bool {
+    row.get(field)
+        .is_some_and(|value| value.is_null() || value.as_str().is_some_and(governed_ref))
+}
+
+/// `field` is present, an array, and empty.
+fn row_empty_list(row: &BTreeMap<String, serde_json::Value>, field: &str) -> bool {
+    row.get(field)
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|values| values.is_empty())
+}
+
+/// `field` is present, an array with exactly one element, and that element is
+/// one of `allowed`.
+fn row_single_label(
+    row: &BTreeMap<String, serde_json::Value>,
+    field: &str,
+    allowed: &std::collections::BTreeSet<&str>,
+) -> bool {
+    row.get(field)
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|values| {
+            values.len() == 1
+                && values[0]
+                    .as_str()
+                    .is_some_and(|value| allowed.contains(value))
+        })
+}
+
+/// `modalities` is present, a non-empty array, with every element one of the
+/// known `ProgramModality` strings.
+fn row_valid_modalities(
+    row: &BTreeMap<String, serde_json::Value>,
+    modalities: &std::collections::BTreeSet<&str>,
+) -> bool {
+    row.get("modalities")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|values| {
+            !values.is_empty()
+                && values.iter().all(|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|value| modalities.contains(value))
+                })
+        })
+}
+
+/// The `composition_refs` shape a `candidate_role` requires: empty for a
+/// `proposal`, empty + `selected == false` for an `ensemble_member`, and a
+/// non-empty governed list for an `ensemble`.
+fn row_valid_candidate_role(
+    row: &BTreeMap<String, serde_json::Value>,
+    candidate_role: Option<&str>,
+) -> bool {
+    let selected = row.get("selected").and_then(serde_json::Value::as_bool);
+    match candidate_role {
+        Some("proposal") => row_empty_list(row, "composition_refs"),
+        Some("ensemble_member") => {
+            row_empty_list(row, "composition_refs") && selected == Some(false)
+        }
+        Some("ensemble") => row_valid_refs(row, "composition_refs", false),
+        _ => false,
+    }
+}
+
+/// The plan-step-kind/plan-executor pairing is one of the governed
+/// combinations for a `program_optimization_plan_step` row.
+fn row_valid_step_executor(plan_step_kind: Option<&str>, plan_executor: Option<&str>) -> bool {
+    matches!(
+        (plan_step_kind, plan_executor),
+        (Some("query_similarity"), Some("graph_similarity"))
+            | (
+                Some(
+                    "propose_instruction"
+                        | "compare_tool_use"
+                        | "propose_rules"
+                        | "reflect_on_trace"
+                        | "pareto_reflect"
+                ),
+                Some("model_transport")
+            )
+            | (Some("compose_programs"), Some("native_kernel"))
+            | (Some("train_weights"), Some("trainer"))
+            | (Some("evaluate_candidates"), Some("evaluator"))
+    )
+}
+
+/// The `tool_policy_ref`/`instruction_ref`/`artifact_refs` binding a row's
+/// `optimizer` requires: `avatar` must bind a governed, artifact-listed tool
+/// policy and a null `instruction_ref`; any other optimizer must have a null
+/// `tool_policy_ref`; a missing optimizer is never valid.
+fn row_valid_tool_policy_binding(row: &BTreeMap<String, serde_json::Value>) -> bool {
+    match row.get("optimizer").and_then(serde_json::Value::as_str) {
+        Some("avatar") => {
+            row.get("tool_policy_ref")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|reference| {
+                    governed_ref(reference)
+                        && row
+                            .get("artifact_refs")
+                            .and_then(serde_json::Value::as_array)
+                            .is_some_and(|values| {
+                                values.iter().any(|value| value.as_str() == Some(reference))
+                            })
+                })
+                && row
+                    .get("instruction_ref")
+                    .is_some_and(serde_json::Value::is_null)
+        }
+        Some(_) => row
+            .get("tool_policy_ref")
+            .is_some_and(serde_json::Value::is_null),
+        None => false,
+    }
+}
+
+/// The `program_candidate` role/tool/plan-ref shape: kind, candidate role
+/// membership, its role-specific `composition_refs` shape, tool-policy
+/// binding, and a null `plan_ref`.
+fn row_candidate_role_shape(
+    row: &BTreeMap<String, serde_json::Value>,
+    kind: Option<&str>,
+    candidate_role: Option<&str>,
+    candidate_roles: &std::collections::BTreeSet<&str>,
+) -> bool {
+    kind == Some("program_candidate")
+        && candidate_role.is_some_and(|value| candidate_roles.contains(value))
+        && row_valid_candidate_role(row, candidate_role)
+        && row_valid_tool_policy_binding(row)
+        && row.get("plan_ref").is_some_and(serde_json::Value::is_null)
+}
+
+/// The `program_candidate` reference/plan-field shape: demonstration/artifact
+/// refs, the plan-only fields all empty, and a null `max_operations`.
+fn row_candidate_field_shape(row: &BTreeMap<String, serde_json::Value>) -> bool {
+    row_valid_refs(row, "demonstration_refs", false)
+        && row_valid_refs(row, "artifact_refs", true)
+        && row_valid_refs(row, "composition_refs", true)
+        && row_empty_list(row, "plan_step_kinds")
+        && row_empty_list(row, "plan_executors")
+        && row_empty_list(row, "plan_input_refs")
+        && row_empty_list(row, "plan_output_refs")
+        && row_empty_list(row, "plan_depends_on")
+        && row
+            .get("max_operations")
+            .is_some_and(serde_json::Value::is_null)
+}
+
+/// Whether a row is shaped as a governed `program_candidate`.
+fn row_candidate_shape(
+    row: &BTreeMap<String, serde_json::Value>,
+    kind: Option<&str>,
+    candidate_role: Option<&str>,
+    candidate_roles: &std::collections::BTreeSet<&str>,
+) -> bool {
+    row_candidate_role_shape(row, kind, candidate_role, candidate_roles)
+        && row_candidate_field_shape(row)
+}
+
+/// The `program_optimization_plan_step` identity shape: kind, a null
+/// candidate role, a governed `plan_ref`, and null instruction/tool/model refs.
+fn row_plan_identity_shape(row: &BTreeMap<String, serde_json::Value>, kind: Option<&str>) -> bool {
+    kind == Some("program_optimization_plan_step")
+        && row
+            .get("candidate_role")
+            .is_some_and(serde_json::Value::is_null)
+        && row
+            .get("plan_ref")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(governed_ref)
+        && row
+            .get("instruction_ref")
+            .is_some_and(serde_json::Value::is_null)
+        && row
+            .get("tool_policy_ref")
+            .is_some_and(serde_json::Value::is_null)
+        && row
+            .get("model_profile_ref")
+            .is_some_and(serde_json::Value::is_null)
+}
+
+/// The `program_optimization_plan_step` step shape: candidate-only refs
+/// empty, a single governed plan-step-kind/executor label each, and a
+/// governed step/executor pairing.
+fn row_plan_step_shape(
+    row: &BTreeMap<String, serde_json::Value>,
+    plan_step_kinds: &std::collections::BTreeSet<&str>,
+    plan_executors: &std::collections::BTreeSet<&str>,
+) -> bool {
+    let plan_step_kind = row
+        .get("plan_step_kinds")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|values| values.first())
+        .and_then(serde_json::Value::as_str);
+    let plan_executor = row
+        .get("plan_executors")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|values| values.first())
+        .and_then(serde_json::Value::as_str);
+    row_empty_list(row, "demonstration_refs")
+        && row_empty_list(row, "artifact_refs")
+        && row_empty_list(row, "composition_refs")
+        && row_single_label(row, "plan_step_kinds", plan_step_kinds)
+        && row_single_label(row, "plan_executors", plan_executors)
+        && row_valid_step_executor(plan_step_kind, plan_executor)
+}
+
+/// The `program_optimization_plan_step` I/O shape: input/output/depends-on
+/// refs, a positive `max_operations`, and `selected == false`.
+fn row_plan_io_shape(row: &BTreeMap<String, serde_json::Value>, selected: Option<bool>) -> bool {
+    row_valid_refs(row, "plan_input_refs", false)
+        && row_valid_refs(row, "plan_output_refs", false)
+        && row_valid_refs(row, "plan_depends_on", true)
+        && row
+            .get("max_operations")
+            .and_then(serde_json::Value::as_u64)
+            .is_some_and(|value| value > 0)
+        && selected == Some(false)
+}
+
+/// Whether a row is shaped as a governed `program_optimization_plan_step`.
+fn row_plan_shape(
+    row: &BTreeMap<String, serde_json::Value>,
+    kind: Option<&str>,
+    selected: Option<bool>,
+    plan_step_kinds: &std::collections::BTreeSet<&str>,
+    plan_executors: &std::collections::BTreeSet<&str>,
+) -> bool {
+    row_plan_identity_shape(row, kind)
+        && row_plan_step_shape(row, plan_step_kinds, plan_executors)
+        && row_plan_io_shape(row, selected)
+}
+
+/// The id/program_ref/optimizer/execution/instruction/tool/model reference
+/// checks every governed row must pass, independent of candidate/plan shape.
+fn row_governed_identity_and_type(
+    row: &BTreeMap<String, serde_json::Value>,
+    optimizers: &std::collections::BTreeSet<&str>,
+    executions: &std::collections::BTreeSet<&str>,
+) -> bool {
+    row.get("id")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(governed_ref)
+        && row
+            .get("program_ref")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(governed_ref)
+        && row
+            .get("optimizer")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| optimizers.contains(value))
+        && row
+            .get("execution")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| executions.contains(value))
+        && row_valid_optional_ref(row, "instruction_ref")
+        && row_valid_optional_ref(row, "tool_policy_ref")
+        && row_valid_optional_ref(row, "model_profile_ref")
+}
+
+/// The confidence/selected/evidence-and-proof-ref checks every governed row
+/// must pass, independent of candidate/plan shape.
+fn row_governed_evidence_and_confidence(
+    row: &BTreeMap<String, serde_json::Value>,
+    selected: Option<bool>,
+) -> bool {
+    row.get("confidence")
+        .and_then(serde_json::Value::as_f64)
+        .is_some_and(|value| (0.0..=1.0).contains(&value))
+        && selected.is_some()
+        && row_valid_refs(row, "evidence_refs", false)
+        && row_valid_refs(row, "source_refs", false)
+        && row_valid_refs(row, "proof_ids", true)
+        && row_valid_refs(row, "contradiction_ids", true)
+}
+
+/// Static governance vocabulary [`validate_program_result_row`] checks each
+/// row against — computed once per [`validate_program_result_privacy`] call.
+struct RowGovernanceCtx<'a> {
+    expected: &'a std::collections::BTreeSet<&'a str>,
+    modalities: &'a std::collections::BTreeSet<&'a str>,
+    optimizers: &'a std::collections::BTreeSet<&'a str>,
+    executions: &'a std::collections::BTreeSet<&'a str>,
+    candidate_roles: &'a std::collections::BTreeSet<&'a str>,
+    plan_step_kinds: &'a std::collections::BTreeSet<&'a str>,
+    plan_executors: &'a std::collections::BTreeSet<&'a str>,
+}
+
+/// Whether one program-result row VIOLATES governance (mirrors the original
+/// inline `if <bad> { return Err }` condition verbatim, just relocated —
+/// `true` means the caller should reject the whole result).
+fn validate_program_result_row(
+    row: &BTreeMap<String, serde_json::Value>,
+    ctx: &RowGovernanceCtx<'_>,
+) -> bool {
+    let row_fields = row
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    let valid_modalities = row_valid_modalities(row, ctx.modalities);
+    let kind = row.get("kind").and_then(serde_json::Value::as_str);
+    let selected = row.get("selected").and_then(serde_json::Value::as_bool);
+    let candidate_role = row
+        .get("candidate_role")
+        .and_then(serde_json::Value::as_str);
+    let candidate_shape = row_candidate_shape(row, kind, candidate_role, ctx.candidate_roles);
+    let plan_shape = row_plan_shape(row, kind, selected, ctx.plan_step_kinds, ctx.plan_executors);
+    row_fields != *ctx.expected
+        || (!candidate_shape && !plan_shape)
+        || !row_governed_identity_and_type(row, ctx.optimizers, ctx.executions)
+        || !row_governed_evidence_and_confidence(row, selected)
+        || !valid_modalities
+}
+
 fn validate_program_result_privacy(result: &TypedJobResult) -> Result<(), String> {
     let expected = std::collections::BTreeSet::from([
         "id",
@@ -2776,7 +3380,6 @@ fn validate_program_result_privacy(result: &TypedJobResult) -> Result<(), String
         .iter()
         .map(|column| column.name.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    let governed_ref = |value: &str| OpaqueRef::new(value.to_string()).is_ok();
     let modalities = ProgramModality::ALL
         .into_iter()
         .map(ProgramModality::as_str)
@@ -2809,191 +3412,17 @@ fn validate_program_result_privacy(result: &TypedJobResult) -> Result<(), String
     {
         return Err("program result schema/references are not governed".to_string());
     }
+    let ctx = RowGovernanceCtx {
+        expected: &expected,
+        modalities: &modalities,
+        optimizers: &optimizers,
+        executions: &executions,
+        candidate_roles: &candidate_roles,
+        plan_step_kinds: &plan_step_kinds,
+        plan_executors: &plan_executors,
+    };
     for row in &result.rows {
-        let row_fields = row
-            .keys()
-            .map(String::as_str)
-            .collect::<std::collections::BTreeSet<_>>();
-        let valid_modalities = row
-            .get("modalities")
-            .and_then(serde_json::Value::as_array)
-            .is_some_and(|values| {
-                !values.is_empty()
-                    && values.iter().all(|value| {
-                        value
-                            .as_str()
-                            .is_some_and(|value| modalities.contains(value))
-                    })
-            });
-        let valid_refs = |field: &str, allow_empty: bool| {
-            row.get(field)
-                .and_then(serde_json::Value::as_array)
-                .is_some_and(|values| {
-                    (allow_empty || !values.is_empty())
-                        && values
-                            .iter()
-                            .all(|value| value.as_str().is_some_and(&governed_ref))
-                })
-        };
-        let valid_optional_ref = |field: &str| {
-            row.get(field)
-                .is_some_and(|value| value.is_null() || value.as_str().is_some_and(&governed_ref))
-        };
-        let empty_list = |field: &str| {
-            row.get(field)
-                .and_then(serde_json::Value::as_array)
-                .is_some_and(|values| values.is_empty())
-        };
-        let single_label = |field: &str, allowed: &std::collections::BTreeSet<&str>| {
-            row.get(field)
-                .and_then(serde_json::Value::as_array)
-                .is_some_and(|values| {
-                    values.len() == 1
-                        && values[0]
-                            .as_str()
-                            .is_some_and(|value| allowed.contains(value))
-                })
-        };
-        let kind = row.get("kind").and_then(serde_json::Value::as_str);
-        let selected = row.get("selected").and_then(serde_json::Value::as_bool);
-        let candidate_role = row
-            .get("candidate_role")
-            .and_then(serde_json::Value::as_str);
-        let valid_candidate_role = match candidate_role {
-            Some("proposal") => empty_list("composition_refs"),
-            Some("ensemble_member") => empty_list("composition_refs") && selected == Some(false),
-            Some("ensemble") => valid_refs("composition_refs", false),
-            _ => false,
-        };
-        let plan_step_kind = row
-            .get("plan_step_kinds")
-            .and_then(serde_json::Value::as_array)
-            .and_then(|values| values.first())
-            .and_then(serde_json::Value::as_str);
-        let plan_executor = row
-            .get("plan_executors")
-            .and_then(serde_json::Value::as_array)
-            .and_then(|values| values.first())
-            .and_then(serde_json::Value::as_str);
-        let valid_step_executor = matches!(
-            (plan_step_kind, plan_executor),
-            (Some("query_similarity"), Some("graph_similarity"))
-                | (
-                    Some(
-                        "propose_instruction"
-                            | "compare_tool_use"
-                            | "propose_rules"
-                            | "reflect_on_trace"
-                            | "pareto_reflect"
-                    ),
-                    Some("model_transport")
-                )
-                | (Some("compose_programs"), Some("native_kernel"))
-                | (Some("train_weights"), Some("trainer"))
-                | (Some("evaluate_candidates"), Some("evaluator"))
-        );
-        let valid_tool_policy_binding =
-            match row.get("optimizer").and_then(serde_json::Value::as_str) {
-                Some("avatar") => {
-                    row.get("tool_policy_ref")
-                        .and_then(serde_json::Value::as_str)
-                        .is_some_and(|reference| {
-                            governed_ref(reference)
-                                && row
-                                    .get("artifact_refs")
-                                    .and_then(serde_json::Value::as_array)
-                                    .is_some_and(|values| {
-                                        values.iter().any(|value| value.as_str() == Some(reference))
-                                    })
-                        })
-                        && row
-                            .get("instruction_ref")
-                            .is_some_and(serde_json::Value::is_null)
-                }
-                Some(_) => row
-                    .get("tool_policy_ref")
-                    .is_some_and(serde_json::Value::is_null),
-                None => false,
-            };
-        let candidate_shape = kind == Some("program_candidate")
-            && candidate_role.is_some_and(|value| candidate_roles.contains(value))
-            && valid_candidate_role
-            && valid_tool_policy_binding
-            && row.get("plan_ref").is_some_and(serde_json::Value::is_null)
-            && valid_refs("demonstration_refs", false)
-            && valid_refs("artifact_refs", true)
-            && valid_refs("composition_refs", true)
-            && empty_list("plan_step_kinds")
-            && empty_list("plan_executors")
-            && empty_list("plan_input_refs")
-            && empty_list("plan_output_refs")
-            && empty_list("plan_depends_on")
-            && row
-                .get("max_operations")
-                .is_some_and(serde_json::Value::is_null);
-        let plan_shape = kind == Some("program_optimization_plan_step")
-            && row
-                .get("candidate_role")
-                .is_some_and(serde_json::Value::is_null)
-            && row
-                .get("plan_ref")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(&governed_ref)
-            && row
-                .get("instruction_ref")
-                .is_some_and(serde_json::Value::is_null)
-            && row
-                .get("tool_policy_ref")
-                .is_some_and(serde_json::Value::is_null)
-            && row
-                .get("model_profile_ref")
-                .is_some_and(serde_json::Value::is_null)
-            && empty_list("demonstration_refs")
-            && empty_list("artifact_refs")
-            && empty_list("composition_refs")
-            && single_label("plan_step_kinds", &plan_step_kinds)
-            && single_label("plan_executors", &plan_executors)
-            && valid_step_executor
-            && valid_refs("plan_input_refs", false)
-            && valid_refs("plan_output_refs", false)
-            && valid_refs("plan_depends_on", true)
-            && row
-                .get("max_operations")
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|value| value > 0)
-            && selected == Some(false);
-        if row_fields != expected
-            || (!candidate_shape && !plan_shape)
-            || !row
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(&governed_ref)
-            || !row
-                .get("program_ref")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(&governed_ref)
-            || !row
-                .get("optimizer")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|value| optimizers.contains(value))
-            || !row
-                .get("execution")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|value| executions.contains(value))
-            || !valid_optional_ref("instruction_ref")
-            || !valid_optional_ref("tool_policy_ref")
-            || !valid_optional_ref("model_profile_ref")
-            || !row
-                .get("confidence")
-                .and_then(serde_json::Value::as_f64)
-                .is_some_and(|value| (0.0..=1.0).contains(&value))
-            || selected.is_none()
-            || !valid_refs("evidence_refs", false)
-            || !valid_refs("source_refs", false)
-            || !valid_refs("proof_ids", true)
-            || !valid_refs("contradiction_ids", true)
-            || !valid_modalities
-        {
+        if validate_program_result_row(row, &ctx) {
             return Err("program result contains non-governed row data".to_string());
         }
     }
