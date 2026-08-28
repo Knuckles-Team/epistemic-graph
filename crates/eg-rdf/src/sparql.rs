@@ -529,27 +529,13 @@ fn instantiate_triple(tp: &TriplePattern, sol: &Solution) -> Option<oxrdf::Tripl
 /// it (subject OR object position) — a minimal concise bounded description.
 #[cfg(feature = "rdf")]
 fn describe_resources(ctx: &Ctx, vars: &[String], solutions: &[Solution]) -> Vec<oxrdf::Triple> {
-    // The resource set: every binding across the projected vars whose value is a
-    // resource term (`<iri>` / `_:b`). A `DESCRIBE <iri>` constant arrives as an
-    // `Extend`-bound LITERAL lexically equal to `<iri>`, while a `DESCRIBE ?x` arrives
-    // as a `Node` binding — both are captured by the term-form check.
-    let mut resources: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for sol in solutions {
-        for v in vars {
-            if let Some(b) = sol.get(v) {
-                let s = b.as_str();
-                if s.starts_with('<') || s.starts_with("_:") {
-                    resources.insert(s.to_string());
-                }
-            }
-        }
-    }
+    let resources = describe_resource_set(vars, solutions);
     // All triples of the active graph (term-string form), filtered to those touching a
     // described resource in subject or object position.
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for (s, p, o, o_is_node) in all_triples_terms(ctx) {
-        if !(resources.contains(&s) || (o_is_node && resources.contains(&o))) {
+        if !describes(&resources, &s, &o, o_is_node) {
             continue;
         }
         if let Some(t) = build_triple(&s, &p, &o, o_is_node) {
@@ -561,6 +547,40 @@ fn describe_resources(ctx: &Ctx, vars: &[String], solutions: &[Solution]) -> Vec
     out
 }
 
+/// The resource set: every binding across the projected vars whose value is a resource
+/// term (`<iri>` / `_:b`). A `DESCRIBE <iri>` constant arrives as an `Extend`-bound
+/// LITERAL lexically equal to `<iri>`, while a `DESCRIBE ?x` arrives as a `Node`
+/// binding — both are captured by the term-form check.
+#[cfg(feature = "rdf")]
+fn describe_resource_set(
+    vars: &[String],
+    solutions: &[Solution],
+) -> std::collections::HashSet<String> {
+    let mut resources: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for sol in solutions {
+        for v in vars {
+            let Some(b) = sol.get(v) else { continue };
+            let s = b.as_str();
+            if s.starts_with('<') || s.starts_with("_:") {
+                resources.insert(s.to_string());
+            }
+        }
+    }
+    resources
+}
+
+/// Whether a triple (in projected term-string form) touches a described resource in
+/// subject or object position.
+#[cfg(feature = "rdf")]
+fn describes(
+    resources: &std::collections::HashSet<String>,
+    s: &str,
+    o: &str,
+    o_is_node: bool,
+) -> bool {
+    resources.contains(s) || (o_is_node && resources.contains(o))
+}
+
 /// Enumerate the active graph as `(subject, predicate, object, object_is_node)` projected
 /// term strings — the same projection the `?s ?p ?o` BGP scan produces.
 #[cfg(feature = "rdf")]
@@ -568,15 +588,40 @@ fn all_triples_terms(ctx: &Ctx) -> Vec<(String, String, String, bool)> {
     let view = ctx.active;
     let proj = ctx.proj;
     let mut out = Vec::new();
+    push_edge_triples_terms(view, proj, &mut out);
+    push_node_triples_terms(view, proj, &mut out);
+    out
+}
+
+/// The `edge_properties` half of [`all_triples_terms`]: every relationship edge as a
+/// `(subject, predicate, object, true)` term triple.
+#[cfg(feature = "rdf")]
+fn push_edge_triples_terms(
+    view: &GraphView,
+    proj: &Projection,
+    out: &mut Vec<(String, String, String, bool)>,
+) {
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
-                if let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) {
-                    out.push((proj.node_iri(s), proj.pred_iri(rel), proj.node_iri(o), true));
-                }
-            }
+            let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
+                continue;
+            };
+            let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) else {
+                continue;
+            };
+            out.push((proj.node_iri(s), proj.pred_iri(rel), proj.node_iri(o), true));
         }
     }
+}
+
+/// The `node_properties` half of [`all_triples_terms`]: each node's `rdf:type` triple
+/// (if typed) plus one literal triple per remaining scalar property.
+#[cfg(feature = "rdf")]
+fn push_node_triples_terms(
+    view: &GraphView,
+    proj: &Projection,
+    out: &mut Vec<(String, String, String, bool)>,
+) {
     for (id, blob) in &view.node_properties {
         let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
             continue;
@@ -601,7 +646,6 @@ fn all_triples_terms(ctx: &Ctx) -> Vec<(String, String, String, bool)> {
             }
         }
     }
-    out
 }
 
 /// Parse a projected node-id string (`<iri>` / `_:b`) to an RDF subject; `None` else.
@@ -671,6 +715,11 @@ fn collect_vars(p: &GraphPattern) -> Vec<String> {
 
 /// The algebra walker.
 fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
+    // Each arm below delegates to a same-named `eval_pattern_*` helper that owns that
+    // operator's logic; this keeps the dispatcher itself a flat, low-complexity match
+    // over every `GraphPattern` variant present in this build (the `Lateral` node is
+    // gated behind spargebra's `sep-0006` feature, which we do not enable — no
+    // catch-all needed).
     match p {
         GraphPattern::Bgp { patterns } => Ok(eval_bgp(ctx, patterns)),
         GraphPattern::Path {
@@ -678,169 +727,249 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             path,
             object,
         } => eval_path(ctx, subject, path, object),
-        GraphPattern::Filter { expr, inner } => {
-            let inner_sols = eval_pattern(ctx, inner)?;
-            Ok(inner_sols
-                .into_iter()
-                .filter(|s| eval_filter(ctx, expr, s))
-                .collect())
-        }
-        GraphPattern::Join { left, right } => {
-            let l = eval_pattern(ctx, left)?;
-            let r = eval_pattern(ctx, right)?;
-            Ok(hash_join(&l, &r))
-        }
+        GraphPattern::Filter { expr, inner } => eval_pattern_filter(ctx, expr, inner),
+        GraphPattern::Join { left, right } => eval_pattern_join(ctx, left, right),
         GraphPattern::LeftJoin {
             left,
             right,
             expression,
-        } => {
-            // OPTIONAL: keep every left solution; extend with a compatible right
-            // (passing the optional FILTER) where one exists.
-            let l = eval_pattern(ctx, left)?;
-            let r = eval_pattern(ctx, right)?;
-            Ok(left_join(ctx, &l, &r, expression.as_ref()))
-        }
-        GraphPattern::Union { left, right } => {
-            let mut l = eval_pattern(ctx, left)?;
-            let mut r = eval_pattern(ctx, right)?;
-            l.append(&mut r);
-            Ok(l)
-        }
-        // Sub-SELECT (CONCEPT:EG-KG.ontology.sub-select): evaluate the inner pattern, then RESTRICT each
-        // solution to the projected `variables` so inner-only bindings can't leak out and
-        // corrupt an outer join. Top-level SELECT output is unchanged — the result columns
-        // already derive from the projected set — so this is a pure correctness fix that
-        // makes a nested `{ SELECT … }` join on its projected vars only.
-        GraphPattern::Project { inner, variables } => {
-            let projected: std::collections::HashSet<&str> =
-                variables.iter().map(|v| v.as_str()).collect();
-            Ok(eval_pattern(ctx, inner)?
-                .into_iter()
-                .map(|s| {
-                    s.into_iter()
-                        .filter(|(k, _)| projected.contains(k.as_str()))
-                        .collect()
-                })
-                .collect())
-        }
-        // GROUP BY + aggregates (CONCEPT:EG-KG.query.sparql-completeness). `Group` produces one solution per
-        // group binding the GROUP BY vars + the aggregate-result vars; the wrapping
-        // `Extend` (below) re-binds those to the projected names. With no GROUP BY var
-        // the whole result is one group (`SELECT (COUNT(*) AS ?n) …`).
+        } => eval_pattern_left_join(ctx, left, right, expression.as_ref()),
+        GraphPattern::Union { left, right } => eval_pattern_union(ctx, left, right),
+        GraphPattern::Project { inner, variables } => eval_pattern_project(ctx, inner, variables),
         GraphPattern::Group {
             inner,
             variables,
             aggregates,
-        } => {
-            let rows = eval_pattern(ctx, inner)?;
-            Ok(eval_group(ctx, rows, variables, aggregates))
-        }
-        // BIND / the aggregate-projection rename. `Extend` binds `variable` to the
-        // value of `expression` in each solution. We evaluate the (already-aggregated
-        // or scalar) expression and bind it; an unevaluable expression leaves it
-        // unbound (SPARQL: an error in Extend yields no binding for that var).
+        } => eval_pattern_group(ctx, inner, variables, aggregates),
         GraphPattern::Extend {
             inner,
             variable,
             expression,
-        } => {
-            let rows = eval_pattern(ctx, inner)?;
-            Ok(rows
-                .into_iter()
-                .map(|mut s| {
-                    if let Some(val) = expr_str(ctx, expression, &s) {
-                        s.insert(variable.as_str().to_string(), Binding::Literal(val));
-                    }
-                    s
-                })
-                .collect())
-        }
-        // GRAPH … { … } — true named-graph scoping (CONCEPT:EG-KG.query.named-graph-support). A constant graph
-        // IRI re-scopes evaluation to THAT named graph (empty if it is not in the
-        // dataset). A variable `?g` ranges over EVERY named graph, evaluating the inner
-        // pattern against each and binding `?g` to its IRI (the union).
-        GraphPattern::Graph { name, inner } => match name {
-            NamedNodePattern::NamedNode(n) => match ctx.ds.named_view(n.as_str()) {
-                Some(v) => eval_pattern(&ctx.with_active(v), inner),
-                None => Ok(Vec::new()),
-            },
-            NamedNodePattern::Variable(v) => {
-                let mut out = Vec::new();
-                for (gname, gview) in &ctx.ds.named {
-                    let binding = Binding::Node(format!("<{gname}>"));
-                    for mut s in eval_pattern(&ctx.with_active(gview), inner)? {
-                        match s.get(v.as_str()) {
-                            Some(existing) if *existing != binding => continue,
-                            _ => {
-                                s.insert(v.as_str().to_string(), binding.clone());
-                            }
-                        }
-                        out.push(s);
-                    }
-                }
-                Ok(out)
-            }
-        },
-        GraphPattern::Distinct { inner } => {
-            let mut seen = std::collections::HashSet::new();
-            Ok(eval_pattern(ctx, inner)?
-                .into_iter()
-                .filter(|s| seen.insert(canonical_solution(s)))
-                .collect())
-        }
+        } => eval_pattern_extend(ctx, inner, variable, expression),
+        GraphPattern::Graph { name, inner } => eval_pattern_graph(ctx, name, inner),
+        GraphPattern::Distinct { inner } => eval_pattern_distinct(ctx, inner),
         GraphPattern::Reduced { inner } => eval_pattern(ctx, inner),
         GraphPattern::Slice {
             inner,
             start,
             length,
-        } => {
-            let all = eval_pattern(ctx, inner)?;
-            let end = length.map(|l| start + l).unwrap_or(all.len());
-            Ok(all
-                .into_iter()
-                .skip(*start)
-                .take(end.saturating_sub(*start))
-                .collect())
-        }
-        // MINUS (CONCEPT:EG-KG.ontology.minus): set-difference. Keep each LEFT solution that is NOT
-        // compatible with ANY right solution. SPARQL MINUS compatibility is agreement on
-        // the SHARED bound variables; a left solution whose domain is DISJOINT from a
-        // right solution is NOT removed by it (so a right pattern sharing no variable
-        // never deletes anything).
-        GraphPattern::Minus { left, right } => {
-            let l = eval_pattern(ctx, left)?;
-            let r = eval_pattern(ctx, right)?;
-            Ok(l.into_iter()
-                .filter(|ls| !r.iter().any(|rs| minus_compatible(ls, rs)))
-                .collect())
-        }
-        // ORDER BY (CONCEPT:EG-KG.ontology.order-by-values-exists): a CORRECTNESS fix — the evaluator previously hit the
-        // catch-all and errored, so ordered queries never returned in order. Evaluate the
-        // inner pattern, then STABLE-sort its solutions by the `OrderExpression` list.
+        } => eval_pattern_slice(ctx, inner, *start, *length),
+        GraphPattern::Minus { left, right } => eval_pattern_minus(ctx, left, right),
         GraphPattern::OrderBy { inner, expression } => {
-            let mut sols = eval_pattern(ctx, inner)?;
-            sort_solutions(ctx, &mut sols, expression);
-            Ok(sols)
+            eval_pattern_order_by(ctx, inner, expression)
         }
-        // VALUES (CONCEPT:EG-KG.ontology.order-by-values-exists): inline a ground-term data table into solutions; the
-        // enclosing operator (a JOIN, typically) merges them with the rest of the pattern.
         GraphPattern::Values {
             variables,
             bindings,
         } => Ok(values_solutions(variables, bindings)),
-        // SERVICE <ep> { … } — federated query (CONCEPT:EG-KG.query.sparql-service-federation-client). Dispatch the inner pattern
-        // to a remote endpoint via `ctx.service`; the returned solutions flow up so the
-        // enclosing Join/LeftJoin combines them with the local BGP (via `hash_join`).
         GraphPattern::Service {
             name,
             inner,
             silent,
         } => eval_service(ctx, name, inner, *silent),
-        // With `Service` handled the match is now exhaustive over every `GraphPattern`
-        // variant present in this build (the `Lateral` node is gated behind spargebra's
-        // `sep-0006` feature, which we do not enable) — no catch-all needed.
     }
+}
+
+/// FILTER: keep only the inner solutions for which `expr` evaluates truthy.
+fn eval_pattern_filter(
+    ctx: &Ctx,
+    expr: &Expression,
+    inner: &GraphPattern,
+) -> Result<Vec<Solution>, String> {
+    let inner_sols = eval_pattern(ctx, inner)?;
+    Ok(inner_sols
+        .into_iter()
+        .filter(|s| eval_filter(ctx, expr, s))
+        .collect())
+}
+
+/// JOIN: inner (hash) join of the two sides' solutions.
+fn eval_pattern_join(
+    ctx: &Ctx,
+    left: &GraphPattern,
+    right: &GraphPattern,
+) -> Result<Vec<Solution>, String> {
+    let l = eval_pattern(ctx, left)?;
+    let r = eval_pattern(ctx, right)?;
+    Ok(hash_join(&l, &r))
+}
+
+/// OPTIONAL: keep every left solution; extend with a compatible right (passing the
+/// optional FILTER) where one exists.
+fn eval_pattern_left_join(
+    ctx: &Ctx,
+    left: &GraphPattern,
+    right: &GraphPattern,
+    expression: Option<&Expression>,
+) -> Result<Vec<Solution>, String> {
+    let l = eval_pattern(ctx, left)?;
+    let r = eval_pattern(ctx, right)?;
+    Ok(left_join(ctx, &l, &r, expression))
+}
+
+/// UNION: the concatenation of both sides' solutions.
+fn eval_pattern_union(
+    ctx: &Ctx,
+    left: &GraphPattern,
+    right: &GraphPattern,
+) -> Result<Vec<Solution>, String> {
+    let mut l = eval_pattern(ctx, left)?;
+    let mut r = eval_pattern(ctx, right)?;
+    l.append(&mut r);
+    Ok(l)
+}
+
+/// Sub-SELECT (CONCEPT:EG-KG.ontology.sub-select): evaluate the inner pattern, then RESTRICT each
+/// solution to the projected `variables` so inner-only bindings can't leak out and
+/// corrupt an outer join. Top-level SELECT output is unchanged — the result columns
+/// already derive from the projected set — so this is a pure correctness fix that
+/// makes a nested `{ SELECT … }` join on its projected vars only.
+fn eval_pattern_project(
+    ctx: &Ctx,
+    inner: &GraphPattern,
+    variables: &[Variable],
+) -> Result<Vec<Solution>, String> {
+    let projected: std::collections::HashSet<&str> = variables.iter().map(|v| v.as_str()).collect();
+    Ok(eval_pattern(ctx, inner)?
+        .into_iter()
+        .map(|s| {
+            s.into_iter()
+                .filter(|(k, _)| projected.contains(k.as_str()))
+                .collect()
+        })
+        .collect())
+}
+
+/// GROUP BY + aggregates (CONCEPT:EG-KG.query.sparql-completeness). `Group` produces one solution per
+/// group binding the GROUP BY vars + the aggregate-result vars; the wrapping
+/// `Extend` (below) re-binds those to the projected names. With no GROUP BY var
+/// the whole result is one group (`SELECT (COUNT(*) AS ?n) …`).
+fn eval_pattern_group(
+    ctx: &Ctx,
+    inner: &GraphPattern,
+    variables: &[Variable],
+    aggregates: &[(Variable, AggregateExpression)],
+) -> Result<Vec<Solution>, String> {
+    let rows = eval_pattern(ctx, inner)?;
+    Ok(eval_group(ctx, rows, variables, aggregates))
+}
+
+/// BIND / the aggregate-projection rename. `Extend` binds `variable` to the value of
+/// `expression` in each solution. We evaluate the (already-aggregated or scalar)
+/// expression and bind it; an unevaluable expression leaves it unbound (SPARQL: an
+/// error in Extend yields no binding for that var).
+fn eval_pattern_extend(
+    ctx: &Ctx,
+    inner: &GraphPattern,
+    variable: &Variable,
+    expression: &Expression,
+) -> Result<Vec<Solution>, String> {
+    let rows = eval_pattern(ctx, inner)?;
+    Ok(rows
+        .into_iter()
+        .map(|mut s| {
+            if let Some(val) = expr_str(ctx, expression, &s) {
+                s.insert(variable.as_str().to_string(), Binding::Literal(val));
+            }
+            s
+        })
+        .collect())
+}
+
+/// GRAPH … { … } — true named-graph scoping (CONCEPT:EG-KG.query.named-graph-support). A constant graph
+/// IRI re-scopes evaluation to THAT named graph (empty if it is not in the dataset). A
+/// variable `?g` ranges over EVERY named graph, evaluating the inner pattern against
+/// each and binding `?g` to its IRI (the union).
+fn eval_pattern_graph(
+    ctx: &Ctx,
+    name: &NamedNodePattern,
+    inner: &GraphPattern,
+) -> Result<Vec<Solution>, String> {
+    match name {
+        NamedNodePattern::NamedNode(n) => match ctx.ds.named_view(n.as_str()) {
+            Some(v) => eval_pattern(&ctx.with_active(v), inner),
+            None => Ok(Vec::new()),
+        },
+        NamedNodePattern::Variable(v) => eval_pattern_graph_var(ctx, v, inner),
+    }
+}
+
+/// The `GRAPH ?g { … }` arm of [`eval_pattern_graph`]: union the inner pattern over
+/// every named graph, binding `?g` to each graph's IRI.
+fn eval_pattern_graph_var(
+    ctx: &Ctx,
+    v: &Variable,
+    inner: &GraphPattern,
+) -> Result<Vec<Solution>, String> {
+    let mut out = Vec::new();
+    for (gname, gview) in &ctx.ds.named {
+        let binding = Binding::Node(format!("<{gname}>"));
+        for mut s in eval_pattern(&ctx.with_active(gview), inner)? {
+            match s.get(v.as_str()) {
+                Some(existing) if *existing != binding => continue,
+                _ => {
+                    s.insert(v.as_str().to_string(), binding.clone());
+                }
+            }
+            out.push(s);
+        }
+    }
+    Ok(out)
+}
+
+/// DISTINCT: drop solutions whose canonical form has already been seen.
+fn eval_pattern_distinct(ctx: &Ctx, inner: &GraphPattern) -> Result<Vec<Solution>, String> {
+    let mut seen = std::collections::HashSet::new();
+    Ok(eval_pattern(ctx, inner)?
+        .into_iter()
+        .filter(|s| seen.insert(canonical_solution(s)))
+        .collect())
+}
+
+/// LIMIT/OFFSET: slice the inner solutions to `[start, start + length)`.
+fn eval_pattern_slice(
+    ctx: &Ctx,
+    inner: &GraphPattern,
+    start: usize,
+    length: Option<usize>,
+) -> Result<Vec<Solution>, String> {
+    let all = eval_pattern(ctx, inner)?;
+    let end = length.map(|l| start + l).unwrap_or(all.len());
+    Ok(all
+        .into_iter()
+        .skip(start)
+        .take(end.saturating_sub(start))
+        .collect())
+}
+
+/// MINUS (CONCEPT:EG-KG.ontology.minus): set-difference. Keep each LEFT solution that is NOT
+/// compatible with ANY right solution. SPARQL MINUS compatibility is agreement on
+/// the SHARED bound variables; a left solution whose domain is DISJOINT from a
+/// right solution is NOT removed by it (so a right pattern sharing no variable
+/// never deletes anything).
+fn eval_pattern_minus(
+    ctx: &Ctx,
+    left: &GraphPattern,
+    right: &GraphPattern,
+) -> Result<Vec<Solution>, String> {
+    let l = eval_pattern(ctx, left)?;
+    let r = eval_pattern(ctx, right)?;
+    Ok(l.into_iter()
+        .filter(|ls| !r.iter().any(|rs| minus_compatible(ls, rs)))
+        .collect())
+}
+
+/// ORDER BY (CONCEPT:EG-KG.ontology.order-by-values-exists): a CORRECTNESS fix — the evaluator previously hit the
+/// catch-all and errored, so ordered queries never returned in order. Evaluate the
+/// inner pattern, then STABLE-sort its solutions by the `OrderExpression` list.
+fn eval_pattern_order_by(
+    ctx: &Ctx,
+    inner: &GraphPattern,
+    expression: &[OrderExpression],
+) -> Result<Vec<Solution>, String> {
+    let mut sols = eval_pattern(ctx, inner)?;
+    sort_solutions(ctx, &mut sols, expression);
+    Ok(sols)
 }
 
 /// Evaluate a `SERVICE <ep> { inner }` clause (CONCEPT:EG-KG.query.sparql-service-federation-client) by delegating `inner` to a
@@ -1129,32 +1258,43 @@ fn agg_over(func: &AggregateFunction, vals: &[String]) -> String {
     match func {
         AggregateFunction::Count => vals.len().to_string(),
         AggregateFunction::Sum => fmt_num(nums.iter().sum::<f64>()),
-        AggregateFunction::Avg => {
-            if nums.is_empty() {
-                "0".to_string()
-            } else {
-                fmt_num(nums.iter().sum::<f64>() / nums.len() as f64)
-            }
-        }
-        AggregateFunction::Min => {
-            if nums.is_empty() {
-                vals.iter().min().cloned().unwrap_or_default()
-            } else {
-                fmt_num(nums.iter().cloned().fold(f64::INFINITY, f64::min))
-            }
-        }
-        AggregateFunction::Max => {
-            if nums.is_empty() {
-                vals.iter().max().cloned().unwrap_or_default()
-            } else {
-                fmt_num(nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
-            }
-        }
+        AggregateFunction::Avg => agg_avg(&nums),
+        AggregateFunction::Min => agg_min(vals, &nums),
+        AggregateFunction::Max => agg_max(vals, &nums),
         AggregateFunction::GroupConcat { separator } => {
             vals.join(separator.as_deref().unwrap_or(" "))
         }
         AggregateFunction::Sample => vals.first().cloned().unwrap_or_default(),
         AggregateFunction::Custom(_) => String::new(),
+    }
+}
+
+/// AVG over the numeric-parseable values; `0` when none parsed.
+fn agg_avg(nums: &[f64]) -> String {
+    if nums.is_empty() {
+        "0".to_string()
+    } else {
+        fmt_num(nums.iter().sum::<f64>() / nums.len() as f64)
+    }
+}
+
+/// MIN: numeric min when any value parsed as a number, else the lexical min of the
+/// raw values.
+fn agg_min(vals: &[String], nums: &[f64]) -> String {
+    if nums.is_empty() {
+        vals.iter().min().cloned().unwrap_or_default()
+    } else {
+        fmt_num(nums.iter().cloned().fold(f64::INFINITY, f64::min))
+    }
+}
+
+/// MAX: numeric max when any value parsed as a number, else the lexical max of the
+/// raw values.
+fn agg_max(vals: &[String], nums: &[f64]) -> String {
+    if nums.is_empty() {
+        vals.iter().max().cloned().unwrap_or_default()
+    } else {
+        fmt_num(nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
     }
 }
 
@@ -1248,19 +1388,7 @@ fn path_pairs(ctx: &Ctx, path: &PropertyPathExpression) -> Result<Vec<(String, S
             .into_iter()
             .map(|(s, o)| (o, s))
             .collect(),
-        PropertyPathExpression::Sequence(a, b) => {
-            let left = path_pairs(ctx, a)?;
-            let right = path_pairs(ctx, b)?;
-            let mut out = Vec::new();
-            for (s, mid) in &left {
-                for (rs, o) in &right {
-                    if rs == mid {
-                        out.push((s.clone(), o.clone()));
-                    }
-                }
-            }
-            dedup_pairs(out)
-        }
+        PropertyPathExpression::Sequence(a, b) => path_pairs_sequence(ctx, a, b)?,
         PropertyPathExpression::Alternative(a, b) => {
             let mut out = path_pairs(ctx, a)?;
             out.extend(path_pairs(ctx, b)?);
@@ -1274,15 +1402,7 @@ fn path_pairs(ctx: &Ctx, path: &PropertyPathExpression) -> Result<Vec<(String, S
             let base = path_pairs(ctx, inner)?;
             transitive_closure(&base, true, ctx)
         }
-        PropertyPathExpression::ZeroOrOne(inner) => {
-            let mut out = path_pairs(ctx, inner)?;
-            // identity on every node (`x p? x`).
-            for id in ctx.active.node_properties.keys() {
-                let iri = ctx.proj.node_iri(id);
-                out.push((iri.clone(), iri));
-            }
-            dedup_pairs(out)
-        }
+        PropertyPathExpression::ZeroOrOne(inner) => path_pairs_zero_or_one(ctx, inner)?,
         // Negated property set `!(p1|…|pn)` (CONCEPT:EG-KG.ontology.negated-property-set): every resource edge whose
         // projected predicate IRI is NOT one of the negated predicates.
         PropertyPathExpression::NegatedPropertySet(preds) => {
@@ -1291,6 +1411,39 @@ fn path_pairs(ctx: &Ctx, path: &PropertyPathExpression) -> Result<Vec<(String, S
             negated_edge_pairs(ctx, &negated)
         }
     })
+}
+
+/// The `Sequence(a, b)` arm of [`path_pairs`]: `a`'s object joined to `b`'s subject.
+fn path_pairs_sequence(
+    ctx: &Ctx,
+    a: &PropertyPathExpression,
+    b: &PropertyPathExpression,
+) -> Result<Vec<(String, String)>, String> {
+    let left = path_pairs(ctx, a)?;
+    let right = path_pairs(ctx, b)?;
+    let mut out = Vec::new();
+    for (s, mid) in &left {
+        for (rs, o) in &right {
+            if rs == mid {
+                out.push((s.clone(), o.clone()));
+            }
+        }
+    }
+    Ok(dedup_pairs(out))
+}
+
+/// The `ZeroOrOne(inner)` arm of [`path_pairs`]: `inner`'s pairs plus the identity
+/// pair on every node (`x p? x`).
+fn path_pairs_zero_or_one(
+    ctx: &Ctx,
+    inner: &PropertyPathExpression,
+) -> Result<Vec<(String, String)>, String> {
+    let mut out = path_pairs(ctx, inner)?;
+    for id in ctx.active.node_properties.keys() {
+        let iri = ctx.proj.node_iri(id);
+        out.push((iri.clone(), iri));
+    }
+    Ok(dedup_pairs(out))
 }
 
 /// Every `(subject, object)` resource pair carrying a typed edge whose projected
@@ -1342,29 +1495,10 @@ fn transitive_closure(
     reflexive: bool,
     ctx: &Ctx,
 ) -> Vec<(String, String)> {
-    use std::collections::{HashMap, HashSet};
-    // adjacency.
-    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
-    for (s, o) in base {
-        adj.entry(s.as_str()).or_default().push(o.as_str());
-    }
+    use std::collections::HashSet;
+    let adj = path_pairs_adjacency(base);
     let starts: HashSet<&str> = base.iter().map(|(s, _)| s.as_str()).collect();
-    let mut out: HashSet<(String, String)> = HashSet::new();
-    // BFS reachability (≥1 hop) from each start.
-    for &start in &starts {
-        let mut stack = vec![start];
-        let mut visited: HashSet<&str> = HashSet::new();
-        while let Some(cur) = stack.pop() {
-            if let Some(next) = adj.get(cur) {
-                for &n in next {
-                    if visited.insert(n) {
-                        out.insert((start.to_string(), n.to_string()));
-                        stack.push(n);
-                    }
-                }
-            }
-        }
-    }
+    let mut out = bfs_reachable_pairs(&adj, &starts);
     if reflexive {
         for id in ctx.active.node_properties.keys() {
             let iri = ctx.proj.node_iri(id);
@@ -1372,6 +1506,39 @@ fn transitive_closure(
         }
     }
     out.into_iter().collect()
+}
+
+/// Adjacency list (`subject → objects`) over the `base` edge pairs, for the BFS in
+/// [`bfs_reachable_pairs`].
+fn path_pairs_adjacency(base: &[(String, String)]) -> std::collections::HashMap<&str, Vec<&str>> {
+    let mut adj: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+    for (s, o) in base {
+        adj.entry(s.as_str()).or_default().push(o.as_str());
+    }
+    adj
+}
+
+/// BFS reachability (≥1 hop) from each of `starts` over `adj`, as `(start, reached)`
+/// pairs.
+fn bfs_reachable_pairs<'a>(
+    adj: &std::collections::HashMap<&'a str, Vec<&'a str>>,
+    starts: &std::collections::HashSet<&'a str>,
+) -> std::collections::HashSet<(String, String)> {
+    let mut out = std::collections::HashSet::new();
+    for &start in starts {
+        let mut stack = vec![start];
+        let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        while let Some(cur) = stack.pop() {
+            let Some(next) = adj.get(cur) else { continue };
+            for &n in next {
+                if visited.insert(n) {
+                    out.insert((start.to_string(), n.to_string()));
+                    stack.push(n);
+                }
+            }
+        }
+    }
+    out
 }
 
 fn dedup_pairs(v: Vec<(String, String)>) -> Vec<(String, String)> {
@@ -1386,16 +1553,20 @@ fn dedup_pairs(v: Vec<(String, String)>) -> Vec<(String, String)> {
 /// IRIs, and the synthesized `rdf:type` object are all produced by `proj` so the
 /// projected triples match the caller's vocabulary (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary).
 fn match_triple_pattern(ctx: &Ctx, tp: &TriplePattern) -> Vec<Solution> {
+    let mut out = Vec::new();
+    match_triple_pattern_edges(ctx, tp, &mut out);
+    match_triple_pattern_nodes(ctx, tp, &mut out);
+    out
+}
+
+/// EDGE patterns: object is a resource. Scan edges; project subject/predicate/object.
+fn match_triple_pattern_edges(ctx: &Ctx, tp: &TriplePattern, out: &mut Vec<Solution>) {
     let view = ctx.active;
     let proj = ctx.proj;
-    let mut out = Vec::new();
-
-    // EDGE patterns: object is a resource. Scan edges; project subject/predicate/object.
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            let v = match eg_types::msgpack::decode_property_value(blob.as_slice()) {
-                Ok(v) => v,
-                Err(_) => continue,
+            let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
+                continue;
             };
             let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) else {
                 continue;
@@ -1413,60 +1584,83 @@ fn match_triple_pattern(ctx: &Ctx, tp: &TriplePattern) -> Vec<Solution> {
             out.push(sol);
         }
     }
+}
 
-    // NODE patterns: scan node property cells.
+/// NODE patterns: scan node property cells, yielding both the synthesized `rdf:type`
+/// triple and one literal triple per remaining scalar property.
+fn match_triple_pattern_nodes(ctx: &Ctx, tp: &TriplePattern, out: &mut Vec<Solution>) {
+    let view = ctx.active;
+    let proj = ctx.proj;
     for (id, blob) in &view.node_properties {
-        let v = match eg_types::msgpack::decode_property_value(blob.as_slice()) {
-            Ok(v) => v,
-            Err(_) => continue,
+        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
+            continue;
         };
         let Some(obj) = v.as_object() else { continue };
         let subj_iri = proj.node_iri(id);
-
-        // `rdf:type` synthesis from the node `type`/`node_type` field. In the IDENTITY
-        // projection this is `None` (no synthesis — `rdf:type` comes from explicit
-        // typing edges, the prior behavior). Under a namespaced projection it yields
-        // `<subj> rdf:type <base + CamelCase(type)>`, matching AU's materialization.
-        if let Some(ty) = obj
-            .get("type")
-            .or_else(|| obj.get("node_type"))
-            .and_then(|x| x.as_str())
-        {
-            if let Some(type_obj) = proj.type_object_iri(ty) {
-                let mut sol = Solution::new();
-                if bind_subject(&tp.subject, &subj_iri, &mut sol)
-                    && bind_predicate_iri(&tp.predicate, RDF_TYPE_IRI, &mut sol)
-                    && bind_object_node(&tp.object, &type_obj, &mut sol)
-                {
-                    out.push(sol);
-                }
-            }
-        }
-
-        // LITERAL patterns: each scalar / typed-cell property → a literal triple.
-        for (k, cell) in obj {
-            // `type`/`node_type` are emitted as `rdf:type` (above) / engine bookkeeping.
-            if k == "type" || k == "node_type" {
-                continue;
-            }
-            let Some(lit_val) = cell_lexical(cell) else {
-                continue;
-            };
-            let mut sol = Solution::new();
-            if !bind_subject(&tp.subject, &subj_iri, &mut sol) {
-                continue;
-            }
-            if !bind_predicate_iri(&tp.predicate, &proj.pred_iri(k), &mut sol) {
-                continue;
-            }
-            if !bind_object_literal(&tp.object, &lit_val, &mut sol) {
-                continue;
-            }
-            out.push(sol);
-        }
+        match_triple_pattern_type(ctx, tp, obj, &subj_iri, out);
+        match_triple_pattern_literals(ctx, tp, obj, &subj_iri, out);
     }
+}
 
-    out
+/// `rdf:type` synthesis from the node `type`/`node_type` field. In the IDENTITY
+/// projection this is `None` (no synthesis — `rdf:type` comes from explicit typing
+/// edges, the prior behavior). Under a namespaced projection it yields `<subj>
+/// rdf:type <base + CamelCase(type)>`, matching AU's materialization.
+fn match_triple_pattern_type(
+    ctx: &Ctx,
+    tp: &TriplePattern,
+    obj: &serde_json::Map<String, serde_json::Value>,
+    subj_iri: &str,
+    out: &mut Vec<Solution>,
+) {
+    let Some(ty) = obj
+        .get("type")
+        .or_else(|| obj.get("node_type"))
+        .and_then(|x| x.as_str())
+    else {
+        return;
+    };
+    let Some(type_obj) = ctx.proj.type_object_iri(ty) else {
+        return;
+    };
+    let mut sol = Solution::new();
+    if bind_subject(&tp.subject, subj_iri, &mut sol)
+        && bind_predicate_iri(&tp.predicate, RDF_TYPE_IRI, &mut sol)
+        && bind_object_node(&tp.object, &type_obj, &mut sol)
+    {
+        out.push(sol);
+    }
+}
+
+/// LITERAL patterns: each scalar / typed-cell property (other than `type`/`node_type`,
+/// emitted as `rdf:type` above / engine bookkeeping) → a literal triple.
+fn match_triple_pattern_literals(
+    ctx: &Ctx,
+    tp: &TriplePattern,
+    obj: &serde_json::Map<String, serde_json::Value>,
+    subj_iri: &str,
+    out: &mut Vec<Solution>,
+) {
+    let proj = ctx.proj;
+    for (k, cell) in obj {
+        if k == "type" || k == "node_type" {
+            continue;
+        }
+        let Some(lit_val) = cell_lexical(cell) else {
+            continue;
+        };
+        let mut sol = Solution::new();
+        if !bind_subject(&tp.subject, subj_iri, &mut sol) {
+            continue;
+        }
+        if !bind_predicate_iri(&tp.predicate, &proj.pred_iri(k), &mut sol) {
+            continue;
+        }
+        if !bind_object_literal(&tp.object, &lit_val, &mut sol) {
+            continue;
+        }
+        out.push(sol);
+    }
 }
 
 /// The variable name a query blank node binds under. A blank node in a QUERY
@@ -1605,32 +1799,19 @@ fn eval_filter(ctx: &Ctx, expr: &Expression, sol: &Solution) -> bool {
 fn eval_expr_bool(ctx: &Ctx, expr: &Expression, sol: &Solution) -> Option<bool> {
     match expr {
         Expression::Bound(v) => Some(sol.contains_key(v.as_str())),
-        Expression::Equal(a, b) => Some(terms_equal(ctx, a, b, sol)),
-        Expression::SameTerm(a, b) => Some(expr_str(ctx, a, sol)? == expr_str(ctx, b, sol)?),
-        Expression::Greater(a, b) => Some(num(ctx, a, sol)? > num(ctx, b, sol)?),
-        Expression::GreaterOrEqual(a, b) => Some(num(ctx, a, sol)? >= num(ctx, b, sol)?),
-        Expression::Less(a, b) => Some(num(ctx, a, sol)? < num(ctx, b, sol)?),
-        Expression::LessOrEqual(a, b) => Some(num(ctx, a, sol)? <= num(ctx, b, sol)?),
-        Expression::And(a, b) => Some(eval_expr_bool(ctx, a, sol)? && eval_expr_bool(ctx, b, sol)?),
-        Expression::Or(a, b) => Some(eval_expr_bool(ctx, a, sol)? || eval_expr_bool(ctx, b, sol)?),
-        Expression::Not(a) => Some(!eval_expr_bool(ctx, a, sol)?),
+        Expression::Equal(..)
+        | Expression::SameTerm(..)
+        | Expression::Greater(..)
+        | Expression::GreaterOrEqual(..)
+        | Expression::Less(..)
+        | Expression::LessOrEqual(..) => eval_expr_bool_compare(ctx, expr, sol),
+        Expression::And(..) | Expression::Or(..) | Expression::Not(..) => {
+            eval_expr_bool_logic(ctx, expr, sol)
+        }
         // `IN` (and `NOT IN`, which spargebra parses to `Not(In(…))`) — numeric-aware
         // membership over the candidate list.
-        Expression::In(a, list) => {
-            let lhs = eval_term(ctx, a, sol)?;
-            Some(list.iter().any(|e| {
-                eval_term(ctx, e, sol)
-                    .map(|rhs| binding_terms_equal(&lhs, &rhs))
-                    .unwrap_or(false)
-            }))
-        }
-        Expression::If(c, t, e) => {
-            if eval_expr_bool(ctx, c, sol).unwrap_or(false) {
-                eval_expr_bool(ctx, t, sol)
-            } else {
-                eval_expr_bool(ctx, e, sol)
-            }
-        }
+        Expression::In(a, list) => eval_expr_bool_in(ctx, a, list, sol),
+        Expression::If(c, t, e) => eval_expr_bool_if(ctx, c, t, e, sol),
         Expression::Coalesce(args) => args.iter().find_map(|e| eval_expr_bool(ctx, e, sol)),
         Expression::FunctionCall(f, args) => eval_bool_function(ctx, f, args, sol),
         // FILTER EXISTS / NOT EXISTS (CONCEPT:EG-KG.ontology.order-by-values-exists). `NOT EXISTS` parses to
@@ -1638,13 +1819,72 @@ fn eval_expr_bool(ctx: &Ctx, expr: &Expression, sol: &Solution) -> Option<bool> 
         // the sub-pattern under the active context and report whether ANY of its solutions
         // is COMPATIBLE with the current solution (agrees on the shared variables) — the
         // substitution-and-nonempty semantics of EXISTS.
-        Expression::Exists(pattern) => {
-            let sols = eval_pattern(ctx, pattern).ok()?;
-            Some(sols.iter().any(|s| merge(sol, s).is_some()))
-        }
+        Expression::Exists(pattern) => eval_expr_bool_exists(ctx, pattern, sol),
         // Effective boolean value of any other value-producing expression.
         _ => eval_term(ctx, expr, sol).map(|b| ebv(&b)),
     }
+}
+
+/// The comparison arms of [`eval_expr_bool`]: `=`, `sameTerm`, and the ordering
+/// operators.
+fn eval_expr_bool_compare(ctx: &Ctx, expr: &Expression, sol: &Solution) -> Option<bool> {
+    match expr {
+        Expression::Equal(a, b) => Some(terms_equal(ctx, a, b, sol)),
+        Expression::SameTerm(a, b) => Some(expr_str(ctx, a, sol)? == expr_str(ctx, b, sol)?),
+        Expression::Greater(a, b) => Some(num(ctx, a, sol)? > num(ctx, b, sol)?),
+        Expression::GreaterOrEqual(a, b) => Some(num(ctx, a, sol)? >= num(ctx, b, sol)?),
+        Expression::Less(a, b) => Some(num(ctx, a, sol)? < num(ctx, b, sol)?),
+        Expression::LessOrEqual(a, b) => Some(num(ctx, a, sol)? <= num(ctx, b, sol)?),
+        _ => unreachable!("eval_expr_bool_compare called with a non-comparison Expression variant"),
+    }
+}
+
+/// The boolean-connective arms of [`eval_expr_bool`]: `&&`, `||`, `!`.
+fn eval_expr_bool_logic(ctx: &Ctx, expr: &Expression, sol: &Solution) -> Option<bool> {
+    match expr {
+        Expression::And(a, b) => Some(eval_expr_bool(ctx, a, sol)? && eval_expr_bool(ctx, b, sol)?),
+        Expression::Or(a, b) => Some(eval_expr_bool(ctx, a, sol)? || eval_expr_bool(ctx, b, sol)?),
+        Expression::Not(a) => Some(!eval_expr_bool(ctx, a, sol)?),
+        _ => unreachable!("eval_expr_bool_logic called with a non-logic Expression variant"),
+    }
+}
+
+/// The `IN` arm of [`eval_expr_bool`]: numeric-aware membership over the candidate list.
+fn eval_expr_bool_in(
+    ctx: &Ctx,
+    a: &Expression,
+    list: &[Expression],
+    sol: &Solution,
+) -> Option<bool> {
+    let lhs = eval_term(ctx, a, sol)?;
+    Some(list.iter().any(|e| {
+        eval_term(ctx, e, sol)
+            .map(|rhs| binding_terms_equal(&lhs, &rhs))
+            .unwrap_or(false)
+    }))
+}
+
+/// The `IF` arm of [`eval_expr_bool`].
+fn eval_expr_bool_if(
+    ctx: &Ctx,
+    c: &Expression,
+    t: &Expression,
+    e: &Expression,
+    sol: &Solution,
+) -> Option<bool> {
+    if eval_expr_bool(ctx, c, sol).unwrap_or(false) {
+        eval_expr_bool(ctx, t, sol)
+    } else {
+        eval_expr_bool(ctx, e, sol)
+    }
+}
+
+/// The `EXISTS` arm of [`eval_expr_bool`]: whether any solution of the sub-pattern is
+/// COMPATIBLE with the current solution (agrees on the shared variables) — the
+/// substitution-and-nonempty semantics of EXISTS.
+fn eval_expr_bool_exists(ctx: &Ctx, pattern: &GraphPattern, sol: &Solution) -> Option<bool> {
+    let sols = eval_pattern(ctx, pattern).ok()?;
+    Some(sols.iter().any(|s| merge(sol, s).is_some()))
 }
 
 /// Evaluate any expression to a typed term `Binding` (CONCEPT:EG-KG.ontology.rich-filter). Preserves the
@@ -1654,6 +1894,36 @@ fn eval_term(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
         Expression::Variable(v) => sol.get(v.as_str()).cloned(),
         Expression::Literal(l) => Some(Binding::Literal(l.value().to_string())),
         Expression::NamedNode(n) => Some(Binding::Node(format!("<{}>", n.as_str()))),
+        Expression::Add(..)
+        | Expression::Subtract(..)
+        | Expression::Multiply(..)
+        | Expression::Divide(..)
+        | Expression::UnaryPlus(..)
+        | Expression::UnaryMinus(..) => eval_term_arith(ctx, e, sol),
+        Expression::If(c, t, f) => eval_term_if(ctx, c, t, f, sol),
+        Expression::Coalesce(args) => args.iter().find_map(|a| eval_term(ctx, a, sol)),
+        Expression::FunctionCall(f, args) => eval_str_function(ctx, f, args, sol),
+        // Boolean-valued expressions render as an xsd:boolean lexical — including
+        // `EXISTS` used in a value context, e.g. `BIND(EXISTS { … } AS ?x)` (CONCEPT:EG-KG.ontology.order-by-values-exists).
+        Expression::Bound(_)
+        | Expression::Equal(..)
+        | Expression::SameTerm(..)
+        | Expression::Greater(..)
+        | Expression::GreaterOrEqual(..)
+        | Expression::Less(..)
+        | Expression::LessOrEqual(..)
+        | Expression::And(..)
+        | Expression::Or(..)
+        | Expression::Not(..)
+        | Expression::In(..)
+        | Expression::Exists(_) => eval_term_bool_literal(ctx, e, sol),
+    }
+}
+
+/// The arithmetic arms of [`eval_term`]: `+`, `-`, `*`, `/`, unary `+`/`-`. `/` by
+/// zero is `None` (undefined), not a panic or an infinity literal.
+fn eval_term_arith(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
+    match e {
         Expression::Add(a, b) => Some(Binding::Literal(fmt_num(
             num(ctx, a, sol)? + num(ctx, b, sol)?,
         ))),
@@ -1672,37 +1942,35 @@ fn eval_term(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
         }
         Expression::UnaryPlus(a) => Some(Binding::Literal(fmt_num(num(ctx, a, sol)?))),
         Expression::UnaryMinus(a) => Some(Binding::Literal(fmt_num(-num(ctx, a, sol)?))),
-        Expression::If(c, t, f) => {
-            if eval_expr_bool(ctx, c, sol).unwrap_or(false) {
-                eval_term(ctx, t, sol)
-            } else {
-                eval_term(ctx, f, sol)
-            }
-        }
-        Expression::Coalesce(args) => args.iter().find_map(|a| eval_term(ctx, a, sol)),
-        Expression::FunctionCall(f, args) => eval_str_function(ctx, f, args, sol),
-        // Boolean-valued expressions render as an xsd:boolean lexical — including
-        // `EXISTS` used in a value context, e.g. `BIND(EXISTS { … } AS ?x)` (CONCEPT:EG-KG.ontology.order-by-values-exists).
-        Expression::Bound(_)
-        | Expression::Equal(..)
-        | Expression::SameTerm(..)
-        | Expression::Greater(..)
-        | Expression::GreaterOrEqual(..)
-        | Expression::Less(..)
-        | Expression::LessOrEqual(..)
-        | Expression::And(..)
-        | Expression::Or(..)
-        | Expression::Not(..)
-        | Expression::In(..)
-        | Expression::Exists(_) => Some(Binding::Literal(
-            if eval_expr_bool(ctx, e, sol)? {
-                "true"
-            } else {
-                "false"
-            }
-            .to_string(),
-        )),
+        _ => unreachable!("eval_term_arith called with a non-arithmetic Expression variant"),
     }
+}
+
+/// The `IF` arm of [`eval_term`].
+fn eval_term_if(
+    ctx: &Ctx,
+    c: &Expression,
+    t: &Expression,
+    f: &Expression,
+    sol: &Solution,
+) -> Option<Binding> {
+    if eval_expr_bool(ctx, c, sol).unwrap_or(false) {
+        eval_term(ctx, t, sol)
+    } else {
+        eval_term(ctx, f, sol)
+    }
+}
+
+/// The boolean-valued-expression arm of [`eval_term`]: render as an xsd:boolean lexical.
+fn eval_term_bool_literal(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
+    Some(Binding::Literal(
+        if eval_expr_bool(ctx, e, sol)? {
+            "true"
+        } else {
+            "false"
+        }
+        .to_string(),
+    ))
 }
 
 /// Boolean SPARQL built-ins (CONCEPT:EG-KG.ontology.rich-filter): `REGEX`, `CONTAINS`/`STRSTARTS`/`STRENDS`,
@@ -1724,70 +1992,85 @@ fn eval_bool_function(
         F::StrEnds => {
             Some(expr_str(ctx, args.first()?, sol)?.ends_with(&expr_str(ctx, args.get(1)?, sol)?))
         }
-        F::LangMatches => {
-            let tag = expr_str(ctx, args.first()?, sol)?.to_lowercase();
-            let range = expr_str(ctx, args.get(1)?, sol)?.to_lowercase();
-            Some(
-                (range == "*" && !tag.is_empty())
-                    || tag == range
-                    || tag.starts_with(&format!("{range}-")),
-            )
-        }
-        F::Regex => {
-            let text = expr_str(ctx, args.first()?, sol)?;
-            let pat = expr_str(ctx, args.get(1)?, sol)?;
-            let flags = args
-                .get(2)
-                .and_then(|f| expr_str(ctx, f, sol))
-                .unwrap_or_default();
-            let pattern = if flags.contains('i') {
-                format!("(?i){pat}")
-            } else {
-                pat
-            };
-            regex::Regex::new(&pattern)
-                .ok()
-                .map(|re| re.is_match(&text))
-        }
-        F::IsNumeric => Some(
-            eval_term(ctx, args.first()?, sol)
-                .map(|b| term_lexical(&b).parse::<f64>().is_ok())
-                .unwrap_or(false),
-        ),
-        F::IsIri => Some(
-            eval_term(ctx, args.first()?, sol)
-                .map(|b| matches!(&b, Binding::Node(s) if s.starts_with('<')))
-                .unwrap_or(false),
-        ),
-        F::IsBlank => Some(
-            eval_term(ctx, args.first()?, sol)
-                .map(|b| matches!(&b, Binding::Node(s) if s.starts_with("_:")))
-                .unwrap_or(false),
-        ),
-        F::IsLiteral => Some(
-            eval_term(ctx, args.first()?, sol)
-                .map(|b| matches!(b, Binding::Literal(_)))
-                .unwrap_or(false),
-        ),
+        F::LangMatches => eval_bool_langmatches(ctx, args, sol),
+        F::Regex => eval_bool_regex(ctx, args, sol),
+        F::IsNumeric => Some(term_test(ctx, args.first()?, sol, |b| {
+            term_lexical(b).parse::<f64>().is_ok()
+        })),
+        F::IsIri => Some(term_test(
+            ctx,
+            args.first()?,
+            sol,
+            |b| matches!(b, Binding::Node(s) if s.starts_with('<')),
+        )),
+        F::IsBlank => Some(term_test(
+            ctx,
+            args.first()?,
+            sol,
+            |b| matches!(b, Binding::Node(s) if s.starts_with("_:")),
+        )),
+        F::IsLiteral => Some(term_test(ctx, args.first()?, sol, |b| {
+            matches!(b, Binding::Literal(_))
+        })),
         // RDF-star (CONCEPT:EG-KG.ontology.concept-5): isTRIPLE tests whether the term is a quoted triple.
         #[cfg(feature = "sparql-star")]
-        F::IsTriple => Some(
-            eval_term(ctx, args.first()?, sol)
-                .map(|b| is_quoted(&b))
-                .unwrap_or(false),
-        ),
+        F::IsTriple => Some(term_test(ctx, args.first()?, sol, is_quoted)),
         // GeoSPARQL boolean spatial relations (CONCEPT:EG-KG.ontology.concept-10): a `geof:sf*` call parses
         // to `Function::Custom(<geof-ns>…)`; we evaluate the two operands to their WKT
         // lexical forms and lower the relation onto eg-geo's DE-9IM predicates.
         #[cfg(feature = "geosparql")]
         F::Custom(iri) if iri.as_str().starts_with(crate::geosparql::GEOF_NS) => {
-            let local = &iri.as_str()[crate::geosparql::GEOF_NS.len()..];
-            let a = expr_str(ctx, args.first()?, sol)?;
-            let b = expr_str(ctx, args.get(1)?, sol)?;
-            crate::geosparql::eval_relation(local, &a, &b)
+            eval_bool_geof(ctx, iri.as_str(), args, sol)
         }
         _ => None,
     }
+}
+
+/// `LANGMATCHES(?lang, range)`: case-insensitive BCP-47 range match (`*`, exact, or a
+/// `range-` prefix).
+fn eval_bool_langmatches(ctx: &Ctx, args: &[Expression], sol: &Solution) -> Option<bool> {
+    let tag = expr_str(ctx, args.first()?, sol)?.to_lowercase();
+    let range = expr_str(ctx, args.get(1)?, sol)?.to_lowercase();
+    Some((range == "*" && !tag.is_empty()) || tag == range || tag.starts_with(&format!("{range}-")))
+}
+
+/// `REGEX(text, pattern, flags?)`: `i` in `flags` enables case-insensitive matching.
+fn eval_bool_regex(ctx: &Ctx, args: &[Expression], sol: &Solution) -> Option<bool> {
+    let text = expr_str(ctx, args.first()?, sol)?;
+    let pat = expr_str(ctx, args.get(1)?, sol)?;
+    let flags = args
+        .get(2)
+        .and_then(|f| expr_str(ctx, f, sol))
+        .unwrap_or_default();
+    let pattern = if flags.contains('i') {
+        format!("(?i){pat}")
+    } else {
+        pat
+    };
+    regex::Regex::new(&pattern)
+        .ok()
+        .map(|re| re.is_match(&text))
+}
+
+/// Evaluate `arg` to a term and apply `test`; an unevaluable term is `false` (the
+/// shared shape of the `isIRI`/`isBlank`/`isLiteral`/`isNumeric`/`isTRIPLE` tests).
+fn term_test(
+    ctx: &Ctx,
+    arg: &Expression,
+    sol: &Solution,
+    test: impl FnOnce(&Binding) -> bool,
+) -> bool {
+    eval_term(ctx, arg, sol).map(|b| test(&b)).unwrap_or(false)
+}
+
+/// A `geof:sf*` boolean spatial relation call: evaluate the two operands to their WKT
+/// lexical forms and lower the relation onto eg-geo's DE-9IM predicates.
+#[cfg(feature = "geosparql")]
+fn eval_bool_geof(ctx: &Ctx, iri: &str, args: &[Expression], sol: &Solution) -> Option<bool> {
+    let local = &iri[crate::geosparql::GEOF_NS.len()..];
+    let a = expr_str(ctx, args.first()?, sol)?;
+    let b = expr_str(ctx, args.get(1)?, sol)?;
+    crate::geosparql::eval_relation(local, &a, &b)
 }
 
 /// String/term-valued SPARQL built-ins (CONCEPT:EG-KG.ontology.rich-filter): `STR`/`IRI`/`LANG`/`DATATYPE`,
@@ -1799,6 +2082,68 @@ fn eval_str_function(
     args: &[Expression],
     sol: &Solution,
 ) -> Option<Binding> {
+    use spargebra::algebra::Function as F;
+    match f {
+        F::Str
+        | F::Iri
+        | F::Lang
+        | F::Datatype
+        | F::UCase
+        | F::LCase
+        | F::StrLen
+        | F::Concat
+        | F::SubStr => eval_str_core(ctx, f, args, sol),
+        F::BNode | F::StrDt | F::StrLang | F::Uuid | F::StrUuid => {
+            eval_str_term_ctors(ctx, f, args, sol)
+        }
+        // Pure-Rust RustCrypto, gated behind `sparql-hash` (OUT of pi). When the
+        // feature is off they fall through to `_ => None` (unsupported, fails SAFE).
+        #[cfg(feature = "sparql-hash")]
+        F::Md5 | F::Sha1 | F::Sha256 | F::Sha384 | F::Sha512 => eval_str_hash(ctx, f, args, sol),
+        F::Abs | F::Ceil | F::Floor | F::Round | F::Rand => eval_str_numeric(ctx, f, args, sol),
+        F::Now
+        | F::Year
+        | F::Month
+        | F::Day
+        | F::Hours
+        | F::Minutes
+        | F::Seconds
+        | F::Tz
+        | F::Timezone => eval_str_datetime(ctx, f, args, sol),
+        F::StrBefore | F::StrAfter | F::Replace | F::EncodeForUri => {
+            eval_str_extras(ctx, f, args, sol)
+        }
+        // RDF-star / SPARQL-star term accessors (CONCEPT:EG-KG.ontology.concept-5): a quoted triple is a
+        // first-class term encoded as the canonical `<< s p o >>` string in a
+        // `Binding::Node`; TRIPLE constructs it and SUBJECT/PREDICATE/OBJECT project its
+        // components.
+        #[cfg(feature = "sparql-star")]
+        F::Triple | F::Subject | F::Predicate | F::Object | F::IsTriple => {
+            eval_str_rdfstar(ctx, f, args, sol)
+        }
+        // Boolean built-ins composed in a string context → "true"/"false".
+        F::Contains
+        | F::StrStarts
+        | F::StrEnds
+        | F::Regex
+        | F::LangMatches
+        | F::IsIri
+        | F::IsBlank
+        | F::IsLiteral
+        | F::IsNumeric => eval_str_bool_literal(ctx, f, args, sol),
+        // GeoSPARQL value functions (CONCEPT:EG-KG.ontology.concept-10): `geof:distance(a,b,units)` → a
+        // numeric literal; `geof:buffer(g,radius,units)` → a WKT lexical (a wktLiteral).
+        // A boolean `geof:sf*` used in a value context renders as "true"/"false".
+        #[cfg(feature = "geosparql")]
+        F::Custom(iri) if iri.as_str().starts_with(crate::geosparql::GEOF_NS) => {
+            eval_str_geof(ctx, f, iri.as_str(), args, sol)
+        }
+        _ => None,
+    }
+}
+
+/// `STR`/`IRI`/`LANG`/`DATATYPE`/`UCASE`/`LCASE`/`STRLEN`/`CONCAT`/`SUBSTR`.
+fn eval_str_core(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solution) -> Option<Binding> {
     use spargebra::algebra::Function as F;
     match f {
         F::Str => Some(Binding::Literal(term_lexical(&eval_term(
@@ -1829,30 +2174,53 @@ fn eval_str_function(
         F::StrLen => Some(Binding::Literal(fmt_num(
             expr_str(ctx, args.first()?, sol)?.chars().count() as f64,
         ))),
-        F::Concat => {
-            let mut s = String::new();
-            for a in args {
-                s.push_str(&expr_str(ctx, a, sol)?);
-            }
-            Some(Binding::Literal(s))
+        F::Concat => eval_str_concat(ctx, args, sol),
+        F::SubStr => eval_str_substr(ctx, args, sol),
+        _ => unreachable!("eval_str_core called with an out-of-group Function variant"),
+    }
+}
+
+/// `CONCAT(...)`: string-concatenate every argument.
+fn eval_str_concat(ctx: &Ctx, args: &[Expression], sol: &Solution) -> Option<Binding> {
+    let mut s = String::new();
+    for a in args {
+        s.push_str(&expr_str(ctx, a, sol)?);
+    }
+    Some(Binding::Literal(s))
+}
+
+/// `SUBSTR(str, start, len?)`: SPARQL SUBSTR is 1-based; an optional length truncates.
+fn eval_str_substr(ctx: &Ctx, args: &[Expression], sol: &Solution) -> Option<Binding> {
+    let chars: Vec<char> = expr_str(ctx, args.first()?, sol)?.chars().collect();
+    let begin = (num(ctx, args.get(1)?, sol)?.max(1.0) as usize).saturating_sub(1);
+    let slice: String = match args.get(2) {
+        Some(lenexpr) => {
+            let len = num(ctx, lenexpr, sol)?.max(0.0) as usize;
+            chars.iter().skip(begin).take(len).collect()
         }
-        F::SubStr => {
-            // SPARQL SUBSTR is 1-based; an optional length truncates.
-            let chars: Vec<char> = expr_str(ctx, args.first()?, sol)?.chars().collect();
-            let begin = (num(ctx, args.get(1)?, sol)?.max(1.0) as usize).saturating_sub(1);
-            let slice: String = match args.get(2) {
-                Some(lenexpr) => {
-                    let len = num(ctx, lenexpr, sol)?.max(0.0) as usize;
-                    chars.iter().skip(begin).take(len).collect()
-                }
-                None => chars.iter().skip(begin).collect(),
-            };
-            Some(Binding::Literal(slice))
-        }
-        // ── Term constructors (CONCEPT:EG-KG.ontology.concept-4) ────────────────────────────────
-        // BNODE() → a fresh blank node; BNODE(str) → a blank node labelled from the
-        // arg. The arg-less form is NON-DETERMINISTIC (see `next_rand_u64`) and must
-        // stay out of any cached/deterministic evaluation path.
+        None => chars.iter().skip(begin).collect(),
+    };
+    Some(Binding::Literal(slice))
+}
+
+// ── Term constructors (CONCEPT:EG-KG.ontology.concept-4) ────────────────────────────────
+/// BNODE() → a fresh blank node; BNODE(str) → a blank node labelled from the arg. The
+/// arg-less form is NON-DETERMINISTIC (see `next_rand_u64`) and must stay out of any
+/// cached/deterministic evaluation path.
+///
+/// STRDT(lexical, datatype) / STRLANG(lexical, lang): a `Binding` carries only the
+/// lexical form (as DATATYPE/LANG already infer best-effort), so the value round-trips
+/// while the datatype/lang ride along implicitly.
+///
+/// UUID() → a fresh urn:uuid: IRI; STRUUID() → its lexical form. NON-DETERMINISTIC.
+fn eval_str_term_ctors(
+    ctx: &Ctx,
+    f: &Function,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<Binding> {
+    use spargebra::algebra::Function as F;
+    match f {
         F::BNode => {
             let label = match args.first() {
                 Some(a) => sanitize_bnode_label(&expr_str(ctx, a, sol)?),
@@ -1860,49 +2228,58 @@ fn eval_str_function(
             };
             Some(Binding::Node(format!("_:{label}")))
         }
-        // STRDT(lexical, datatype) / STRLANG(lexical, lang): a `Binding` carries only
-        // the lexical form (as DATATYPE/LANG already infer best-effort), so the value
-        // round-trips while the datatype/lang ride along implicitly.
         F::StrDt | F::StrLang => Some(Binding::Literal(expr_str(ctx, args.first()?, sol)?)),
-        // UUID() → a fresh urn:uuid: IRI; STRUUID() → its lexical form. NON-DETERMINISTIC.
         F::Uuid => Some(Binding::Node(format!("<urn:uuid:{}>", fresh_uuid()))),
         F::StrUuid => Some(Binding::Literal(fresh_uuid())),
+        _ => unreachable!("eval_str_term_ctors called with an out-of-group Function variant"),
+    }
+}
 
-        // ── Hash built-ins (CONCEPT:EG-KG.ontology.concept-4) ──────────────────────────────────
-        // Pure-Rust RustCrypto, gated behind `sparql-hash` (OUT of pi). When the
-        // feature is off they fall through to `_ => None` (unsupported, fails SAFE).
-        #[cfg(feature = "sparql-hash")]
+// ── Hash built-ins (CONCEPT:EG-KG.ontology.concept-4) ──────────────────────────────────
+#[cfg(feature = "sparql-hash")]
+fn eval_str_hash(ctx: &Ctx, f: &Function, args: &[Expression], sol: &Solution) -> Option<Binding> {
+    use spargebra::algebra::Function as F;
+    match f {
         F::Md5 => Some(Binding::Literal(hash_hex::<md5::Md5>(&expr_str(
             ctx,
             args.first()?,
             sol,
         )?))),
-        #[cfg(feature = "sparql-hash")]
         F::Sha1 => Some(Binding::Literal(hash_hex::<sha1::Sha1>(&expr_str(
             ctx,
             args.first()?,
             sol,
         )?))),
-        #[cfg(feature = "sparql-hash")]
         F::Sha256 => Some(Binding::Literal(hash_hex::<sha2::Sha256>(&expr_str(
             ctx,
             args.first()?,
             sol,
         )?))),
-        #[cfg(feature = "sparql-hash")]
         F::Sha384 => Some(Binding::Literal(hash_hex::<sha2::Sha384>(&expr_str(
             ctx,
             args.first()?,
             sol,
         )?))),
-        #[cfg(feature = "sparql-hash")]
         F::Sha512 => Some(Binding::Literal(hash_hex::<sha2::Sha512>(&expr_str(
             ctx,
             args.first()?,
             sol,
         )?))),
+        _ => unreachable!("eval_str_hash called with an out-of-group Function variant"),
+    }
+}
 
-        // ── Numeric built-ins (CONCEPT:EG-KG.ontology.concept-4) ───────────────────────────────
+// ── Numeric built-ins (CONCEPT:EG-KG.ontology.concept-4) ───────────────────────────────
+/// SPARQL ROUND is half-towards-positive-infinity (ROUND(-2.5)=-2, ROUND(2.5)=3).
+/// RAND() → xsd:double in [0,1). NON-DETERMINISTIC.
+fn eval_str_numeric(
+    ctx: &Ctx,
+    f: &Function,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<Binding> {
+    use spargebra::algebra::Function as F;
+    match f {
         F::Abs => Some(Binding::Literal(fmt_num(
             num(ctx, args.first()?, sol)?.abs(),
         ))),
@@ -1912,15 +2289,24 @@ fn eval_str_function(
         F::Floor => Some(Binding::Literal(fmt_num(
             num(ctx, args.first()?, sol)?.floor(),
         ))),
-        // SPARQL ROUND is half-towards-positive-infinity (ROUND(-2.5)=-2, ROUND(2.5)=3).
         F::Round => Some(Binding::Literal(fmt_num(
             (num(ctx, args.first()?, sol)? + 0.5).floor(),
         ))),
-        // RAND() → xsd:double in [0,1). NON-DETERMINISTIC.
         F::Rand => Some(Binding::Literal(fmt_num(rand_f64()))),
+        _ => unreachable!("eval_str_numeric called with an out-of-group Function variant"),
+    }
+}
 
-        // ── Date-time built-ins (CONCEPT:EG-KG.ontology.concept-4) ─────────────────────────────
-        // NOW() → the current xsd:dateTime (UTC). NON-DETERMINISTIC.
+// ── Date-time built-ins (CONCEPT:EG-KG.ontology.concept-4) ─────────────────────────────
+/// NOW() → the current xsd:dateTime (UTC). NON-DETERMINISTIC.
+fn eval_str_datetime(
+    ctx: &Ctx,
+    f: &Function,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<Binding> {
+    use spargebra::algebra::Function as F;
+    match f {
         F::Now => Some(Binding::Literal(now_xsd_datetime())),
         F::Year => Some(Binding::Literal(fmt_num(
             parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.year as f64,
@@ -1946,8 +2332,19 @@ fn eval_str_function(
         F::Timezone => Some(Binding::Literal(tz_to_duration(
             &parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.tz,
         ))),
+        _ => unreachable!("eval_str_datetime called with an out-of-group Function variant"),
+    }
+}
 
-        // ── String extras (CONCEPT:EG-KG.ontology.concept-4) ───────────────────────────────────
+// ── String extras (CONCEPT:EG-KG.ontology.concept-4) ───────────────────────────────────
+fn eval_str_extras(
+    ctx: &Ctx,
+    f: &Function,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<Binding> {
+    use spargebra::algebra::Function as F;
+    match f {
         F::StrBefore => {
             let s = expr_str(ctx, args.first()?, sol)?;
             let sep = expr_str(ctx, args.get(1)?, sol)?;
@@ -1989,92 +2386,99 @@ fn eval_str_function(
             args.first()?,
             sol,
         )?))),
+        _ => unreachable!("eval_str_extras called with an out-of-group Function variant"),
+    }
+}
 
-        // ── RDF-star / SPARQL-star term accessors (CONCEPT:EG-KG.ontology.concept-5) ────────────
-        // A quoted triple is a first-class term encoded as the canonical `<< s p o >>`
-        // string in a `Binding::Node`; TRIPLE constructs it and SUBJECT/PREDICATE/OBJECT
-        // project its components.
-        #[cfg(feature = "sparql-star")]
+// ── RDF-star / SPARQL-star term accessors (CONCEPT:EG-KG.ontology.concept-5) ────────────
+#[cfg(feature = "sparql-star")]
+fn eval_str_rdfstar(
+    ctx: &Ctx,
+    f: &Function,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<Binding> {
+    use spargebra::algebra::Function as F;
+    match f {
         F::Triple => {
             let s = eval_term(ctx, args.first()?, sol)?;
             let p = eval_term(ctx, args.get(1)?, sol)?;
             let o = eval_term(ctx, args.get(2)?, sol)?;
             Some(Binding::Node(encode_quoted(&s, &p, &o)))
         }
-        #[cfg(feature = "sparql-star")]
         F::Subject => quoted_component(&eval_term(ctx, args.first()?, sol)?, 0),
-        #[cfg(feature = "sparql-star")]
         F::Predicate => quoted_component(&eval_term(ctx, args.first()?, sol)?, 1),
-        #[cfg(feature = "sparql-star")]
         F::Object => quoted_component(&eval_term(ctx, args.first()?, sol)?, 2),
-        #[cfg(feature = "sparql-star")]
-        F::IsTriple => Some(Binding::Literal(
-            if eval_bool_function(ctx, f, args, sol)? {
-                "true"
-            } else {
-                "false"
-            }
-            .to_string(),
-        )),
-
-        // Boolean built-ins composed in a string context → "true"/"false".
-        F::Contains
-        | F::StrStarts
-        | F::StrEnds
-        | F::Regex
-        | F::LangMatches
-        | F::IsIri
-        | F::IsBlank
-        | F::IsLiteral
-        | F::IsNumeric => Some(Binding::Literal(
-            if eval_bool_function(ctx, f, args, sol)? {
-                "true"
-            } else {
-                "false"
-            }
-            .to_string(),
-        )),
-        // GeoSPARQL value functions (CONCEPT:EG-KG.ontology.concept-10): `geof:distance(a,b,units)` → a
-        // numeric literal; `geof:buffer(g,radius,units)` → a WKT lexical (a wktLiteral).
-        // A boolean `geof:sf*` used in a value context renders as "true"/"false".
-        #[cfg(feature = "geosparql")]
-        F::Custom(iri) if iri.as_str().starts_with(crate::geosparql::GEOF_NS) => {
-            let local = &iri.as_str()[crate::geosparql::GEOF_NS.len()..];
-            match local {
-                "distance" => {
-                    let a = expr_str(ctx, args.first()?, sol)?;
-                    let b = expr_str(ctx, args.get(1)?, sol)?;
-                    let units = args
-                        .get(2)
-                        .and_then(|u| expr_str(ctx, u, sol))
-                        .unwrap_or_default();
-                    Some(Binding::Literal(fmt_num(crate::geosparql::eval_distance(
-                        &a, &b, &units,
-                    )?)))
-                }
-                "buffer" => {
-                    let g = expr_str(ctx, args.first()?, sol)?;
-                    let radius = num(ctx, args.get(1)?, sol)?;
-                    let units = args
-                        .get(2)
-                        .and_then(|u| expr_str(ctx, u, sol))
-                        .unwrap_or_default();
-                    Some(Binding::Literal(crate::geosparql::eval_buffer(
-                        &g, radius, &units,
-                    )?))
-                }
-                _ => Some(Binding::Literal(
-                    if eval_bool_function(ctx, f, args, sol)? {
-                        "true"
-                    } else {
-                        "false"
-                    }
-                    .to_string(),
-                )),
-            }
-        }
-        _ => None,
+        F::IsTriple => Some(Binding::Literal(bool_str(eval_bool_function(
+            ctx, f, args, sol,
+        )?))),
+        _ => unreachable!("eval_str_rdfstar called with an out-of-group Function variant"),
     }
+}
+
+/// Boolean built-ins composed in a string context → "true"/"false".
+fn eval_str_bool_literal(
+    ctx: &Ctx,
+    f: &Function,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<Binding> {
+    Some(Binding::Literal(bool_str(eval_bool_function(
+        ctx, f, args, sol,
+    )?)))
+}
+
+/// `"true"`/`"false"` lexical rendering of a bool — the shared tail of every boolean
+/// built-in composed in a string (value) context.
+fn bool_str(b: bool) -> String {
+    if b { "true" } else { "false" }.to_string()
+}
+
+/// GeoSPARQL value functions (CONCEPT:EG-KG.ontology.concept-10): `geof:distance(a,b,units)` → a numeric
+/// literal; `geof:buffer(g,radius,units)` → a WKT lexical (a wktLiteral). A boolean
+/// `geof:sf*` used in a value context renders as "true"/"false".
+#[cfg(feature = "geosparql")]
+fn eval_str_geof(
+    ctx: &Ctx,
+    f: &Function,
+    iri: &str,
+    args: &[Expression],
+    sol: &Solution,
+) -> Option<Binding> {
+    let local = &iri[crate::geosparql::GEOF_NS.len()..];
+    match local {
+        "distance" => eval_str_geof_distance(ctx, args, sol),
+        "buffer" => eval_str_geof_buffer(ctx, args, sol),
+        _ => Some(Binding::Literal(bool_str(eval_bool_function(
+            ctx, f, args, sol,
+        )?))),
+    }
+}
+
+#[cfg(feature = "geosparql")]
+fn eval_str_geof_distance(ctx: &Ctx, args: &[Expression], sol: &Solution) -> Option<Binding> {
+    let a = expr_str(ctx, args.first()?, sol)?;
+    let b = expr_str(ctx, args.get(1)?, sol)?;
+    let units = args
+        .get(2)
+        .and_then(|u| expr_str(ctx, u, sol))
+        .unwrap_or_default();
+    Some(Binding::Literal(fmt_num(crate::geosparql::eval_distance(
+        &a, &b, &units,
+    )?)))
+}
+
+#[cfg(feature = "geosparql")]
+fn eval_str_geof_buffer(ctx: &Ctx, args: &[Expression], sol: &Solution) -> Option<Binding> {
+    let g = expr_str(ctx, args.first()?, sol)?;
+    let radius = num(ctx, args.get(1)?, sol)?;
+    let units = args
+        .get(2)
+        .and_then(|u| expr_str(ctx, u, sol))
+        .unwrap_or_default();
+    Some(Binding::Literal(crate::geosparql::eval_buffer(
+        &g, radius, &units,
+    )?))
 }
 
 /// Lexical value of a term: an IRI loses its angle brackets (`STR()` / comparison).
