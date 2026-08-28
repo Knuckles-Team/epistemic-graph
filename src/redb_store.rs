@@ -6587,7 +6587,7 @@ fn resource_existing_reservation_precheck(
     stored: &DurableResourceReservation,
     is_reserve: bool,
     graph: &str,
-    hosts: &redb::Table<(&str, &str), &[u8]>,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     if stored.record.tenant_ref != request.tenant_ref {
@@ -6796,7 +6796,7 @@ fn resource_release_row_precheck(
     request: &ResourceReservationRequest,
     stored: &DurableResourceReservation,
     is_reserve: bool,
-    hosts: &redb::Table<(&str, &str), &[u8]>,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     if stored.record.tenant_ref != request.tenant_ref {
@@ -14247,7 +14247,7 @@ fn validate_checkpoint_active_reservation(
     graph: &str,
     stored: &DurableResourceReservation,
     incoming_active: &std::collections::HashMap<&str, &[u8]>,
-    hosts: &redb::Table<(&str, &str), &[u8]>,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let Some(item_bytes) = incoming_active
