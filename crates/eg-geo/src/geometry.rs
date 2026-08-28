@@ -117,6 +117,21 @@ pub(crate) enum Prim<'a> {
     Poly(&'a Polygon),
 }
 
+/// The union bbox of every member geometry in a `GeometryCollection` that has one
+/// (members with no bbox, i.e. empty, are skipped).
+fn union_bbox_of_collection(gs: &[Geometry]) -> Option<Bbox> {
+    let mut acc: Option<Bbox> = None;
+    for g in gs {
+        if let Some(b) = g.bbox() {
+            match &mut acc {
+                Some(a) => a.union(&b),
+                None => acc = Some(b),
+            }
+        }
+    }
+    acc
+}
+
 impl Geometry {
     /// The axis-aligned bounding box of this geometry (`None` for an empty geometry).
     /// A multi/collection's bbox is the union of its parts' boxes (CONCEPT:EG-KG.domains.geometry-collections).
@@ -130,18 +145,7 @@ impl Geometry {
             Geometry::MultiPolygon(pgs) => {
                 union_bbox(pgs.iter().flat_map(|pg| pg.exterior.points.iter()))
             }
-            Geometry::GeometryCollection(gs) => {
-                let mut acc: Option<Bbox> = None;
-                for g in gs {
-                    if let Some(b) = g.bbox() {
-                        match &mut acc {
-                            Some(a) => a.union(&b),
-                            None => acc = Some(b),
-                        }
-                    }
-                }
-                acc
-            }
+            Geometry::GeometryCollection(gs) => union_bbox_of_collection(gs),
         }
     }
 
