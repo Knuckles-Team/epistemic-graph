@@ -7159,7 +7159,7 @@ enum SparqlForwardOutcome {
     Settled(Box<Response>),
     /// The forward commit did not take. Compensate, carrying the parent saga
     /// and the durable compensation marker that pins the direction.
-    Compensate(handlers::admin::AdminSaga, handlers::admin::AdminSaga),
+    Compensate(Box<(handlers::admin::AdminSaga, handlers::admin::AdminSaga)>),
 }
 
 /// Roll forward: create the plan's new graphs, commit every after-image, and on
@@ -7196,7 +7196,7 @@ async fn try_sparql_forward_commit(
         coord.compensation_id,
         SPARQL_COMPENSATION_EVENT,
     ) {
-        Ok(marker) => SparqlForwardOutcome::Compensate(saga, marker),
+        Ok(marker) => SparqlForwardOutcome::Compensate(Box::new((saga, marker))),
         Err(response) => SparqlForwardOutcome::Settled(Box::new(response)),
     }
 }
@@ -7336,7 +7336,10 @@ async fn run_coordinated_sparql_http_update(
         Some(marker) => (saga, Some(marker)),
         None => match try_sparql_forward_commit(coord, &plan, saga).await {
             SparqlForwardOutcome::Settled(response) => return *response,
-            SparqlForwardOutcome::Compensate(saga, marker) => (saga, Some(marker)),
+            SparqlForwardOutcome::Compensate(pair) => {
+                let (saga, marker) = *pair;
+                (saga, Some(marker))
+            }
         },
     };
     if let Err(response) = apply_sparql_rollback(coord, &plan).await {
