@@ -399,6 +399,68 @@ struct Lexer<'a> {
     pos: usize,
 }
 
+/// The two-character operator tokens, as a lookup. Consulted before
+/// [`single_char_tok`] so `=~` wins over `=`.
+fn two_char_tok(a: u8, b: u8) -> Option<Tok> {
+    match (a, b) {
+        (b'=', b'~') => Some(Tok::Re),
+        (b'!', b'~') => Some(Tok::Nre),
+        (b'=', b'=') => Some(Tok::EqEq),
+        (b'!', b'=') => Some(Tok::Ne),
+        (b'>', b'=') => Some(Tok::Ge),
+        (b'<', b'=') => Some(Tok::Le),
+        _ => None,
+    }
+}
+
+/// The single-character punctuation/operator tokens, as a lookup table.
+static SINGLE_CHAR_TOKS: [(u8, Tok); 16] = [
+    (b'{', Tok::LBrace),
+    (b'}', Tok::RBrace),
+    (b'(', Tok::LParen),
+    (b')', Tok::RParen),
+    (b'[', Tok::LBracket),
+    (b']', Tok::RBracket),
+    (b',', Tok::Comma),
+    (b'=', Tok::Eq),
+    (b'+', Tok::Plus),
+    (b'-', Tok::Minus),
+    (b'*', Tok::Star),
+    (b'/', Tok::Slash),
+    (b'%', Tok::Percent),
+    (b'^', Tok::Caret),
+    (b'>', Tok::Gt),
+    (b'<', Tok::Lt),
+];
+
+fn single_char_tok(c: u8) -> Option<Tok> {
+    SINGLE_CHAR_TOKS
+        .iter()
+        .find(|(b, _)| *b == c)
+        .map(|(_, t)| t.clone())
+}
+
+fn is_quote(c: u8) -> bool {
+    c == b'"' || c == b'\''
+}
+
+fn is_ident_start(c: u8) -> bool {
+    c == b'_' || c == b':' || c.is_ascii_alphabetic()
+}
+
+/// Nanoseconds per single-character duration unit (`ms` is handled by the caller).
+fn duration_unit_ns(u: u8) -> Option<i64> {
+    match u {
+        b's' => Some(1_000_000_000),
+        b'm' => Some(60 * 1_000_000_000),
+        b'h' => Some(3_600 * 1_000_000_000),
+        b'd' => Some(86_400 * 1_000_000_000),
+        b'w' => Some(7 * 86_400 * 1_000_000_000),
+        b'y' => Some(365 * 86_400 * 1_000_000_000),
+        _ => None,
+    }
+}
+
 impl<'a> Lexer<'a> {
     fn new(src: &'a str) -> Self {
         Self {
@@ -419,83 +481,46 @@ impl<'a> Lexer<'a> {
         self.src.get(self.pos).copied()
     }
 
-    fn next_tok(&mut self) -> Result<Option<Tok>, PromqlError> {
-        while let Some(c) = self.peek() {
-            if c.is_ascii_whitespace() {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-        let Some(c) = self.peek() else {
-            return Ok(None);
-        };
-        // punctuation / operators
-        let two =
-            |a: u8, b: u8, s: &[u8], p: usize| s.get(p) == Some(&a) && s.get(p + 1) == Some(&b);
-        if two(b'=', b'~', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Re));
-        }
-        if two(b'!', b'~', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Nre));
-        }
-        if two(b'=', b'=', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::EqEq));
-        }
-        if two(b'!', b'=', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Ne));
-        }
-        if two(b'>', b'=', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Ge));
-        }
-        if two(b'<', b'=', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Le));
-        }
-        let single = match c {
-            b'{' => Some(Tok::LBrace),
-            b'}' => Some(Tok::RBrace),
-            b'(' => Some(Tok::LParen),
-            b')' => Some(Tok::RParen),
-            b'[' => Some(Tok::LBracket),
-            b']' => Some(Tok::RBracket),
-            b',' => Some(Tok::Comma),
-            b'=' => Some(Tok::Eq),
-            b'+' => Some(Tok::Plus),
-            b'-' => Some(Tok::Minus),
-            b'*' => Some(Tok::Star),
-            b'/' => Some(Tok::Slash),
-            b'%' => Some(Tok::Percent),
-            b'^' => Some(Tok::Caret),
-            b'>' => Some(Tok::Gt),
-            b'<' => Some(Tok::Lt),
-            _ => None,
-        };
-        if let Some(t) = single {
+    fn skip_whitespace(&mut self) {
+        while self.peek().is_some_and(|c| c.is_ascii_whitespace()) {
             self.pos += 1;
-            return Ok(Some(t));
         }
-        // string literal
-        if c == b'"' || c == b'\'' {
-            return Ok(Some(self.lex_string(c)?));
-        }
-        // number or duration
-        if c.is_ascii_digit()
+    }
+
+    /// Whether a number/duration literal starts at the current position.
+    fn starts_number(&self, c: u8) -> bool {
+        c.is_ascii_digit()
             || (c == b'.'
                 && self
                     .src
                     .get(self.pos + 1)
                     .is_some_and(|d| d.is_ascii_digit()))
-        {
+    }
+
+    fn next_tok(&mut self) -> Result<Option<Tok>, PromqlError> {
+        self.skip_whitespace();
+        let Some(c) = self.peek() else {
+            return Ok(None);
+        };
+        // punctuation / operators — two-character forms first (`=~` before `=`).
+        if let Some(t) = self.src.get(self.pos + 1).and_then(|n| two_char_tok(c, *n)) {
+            self.pos += 2;
+            return Ok(Some(t));
+        }
+        if let Some(t) = single_char_tok(c) {
+            self.pos += 1;
+            return Ok(Some(t));
+        }
+        // string literal
+        if is_quote(c) {
+            return Ok(Some(self.lex_string(c)?));
+        }
+        // number or duration
+        if self.starts_number(c) {
             return Ok(Some(self.lex_number_or_duration()?));
         }
         // identifier
-        if c == b'_' || c == b':' || c.is_ascii_alphabetic() {
+        if is_ident_start(c) {
             return Ok(Some(self.lex_ident()));
         }
         err(format!(
@@ -583,44 +608,41 @@ impl<'a> Lexer<'a> {
             .map_err(|_| PromqlError(format!("invalid number '{raw}'")))
     }
 
+    /// The leading integer magnitude of one `<int><unit>` duration group.
+    fn lex_duration_magnitude(&mut self) -> Result<i64, PromqlError> {
+        let ds = self.pos;
+        while self.peek().is_some_and(|d| d.is_ascii_digit()) {
+            self.pos += 1;
+        }
+        std::str::from_utf8(&self.src[ds..self.pos])
+            .unwrap_or("0")
+            .parse()
+            .map_err(|_| PromqlError("invalid duration magnitude".into()))
+    }
+
+    /// The unit suffix of one duration group, in nanoseconds. Checks `ms` before `m`.
+    fn lex_duration_unit_ns(&mut self) -> Result<i64, PromqlError> {
+        if self.peek() == Some(b'm') && self.src.get(self.pos + 1) == Some(&b's') {
+            self.pos += 2;
+            return Ok(1_000_000);
+        }
+        let u = self.peek();
+        self.pos += 1;
+        match u.and_then(duration_unit_ns) {
+            Some(ns) => Ok(ns),
+            None => err(format!(
+                "invalid duration unit '{:?}'",
+                u.map(|b| b as char)
+            )),
+        }
+    }
+
     fn lex_duration(&mut self) -> Result<Tok, PromqlError> {
         let mut total: i64 = 0;
         let mut any = false;
-        while let Some(c) = self.peek() {
-            if !c.is_ascii_digit() {
-                break;
-            }
-            let ds = self.pos;
-            while self.peek().is_some_and(|d| d.is_ascii_digit()) {
-                self.pos += 1;
-            }
-            let n: i64 = std::str::from_utf8(&self.src[ds..self.pos])
-                .unwrap_or("0")
-                .parse()
-                .map_err(|_| PromqlError("invalid duration magnitude".into()))?;
-            // unit: check `ms` before `m`
-            let unit_ns: i64 =
-                if self.peek() == Some(b'm') && self.src.get(self.pos + 1) == Some(&b's') {
-                    self.pos += 2;
-                    1_000_000
-                } else {
-                    let u = self.peek();
-                    self.pos += 1;
-                    match u {
-                        Some(b's') => 1_000_000_000,
-                        Some(b'm') => 60 * 1_000_000_000,
-                        Some(b'h') => 3_600 * 1_000_000_000,
-                        Some(b'd') => 86_400 * 1_000_000_000,
-                        Some(b'w') => 7 * 86_400 * 1_000_000_000,
-                        Some(b'y') => 365 * 86_400 * 1_000_000_000,
-                        other => {
-                            return err(format!(
-                                "invalid duration unit '{:?}'",
-                                other.map(|b| b as char)
-                            ))
-                        }
-                    }
-                };
+        while self.peek().is_some_and(|c| c.is_ascii_digit()) {
+            let n = self.lex_duration_magnitude()?;
+            let unit_ns = self.lex_duration_unit_ns()?;
             total += n * unit_ns;
             any = true;
         }
@@ -893,31 +915,44 @@ impl Parser {
             }
             Some(Tok::Ident(name)) => {
                 self.pos += 1;
-                // Aggregation operator?
-                if let Some(op) = agg_op(&name) {
-                    return self.parse_aggregate(op);
-                }
-                // Function call?
-                if self.peek() == Some(&Tok::LParen) {
-                    self.pos += 1;
-                    let mut args = Vec::new();
-                    if self.peek() != Some(&Tok::RParen) {
-                        loop {
-                            args.push(self.parse_expr()?);
-                            if !self.eat(&Tok::Comma) {
-                                break;
-                            }
-                        }
-                    }
-                    self.expect(&Tok::RParen)?;
-                    return Ok(Expr::Call { func: name, args });
-                }
-                // Bare metric selector, optionally with `{...}`.
-                let matchers = self.parse_matchers(Some(name))?;
-                self.finish_selector(matchers)
+                self.parse_ident_atom(name)
             }
             other => err(format!("unexpected token {other:?} at atom position")),
         }
+    }
+
+    // An atom that began with an identifier (already consumed): an aggregation,
+    // a function call, or a bare metric selector — probed in that order.
+    fn parse_ident_atom(&mut self, name: String) -> Result<Expr, PromqlError> {
+        // Aggregation operator?
+        if let Some(op) = agg_op(&name) {
+            return self.parse_aggregate(op);
+        }
+        // Function call?
+        if self.peek() == Some(&Tok::LParen) {
+            self.pos += 1;
+            let args = self.parse_call_args()?;
+            return Ok(Expr::Call { func: name, args });
+        }
+        // Bare metric selector, optionally with `{...}`.
+        let matchers = self.parse_matchers(Some(name))?;
+        self.finish_selector(matchers)
+    }
+
+    // A comma-separated argument list, up to and including the closing `)`.
+    // The opening `(` has already been consumed.
+    fn parse_call_args(&mut self) -> Result<Vec<Expr>, PromqlError> {
+        let mut args = Vec::new();
+        if self.peek() != Some(&Tok::RParen) {
+            loop {
+                args.push(self.parse_expr()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RParen)?;
+        Ok(args)
     }
 
     // Aggregation: `OP` [by/without(labels)] `(` expr `)`  OR  `OP (` expr `)` [by/without(labels)]
@@ -967,37 +1002,42 @@ impl Parser {
             matchers.push(LabelMatcher::new(METRIC_NAME, MatchOp::Eq, name)?);
         }
         if self.eat(&Tok::LBrace) {
-            if self.peek() != Some(&Tok::RBrace) {
-                loop {
-                    let lname = match self.bump() {
-                        Some(Tok::Ident(s)) => s,
-                        other => {
-                            return err(format!("expected label name in matcher, got {other:?}"))
-                        }
-                    };
-                    let op = match self.bump() {
-                        Some(Tok::Eq) => MatchOp::Eq,
-                        Some(Tok::Ne) => MatchOp::Ne,
-                        Some(Tok::Re) => MatchOp::Re,
-                        Some(Tok::Nre) => MatchOp::Nre,
-                        other => return err(format!("expected match operator, got {other:?}")),
-                    };
-                    let val = match self.bump() {
-                        Some(Tok::Str(s)) => s,
-                        other => return err(format!("expected string in matcher, got {other:?}")),
-                    };
-                    matchers.push(LabelMatcher::new(lname, op, val)?);
-                    if !self.eat(&Tok::Comma) {
-                        break;
-                    }
-                }
-            }
-            self.expect(&Tok::RBrace)?;
+            self.parse_matcher_block(&mut matchers)?;
         }
         if matchers.is_empty() {
             return err("selector requires a metric name or at least one matcher");
         }
         Ok(matchers)
+    }
+
+    // The body of a `{...}` matcher block, up to and including the closing brace.
+    // The opening `{` has already been consumed.
+    fn parse_matcher_block(&mut self, matchers: &mut Vec<LabelMatcher>) -> Result<(), PromqlError> {
+        if self.peek() != Some(&Tok::RBrace) {
+            loop {
+                matchers.push(self.parse_one_matcher()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RBrace)
+    }
+
+    // One `<label> <op> "<value>"` triple. Validation order (name, then operator,
+    // then value) is load-bearing: it decides which error a doubly-invalid
+    // matcher reports.
+    fn parse_one_matcher(&mut self) -> Result<LabelMatcher, PromqlError> {
+        let lname = match self.bump() {
+            Some(Tok::Ident(s)) => s,
+            other => return err(format!("expected label name in matcher, got {other:?}")),
+        };
+        let op = matcher_op(self.bump())?;
+        let val = match self.bump() {
+            Some(Tok::Str(s)) => s,
+            other => return err(format!("expected string in matcher, got {other:?}")),
+        };
+        LabelMatcher::new(lname, op, val)
     }
 
     // After matchers, optionally `[range]` (→ Matrix) and `offset <dur>`.
@@ -1036,22 +1076,35 @@ impl Parser {
     }
 }
 
-fn agg_op(name: &str) -> Option<AggOp> {
-    match name {
-        "sum" => Some(AggOp::Sum),
-        "avg" => Some(AggOp::Avg),
-        "min" => Some(AggOp::Min),
-        "max" => Some(AggOp::Max),
-        "count" => Some(AggOp::Count),
-        // CONCEPT:EG-KG.query.bottomk-selection extended aggregations.
-        "stddev" => Some(AggOp::Stddev),
-        "stdvar" => Some(AggOp::Stdvar),
-        "topk" => Some(AggOp::Topk),
-        "bottomk" => Some(AggOp::Bottomk),
-        "quantile" => Some(AggOp::Quantile),
-        "count_values" => Some(AggOp::CountValues),
-        _ => None,
+/// The match operator of a matcher triple.
+fn matcher_op(tok: Option<Tok>) -> Result<MatchOp, PromqlError> {
+    match tok {
+        Some(Tok::Eq) => Ok(MatchOp::Eq),
+        Some(Tok::Ne) => Ok(MatchOp::Ne),
+        Some(Tok::Re) => Ok(MatchOp::Re),
+        Some(Tok::Nre) => Ok(MatchOp::Nre),
+        other => err(format!("expected match operator, got {other:?}")),
     }
+}
+
+/// The aggregation operators, keyed by their PromQL spelling. The tail entries
+/// are the CONCEPT:EG-KG.query.bottomk-selection extended aggregations.
+static AGG_OPS: [(&str, AggOp); 11] = [
+    ("sum", AggOp::Sum),
+    ("avg", AggOp::Avg),
+    ("min", AggOp::Min),
+    ("max", AggOp::Max),
+    ("count", AggOp::Count),
+    ("stddev", AggOp::Stddev),
+    ("stdvar", AggOp::Stdvar),
+    ("topk", AggOp::Topk),
+    ("bottomk", AggOp::Bottomk),
+    ("quantile", AggOp::Quantile),
+    ("count_values", AggOp::CountValues),
+];
+
+fn agg_op(name: &str) -> Option<AggOp> {
+    AGG_OPS.iter().find(|(n, _)| *n == name).map(|(_, op)| *op)
 }
 
 // ───────────────────────────── values ─────────────────────────────
@@ -1097,6 +1150,36 @@ pub struct Evaluator<'a> {
     lookback_ns: i64,
 }
 
+/// The `<agg>_over_time` functions, as a set so the call table stays flat.
+/// `quantile_over_time` is deliberately absent — it is parametrized and has its
+/// own arm.
+static OVER_TIME_FNS: [&str; 8] = [
+    "sum_over_time",
+    "avg_over_time",
+    "min_over_time",
+    "max_over_time",
+    "count_over_time",
+    "stddev_over_time",
+    "stdvar_over_time",
+    "last_over_time",
+];
+
+/// The instant value of a series: the most recent point at-or-before `at`
+/// within the lookback window. Sources promise timestamp order; their
+/// conforming fast path is the O(1) tail. A defensive binary predecessor
+/// lookup stays O(log N) for cache adapters that return a wider ordered slice
+/// than requested.
+fn instant_point(points: &[(Ts, f64)], at: Ts) -> Option<f64> {
+    points
+        .last()
+        .filter(|(ts, _)| *ts <= at)
+        .or_else(|| {
+            let end = points.partition_point(|(ts, _)| *ts <= at);
+            end.checked_sub(1).and_then(|i| points.get(i))
+        })
+        .map(|&(_, v)| v)
+}
+
 impl<'a> Evaluator<'a> {
     pub fn new(source: &'a dyn SeriesSource) -> Self {
         Self {
@@ -1117,60 +1200,16 @@ impl<'a> Evaluator<'a> {
         match expr {
             Expr::Number(n) => Ok(Value::Scalar(*n)),
             Expr::Str(_) => err("a string literal is not a valid top-level expression"),
-            Expr::Neg(inner) => match self.eval_instant(inner, t)? {
-                Value::Scalar(s) => Ok(Value::Scalar(-s)),
-                Value::Instant(v) => Ok(Value::Instant(map_values(v, |x| -x))),
-                Value::Range(_) => err("unary '-' not defined on a range vector"),
-            },
+            Expr::Neg(inner) => self.eval_neg(inner, t),
             Expr::Selector {
                 matchers,
                 offset_ns,
-            } => {
-                let at = t - offset_ns;
-                let series = self.source.select(matchers, at - self.lookback_ns, at);
-                let mut out = Vec::new();
-                for s in series {
-                    // The instant value = the most recent point at-or-before `at`
-                    // within the lookback window. Sources promise timestamp order;
-                    // their conforming fast path is the O(1) tail. A defensive
-                    // binary predecessor lookup stays O(log N) for cache adapters
-                    // that return a wider ordered slice than requested.
-                    let point = s.points.last().filter(|(ts, _)| *ts <= at).or_else(|| {
-                        let end = s.points.partition_point(|(ts, _)| *ts <= at);
-                        end.checked_sub(1).and_then(|i| s.points.get(i))
-                    });
-                    if let Some(&(_, v)) = point {
-                        out.push(InstantSample {
-                            labels: s.labels,
-                            value: v,
-                        });
-                    }
-                }
-                Ok(Value::Instant(out))
-            }
+            } => self.eval_selector(matchers, *offset_ns, t),
             Expr::Matrix {
                 matchers,
                 range_ns,
                 offset_ns,
-            } => {
-                let at = t - offset_ns;
-                let lo = at - range_ns;
-                let series = self.source.select(matchers, lo, at);
-                let out = series
-                    .into_iter()
-                    .map(|s| RangeSeries {
-                        labels: s.labels,
-                        // Prometheus range window is (lo, at].
-                        points: s
-                            .points
-                            .into_iter()
-                            .filter(|(ts, _)| *ts > lo && *ts <= at)
-                            .collect(),
-                    })
-                    .filter(|s| !s.points.is_empty())
-                    .collect();
-                Ok(Value::Range(out))
-            }
+            } => self.eval_matrix(matchers, *range_ns, *offset_ns, t),
             Expr::Call { func, args } => self.eval_call(func, args, t),
             Expr::Aggregate {
                 op,
@@ -1178,37 +1217,7 @@ impl<'a> Evaluator<'a> {
                 by,
                 labels,
                 param,
-            } => {
-                let v = self.eval_instant(expr, t)?;
-                let samples = as_instant(v, "aggregation operand")?;
-                let result = match op {
-                    AggOp::CountValues => {
-                        let dst = match param.as_deref() {
-                            Some(Expr::Str(s)) => s.clone(),
-                            _ => return err(
-                                "count_values expects a string label name as its first argument",
-                            ),
-                        };
-                        count_values(samples, *by, labels, &dst)
-                    }
-                    AggOp::Topk | AggOp::Bottomk => {
-                        let p = param.as_deref().ok_or_else(|| {
-                            PromqlError("topk/bottomk require a scalar `k` parameter".into())
-                        })?;
-                        let k = self.scalar_arg(p, t, "topk/bottomk k")?;
-                        topk_bottomk(*op, samples, *by, labels, k)
-                    }
-                    AggOp::Quantile => {
-                        let p = param.as_deref().ok_or_else(|| {
-                            PromqlError("quantile requires a scalar `phi` parameter".into())
-                        })?;
-                        let phi = self.scalar_arg(p, t, "quantile phi")?;
-                        quantile_agg(phi, samples, *by, labels)
-                    }
-                    _ => aggregate(*op, samples, *by, labels),
-                };
-                Ok(Value::Instant(result))
-            }
+            } => self.eval_aggregate(*op, expr, *by, labels, param.as_deref(), t),
             Expr::Binary {
                 op,
                 lhs,
@@ -1223,150 +1232,292 @@ impl<'a> Evaluator<'a> {
         }
     }
 
+    fn eval_neg(&self, inner: &Expr, t: Ts) -> Result<Value, PromqlError> {
+        match self.eval_instant(inner, t)? {
+            Value::Scalar(s) => Ok(Value::Scalar(-s)),
+            Value::Instant(v) => Ok(Value::Instant(map_values(v, |x| -x))),
+            Value::Range(_) => err("unary '-' not defined on a range vector"),
+        }
+    }
+
+    fn eval_selector(
+        &self,
+        matchers: &[LabelMatcher],
+        offset_ns: i64,
+        t: Ts,
+    ) -> Result<Value, PromqlError> {
+        let at = t - offset_ns;
+        let series = self.source.select(matchers, at - self.lookback_ns, at);
+        let mut out = Vec::new();
+        for s in series {
+            if let Some(value) = instant_point(&s.points, at) {
+                out.push(InstantSample {
+                    labels: s.labels,
+                    value,
+                });
+            }
+        }
+        Ok(Value::Instant(out))
+    }
+
+    fn eval_matrix(
+        &self,
+        matchers: &[LabelMatcher],
+        range_ns: i64,
+        offset_ns: i64,
+        t: Ts,
+    ) -> Result<Value, PromqlError> {
+        let at = t - offset_ns;
+        let lo = at - range_ns;
+        let series = self.source.select(matchers, lo, at);
+        let out = series
+            .into_iter()
+            .map(|s| RangeSeries {
+                labels: s.labels,
+                // Prometheus range window is (lo, at].
+                points: s
+                    .points
+                    .into_iter()
+                    .filter(|(ts, _)| *ts > lo && *ts <= at)
+                    .collect(),
+            })
+            .filter(|s| !s.points.is_empty())
+            .collect();
+        Ok(Value::Range(out))
+    }
+
+    fn eval_aggregate(
+        &self,
+        op: AggOp,
+        expr: &Expr,
+        by: bool,
+        labels: &[String],
+        param: Option<&Expr>,
+        t: Ts,
+    ) -> Result<Value, PromqlError> {
+        let v = self.eval_instant(expr, t)?;
+        let samples = as_instant(v, "aggregation operand")?;
+        let result = match op {
+            AggOp::CountValues => {
+                let dst = match param {
+                    Some(Expr::Str(s)) => s.clone(),
+                    _ => {
+                        return err(
+                            "count_values expects a string label name as its first argument",
+                        )
+                    }
+                };
+                count_values(samples, by, labels, &dst)
+            }
+            AggOp::Topk | AggOp::Bottomk => {
+                let p = param.ok_or_else(|| {
+                    PromqlError("topk/bottomk require a scalar `k` parameter".into())
+                })?;
+                let k = self.scalar_arg(p, t, "topk/bottomk k")?;
+                topk_bottomk(op, samples, by, labels, k)
+            }
+            AggOp::Quantile => {
+                let p = param.ok_or_else(|| {
+                    PromqlError("quantile requires a scalar `phi` parameter".into())
+                })?;
+                let phi = self.scalar_arg(p, t, "quantile phi")?;
+                quantile_agg(phi, samples, by, labels)
+            }
+            _ => aggregate(op, samples, by, labels),
+        };
+        Ok(Value::Instant(result))
+    }
+
+    /// The PromQL function table. Split across three tiers purely to keep each
+    /// dispatch flat; the tiers are probed in the order the arms were written.
     fn eval_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
         match func {
-            "rate" | "irate" | "increase" => {
-                let arg = one_arg(func, args)?;
-                let rv = self.eval_instant(arg, t)?;
-                let series = as_range(rv, func)?;
-                Ok(Value::Instant(rate_family(func, series)))
-            }
-            "abs" | "ceil" | "floor" => {
-                let arg = one_arg(func, args)?;
-                let iv = self.eval_instant(arg, t)?;
-                let samples = as_instant(iv, func)?;
-                let f: fn(f64) -> f64 = match func {
-                    "abs" => f64::abs,
-                    "ceil" => f64::ceil,
-                    _ => f64::floor,
-                };
-                // scalar functions drop the metric name
-                Ok(Value::Instant(map_values(strip_name(samples), f)))
-            }
-            "histogram_quantile" => {
-                if args.len() != 2 {
-                    return err("histogram_quantile expects (phi, vector)");
-                }
-                let phi = match self.eval_instant(&args[0], t)? {
-                    Value::Scalar(s) => s,
-                    _ => return err("histogram_quantile: first arg must be a scalar"),
-                };
-                let iv = self.eval_instant(&args[1], t)?;
-                let samples = as_instant(iv, "histogram_quantile")?;
-                Ok(Value::Instant(histogram_quantile(phi, samples)))
-            }
-            "scalar" => {
-                let arg = one_arg(func, args)?;
-                let iv = self.eval_instant(arg, t)?;
-                let samples = as_instant(iv, "scalar")?;
-                Ok(Value::Scalar(if samples.len() == 1 {
-                    samples[0].value
-                } else {
-                    f64::NAN
-                }))
-            }
+            "rate" | "irate" | "increase" => self.eval_rate_call(func, args, t),
+            "abs" | "ceil" | "floor" => self.eval_math_call(func, args, t),
+            "histogram_quantile" => self.eval_histogram_quantile_call(args, t),
+            "scalar" => self.eval_scalar_call(func, args, t),
+            _ => self.eval_range_call(func, args, t),
+        }
+    }
+
+    /// Tier 2: the range-vector functions.
+    fn eval_range_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        match func {
             // CONCEPT:EG-KG.query.bottomk-selection — `<agg>_over_time` over a range vector.
-            "sum_over_time" | "avg_over_time" | "min_over_time" | "max_over_time"
-            | "count_over_time" | "stddev_over_time" | "stdvar_over_time" | "last_over_time" => {
-                let arg = one_arg(func, args)?;
-                let rv = self.eval_instant(arg, t)?;
-                let series = as_range(rv, func)?;
-                Ok(Value::Instant(over_time_family(func, series)))
-            }
-            "quantile_over_time" => {
-                if args.len() != 2 {
-                    return err("quantile_over_time expects (phi, range-vector)");
-                }
-                let phi = self.scalar_arg(&args[0], t, "quantile_over_time phi")?;
-                let rv = self.eval_instant(&args[1], t)?;
-                let series = as_range(rv, "quantile_over_time")?;
-                Ok(Value::Instant(quantile_over_time(phi, series)))
-            }
+            f if OVER_TIME_FNS.contains(&f) => self.eval_over_time_call(func, args, t),
+            "quantile_over_time" => self.eval_quantile_over_time_call(args, t),
             // CONCEPT:EG-KG.query.bottomk-selection — range-vector deltas / derivatives.
-            "delta" | "idelta" | "deriv" => {
-                let arg = one_arg(func, args)?;
-                let rv = self.eval_instant(arg, t)?;
-                let series = as_range(rv, func)?;
-                Ok(Value::Instant(delta_family(func, series, t)))
-            }
-            "predict_linear" => {
-                if args.len() != 2 {
-                    return err("predict_linear expects (range-vector, t)");
-                }
-                let rv = self.eval_instant(&args[0], t)?;
-                let series = as_range(rv, "predict_linear")?;
-                let secs = self.scalar_arg(&args[1], t, "predict_linear t")?;
-                Ok(Value::Instant(predict_linear(series, secs, t)))
-            }
+            "delta" | "idelta" | "deriv" => self.eval_delta_call(func, args, t),
+            "predict_linear" => self.eval_predict_linear_call(args, t),
+            _ => self.eval_shaping_call(func, args, t),
+        }
+    }
+
+    /// Tier 3: the value/label shaping functions.
+    fn eval_shaping_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        match func {
             // CONCEPT:EG-KG.query.bottomk-selection — clamp / round.
-            "clamp" => {
-                if args.len() != 3 {
-                    return err("clamp expects (vector, min, max)");
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, "clamp")?;
-                let min = self.scalar_arg(&args[1], t, "clamp min")?;
-                let max = self.scalar_arg(&args[2], t, "clamp max")?;
-                Ok(Value::Instant(clamp(samples, min, max)))
-            }
-            "clamp_min" | "clamp_max" => {
-                if args.len() != 2 {
-                    return err(format!("{func} expects (vector, scalar)"));
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, func)?;
-                let bound = self.scalar_arg(&args[1], t, func)?;
-                let f: Box<dyn Fn(f64) -> f64> = if func == "clamp_min" {
-                    Box::new(move |v| v.max(bound))
-                } else {
-                    Box::new(move |v| v.min(bound))
-                };
-                Ok(Value::Instant(map_values(strip_name(samples), f)))
-            }
-            "round" => {
-                if args.is_empty() || args.len() > 2 {
-                    return err("round expects (vector) or (vector, to_nearest)");
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, "round")?;
-                let to_nearest = if args.len() == 2 {
-                    self.scalar_arg(&args[1], t, "round to_nearest")?
-                } else {
-                    1.0
-                };
-                Ok(Value::Instant(round(samples, to_nearest)))
-            }
+            "clamp" => self.eval_clamp_call(args, t),
+            "clamp_min" | "clamp_max" => self.eval_clamp_bound_call(func, args, t),
+            "round" => self.eval_round_call(args, t),
             // CONCEPT:EG-KG.query.bottomk-selection — label functions.
-            "label_replace" => {
-                if args.len() != 5 {
-                    return err("label_replace expects (vector, dst, replacement, src, regex)");
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, "label_replace")?;
-                let dst = str_arg(&args[1], "label_replace dst_label")?;
-                let repl = str_arg(&args[2], "label_replace replacement")?;
-                let src = str_arg(&args[3], "label_replace src_label")?;
-                let regex = str_arg(&args[4], "label_replace regex")?;
-                Ok(Value::Instant(label_replace(
-                    samples, dst, repl, src, regex,
-                )?))
-            }
-            "label_join" => {
-                if args.len() < 3 {
-                    return err("label_join expects (vector, dst, separator, src_label...)");
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, "label_join")?;
-                let dst = str_arg(&args[1], "label_join dst_label")?;
-                let sep = str_arg(&args[2], "label_join separator")?;
-                let srcs: Vec<&str> = args[3..]
-                    .iter()
-                    .map(|a| str_arg(a, "label_join src_label"))
-                    .collect::<Result<_, _>>()?;
-                Ok(Value::Instant(label_join(samples, dst, sep, &srcs)))
-            }
+            "label_replace" => self.eval_label_replace_call(args, t),
+            "label_join" => self.eval_label_join_call(args, t),
             other => err(format!("unsupported function '{other}' (EG-172 follow-up)")),
         }
+    }
+
+    fn eval_rate_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let rv = self.eval_instant(arg, t)?;
+        let series = as_range(rv, func)?;
+        Ok(Value::Instant(rate_family(func, series)))
+    }
+
+    fn eval_math_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let iv = self.eval_instant(arg, t)?;
+        let samples = as_instant(iv, func)?;
+        let f: fn(f64) -> f64 = match func {
+            "abs" => f64::abs,
+            "ceil" => f64::ceil,
+            _ => f64::floor,
+        };
+        // scalar functions drop the metric name
+        Ok(Value::Instant(map_values(strip_name(samples), f)))
+    }
+
+    fn eval_histogram_quantile_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 2 {
+            return err("histogram_quantile expects (phi, vector)");
+        }
+        let phi = match self.eval_instant(&args[0], t)? {
+            Value::Scalar(s) => s,
+            _ => return err("histogram_quantile: first arg must be a scalar"),
+        };
+        let iv = self.eval_instant(&args[1], t)?;
+        let samples = as_instant(iv, "histogram_quantile")?;
+        Ok(Value::Instant(histogram_quantile(phi, samples)))
+    }
+
+    fn eval_scalar_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let iv = self.eval_instant(arg, t)?;
+        let samples = as_instant(iv, "scalar")?;
+        Ok(Value::Scalar(if samples.len() == 1 {
+            samples[0].value
+        } else {
+            f64::NAN
+        }))
+    }
+
+    fn eval_over_time_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let rv = self.eval_instant(arg, t)?;
+        let series = as_range(rv, func)?;
+        Ok(Value::Instant(over_time_family(func, series)))
+    }
+
+    fn eval_quantile_over_time_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 2 {
+            return err("quantile_over_time expects (phi, range-vector)");
+        }
+        let phi = self.scalar_arg(&args[0], t, "quantile_over_time phi")?;
+        let rv = self.eval_instant(&args[1], t)?;
+        let series = as_range(rv, "quantile_over_time")?;
+        Ok(Value::Instant(quantile_over_time(phi, series)))
+    }
+
+    fn eval_delta_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let rv = self.eval_instant(arg, t)?;
+        let series = as_range(rv, func)?;
+        Ok(Value::Instant(delta_family(func, series, t)))
+    }
+
+    fn eval_predict_linear_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 2 {
+            return err("predict_linear expects (range-vector, t)");
+        }
+        let rv = self.eval_instant(&args[0], t)?;
+        let series = as_range(rv, "predict_linear")?;
+        let secs = self.scalar_arg(&args[1], t, "predict_linear t")?;
+        Ok(Value::Instant(predict_linear(series, secs, t)))
+    }
+
+    fn eval_clamp_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 3 {
+            return err("clamp expects (vector, min, max)");
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, "clamp")?;
+        let min = self.scalar_arg(&args[1], t, "clamp min")?;
+        let max = self.scalar_arg(&args[2], t, "clamp max")?;
+        Ok(Value::Instant(clamp(samples, min, max)))
+    }
+
+    fn eval_clamp_bound_call(
+        &self,
+        func: &str,
+        args: &[Expr],
+        t: Ts,
+    ) -> Result<Value, PromqlError> {
+        if args.len() != 2 {
+            return err(format!("{func} expects (vector, scalar)"));
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, func)?;
+        let bound = self.scalar_arg(&args[1], t, func)?;
+        let f: Box<dyn Fn(f64) -> f64> = if func == "clamp_min" {
+            Box::new(move |v| v.max(bound))
+        } else {
+            Box::new(move |v| v.min(bound))
+        };
+        Ok(Value::Instant(map_values(strip_name(samples), f)))
+    }
+
+    fn eval_round_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.is_empty() || args.len() > 2 {
+            return err("round expects (vector) or (vector, to_nearest)");
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, "round")?;
+        let to_nearest = if args.len() == 2 {
+            self.scalar_arg(&args[1], t, "round to_nearest")?
+        } else {
+            1.0
+        };
+        Ok(Value::Instant(round(samples, to_nearest)))
+    }
+
+    fn eval_label_replace_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 5 {
+            return err("label_replace expects (vector, dst, replacement, src, regex)");
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, "label_replace")?;
+        let dst = str_arg(&args[1], "label_replace dst_label")?;
+        let repl = str_arg(&args[2], "label_replace replacement")?;
+        let src = str_arg(&args[3], "label_replace src_label")?;
+        let regex = str_arg(&args[4], "label_replace regex")?;
+        Ok(Value::Instant(label_replace(
+            samples, dst, repl, src, regex,
+        )?))
+    }
+
+    fn eval_label_join_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() < 3 {
+            return err("label_join expects (vector, dst, separator, src_label...)");
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, "label_join")?;
+        let dst = str_arg(&args[1], "label_join dst_label")?;
+        let sep = str_arg(&args[2], "label_join separator")?;
+        let srcs: Vec<&str> = args[3..]
+            .iter()
+            .map(|a| str_arg(a, "label_join src_label"))
+            .collect::<Result<_, _>>()?;
+        Ok(Value::Instant(label_join(samples, dst, sep, &srcs)))
     }
 
     /// Evaluate `e` and require it to be a scalar (used for function/aggregation
@@ -1745,6 +1896,20 @@ fn count_values(
 /// CONCEPT:EG-KG.query.bottomk-selection — the `<agg>_over_time` family over a range vector. All drop the
 /// metric name EXCEPT `last_over_time`, which preserves the series' labels verbatim
 /// (Prometheus semantics).
+fn over_time_value(func: &str, vals: &[f64]) -> f64 {
+    match func {
+        "sum_over_time" => vals.iter().sum(),
+        "avg_over_time" => vals.iter().sum::<f64>() / vals.len() as f64,
+        "min_over_time" => vals.iter().copied().fold(f64::INFINITY, f64::min),
+        "max_over_time" => vals.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        "count_over_time" => vals.len() as f64,
+        "stddev_over_time" => variance(vals).sqrt(),
+        "stdvar_over_time" => variance(vals),
+        "last_over_time" => *vals.last().unwrap(),
+        _ => unreachable!("over_time_family called with {func}"),
+    }
+}
+
 fn over_time_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> {
     let mut out = Vec::new();
     for s in series {
@@ -1752,17 +1917,7 @@ fn over_time_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> 
             continue;
         }
         let vals: Vec<f64> = s.points.iter().map(|p| p.1).collect();
-        let value = match func {
-            "sum_over_time" => vals.iter().sum(),
-            "avg_over_time" => vals.iter().sum::<f64>() / vals.len() as f64,
-            "min_over_time" => vals.iter().copied().fold(f64::INFINITY, f64::min),
-            "max_over_time" => vals.iter().copied().fold(f64::NEG_INFINITY, f64::max),
-            "count_over_time" => vals.len() as f64,
-            "stddev_over_time" => variance(&vals).sqrt(),
-            "stdvar_over_time" => variance(&vals),
-            "last_over_time" => *vals.last().unwrap(),
-            _ => unreachable!("over_time_family called with {func}"),
-        };
+        let value = over_time_value(func, &vals);
         let mut labels = s.labels.clone();
         if func != "last_over_time" {
             labels.remove(METRIC_NAME);
@@ -1945,6 +2100,45 @@ fn label_join(
 /// Expand a `label_replace` replacement string. `$0` is the whole match, `$1`..`$N`
 /// and `${N}` are numbered capture groups (a reference to an unmatched/absent group
 /// expands to empty), and `$$` is a literal `$`.
+/// Scan the group reference that follows a `$` at `chars[*i]` — either a braced
+/// `{...}` body or a run of digits — advancing `*i` past it. `None` means the `$`
+/// was not followed by a group reference at all, and `*i` is left untouched so the
+/// caller can emit the `$` literally.
+fn scan_group_ref(chars: &[char], i: &mut usize) -> Option<String> {
+    let mut num = String::new();
+    if chars[*i] == '{' {
+        *i += 1;
+        while *i < chars.len() && chars[*i] != '}' {
+            num.push(chars[*i]);
+            *i += 1;
+        }
+        if *i < chars.len() {
+            *i += 1; // consume '}'
+        }
+        return Some(num);
+    }
+    while *i < chars.len() && chars[*i].is_ascii_digit() {
+        num.push(chars[*i]);
+        *i += 1;
+    }
+    if num.is_empty() {
+        return None;
+    }
+    Some(num)
+}
+
+/// What a `$…` group reference expands to: the captured text, or empty for an
+/// unparseable, absent or unmatched group.
+fn group_expansion<'a>(num: &str, groups: &'a [Option<String>]) -> &'a str {
+    let Ok(n) = num.parse::<usize>() else {
+        return "";
+    };
+    match groups.get(n) {
+        Some(Some(v)) => v.as_str(),
+        _ => "",
+    }
+}
+
 fn expand_replacement(repl: &str, groups: &[Option<String>]) -> String {
     let chars: Vec<char> = repl.chars().collect();
     let mut out = String::new();
@@ -1965,31 +2159,10 @@ fn expand_replacement(repl: &str, groups: &[Option<String>]) -> String {
             i += 1;
             continue;
         }
-        let mut num = String::new();
-        if chars[i] == '{' {
-            i += 1;
-            while i < chars.len() && chars[i] != '}' {
-                num.push(chars[i]);
-                i += 1;
-            }
-            if i < chars.len() {
-                i += 1; // consume '}'
-            }
-        } else {
-            while i < chars.len() && chars[i].is_ascii_digit() {
-                num.push(chars[i]);
-                i += 1;
-            }
-            if num.is_empty() {
-                // A bare `$` not followed by a group reference is kept literally.
-                out.push('$');
-                continue;
-            }
-        }
-        if let Ok(n) = num.parse::<usize>() {
-            if let Some(Some(v)) = groups.get(n) {
-                out.push_str(v);
-            }
+        match scan_group_ref(&chars, &mut i) {
+            Some(num) => out.push_str(group_expansion(&num, groups)),
+            // A bare `$` not followed by a group reference is kept literally.
+            None => out.push('$'),
         }
     }
     out
@@ -2039,42 +2212,32 @@ fn parse_le(v: &str) -> Option<f64> {
     }
 }
 
-fn quantile_from_buckets(phi: f64, buckets: &[(f64, f64)]) -> f64 {
+/// The degenerate cases of [`quantile_from_buckets`], checked in their original
+/// order: empty input, phi below range, phi above range, a missing `+Inf`
+/// bucket, then a zero total count. `None` means "carry on and interpolate".
+fn quantile_bucket_guard(phi: f64, buckets: &[(f64, f64)]) -> Option<f64> {
     if buckets.is_empty() {
-        return f64::NAN;
+        return Some(f64::NAN);
     }
     if phi < 0.0 {
-        return f64::NEG_INFINITY;
+        return Some(f64::NEG_INFINITY);
     }
     if phi > 1.0 {
-        return f64::INFINITY;
+        return Some(f64::INFINITY);
     }
     // The last bucket must be +Inf (total count).
     let last = buckets[buckets.len() - 1];
     if !last.0.is_infinite() {
-        return f64::NAN;
+        return Some(f64::NAN);
     }
-    let total = last.1;
-    if total == 0.0 {
-        return f64::NAN;
+    if last.1 == 0.0 {
+        return Some(f64::NAN);
     }
-    let rank = phi * total;
-    // Find the first bucket whose cumulative count >= rank.
-    let mut b = 0usize;
-    while b < buckets.len() && buckets[b].1 < rank {
-        b += 1;
-    }
-    if b == buckets.len() {
-        return last.0;
-    }
-    if b == buckets.len() - 1 && buckets[b].0.is_infinite() {
-        // rank falls in the +Inf bucket → return the highest finite bound.
-        return if buckets.len() >= 2 {
-            buckets[buckets.len() - 2].0
-        } else {
-            f64::INFINITY
-        };
-    }
+    None
+}
+
+/// Linearly interpolate `rank` inside bucket `b`.
+fn interpolate_bucket(buckets: &[(f64, f64)], b: usize, rank: f64) -> f64 {
     let bucket_end = buckets[b].0;
     let (bucket_start, count_before) = if b == 0 {
         (0.0, 0.0)
@@ -2091,6 +2254,31 @@ fn quantile_from_buckets(phi: f64, buckets: &[(f64, f64)]) -> f64 {
         bucket_start
     };
     start + (bucket_end - start) * ((rank - count_before) / count_in_bucket)
+}
+
+fn quantile_from_buckets(phi: f64, buckets: &[(f64, f64)]) -> f64 {
+    if let Some(degenerate) = quantile_bucket_guard(phi, buckets) {
+        return degenerate;
+    }
+    let last = buckets[buckets.len() - 1];
+    let rank = phi * last.1;
+    // Find the first bucket whose cumulative count >= rank.
+    let mut b = 0usize;
+    while b < buckets.len() && buckets[b].1 < rank {
+        b += 1;
+    }
+    if b == buckets.len() {
+        return last.0;
+    }
+    if b == buckets.len() - 1 && buckets[b].0.is_infinite() {
+        // rank falls in the +Inf bucket → return the highest finite bound.
+        return if buckets.len() >= 2 {
+            buckets[buckets.len() - 2].0
+        } else {
+            f64::INFINITY
+        };
+    }
+    interpolate_bucket(buckets, b, rank)
 }
 
 // ───────────────────────────── binary ops ─────────────────────────────
@@ -2147,6 +2335,35 @@ fn eval_binary(
 }
 
 /// vector `op` scalar (or scalar `op` vector when `scalar_lhs`).
+/// One `vector op scalar` sample. A comparison either filters the sample out
+/// (keeping its original value and metric name) or, under `bool`, rewrites it to
+/// 0/1; anything else is arithmetic. Both rewriting paths drop the metric name.
+fn scalar_binary_sample(
+    op: BinOp,
+    mut sample: InstantSample,
+    l: f64,
+    r: f64,
+    bool_modifier: bool,
+) -> Option<InstantSample> {
+    if !op.is_comparison() {
+        sample.value = apply_arith(op, l, r);
+        sample.labels.remove(METRIC_NAME);
+        return Some(sample);
+    }
+    let keep = apply_cmp(op, l, r);
+    if bool_modifier {
+        sample.value = if keep { 1.0 } else { 0.0 };
+        sample.labels.remove(METRIC_NAME);
+        return Some(sample);
+    }
+    // filter: keep the original sample value + labels (metric name kept).
+    if keep {
+        Some(sample)
+    } else {
+        None
+    }
+}
+
 fn vector_scalar(
     op: BinOp,
     samples: Vec<InstantSample>,
@@ -2155,58 +2372,152 @@ fn vector_scalar(
     scalar_lhs: bool,
 ) -> Vec<InstantSample> {
     let mut out = Vec::new();
-    for mut sample in samples {
+    for sample in samples {
         let (l, r) = if scalar_lhs {
             (s, sample.value)
         } else {
             (sample.value, s)
         };
-        if op.is_comparison() {
-            let keep = apply_cmp(op, l, r);
-            if bool_modifier {
-                sample.value = if keep { 1.0 } else { 0.0 };
-                sample.labels.remove(METRIC_NAME);
-                out.push(sample);
-            } else if keep {
-                // filter: keep the original sample value + labels (metric name kept).
-                out.push(sample);
-            }
-        } else {
-            sample.value = apply_arith(op, l, r);
-            sample.labels.remove(METRIC_NAME);
-            out.push(sample);
+        if let Some(kept) = scalar_binary_sample(op, sample, l, r, bool_modifier) {
+            out.push(kept);
         }
     }
     out
 }
 
 /// The match key for vector↔vector matching under an optional on/ignoring modifier.
-fn match_labels(labels: &Labels, matching: Option<&VectorMatching>) -> Labels {
+/// `on(...)`: the key is exactly the listed labels, where present.
+fn keep_only_labels(labels: &Labels, keep: &[String]) -> Labels {
     let mut out = Labels::new();
+    for l in keep {
+        if let Some(v) = labels.get(l) {
+            out.insert(l.clone(), v.clone());
+        }
+    }
+    out
+}
+
+/// `ignoring(...)`, and the unmodified default (an empty `ignore` list): every
+/// label except `__name__` and the ignored ones.
+fn drop_labels(labels: &Labels, ignore: &[String]) -> Labels {
+    let mut out = Labels::new();
+    for (k, v) in labels {
+        if k == METRIC_NAME || ignore.iter().any(|l| l == k) {
+            continue;
+        }
+        out.insert(k.clone(), v.clone());
+    }
+    out
+}
+
+fn match_labels(labels: &Labels, matching: Option<&VectorMatching>) -> Labels {
     match matching {
-        Some(m) if m.on => {
-            for l in &m.labels {
-                if let Some(v) = labels.get(l) {
-                    out.insert(l.clone(), v.clone());
-                }
-            }
+        Some(m) if m.on => keep_only_labels(labels, &m.labels),
+        Some(m) => drop_labels(labels, &m.labels),
+        None => drop_labels(labels, &[]),
+    }
+}
+
+/// The set of (on/ignoring) match keys of a sample list.
+fn match_key_set(
+    samples: &[InstantSample],
+    matching: Option<&VectorMatching>,
+) -> std::collections::HashSet<String> {
+    samples
+        .iter()
+        .map(|s| label_key(&match_labels(&s.labels, matching)))
+        .collect()
+}
+
+/// `and` (`keep_matching = true`) and `unless` (`false`): keep the `lhs` samples
+/// whose match key is (or is not) present in `rhs`.
+fn set_filter(
+    lhs: Vec<InstantSample>,
+    rhs: &[InstantSample],
+    matching: Option<&VectorMatching>,
+    keep_matching: bool,
+) -> Vec<InstantSample> {
+    let keys = match_key_set(rhs, matching);
+    lhs.into_iter()
+        .filter(|s| keys.contains(&label_key(&match_labels(&s.labels, matching))) == keep_matching)
+        .collect()
+}
+
+/// `or`: all of `lhs`, plus every `rhs` sample whose match key is absent from `lhs`.
+fn set_union(
+    lhs: Vec<InstantSample>,
+    rhs: Vec<InstantSample>,
+    matching: Option<&VectorMatching>,
+) -> Vec<InstantSample> {
+    let lkeys = match_key_set(&lhs, matching);
+    let mut out = lhs;
+    for s in rhs {
+        if !lkeys.contains(&label_key(&match_labels(&s.labels, matching))) {
+            out.push(s);
         }
-        Some(m) => {
-            // ignoring
-            for (k, v) in labels {
-                if k == METRIC_NAME || m.labels.iter().any(|l| l == k) {
-                    continue;
-                }
-                out.insert(k.clone(), v.clone());
-            }
-        }
-        None => {
-            for (k, v) in labels {
-                if k == METRIC_NAME {
-                    continue;
-                }
-                out.insert(k.clone(), v.clone());
-            }
+    }
+    out
+}
+
+/// One matched `lhs`/`rhs` pair. A comparison either filters the pair out
+/// (keeping the `lhs` value) or, under `bool`, yields 0/1; anything else is
+/// arithmetic. `labels` is already the match key.
+fn paired_binary_sample(
+    op: BinOp,
+    labels: Labels,
+    l: f64,
+    r: f64,
+    bool_modifier: bool,
+) -> Option<InstantSample> {
+    if !op.is_comparison() {
+        return Some(InstantSample {
+            labels,
+            value: apply_arith(op, l, r),
+        });
+    }
+    let keep = apply_cmp(op, l, r);
+    if bool_modifier {
+        return Some(InstantSample {
+            labels,
+            value: if keep { 1.0 } else { 0.0 },
+        });
+    }
+    if keep {
+        Some(InstantSample { labels, value: l })
+    } else {
+        None
+    }
+}
+
+/// Arithmetic / comparison: one-to-one match on the (on/ignoring) key.
+fn one_to_one_binary(
+    op: BinOp,
+    lhs: Vec<InstantSample>,
+    rhs: Vec<InstantSample>,
+    bool_modifier: bool,
+    matching: Option<&VectorMatching>,
+) -> Vec<InstantSample> {
+    let mut rhs_by: BTreeMap<String, &InstantSample> = BTreeMap::new();
+    for s in &rhs {
+        rhs_by.insert(label_key(&match_labels(&s.labels, matching)), s);
+    }
+    let mut out = Vec::new();
+    for lsample in &lhs {
+        let key = label_key(&match_labels(&lsample.labels, matching));
+        let Some(rsample) = rhs_by.get(&key) else {
+            continue;
+        };
+        // The result label set is the match key (Prometheus drops __name__ and, under
+        // ignoring, only the shared/kept labels survive).
+        let result_labels = match_labels(&lsample.labels, matching);
+        if let Some(sample) = paired_binary_sample(
+            op,
+            result_labels,
+            lsample.value,
+            rsample.value,
+            bool_modifier,
+        ) {
+            out.push(sample);
         }
     }
     out
@@ -2221,80 +2532,18 @@ fn vector_vector(
 ) -> Result<Value, PromqlError> {
     // Set operators.
     match op {
-        BinOp::And => {
-            let keys: std::collections::HashSet<String> = rhs
-                .iter()
-                .map(|s| label_key(&match_labels(&s.labels, matching)))
-                .collect();
-            return Ok(Value::Instant(
-                lhs.into_iter()
-                    .filter(|s| keys.contains(&label_key(&match_labels(&s.labels, matching))))
-                    .collect(),
-            ));
-        }
-        BinOp::Unless => {
-            let keys: std::collections::HashSet<String> = rhs
-                .iter()
-                .map(|s| label_key(&match_labels(&s.labels, matching)))
-                .collect();
-            return Ok(Value::Instant(
-                lhs.into_iter()
-                    .filter(|s| !keys.contains(&label_key(&match_labels(&s.labels, matching))))
-                    .collect(),
-            ));
-        }
-        BinOp::Or => {
-            let lkeys: std::collections::HashSet<String> = lhs
-                .iter()
-                .map(|s| label_key(&match_labels(&s.labels, matching)))
-                .collect();
-            let mut out = lhs.clone();
-            for s in rhs {
-                if !lkeys.contains(&label_key(&match_labels(&s.labels, matching))) {
-                    out.push(s);
-                }
-            }
-            return Ok(Value::Instant(out));
-        }
+        BinOp::And => return Ok(Value::Instant(set_filter(lhs, &rhs, matching, true))),
+        BinOp::Unless => return Ok(Value::Instant(set_filter(lhs, &rhs, matching, false))),
+        BinOp::Or => return Ok(Value::Instant(set_union(lhs, rhs, matching))),
         _ => {}
     }
-
-    // Arithmetic / comparison: one-to-one match on the (on/ignoring) key.
-    let mut rhs_by: BTreeMap<String, &InstantSample> = BTreeMap::new();
-    for s in &rhs {
-        rhs_by.insert(label_key(&match_labels(&s.labels, matching)), s);
-    }
-    let mut out = Vec::new();
-    for lsample in &lhs {
-        let key = label_key(&match_labels(&lsample.labels, matching));
-        let Some(rsample) = rhs_by.get(&key) else {
-            continue;
-        };
-        let (l, r) = (lsample.value, rsample.value);
-        // The result label set is the match key (Prometheus drops __name__ and, under
-        // ignoring, only the shared/kept labels survive).
-        let result_labels = match_labels(&lsample.labels, matching);
-        if op.is_comparison() {
-            let keep = apply_cmp(op, l, r);
-            if bool_modifier {
-                out.push(InstantSample {
-                    labels: result_labels,
-                    value: if keep { 1.0 } else { 0.0 },
-                });
-            } else if keep {
-                out.push(InstantSample {
-                    labels: result_labels,
-                    value: l,
-                });
-            }
-        } else {
-            out.push(InstantSample {
-                labels: result_labels,
-                value: apply_arith(op, l, r),
-            });
-        }
-    }
-    Ok(Value::Instant(out))
+    Ok(Value::Instant(one_to_one_binary(
+        op,
+        lhs,
+        rhs,
+        bool_modifier,
+        matching,
+    )))
 }
 
 // ───────────────────────────── anchored regex (=~ / !~) ─────────────────────────────
@@ -2528,21 +2777,37 @@ fn class_match(neg: bool, ranges: &[(char, char)], c: char) -> bool {
     hit != neg
 }
 
+/// Consume exactly one input character satisfying `pred`, then continue with `k`.
+/// Shared by both CPS matchers ([`re_match`] and [`cap_match`]).
+fn consume_one(
+    input: &[char],
+    pos: usize,
+    k: &dyn Fn(usize) -> bool,
+    pred: impl Fn(char) -> bool,
+) -> bool {
+    pos < input.len() && pred(input[pos]) && k(pos + 1)
+}
+
 /// CPS backtracking matcher: `k` is the continuation over the remaining input position.
 fn re_match(node: &ReNode, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool) -> bool {
     match node {
         ReNode::Empty => k(pos),
-        ReNode::Char(c) => pos < input.len() && input[pos] == *c && k(pos + 1),
-        ReNode::AnyChar => pos < input.len() && k(pos + 1),
+        ReNode::Char(c) => consume_one(input, pos, k, |ch| ch == *c),
+        ReNode::AnyChar => consume_one(input, pos, k, |_| true),
         ReNode::Class { neg, ranges } => {
-            pos < input.len() && class_match(*neg, ranges, input[pos]) && k(pos + 1)
+            consume_one(input, pos, k, |ch| class_match(*neg, ranges, ch))
         }
         ReNode::Concat(parts) => re_concat(parts, 0, input, pos, k),
         ReNode::Alt(branches) => branches.iter().any(|b| re_match(b, input, pos, k)),
         ReNode::Star(inner) => re_star(inner, input, pos, k),
         ReNode::Plus(inner) => re_match(inner, input, pos, &|p| re_star(inner, input, p, k)),
-        ReNode::Opt(inner) => re_match(inner, input, pos, k) || k(pos),
+        ReNode::Opt(inner) => re_opt(inner, input, pos, k),
     }
+}
+
+/// `?`: try the inner node, else match empty at the same position.
+fn re_opt(inner: &ReNode, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool) -> bool {
+    re_match(inner, input, pos, k) || k(pos)
 }
 
 fn re_concat(
@@ -2824,11 +3089,25 @@ fn cap_match(
 ) -> bool {
     match node {
         CapNode::Empty => k(pos),
-        CapNode::Char(c) => pos < input.len() && input[pos] == *c && k(pos + 1),
-        CapNode::AnyChar => pos < input.len() && k(pos + 1),
+        CapNode::Char(c) => consume_one(input, pos, k, |ch| ch == *c),
+        CapNode::AnyChar => consume_one(input, pos, k, |_| true),
         CapNode::Class { neg, ranges } => {
-            pos < input.len() && class_match(*neg, ranges, input[pos]) && k(pos + 1)
+            consume_one(input, pos, k, |ch| class_match(*neg, ranges, ch))
         }
+        composite => cap_match_composite(composite, input, pos, slots, k),
+    }
+}
+
+/// The composite `CapNode`s. [`cap_match`] handles every leaf node and routes
+/// everything else here, so the final arm cannot be reached.
+fn cap_match_composite(
+    node: &CapNode,
+    input: &[char],
+    pos: usize,
+    slots: &RefCell<CapSlots>,
+    k: &dyn Fn(usize) -> bool,
+) -> bool {
+    match node {
         CapNode::Concat(parts) => cap_concat(parts, 0, input, pos, slots, k),
         CapNode::Alt(branches) => branches.iter().any(|b| cap_match(b, input, pos, slots, k)),
         CapNode::Star(inner) => cap_star(inner, input, pos, slots, k),
@@ -2836,17 +3115,32 @@ fn cap_match(
             cap_star(inner, input, p, slots, k)
         }),
         CapNode::Opt(inner) => cap_match(inner, input, pos, slots, k) || k(pos),
-        CapNode::Group(idx, inner) => cap_match(inner, input, pos, slots, &|end| {
-            let saved = slots.borrow()[*idx];
-            slots.borrow_mut()[*idx] = Some((pos, end));
-            if k(end) {
-                true
-            } else {
-                slots.borrow_mut()[*idx] = saved;
-                false
-            }
-        }),
+        CapNode::Group(idx, inner) => cap_group(*idx, inner, input, pos, slots, k),
+        leaf => unreachable!("cap_match_composite reached a leaf node: {leaf:?}"),
     }
+}
+
+/// A capturing group: record the `[pos, end)` span in slot `idx` before running
+/// the continuation, and restore the previous span if the continuation fails, so
+/// backtracking never leaves a stale capture on the final successful path.
+fn cap_group(
+    idx: usize,
+    inner: &CapNode,
+    input: &[char],
+    pos: usize,
+    slots: &RefCell<CapSlots>,
+    k: &dyn Fn(usize) -> bool,
+) -> bool {
+    cap_match(inner, input, pos, slots, &|end| {
+        let saved = slots.borrow()[idx];
+        slots.borrow_mut()[idx] = Some((pos, end));
+        if k(end) {
+            true
+        } else {
+            slots.borrow_mut()[idx] = saved;
+            false
+        }
+    })
 }
 
 fn cap_concat(
