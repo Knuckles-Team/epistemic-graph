@@ -9089,6 +9089,290 @@ fn apply_work_item_rows(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// One selectable row of a claim scan: `(prio_bucket, deadline, created_at_ms,
+/// node_id, props)`.  The first four components are the sort key.
+type ClaimCandidateRow = (
+    u64,
+    u64,
+    u64,
+    String,
+    serde_json::Map<String, serde_json::Value>,
+);
+
+/// What the claim scan decided about one scanned node.
+enum ClaimRowOutcome {
+    /// Not a claimable row for this request; the scan moves on.
+    Skip,
+    /// A live lease held by someone else — counts against the tenant quota.
+    InFlight,
+    /// An expired lease past its attempt ceiling, retired to `dead_letter`.
+    Exhausted(serde_json::Map<String, serde_json::Value>),
+    /// A selectable candidate.
+    Candidate(ClaimCandidateRow),
+}
+
+/// Everything one pass over the graph's nodes produced for a claim.
+struct ClaimWorkItemScan {
+    inflight: u32,
+    candidates: Vec<ClaimCandidateRow>,
+    // The redb range cursor immutably borrows the table, so expired
+    // exhausted rows are collected here and written only after the
+    // scan. They still commit in this same MutationBatch transaction.
+    exhausted: Vec<(String, serde_json::Map<String, serde_json::Value>)>,
+    changed_work_item_ids: Vec<String>,
+}
+
+/// Fence out an expired lease owner before the item participates in selection.
+/// Returns `true` when the attempt ceiling was reached and the item was retired
+/// to `dead_letter`; `false` when it was reclaimed back to `ready`.  Either way
+/// the update is still private to the held transaction.
+fn claim_reclaim_expired_lease(
+    props: &mut serde_json::Map<String, serde_json::Value>,
+    node_id: &str,
+    status: &str,
+    now_s: f64,
+) -> bool {
+    let attempts = property_u64(props, "attempt");
+    let max_attempts = property_u64(props, "max_attempts").max(1);
+    let next_epoch = property_u64(props, "lease_epoch").saturating_add(1);
+    if attempts >= max_attempts {
+        props.insert(
+            "status".into(),
+            serde_json::Value::String("dead_letter".into()),
+        );
+        props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
+        props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
+        props.insert("lease_owner".into(), serde_json::Value::Null);
+        props.insert("lease_expires_at".into(), serde_json::Value::Null);
+        props.insert("completed_at".into(), serde_json::Value::from(now_s));
+        props.insert("updated_at".into(), serde_json::Value::from(now_s));
+        props.insert(
+            "error_ref".into(),
+            serde_json::Value::String("lease_exhausted".into()),
+        );
+        #[cfg(feature = "statechart")]
+        apply_work_item_mirror(
+            props,
+            node_id,
+            status,
+            crate::work_item_statechart::EV_LEASE_EXHAUSTED,
+            serde_json::json!({}),
+            Some("dead_letter"),
+        );
+        return true;
+    }
+    props.insert("status".into(), serde_json::Value::String("ready".into()));
+    props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
+    props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
+    props.insert("lease_owner".into(), serde_json::Value::Null);
+    props.insert("lease_expires_at".into(), serde_json::Value::Null);
+    #[cfg(feature = "statechart")]
+    apply_work_item_mirror(
+        props,
+        node_id,
+        status,
+        crate::work_item_statechart::EV_LEASE_RECLAIM,
+        serde_json::json!({}),
+        Some("ready"),
+    );
+    false
+}
+
+/// The selection filter, in its original order: the item must be `ready`, match
+/// every supplied queue/class/fairness selector, be past its retry backoff, and
+/// not have blown its deadline.
+fn claim_candidate_is_excluded(
+    props: &serde_json::Map<String, serde_json::Value>,
+    request: &crate::epistemic_operations::ClaimWorkItemRequest,
+    now_s: f64,
+) -> bool {
+    property_string(props, "status") != "ready"
+        || request
+            .queue_ref
+            .as_deref()
+            .is_some_and(|queue| property_string(props, "queue") != queue)
+        || request
+            .resource_class
+            .as_deref()
+            .is_some_and(|resource_class| {
+                property_string(props, "resource_class") != resource_class
+            })
+        || request
+            .fairness_group
+            .as_deref()
+            .is_some_and(|fairness_group| {
+                property_string(props, "fairness_group") != fairness_group
+            })
+        || property_f64(props, "next_retry_at") > now_s
+        || props
+            .get("deadline_unix")
+            .and_then(serde_json::Value::as_f64)
+            .is_some_and(|deadline| deadline < now_s)
+}
+
+/// The sort-key deadline of a selectable candidate: an absent (or already
+/// filtered-out) deadline sorts last.
+fn claim_candidate_deadline(props: &serde_json::Map<String, serde_json::Value>, now_s: f64) -> u64 {
+    props
+        .get("deadline_unix")
+        .and_then(serde_json::Value::as_f64)
+        .filter(|deadline| *deadline >= now_s)
+        .map(|deadline| (deadline * 1000.0) as u64)
+        .unwrap_or(u64::MAX)
+}
+
+/// Classify one scanned node for a claim request.  The checks run in the
+/// original order, which matters: admission is tenant-wide even for an exact-id
+/// delivery, so live leases contribute to the quota before the exact-id filter,
+/// and that filter runs before an expired unrelated row could be reclaimed.
+fn classify_claim_row(
+    request: &crate::epistemic_operations::ClaimWorkItemRequest,
+    node_id: &str,
+    mut props: serde_json::Map<String, serde_json::Value>,
+    now_s: f64,
+) -> ClaimRowOutcome {
+    if property_string(&props, "node_type") != "WorkItem" {
+        return ClaimRowOutcome::Skip;
+    }
+    if property_string(&props, "tenant") != request.tenant_ref.as_str() {
+        return ClaimRowOutcome::Skip;
+    }
+    let status = property_string(&props, "status").to_string();
+    if matches!(status.as_str(), "leased" | "running")
+        && property_f64(&props, "lease_expires_at") > now_s
+    {
+        return ClaimRowOutcome::InFlight;
+    }
+    if request
+        .work_item_id
+        .as_deref()
+        .is_some_and(|selected| selected != node_id)
+    {
+        return ClaimRowOutcome::Skip;
+    }
+    if matches!(status.as_str(), "leased" | "running")
+        && claim_reclaim_expired_lease(&mut props, node_id, &status, now_s)
+    {
+        return ClaimRowOutcome::Exhausted(props);
+    }
+    if claim_candidate_is_excluded(&props, request, now_s) {
+        return ClaimRowOutcome::Skip;
+    }
+    let deadline = claim_candidate_deadline(&props, now_s);
+    ClaimRowOutcome::Candidate((
+        property_u64(&props, "prio_bucket"),
+        deadline,
+        (property_f64(&props, "created_at") * 1000.0) as u64,
+        node_id.to_string(),
+        props,
+    ))
+}
+
+/// One bounded pass over this graph's node rows, tallying the tenant's in-flight
+/// leases, the expired rows to retire, and the claimable candidates.
+fn scan_claim_work_item_candidates(
+    graph: &str,
+    request: &crate::epistemic_operations::ClaimWorkItemRequest,
+    now_s: f64,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<ClaimWorkItemScan, String> {
+    let mut scan = ClaimWorkItemScan {
+        inflight: 0,
+        candidates: Vec::new(),
+        exhausted: Vec::new(),
+        changed_work_item_ids: Vec::new(),
+    };
+    for row in nodes.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        let (row_graph, node_id) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        let bytes = crypto.unseal(value.value())?;
+        let Ok(props) = decode_durable::<serde_json::Map<String, serde_json::Value>>(&bytes) else {
+            continue;
+        };
+        match classify_claim_row(request, node_id, props, now_s) {
+            ClaimRowOutcome::Skip => {}
+            ClaimRowOutcome::InFlight => scan.inflight = scan.inflight.saturating_add(1),
+            ClaimRowOutcome::Exhausted(props) => {
+                let node_id = node_id.to_string();
+                scan.changed_work_item_ids.push(node_id.clone());
+                scan.exhausted.push((node_id, props));
+            }
+            ClaimRowOutcome::Candidate(candidate) => scan.candidates.push(candidate),
+        }
+    }
+    Ok(scan)
+}
+
+/// The `claimed: false` result shape, shared by the tenant-quota and empty-queue
+/// refusals.
+fn claim_not_claimed_payload(
+    reason: ClaimWorkItemResultReason,
+    inflight: u32,
+    changed_work_item_ids: Vec<String>,
+) -> crate::protocol::ResultPayload {
+    crate::protocol::ResultPayload::raw(&ClaimWorkItemResult {
+        schema_version: ClaimWorkItemResultSchemaVersion::V1,
+        claimed: false,
+        reason,
+        work_item_id: None,
+        kind: None,
+        payload_ref: None,
+        lease_holder_ref: None,
+        lease_epoch: None,
+        fencing_token: None,
+        lease_expires_at_ms: None,
+        attempt: None,
+        max_attempts: None,
+        tenant_in_flight: Some(u64::from(inflight)),
+        changed_work_item_ids,
+    })
+}
+
+/// Stamp the granted lease onto the selected candidate and report its
+/// `(lease_epoch, attempt)`.
+///
+/// The native claim authority owns the per-attempt WorkItem fence.  Ready
+/// submissions cannot supply one through generic graph writes; deriving it from
+/// the authoritative lease epoch keeps the Raft transition deterministic while
+/// ensuring every capability-bound live lease has a non-empty fence that changes
+/// on reclaim.
+fn claim_grant_lease(
+    props: &mut serde_json::Map<String, serde_json::Value>,
+    worker_id: &str,
+    now_s: f64,
+    lease_until_s: f64,
+) -> (u64, u64) {
+    let epoch = property_u64(props, "lease_epoch").saturating_add(1);
+    let attempt = property_u64(props, "attempt").saturating_add(1);
+    props.insert("status".into(), serde_json::Value::String("leased".into()));
+    props.insert(
+        "lease_owner".into(),
+        serde_json::Value::String(worker_id.to_string()),
+    );
+    props.insert(
+        "last_lease_owner".into(),
+        serde_json::Value::String(worker_id.to_string()),
+    );
+    props.insert("lease_epoch".into(), serde_json::Value::from(epoch));
+    props.insert("fencing_token".into(), serde_json::Value::from(epoch));
+    props.insert(
+        "lease_expires_at".into(),
+        serde_json::Value::from(lease_until_s),
+    );
+    props.insert(
+        "work_item_fence".into(),
+        serde_json::Value::String(format!("lease-fence-v1:{epoch}")),
+    );
+    props.insert("heartbeat_at".into(), serde_json::Value::from(now_s));
+    props.insert("updated_at".into(), serde_json::Value::from(now_s));
+    props.insert("attempt".into(), serde_json::Value::from(attempt));
+    (epoch, attempt)
+}
+
 fn apply_claim_work_item_row(
     graph: &str,
     request: &crate::epistemic_operations::ClaimWorkItemRequest,
@@ -9096,9 +9380,6 @@ fn apply_claim_work_item_row(
     native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
-    let decode = |bytes: &[u8]| -> Result<serde_json::Map<String, serde_json::Value>, String> {
-        decode_durable(bytes)
-    };
     let tenant = &request.tenant_ref;
     let worker_id = &request.worker_ref;
     let now_ms = request.now_ms;
@@ -9114,219 +9395,33 @@ fn apply_claim_work_item_row(
     let now_s = now_ms as f64 / 1000.0;
     let lease_until_s = now_s + (lease_ms as f64 / 1000.0);
     let tenant_in_flight_limit = max_tenant_in_flight as u32;
-    let mut inflight = 0u32;
-    let mut candidates = Vec::<(
-        u64,
-        u64,
-        u64,
-        String,
-        serde_json::Map<String, serde_json::Value>,
-    )>::new();
-    // The redb range cursor immutably borrows the table, so expired
-    // exhausted rows are collected here and written only after the
-    // scan. They still commit in this same MutationBatch transaction.
-    let mut exhausted = Vec::<(String, serde_json::Map<String, serde_json::Value>)>::new();
-    let mut changed_work_item_ids = Vec::<String>::new();
-    for row in nodes.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (key, value) = row.map_err(|e| e.to_string())?;
-        let (row_graph, node_id) = key.value();
-        if row_graph != graph {
-            break;
-        }
-        let bytes = crypto.unseal(value.value())?;
-        let Ok(mut props) = decode(&bytes) else {
-            continue;
-        };
-        if property_string(&props, "node_type") != "WorkItem" {
-            continue;
-        }
-        if property_string(&props, "tenant") != tenant {
-            continue;
-        }
-        let status = property_string(&props, "status").to_string();
-        if matches!(status.as_str(), "leased" | "running")
-            && property_f64(&props, "lease_expires_at") > now_s
-        {
-            inflight = inflight.saturating_add(1);
-            continue;
-        }
-        // Admission is tenant-wide even for an exact-id delivery.
-        // Filter only after live leases have contributed to the quota,
-        // but before an expired unrelated row can be reclaimed.
-        if request
-            .work_item_id
-            .as_deref()
-            .is_some_and(|selected| selected != node_id)
-        {
-            continue;
-        }
-        // Expired owners are fenced out before the item participates in
-        // selection. This update is still private to the held transaction.
-        if matches!(status.as_str(), "leased" | "running") {
-            let attempts = property_u64(&props, "attempt");
-            let max_attempts = property_u64(&props, "max_attempts").max(1);
-            let next_epoch = property_u64(&props, "lease_epoch").saturating_add(1);
-            if attempts >= max_attempts {
-                props.insert(
-                    "status".into(),
-                    serde_json::Value::String("dead_letter".into()),
-                );
-                props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
-                props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
-                props.insert("lease_owner".into(), serde_json::Value::Null);
-                props.insert("lease_expires_at".into(), serde_json::Value::Null);
-                props.insert("completed_at".into(), serde_json::Value::from(now_s));
-                props.insert("updated_at".into(), serde_json::Value::from(now_s));
-                props.insert(
-                    "error_ref".into(),
-                    serde_json::Value::String("lease_exhausted".into()),
-                );
-                #[cfg(feature = "statechart")]
-                apply_work_item_mirror(
-                    &mut props,
-                    node_id,
-                    &status,
-                    crate::work_item_statechart::EV_LEASE_EXHAUSTED,
-                    serde_json::json!({}),
-                    Some("dead_letter"),
-                );
-                let node_id = node_id.to_string();
-                changed_work_item_ids.push(node_id.clone());
-                exhausted.push((node_id, props));
-                continue;
-            }
-            props.insert("status".into(), serde_json::Value::String("ready".into()));
-            props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
-            props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
-            props.insert("lease_owner".into(), serde_json::Value::Null);
-            props.insert("lease_expires_at".into(), serde_json::Value::Null);
-            #[cfg(feature = "statechart")]
-            apply_work_item_mirror(
-                &mut props,
-                node_id,
-                &status,
-                crate::work_item_statechart::EV_LEASE_RECLAIM,
-                serde_json::json!({}),
-                Some("ready"),
-            );
-        }
-        if property_string(&props, "status") != "ready"
-            || request
-                .queue_ref
-                .as_deref()
-                .is_some_and(|queue| property_string(&props, "queue") != queue)
-            || request
-                .resource_class
-                .as_deref()
-                .is_some_and(|resource_class| {
-                    property_string(&props, "resource_class") != resource_class
-                })
-            || request
-                .fairness_group
-                .as_deref()
-                .is_some_and(|fairness_group| {
-                    property_string(&props, "fairness_group") != fairness_group
-                })
-            || property_f64(&props, "next_retry_at") > now_s
-        {
-            continue;
-        }
-        let deadline = props
-            .get("deadline_unix")
-            .and_then(serde_json::Value::as_f64)
-            .filter(|deadline| *deadline >= now_s)
-            .map(|deadline| (deadline * 1000.0) as u64)
-            .unwrap_or(u64::MAX);
-        if props
-            .get("deadline_unix")
-            .and_then(serde_json::Value::as_f64)
-            .is_some_and(|deadline| deadline < now_s)
-        {
-            continue;
-        }
-        candidates.push((
-            property_u64(&props, "prio_bucket"),
-            deadline,
-            (property_f64(&props, "created_at") * 1000.0) as u64,
-            node_id.to_string(),
-            props,
-        ));
-    }
+    let ClaimWorkItemScan {
+        inflight,
+        mut candidates,
+        exhausted,
+        mut changed_work_item_ids,
+    } = scan_claim_work_item_candidates(graph, request, now_s, nodes, crypto)?;
     for (node_id, props) in exhausted {
         write_work_item_props(nodes, graph, &node_id, &props, crypto)?;
     }
     if inflight >= tenant_in_flight_limit {
-        return Ok(Some(crate::protocol::ResultPayload::raw(
-            &ClaimWorkItemResult {
-                schema_version: ClaimWorkItemResultSchemaVersion::V1,
-                claimed: false,
-                reason: ClaimWorkItemResultReason::TenantQuota,
-                work_item_id: None,
-                kind: None,
-                payload_ref: None,
-                lease_holder_ref: None,
-                lease_epoch: None,
-                fencing_token: None,
-                lease_expires_at_ms: None,
-                attempt: None,
-                max_attempts: None,
-                tenant_in_flight: Some(u64::from(inflight)),
-                changed_work_item_ids,
-            },
+        return Ok(Some(claim_not_claimed_payload(
+            ClaimWorkItemResultReason::TenantQuota,
+            inflight,
+            changed_work_item_ids,
         )));
     }
     candidates.sort_by(|left, right| {
         (&left.0, &left.1, &left.2, &left.3).cmp(&(&right.0, &right.1, &right.2, &right.3))
     });
     let Some((_, _, _, node_id, mut props)) = candidates.into_iter().next() else {
-        return Ok(Some(crate::protocol::ResultPayload::raw(
-            &ClaimWorkItemResult {
-                schema_version: ClaimWorkItemResultSchemaVersion::V1,
-                claimed: false,
-                reason: ClaimWorkItemResultReason::Empty,
-                work_item_id: None,
-                kind: None,
-                payload_ref: None,
-                lease_holder_ref: None,
-                lease_epoch: None,
-                fencing_token: None,
-                lease_expires_at_ms: None,
-                attempt: None,
-                max_attempts: None,
-                tenant_in_flight: Some(u64::from(inflight)),
-                changed_work_item_ids,
-            },
+        return Ok(Some(claim_not_claimed_payload(
+            ClaimWorkItemResultReason::Empty,
+            inflight,
+            changed_work_item_ids,
         )));
     };
-    let epoch = property_u64(&props, "lease_epoch").saturating_add(1);
-    let attempt = property_u64(&props, "attempt").saturating_add(1);
-    props.insert("status".into(), serde_json::Value::String("leased".into()));
-    props.insert(
-        "lease_owner".into(),
-        serde_json::Value::String(worker_id.clone()),
-    );
-    props.insert(
-        "last_lease_owner".into(),
-        serde_json::Value::String(worker_id.clone()),
-    );
-    props.insert("lease_epoch".into(), serde_json::Value::from(epoch));
-    props.insert("fencing_token".into(), serde_json::Value::from(epoch));
-    props.insert(
-        "lease_expires_at".into(),
-        serde_json::Value::from(lease_until_s),
-    );
-    // The native claim authority owns the per-attempt WorkItem fence.
-    // Ready submissions cannot supply one through generic graph writes;
-    // deriving it from the authoritative lease epoch keeps the Raft
-    // transition deterministic while ensuring every capability-bound
-    // live lease has a non-empty fence that changes on reclaim.
-    props.insert(
-        "work_item_fence".into(),
-        serde_json::Value::String(format!("lease-fence-v1:{epoch}")),
-    );
-    props.insert("heartbeat_at".into(), serde_json::Value::from(now_s));
-    props.insert("updated_at".into(), serde_json::Value::from(now_s));
-    props.insert("attempt".into(), serde_json::Value::from(attempt));
+    let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s);
     let kind = property_string(&props, "kind").to_string();
     let payload_ref = property_string(&props, "payload_ref").to_string();
     let max_attempts = property_u64(&props, "max_attempts").max(1);
