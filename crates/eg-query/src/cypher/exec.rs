@@ -2201,115 +2201,132 @@ fn is_agg(e: &Expr) -> bool {
     matches!(e, Expr::CountStar | Expr::Aggregate(..))
 }
 
+/// [`eval_scalar`]'s `Expr::Var(v)` arm: a path var (from a `p = (...)` binding), a
+/// quantified-group node/edge var (projects as an array), a plain UNWIND/CALL/YIELD
+/// scalar sidecar, a bound node id, or a bound edge — in that precedence order.
+fn eval_scalar_var(view: &GraphView, binding: &Binding, v: &str) -> Value {
+    if let Some(p) = binding.get(&path_key(v)) {
+        serde_json::from_str(p).unwrap_or(Value::Null)
+    } else if binding.contains_key(&qpp_node_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_node_key(v))
+                .into_iter()
+                .map(|id| materialize_node(view, &id))
+                .collect(),
+        )
+    } else if binding.contains_key(&qpp_edge_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_edge_key(v))
+                .into_iter()
+                .map(|edge| edge_value(view, &edge))
+                .collect(),
+        )
+    } else if let Some(s) = binding.get(&val_key(v)) {
+        // A scalar bound by UNWIND/CALL/YIELD (CONCEPT:EG-KG.query.param-list-drives-unwind/142).
+        serde_json::from_str(s).unwrap_or(Value::Null)
+    } else if let Some(id) = binding.get(v) {
+        materialize_node(view, id)
+    } else if let Some(edge) = binding.get(&edge_key(v)) {
+        edge_value(view, edge)
+    } else {
+        Value::Null
+    }
+}
+
+/// [`eval_scalar`]'s `Expr::Prop(v, p)` arm: a quantified-group node/edge var
+/// projects the property across every group element (an array); otherwise a
+/// bound node's property, falling back to a bound edge's.
+fn eval_scalar_prop(view: &GraphView, binding: &Binding, v: &str, p: &str) -> Value {
+    if binding.contains_key(&qpp_node_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_node_key(v))
+                .into_iter()
+                .map(|id| node_prop(view, &id, p).unwrap_or(Value::Null))
+                .collect(),
+        )
+    } else if binding.contains_key(&qpp_edge_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_edge_key(v))
+                .into_iter()
+                .map(|edge| edge_prop_value(view, &edge, p).unwrap_or(Value::Null))
+                .collect(),
+        )
+    } else {
+        binding
+            .get(v)
+            .and_then(|id| node_prop(view, id, p))
+            .or_else(|| {
+                binding
+                    .get(&edge_key(v))
+                    .and_then(|edge| edge_prop_value(view, edge, p))
+            })
+            .unwrap_or(Value::Null)
+    }
+}
+
+/// [`eval_scalar`]'s `Expr::RelType(v)` arm: `type(r)`, projected across a
+/// quantified-group edge var as an array, else the single bound edge's type.
+fn eval_scalar_rel_type(view: &GraphView, binding: &Binding, v: &str) -> Value {
+    if binding.contains_key(&qpp_edge_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_edge_key(v))
+                .into_iter()
+                .map(|edge| {
+                    edge.split_once('\u{0}')
+                        .and_then(|(from, to)| edge_rel_type(view, from, to))
+                        .map(Value::String)
+                        .unwrap_or(Value::Null)
+                })
+                .collect(),
+        )
+    } else {
+        binding
+            .get(&edge_key(v))
+            .and_then(|edge| edge.split_once('\u{0}'))
+            .and_then(|(from, to)| edge_rel_type(view, from, to))
+            .map(Value::String)
+            .unwrap_or(Value::Null)
+    }
+}
+
+/// [`eval_scalar`]'s `Expr::Labels(v)` arm: `labels(n)`, projected across a
+/// quantified-group node var as an array of arrays, else the single bound node's
+/// labels. `v` unbound to any node (e.g. a scalar/edge variable) is null — not an
+/// empty list — since `labels()` only ever applies to nodes.
+fn eval_scalar_labels(view: &GraphView, binding: &Binding, v: &str) -> Value {
+    if binding.contains_key(&qpp_node_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_node_key(v))
+                .into_iter()
+                .map(|id| {
+                    Value::Array(
+                        node_labels(view, &id)
+                            .into_iter()
+                            .map(Value::String)
+                            .collect(),
+                    )
+                })
+                .collect(),
+        )
+    } else if let Some(id) = binding.get(v) {
+        Value::Array(
+            node_labels(view, id)
+                .into_iter()
+                .map(Value::String)
+                .collect(),
+        )
+    } else {
+        Value::Null
+    }
+}
+
 /// Evaluate a non-aggregate projection expression for one binding.
 fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
     match expr {
-        Expr::Var(v) => {
-            if let Some(p) = binding.get(&path_key(v)) {
-                serde_json::from_str(p).unwrap_or(Value::Null)
-            } else if binding.contains_key(&qpp_node_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_node_key(v))
-                        .into_iter()
-                        .map(|id| materialize_node(view, &id))
-                        .collect(),
-                )
-            } else if binding.contains_key(&qpp_edge_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_edge_key(v))
-                        .into_iter()
-                        .map(|edge| edge_value(view, &edge))
-                        .collect(),
-                )
-            } else if let Some(s) = binding.get(&val_key(v)) {
-                // A scalar bound by UNWIND/CALL/YIELD (CONCEPT:EG-KG.query.param-list-drives-unwind/142).
-                serde_json::from_str(s).unwrap_or(Value::Null)
-            } else if let Some(id) = binding.get(v) {
-                materialize_node(view, id)
-            } else if let Some(edge) = binding.get(&edge_key(v)) {
-                edge_value(view, edge)
-            } else {
-                Value::Null
-            }
-        }
-        Expr::Prop(v, p) => {
-            if binding.contains_key(&qpp_node_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_node_key(v))
-                        .into_iter()
-                        .map(|id| node_prop(view, &id, p).unwrap_or(Value::Null))
-                        .collect(),
-                )
-            } else if binding.contains_key(&qpp_edge_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_edge_key(v))
-                        .into_iter()
-                        .map(|edge| edge_prop_value(view, &edge, p).unwrap_or(Value::Null))
-                        .collect(),
-                )
-            } else {
-                binding
-                    .get(v)
-                    .and_then(|id| node_prop(view, id, p))
-                    .or_else(|| {
-                        binding
-                            .get(&edge_key(v))
-                            .and_then(|edge| edge_prop_value(view, edge, p))
-                    })
-                    .unwrap_or(Value::Null)
-            }
-        }
-        Expr::RelType(v) => {
-            if binding.contains_key(&qpp_edge_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_edge_key(v))
-                        .into_iter()
-                        .map(|edge| {
-                            edge.split_once('\u{0}')
-                                .and_then(|(from, to)| edge_rel_type(view, from, to))
-                                .map(Value::String)
-                                .unwrap_or(Value::Null)
-                        })
-                        .collect(),
-                )
-            } else {
-                binding
-                    .get(&edge_key(v))
-                    .and_then(|edge| edge.split_once('\u{0}'))
-                    .and_then(|(from, to)| edge_rel_type(view, from, to))
-                    .map(Value::String)
-                    .unwrap_or(Value::Null)
-            }
-        }
-        Expr::Labels(v) => {
-            if binding.contains_key(&qpp_node_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_node_key(v))
-                        .into_iter()
-                        .map(|id| {
-                            Value::Array(
-                                node_labels(view, &id)
-                                    .into_iter()
-                                    .map(Value::String)
-                                    .collect(),
-                            )
-                        })
-                        .collect(),
-                )
-            } else if let Some(id) = binding.get(v) {
-                Value::Array(
-                    node_labels(view, id)
-                        .into_iter()
-                        .map(Value::String)
-                        .collect(),
-                )
-            } else {
-                // `v` isn't bound to a node at all (e.g. a scalar/edge variable) —
-                // `labels()` only ever applies to nodes, so this is null rather than
-                // an empty list (distinct from "bound node, no label").
-                Value::Null
-            }
-        }
+        Expr::Var(v) => eval_scalar_var(view, binding, v),
+        Expr::Prop(v, p) => eval_scalar_prop(view, binding, v, p),
+        Expr::RelType(v) => eval_scalar_rel_type(view, binding, v),
+        Expr::Labels(v) => eval_scalar_labels(view, binding, v),
         // Aggregates never reach here (the agg path owns them).
         Expr::CountStar | Expr::Aggregate(..) => Value::Null,
     }
