@@ -3322,6 +3322,68 @@ fn create_quantified_group(
     Ok(current)
 }
 
+/// [`apply_existing_node_spec`]'s label-merge step: a missing `node_type` is set
+/// from `label`; an existing one must agree, else this is a conflict error.
+/// Returns whether `obj` changed.
+fn merge_existing_node_label(
+    obj: &mut serde_json::Map<String, Value>,
+    label: &Option<String>,
+) -> Result<bool, String> {
+    let Some(label) = label else {
+        return Ok(false);
+    };
+    match obj.get("node_type").and_then(Value::as_str) {
+        Some(existing) if existing != label => Err(format!(
+            "CREATE QPP boundary label `{label}` conflicts with `{existing}`"
+        )),
+        Some(_) => Ok(false),
+        None if obj.contains_key("node_type") => Err(
+            "CREATE QPP boundary node_type must be a string when a label is present".to_string(),
+        ),
+        None => {
+            obj.insert("node_type".to_string(), Value::String(label.clone()));
+            Ok(true)
+        }
+    }
+}
+
+/// [`apply_existing_node_spec`]'s inline-prop merge step: `id` is checked against
+/// `node`'s inline `id` constraint (not written — it's already the resolved
+/// identity), every other prop missing on `obj` is set, and one already present
+/// must agree, else this is a conflict error. Returns whether `obj` changed.
+fn merge_existing_node_props(
+    obj: &mut serde_json::Map<String, Value>,
+    node: &NodePat,
+    id: &str,
+    binding: &Binding,
+    params: &Params,
+) -> Result<bool, String> {
+    let mut changed = false;
+    for (key, wanted) in props_to_map(node.props.as_deref(), binding, params)? {
+        if key == "id" {
+            if wanted.as_str() != Some(id) {
+                return Err(format!(
+                    "CREATE QPP boundary id constraint does not match `{id}`"
+                ));
+            }
+            continue;
+        }
+        match obj.get(&key) {
+            Some(existing) if existing != &wanted => {
+                return Err(format!(
+                    "CREATE QPP boundary property `{key}` conflicts with its existing value"
+                ));
+            }
+            Some(_) => {}
+            None => {
+                obj.insert(key, wanted);
+                changed = true;
+            }
+        }
+    }
+    Ok(changed)
+}
+
 /// Apply a node pattern to an existing QPP boundary node. Missing label/property
 /// constraints are added; conflicting constraints fail instead of silently
 /// overwriting an already-created node.
@@ -3350,51 +3412,11 @@ fn apply_existing_node_spec(
     let obj = value
         .as_object_mut()
         .ok_or_else(|| format!("CREATE QPP boundary node `{id}` has non-object properties"))?;
-    let mut changed = false;
 
-    if let Some(label) = &node.label {
-        match obj.get("node_type").and_then(Value::as_str) {
-            Some(existing) if existing != label => {
-                return Err(format!(
-                    "CREATE QPP boundary label `{label}` conflicts with `{existing}`"
-                ));
-            }
-            Some(_) => {}
-            None if obj.contains_key("node_type") => {
-                return Err(
-                    "CREATE QPP boundary node_type must be a string when a label is present"
-                        .to_string(),
-                );
-            }
-            None => {
-                obj.insert("node_type".to_string(), Value::String(label.clone()));
-                changed = true;
-            }
-        }
-    }
-    for (key, wanted) in props_to_map(node.props.as_deref(), binding, params)? {
-        if key == "id" {
-            if wanted.as_str() != Some(id) {
-                return Err(format!(
-                    "CREATE QPP boundary id constraint does not match `{id}`"
-                ));
-            }
-            continue;
-        }
-        match obj.get(&key) {
-            Some(existing) if existing != &wanted => {
-                return Err(format!(
-                    "CREATE QPP boundary property `{key}` conflicts with its existing value"
-                ));
-            }
-            Some(_) => {}
-            None => {
-                obj.insert(key, wanted);
-                changed = true;
-            }
-        }
-    }
-    if changed {
+    let label_changed = merge_existing_node_label(obj, &node.label)?;
+    let props_changed = merge_existing_node_props(obj, node, id, binding, params)?;
+
+    if label_changed || props_changed {
         let encoded =
             rmp_serde::to_vec_named(&value).map_err(|e| format!("encode node `{id}`: {e}"))?;
         core.add_node(id.to_string(), encoded);
