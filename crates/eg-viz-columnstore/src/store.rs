@@ -114,7 +114,32 @@ impl ColumnStore {
             return Err(ColumnStoreError::NoColumns);
         }
         let row_count = columns[0].data.len() as u64;
-        for input in &columns {
+        Self::validate_ingest_columns(&columns, row_count)?;
+
+        let mut built_columns = Vec::with_capacity(columns.len());
+        for input in columns {
+            let column = self.build_column(input)?;
+            built_columns.push(column);
+        }
+
+        self.datasets.insert(
+            dataset_ref.to_string(),
+            Dataset {
+                dataset_ref: dataset_ref.to_string(),
+                row_count,
+                columns: built_columns,
+            },
+        );
+        Ok(dataset_ref.to_string())
+    }
+
+    /// Every column: matches `row_count`, its data matches its declared logical type, and
+    /// (when not `nullable`) carries no null slots.
+    fn validate_ingest_columns(
+        columns: &[ColumnInput],
+        row_count: u64,
+    ) -> Result<(), ColumnStoreError> {
+        for input in columns {
             if input.data.len() as u64 != row_count {
                 return Err(ColumnStoreError::RowCountMismatch {
                     column: input.name.clone(),
@@ -138,22 +163,7 @@ impl ColumnStore {
                 }
             }
         }
-
-        let mut built_columns = Vec::with_capacity(columns.len());
-        for input in columns {
-            let column = self.build_column(input)?;
-            built_columns.push(column);
-        }
-
-        self.datasets.insert(
-            dataset_ref.to_string(),
-            Dataset {
-                dataset_ref: dataset_ref.to_string(),
-                row_count,
-                columns: built_columns,
-            },
-        );
-        Ok(dataset_ref.to_string())
+        Ok(())
     }
 
     fn build_column(&mut self, input: ColumnInput) -> Result<Column, ColumnStoreError> {
