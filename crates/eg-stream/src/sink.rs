@@ -302,7 +302,14 @@ fn client_config_from(config: &KafkaConfig) -> ClientConfig {
 #[allow(clippy::type_complexity)]
 fn spawn_delivery_tracked_producer(
     client_config: ClientConfig,
-) -> Result<(Arc<BaseProducer<DeliveryTracker>>, Arc<AtomicU64>, Arc<AtomicU64>), SinkError> {
+) -> Result<
+    (
+        Arc<BaseProducer<DeliveryTracker>>,
+        Arc<AtomicU64>,
+        Arc<AtomicU64>,
+    ),
+    SinkError,
+> {
     let delivered = Arc::new(AtomicU64::new(0));
     let delivery_failed = Arc::new(AtomicU64::new(0));
     let context = DeliveryTracker {
@@ -692,6 +699,10 @@ mod tests {
             ..Default::default()
         };
         let producer = RawKafkaProducer::new(&config).expect("construction never blocks");
-        let _ = producer.publish("openlineage.events", b"run-id-key", b"{\"eventType\":\"COMPLETE\"}");
+        let _ = producer.publish(
+            "openlineage.events",
+            b"run-id-key",
+            b"{\"eventType\":\"COMPLETE\"}",
+        );
     }
 }

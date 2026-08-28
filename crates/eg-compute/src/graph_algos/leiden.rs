@@ -462,7 +462,10 @@ mod hierarchy_tests {
         let mut seen = std::collections::BTreeSet::new();
         for c in &hierarchy.levels[0].communities {
             for m in c {
-                assert!(seen.insert(m.clone()), "node {m:?} appears twice at level 1");
+                assert!(
+                    seen.insert(m.clone()),
+                    "node {m:?} appears twice at level 1"
+                );
             }
         }
         assert_eq!(seen, leaf_nodes.iter().cloned().collect());
@@ -553,10 +556,8 @@ mod hierarchy_tests {
     fn hierarchy_no_edges_has_no_levels_above_leaves() {
         // Isolated nodes: `m2 <= 0.0` short-circuits `leiden_hierarchy_raw` to
         // no levels — callers treat the graph's own nodes as the implicit leaves.
-        let g: AdjacencyGraph<&str> = AdjacencyGraph::from_adjacency([
-            ("a", Vec::<(&str, f64)>::new()),
-            ("b", Vec::new()),
-        ]);
+        let g: AdjacencyGraph<&str> =
+            AdjacencyGraph::from_adjacency([("a", Vec::<(&str, f64)>::new()), ("b", Vec::new())]);
         let h = leiden_hierarchy(&g, &LeidenConfig::default());
         assert!(h.levels.is_empty());
     }
