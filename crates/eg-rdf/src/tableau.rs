@@ -832,11 +832,13 @@ impl Completion {
     /// identification, `⊓`, `∀` + transitive folding); return whether anything changed.
     /// These have priority OVER the generating rules ([`step_generating`]), so a node's
     /// label is stable before it is used to block or to spawn successors.
-    fn step_nongenerating(&mut self) -> bool {
+    /// Phase (0a) of `step_nongenerating`: union nodes that already share the
+    /// SAME nominal (from a prior merge). Split out (extract-method,
+    /// cx/wD8) — same terms, same order as before. Returns the
+    /// nominal->representative map built along the way (fed into phase
+    /// (0b)) and whether anything changed.
+    fn merge_nodes_sharing_a_nominal(&mut self) -> (HashMap<String, usize>, bool) {
         let mut changed = false;
-
-        // (0) Nominal identification: nodes sharing a nominal are one; a `{a}` concept
-        // identifies its node with the individual `a`.
         let mut nom_rep: HashMap<String, usize> = HashMap::new();
         for i in self.reps() {
             for a in self.nodes[i].nominal.clone() {
@@ -854,6 +856,14 @@ impl Completion {
                 }
             }
         }
+        (nom_rep, changed)
+    }
+
+    /// Phase (0b) of `step_nongenerating`: a `{a}` nominal CONCEPT identifies
+    /// its node with the individual `a`. Split out (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn identify_nominal_concepts(&mut self, mut nom_rep: HashMap<String, usize>) -> bool {
+        let mut changed = false;
         let nominal_concepts: Vec<(usize, String)> = self
             .reps()
             .into_iter()
@@ -886,8 +896,13 @@ impl Completion {
                 }
             }
         }
+        changed
+    }
 
-        // (1) ⊓-rule.
+    /// Phase (1) of `step_nongenerating`: the ⊓-rule. Split out
+    /// (extract-method, cx/wD8) — same terms, same order as before.
+    fn step_and_rule(&mut self) -> bool {
+        let mut changed = false;
         for i in self.reps() {
             let ands: Vec<Vec<Dl>> = self.nodes[i]
                 .label
@@ -905,8 +920,48 @@ impl Completion {
                 }
             }
         }
+        changed
+    }
 
-        // (2) ∀-rule (+ transitive-role folding).
+    /// Phase (2) of `step_nongenerating`: the ∀-rule (+ transitive-role
+    /// folding). Split out (extract-method, cx/wD8) — same terms, same
+    /// order as before.
+    /// Apply the ∀-rule for one `(role, filler)` pair over one `(e, t)` edge
+    /// (+ transitive-role folding). Split out of `apply_all_rule_to_edges`
+    /// (extract-method, cx/wD8) — same terms, same order as before.
+    fn apply_all_rule_to_edge(&mut self, role: &str, filler: &Dl, e: &str, t: usize) -> bool {
+        if !self.roles.is_super(role, e) {
+            return false;
+        }
+        let mut changed = self.nodes[t].label.insert(filler.clone());
+        // Transitive folding: ∀r.C over a transitive sub-role e ⇒ ∀e.C
+        // on the successor, so C reaches the whole e-chain.
+        if self.roles.transitive.contains(e) {
+            let prop = Dl::All(e.to_string(), Box::new(filler.clone()));
+            if self.nodes[t].label.insert(prop) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Apply the ∀-rule's known `(role, filler)` pairs across `edges`
+    /// (+ transitive-role folding). Split out of `step_all_rule`
+    /// (extract-method, cx/wD8) — same terms, same order as before.
+    fn apply_all_rule_to_edges(&mut self, alls: &[(String, Dl)], edges: &[(String, usize)]) -> bool {
+        let mut changed = false;
+        for (role, filler) in alls {
+            for (e, t) in edges {
+                if self.apply_all_rule_to_edge(role, filler, e, *t) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    fn step_all_rule(&mut self) -> bool {
+        let mut changed = false;
         for i in self.reps() {
             let alls: Vec<(String, Dl)> = self.nodes[i]
                 .label
@@ -925,26 +980,23 @@ impl Completion {
                 .filter(|(f, _, _)| self.find(*f) == i)
                 .map(|(_, e, t)| (e.clone(), self.find(*t)))
                 .collect();
-            for (role, filler) in &alls {
-                for (e, t) in &edges {
-                    if self.roles.is_super(role, e) {
-                        if self.nodes[*t].label.insert(filler.clone()) {
-                            changed = true;
-                        }
-                        // Transitive folding: ∀r.C over a transitive sub-role e ⇒ ∀e.C
-                        // on the successor, so C reaches the whole e-chain.
-                        if self.roles.transitive.contains(e) {
-                            let prop = Dl::All(e.clone(), Box::new(filler.clone()));
-                            if self.nodes[*t].label.insert(prop) {
-                                changed = true;
-                            }
-                        }
-                    }
-                }
+            if self.apply_all_rule_to_edges(&alls, &edges) {
+                changed = true;
             }
         }
-
         changed
+    }
+
+    fn step_nongenerating(&mut self) -> bool {
+        // (0) Nominal identification: nodes sharing a nominal are one; a `{a}` concept
+        // identifies its node with the individual `a`.
+        let (nom_rep, changed0) = self.merge_nodes_sharing_a_nominal();
+        let changed1 = self.identify_nominal_concepts(nom_rep);
+        // (1) ⊓-rule.
+        let changed2 = self.step_and_rule();
+        // (2) ∀-rule (+ transitive-role folding).
+        let changed3 = self.step_all_rule();
+        changed0 || changed1 || changed2 || changed3
     }
 
     /// Apply the deterministic GENERATING rules once (`∃`, `≥`) — lowest priority, and
