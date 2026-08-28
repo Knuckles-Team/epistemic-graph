@@ -5206,6 +5206,51 @@ fn apply_quota_update(
     ))
 }
 
+/// Replay one already-committed invocation, or report an input conflict when
+/// the same idempotency key arrives with different request bytes.  `None` means
+/// the mutation has not been seen and must be applied.
+fn replay_lane_invocation(
+    invocations: &redb::Table<(&str, &str, &str), &[u8]>,
+    graph: &str,
+    method: &Method,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<(Vec<u8>, bool)>, String> {
+    let Some((tenant, key)) = idempotency_key(method) else {
+        return Ok(None);
+    };
+    text(tenant, "lane invocation tenant")
+        .map_err(|decision| decision_name(decision).to_string())?;
+    text(key, "lane invocation key").map_err(|decision| decision_name(decision).to_string())?;
+    let Some((exact, result)) = load_invocation(invocations, graph, tenant, key, method, crypto)?
+    else {
+        return Ok(None);
+    };
+    if exact {
+        return Ok(Some((result, false)));
+    }
+    Ok(Some((empty_input_conflict(method)?, false)))
+}
+
+/// Persist this mutation's outcome under its idempotency key and report
+/// whether the transaction must commit.  Refusal results are also invocation
+/// outcomes: persisting them makes acknowledgement loss deterministic while a
+/// fresh idempotency key can retry after policy/capacity changes -- so a
+/// stored refusal still commits even though nothing else changed.
+fn record_lane_invocation(
+    invocations: &mut redb::Table<(&str, &str, &str), &[u8]>,
+    graph: &str,
+    method: &Method,
+    result: &[u8],
+    operation_changed: bool,
+    crypto: DurableCrypto<'_>,
+) -> Result<bool, String> {
+    let Some((tenant, key)) = idempotency_key(method) else {
+        return Ok(operation_changed);
+    };
+    store_invocation(invocations, graph, tenant, key, method, result, crypto)?;
+    Ok(true)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_mutation_in_wtx(
     wtx: &WriteTransaction,
@@ -5232,18 +5277,8 @@ fn apply_mutation_in_wtx(
         .map_err(|e| e.to_string())?;
     let nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
 
-    if let Some((tenant, key)) = idempotency_key(method) {
-        text(tenant, "lane invocation tenant")
-            .map_err(|decision| decision_name(decision).to_string())?;
-        text(key, "lane invocation key").map_err(|decision| decision_name(decision).to_string())?;
-        if let Some((exact, result)) =
-            load_invocation(&invocations, graph, tenant, key, method, crypto)?
-        {
-            if exact {
-                return Ok((result, false));
-            }
-            return Ok((empty_input_conflict(method)?, false));
-        }
+    if let Some(replayed) = replay_lane_invocation(&invocations, graph, method, crypto)? {
+        return Ok(replayed);
     }
 
     let (result, operation_changed) = match method {
@@ -5318,37 +5353,15 @@ fn apply_mutation_in_wtx(
         )?,
         _ => return Err("method is not a development-lane mutation".to_string()),
     };
-    if operation_changed {
-        if let Some((tenant, key)) = idempotency_key(method) {
-            store_invocation(
-                &mut invocations,
-                graph,
-                tenant,
-                key,
-                method,
-                &result,
-                crypto,
-            )?;
-        }
-        Ok((result, true))
-    } else {
-        // Refusal results are also invocation outcomes.  Persisting them makes
-        // acknowledgement loss deterministic while a fresh idempotency key can
-        // retry after policy/capacity changes.
-        if let Some((tenant, key)) = idempotency_key(method) {
-            store_invocation(
-                &mut invocations,
-                graph,
-                tenant,
-                key,
-                method,
-                &result,
-                crypto,
-            )?;
-            return Ok((result, true));
-        }
-        Ok((result, false))
-    }
+    let changed = record_lane_invocation(
+        &mut invocations,
+        graph,
+        method,
+        &result,
+        operation_changed,
+        crypto,
+    )?;
+    Ok((result, changed))
 }
 
 /// Commit one lane mutation atomically in redb and return its generated typed
@@ -5430,6 +5443,99 @@ pub(crate) fn read_development_lane(
     read_query_in_rtx(&rtx, graph, &request, crypto)
 }
 
+/// One bounded page of the tenant status scan.
+struct StatusPage {
+    rows: Vec<DevelopmentLaneHold>,
+    has_more: bool,
+    last: Option<String>,
+}
+
+/// Advance the bounded scan counter, failing closed on overflow or on
+/// exceeding the native scan bound.
+fn next_status_scan(scanned: usize) -> Result<usize, String> {
+    let scanned = scanned
+        .checked_add(1)
+        .ok_or_else(|| "development lane status scan overflow".to_string())?;
+    if scanned > MAX_STATUS_SCAN {
+        return Err("development lane status scan exceeds native bound".to_string());
+    }
+    Ok(scanned)
+}
+
+/// Does this hold fail any of the caller's optional exact filters?
+fn status_filters_reject(
+    request: &DevelopmentLaneStatusRequest,
+    hold: &DevelopmentLaneHold,
+) -> bool {
+    request
+        .hold_id
+        .as_deref()
+        .is_some_and(|filter| filter != hold.hold_id)
+        || request
+            .lane_id
+            .as_deref()
+            .is_some_and(|filter| filter != hold.lane_id)
+        || request
+            .work_item_id
+            .as_deref()
+            .is_some_and(|filter| filter != hold.work_item_id)
+}
+
+/// Walk the tenant keyset from `cursor` and project one bounded page of
+/// redacted holds.  The scan is bounded by `MAX_STATUS_SCAN` regardless of how
+/// many rows the filters reject.
+fn scan_status_page<H, I>(
+    graph: &str,
+    request: &DevelopmentLaneStatusRequest,
+    cursor: &str,
+    holds: &H,
+    tenant_index: &I,
+    crypto: DurableCrypto<'_>,
+) -> Result<StatusPage, String>
+where
+    H: ReadableTable<(&'static str, &'static str), &'static [u8]>,
+    I: ReadableTable<(&'static str, &'static str, &'static str), &'static str>,
+{
+    let mut page = StatusPage {
+        rows: Vec::new(),
+        has_more: false,
+        last: None,
+    };
+    let mut scanned = 0usize;
+    for row in tenant_index
+        .range((graph, request.tenant_ref.as_str(), cursor)..)
+        .map_err(|e| e.to_string())?
+    {
+        scanned = next_status_scan(scanned)?;
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        let (row_graph, tenant, hold_id) = key.value();
+        if row_graph != graph || tenant != request.tenant_ref {
+            break;
+        }
+        if hold_id == cursor || value.value() != hold_id {
+            continue;
+        }
+        let Some(row) = hold_load(holds, graph, hold_id, crypto)? else {
+            return Err("development lane status index points to a missing hold".to_string());
+        };
+        if status_filters_reject(request, &row.hold) {
+            continue;
+        }
+        page.rows.push(public_hold(&row.hold));
+        if page.rows.len() > request.limit as usize {
+            // Read one row beyond the requested page before declaring a next
+            // page.  Exactly `limit` rows therefore produce a complete page;
+            // the extra row is only a bounded existence probe.
+            page.rows.pop();
+            page.last = page.rows.last().map(|value| value.hold_id.clone());
+            page.has_more = true;
+            break;
+        }
+        page.last = Some(hold_id.to_string());
+    }
+    Ok(page)
+}
+
 fn read_status_in_rtx(
     rtx: &redb::ReadTransaction,
     graph: &str,
@@ -5452,58 +5558,11 @@ fn read_status_in_rtx(
     let counters = rtx.open_table(COUNTERS).map_err(|e| e.to_string())?;
     let policy_revision = load_policy(&policies, graph, &request.tenant_ref, crypto)?
         .map_or(0, |value| value.policy_revision);
-    let mut rows = Vec::new();
-    let mut scanned = 0usize;
-    let mut has_more = false;
-    let mut last = None;
-    for row in tenant_index
-        .range((graph, request.tenant_ref.as_str(), cursor)..)
-        .map_err(|e| e.to_string())?
-    {
-        scanned = scanned
-            .checked_add(1)
-            .ok_or_else(|| "development lane status scan overflow".to_string())?;
-        if scanned > MAX_STATUS_SCAN {
-            return Err("development lane status scan exceeds native bound".to_string());
-        }
-        let (key, value) = row.map_err(|e| e.to_string())?;
-        let (row_graph, tenant, hold_id) = key.value();
-        if row_graph != graph || tenant != request.tenant_ref {
-            break;
-        }
-        if hold_id == cursor || value.value() != hold_id {
-            continue;
-        }
-        let Some(row) = hold_load(&holds, graph, hold_id, crypto)? else {
-            return Err("development lane status index points to a missing hold".to_string());
-        };
-        if request
-            .hold_id
-            .as_deref()
-            .is_some_and(|filter| filter != row.hold.hold_id)
-            || request
-                .lane_id
-                .as_deref()
-                .is_some_and(|filter| filter != row.hold.lane_id)
-            || request
-                .work_item_id
-                .as_deref()
-                .is_some_and(|filter| filter != row.hold.work_item_id)
-        {
-            continue;
-        }
-        rows.push(public_hold(&row.hold));
-        if rows.len() > request.limit as usize {
-            // Read one row beyond the requested page before declaring a next
-            // page.  Exactly `limit` rows therefore produce a complete page;
-            // the extra row is only a bounded existence probe.
-            rows.pop();
-            last = rows.last().map(|value| value.hold_id.clone());
-            has_more = true;
-            break;
-        }
-        last = Some(hold_id.to_string());
-    }
+    let StatusPage {
+        rows,
+        has_more,
+        last,
+    } = scan_status_page(graph, request, cursor, &holds, &tenant_index, crypto)?;
     let probe = DevelopmentLaneHold {
         schema_version: crate::epistemic_operations::DevelopmentLaneHoldSchemaVersion::V1,
         hold_id: "snapshot".to_string(),
