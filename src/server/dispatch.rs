@@ -3004,7 +3004,7 @@ fn dispatch_boxed<'a>(
     Box::pin(fut)
 }
 
-async fn dispatch_case_02_health(
+async fn dispatch_health(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     method: Method,
@@ -3095,11 +3095,11 @@ async fn dispatch_case_02_health(
                 })),
             )
         }
-        _ => unreachable!("dispatch_case_02_health: classifier/handler diverged"),
+        _ => unreachable!("dispatch_health: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_04_parse_file(req_id: u64, method: Method) -> Response {
+async fn dispatch_parse_file(req_id: u64, method: Method) -> Response {
     match method {
         Method::ParseFile { file_path, source } => {
             #[cfg(feature = "ast")]
@@ -3127,11 +3127,11 @@ async fn dispatch_case_04_parse_file(req_id: u64, method: Method) -> Response {
                 Response::err(req_id, "AST feature not enabled".to_string())
             }
         }
-        _ => unreachable!("dispatch_case_04_parse_file: classifier/handler diverged"),
+        _ => unreachable!("dispatch_parse_file: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_05_parse_files(req_id: u64, method: Method) -> Response {
+async fn dispatch_parse_files(req_id: u64, method: Method) -> Response {
     match method {
         Method::ParseFiles { files_msgpack } => {
             #[cfg(feature = "ast")]
@@ -3163,11 +3163,11 @@ async fn dispatch_case_05_parse_files(req_id: u64, method: Method) -> Response {
                 Response::err(req_id, "AST feature not enabled".to_string())
             }
         }
-        _ => unreachable!("dispatch_case_05_parse_files: classifier/handler diverged"),
+        _ => unreachable!("dispatch_parse_files: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_06_index_repository(req_id: u64, method: Method) -> Response {
+async fn dispatch_index_repository(req_id: u64, method: Method) -> Response {
     match method {
         Method::IndexRepository { files_msgpack } => {
             #[cfg(feature = "ast")]
@@ -3199,11 +3199,11 @@ async fn dispatch_case_06_index_repository(req_id: u64, method: Method) -> Respo
                 Response::err(req_id, "AST feature not enabled".to_string())
             }
         }
-        _ => unreachable!("dispatch_case_06_index_repository: classifier/handler diverged"),
+        _ => unreachable!("dispatch_index_repository: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_07_observe_screen(req_id: u64, method: Method) -> Response {
+async fn dispatch_observe_screen(req_id: u64, method: Method) -> Response {
     match method {
         Method::ObserveScreen { obs_msgpack } => {
             // MessagePack map → a captured desktop frame. png rides as a bin field;
@@ -3220,22 +3220,22 @@ async fn dispatch_case_07_observe_screen(req_id: u64, method: Method) -> Respons
                 Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
             }
         }
-        _ => unreachable!("dispatch_case_07_observe_screen: classifier/handler diverged"),
+        _ => unreachable!("dispatch_observe_screen: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_08_shutdown(req_id: u64, method: Method) -> Response {
+async fn dispatch_shutdown(req_id: u64, method: Method) -> Response {
     match method {
         Method::Shutdown => {
             info!("Shutdown requested via protocol");
             Response::ok(req_id, ResultPayload::String("shutting_down".to_string()))
         }
-        _ => unreachable!("dispatch_case_08_shutdown: classifier/handler diverged"),
+        _ => unreachable!("dispatch_shutdown: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "cost")]
-async fn dispatch_case_09_resource_stats(
+async fn dispatch_unpaged_resource_stats(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -3251,12 +3251,12 @@ async fn dispatch_case_09_resource_stats(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_09_resource_stats: classifier/handler diverged"),
+        _ => unreachable!("dispatch_unpaged_resource_stats: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "cost")]
-async fn dispatch_case_10_resource_stats_page(
+async fn dispatch_resource_stats_page(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -3280,7 +3280,7 @@ async fn dispatch_case_10_resource_stats_page(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_10_resource_stats_page: classifier/handler diverged"),
+        _ => unreachable!("dispatch_resource_stats_page: classifier/handler diverged"),
     }
 }
 
@@ -3331,7 +3331,7 @@ async fn read_committed_graph_version(
     }
 }
 
-async fn dispatch_case_11_create_graph(
+async fn dispatch_create_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -3342,7 +3342,7 @@ async fn dispatch_case_11_create_graph(
         graph_type,
     } = method
     else {
-        unreachable!("dispatch_case_11_create_graph: classifier/handler diverged")
+        unreachable!("dispatch_create_graph: classifier/handler diverged")
     };
     // Lifecycle shares the same per-graph serialization lane as ordinary
     // MutationBatch/txn writes.  The durable identity must land before the
@@ -3467,7 +3467,7 @@ async fn reconcile_missing_graph_delete(
     }
 }
 
-async fn dispatch_case_12_delete_graph(
+async fn dispatch_delete_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -3475,7 +3475,7 @@ async fn dispatch_case_12_delete_graph(
     method: Method,
 ) -> Response {
     let Method::DeleteGraph { ref graph_name } = method else {
-        unreachable!("dispatch_case_12_delete_graph: classifier/handler diverged")
+        unreachable!("dispatch_delete_graph: classifier/handler diverged")
     };
     // Fence gateway/txn writes for this graph across durable purge and RAM
     // teardown.  A retry after a crash at that boundary reconciles from the
@@ -3632,7 +3632,7 @@ fn index_validity_label(validity: crate::index::IndexValidity) -> &'static str {
     }
 }
 
-async fn dispatch_case_13_list_graphs(
+async fn dispatch_list_graphs(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -3709,11 +3709,11 @@ async fn dispatch_case_13_list_graphs(
                 .collect();
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(graphs)))
         }
-        _ => unreachable!("dispatch_case_13_list_graphs: classifier/handler diverged"),
+        _ => unreachable!("dispatch_list_graphs: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_14_reshard(
+async fn dispatch_reshard(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -3746,11 +3746,11 @@ async fn dispatch_case_14_reshard(
                 Err(_) => Response::err(req_id, "admin dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_14_reshard: classifier/handler diverged"),
+        _ => unreachable!("dispatch_reshard: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_15_placement_route(
+async fn dispatch_placement_route(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     method: Method,
@@ -3763,11 +3763,11 @@ async fn dispatch_case_15_placement_route(
                 Err(_) => Response::err(req_id, "placement dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_15_placement_route: classifier/handler diverged"),
+        _ => unreachable!("dispatch_placement_route: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_16_raft_add_learner(
+async fn dispatch_raft_add_learner(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     method: Method,
@@ -3780,11 +3780,11 @@ async fn dispatch_case_16_raft_add_learner(
                 Err(_) => Response::err(req_id, "raft-admin dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_16_raft_add_learner: classifier/handler diverged"),
+        _ => unreachable!("dispatch_raft_add_learner: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_17_cluster_members(
+async fn dispatch_cluster_members(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -3798,11 +3798,11 @@ async fn dispatch_case_17_cluster_members(
                 Err(_) => Response::err(req_id, "cluster topology dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_17_cluster_members: classifier/handler diverged"),
+        _ => unreachable!("dispatch_cluster_members: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_18_register_server(
+async fn dispatch_register_server(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -3828,11 +3828,11 @@ async fn dispatch_case_18_register_server(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_18_register_server: classifier/handler diverged"),
+        _ => unreachable!("dispatch_register_server: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_19_create_channel(
+async fn dispatch_create_channel(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -3867,11 +3867,11 @@ async fn dispatch_case_19_create_channel(
                 Err(e) => Response::err(req_id, e),
             }
         }
-        _ => unreachable!("dispatch_case_19_create_channel: classifier/handler diverged"),
+        _ => unreachable!("dispatch_create_channel: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_20_join_channel(
+async fn dispatch_join_channel(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -3901,11 +3901,11 @@ async fn dispatch_case_20_join_channel(
                 Err(e) => Response::err(req_id, e),
             }
         }
-        _ => unreachable!("dispatch_case_20_join_channel: classifier/handler diverged"),
+        _ => unreachable!("dispatch_join_channel: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_21_leave_channel(
+async fn dispatch_leave_channel(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -3943,11 +3943,11 @@ async fn dispatch_case_21_leave_channel(
                 Err(e) => Response::err(req_id, e),
             }
         }
-        _ => unreachable!("dispatch_case_21_leave_channel: classifier/handler diverged"),
+        _ => unreachable!("dispatch_leave_channel: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_22_close_channel(
+async fn dispatch_close_channel(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -3987,11 +3987,11 @@ async fn dispatch_case_22_close_channel(
                 Err(e) => Response::err(req_id, e),
             }
         }
-        _ => unreachable!("dispatch_case_22_close_channel: classifier/handler diverged"),
+        _ => unreachable!("dispatch_close_channel: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_23_send_message(
+async fn dispatch_send_message(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4025,11 +4025,11 @@ async fn dispatch_case_23_send_message(
                 Err(e) => Response::err(req_id, e),
             }
         }
-        _ => unreachable!("dispatch_case_23_send_message: classifier/handler diverged"),
+        _ => unreachable!("dispatch_send_message: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_24_get_channel_messages(
+async fn dispatch_get_channel_messages(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4058,11 +4058,11 @@ async fn dispatch_case_24_get_channel_messages(
                 Err(e) => Response::err(req_id, e),
             }
         }
-        _ => unreachable!("dispatch_case_24_get_channel_messages: classifier/handler diverged"),
+        _ => unreachable!("dispatch_get_channel_messages: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_25_list_channels(
+async fn dispatch_list_channels(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4083,11 +4083,11 @@ async fn dispatch_case_25_list_channels(
             }).collect();
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(channels)))
         }
-        _ => unreachable!("dispatch_case_25_list_channels: classifier/handler diverged"),
+        _ => unreachable!("dispatch_list_channels: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_26_get_channel_members(
+async fn dispatch_get_channel_members(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4113,11 +4113,11 @@ async fn dispatch_case_26_get_channel_members(
                 Err(e) => Response::err(req_id, e),
             }
         }
-        _ => unreachable!("dispatch_case_26_get_channel_members: classifier/handler diverged"),
+        _ => unreachable!("dispatch_get_channel_members: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_27_register_identity(
+async fn dispatch_register_identity(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_graph: String,
@@ -4168,11 +4168,11 @@ async fn dispatch_case_27_register_identity(
             info!("RegisterIdentity committed");
             Response::ok(req_id, ResultPayload::String("registered".to_string()))
         }
-        _ => unreachable!("dispatch_case_27_register_identity: classifier/handler diverged"),
+        _ => unreachable!("dispatch_register_identity: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_28_get_identity(
+async fn dispatch_get_identity(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     method: Method,
@@ -4194,12 +4194,12 @@ async fn dispatch_case_28_get_identity(
                 Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
             }
         }
-        _ => unreachable!("dispatch_case_28_get_identity: classifier/handler diverged"),
+        _ => unreachable!("dispatch_get_identity: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "policy_export")]
-async fn dispatch_case_29_policy_export(
+async fn dispatch_policy_export(
     req_id: u64,
     verified_context: &VerifiedRequestContext,
     method: Method,
@@ -4241,7 +4241,7 @@ async fn dispatch_case_29_policy_export(
                 Err(denied) => Response::err(req_id, denied),
             }
         }
-        _ => unreachable!("dispatch_case_29_policy_export: classifier/handler diverged"),
+        _ => unreachable!("dispatch_policy_export: classifier/handler diverged"),
     }
 }
 
@@ -4256,14 +4256,14 @@ fn rbac_admin_ack(req_id: u64, outcome: Result<(), String>, acknowledgement: &st
 }
 
 #[cfg(feature = "security")]
-async fn dispatch_case_30_rbac_admin(
+async fn dispatch_rbac_admin(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     method: Method,
 ) -> Response {
     use crate::acl::RbacAdminOp;
     let Method::RbacAdmin { op } = method else {
-        unreachable!("dispatch_case_30_rbac_admin: classifier/handler diverged")
+        unreachable!("dispatch_rbac_admin: classifier/handler diverged")
     };
     let mut s = timed_write(state).await;
     match op {
@@ -4297,7 +4297,7 @@ async fn dispatch_case_30_rbac_admin(
     }
 }
 
-async fn dispatch_case_31_apply_multisig_mutation(
+async fn dispatch_apply_multisig_mutation(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -4340,12 +4340,12 @@ async fn dispatch_case_31_apply_multisig_mutation(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_31_apply_multisig_mutation: classifier/handler diverged"),
+        _ => unreachable!("dispatch_apply_multisig_mutation: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "jobs")]
-async fn dispatch_case_32_analytics_job(
+async fn dispatch_analytics_job(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4369,12 +4369,12 @@ async fn dispatch_case_32_analytics_job(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_32_analytics_job: classifier/handler diverged"),
+        _ => unreachable!("dispatch_analytics_job: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "statechart")]
-async fn dispatch_case_33_statechart(
+async fn dispatch_statechart(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4390,12 +4390,12 @@ async fn dispatch_case_33_statechart(
             };
             handlers::statechart::handle(state, req_id, &carrier, op).await
         }
-        _ => unreachable!("dispatch_case_33_statechart: classifier/handler diverged"),
+        _ => unreachable!("dispatch_statechart: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "viz-static-export")]
-async fn dispatch_case_36_viz(
+async fn dispatch_viz(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4412,11 +4412,11 @@ async fn dispatch_case_36_viz(
             };
             handlers::viz::handle(state, req_id, &carrier, op).await
         }
-        _ => unreachable!("dispatch_case_36_viz: classifier/handler diverged"),
+        _ => unreachable!("dispatch_viz: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_37_begin_txn(
+async fn dispatch_begin_txn(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_graph: String,
@@ -4459,12 +4459,12 @@ async fn dispatch_case_37_begin_txn(
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_37_begin_txn: classifier/handler diverged"),
+        _ => unreachable!("dispatch_begin_txn: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "tsdb")]
-async fn dispatch_case_38_txn_add_measurement(
+async fn dispatch_txn_add_measurement(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4485,12 +4485,12 @@ async fn dispatch_case_38_txn_add_measurement(
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_38_txn_add_measurement: classifier/handler diverged"),
+        _ => unreachable!("dispatch_txn_add_measurement: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "owl")]
-async fn dispatch_case_39_txn_axiom(
+async fn dispatch_txn_axiom(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4511,12 +4511,12 @@ async fn dispatch_case_39_txn_axiom(
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_39_txn_axiom: classifier/handler diverged"),
+        _ => unreachable!("dispatch_txn_axiom: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "sparql")]
-async fn dispatch_case_40_txn_construct(
+async fn dispatch_txn_construct(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4537,12 +4537,12 @@ async fn dispatch_case_40_txn_construct(
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_40_txn_construct: classifier/handler diverged"),
+        _ => unreachable!("dispatch_txn_construct: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "query")]
-async fn dispatch_case_41_txn_plan_writeback(
+async fn dispatch_txn_plan_writeback(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4563,12 +4563,12 @@ async fn dispatch_case_41_txn_plan_writeback(
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_41_txn_plan_writeback: classifier/handler diverged"),
+        _ => unreachable!("dispatch_txn_plan_writeback: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "epistemic")]
-async fn dispatch_case_42_txn_materialize_belief(
+async fn dispatch_txn_materialize_belief(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4589,12 +4589,12 @@ async fn dispatch_case_42_txn_materialize_belief(
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_42_txn_materialize_belief: classifier/handler diverged"),
+        _ => unreachable!("dispatch_txn_materialize_belief: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "blob")]
-async fn dispatch_case_43_blob_begin(
+async fn dispatch_blob_begin(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4620,12 +4620,12 @@ async fn dispatch_case_43_blob_begin(
                 Err(_) => Response::err(req_id, "blob dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_43_blob_begin: classifier/handler diverged"),
+        _ => unreachable!("dispatch_blob_begin: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "kv")]
-async fn dispatch_case_44_kv_get(
+async fn dispatch_kv_get(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4647,12 +4647,12 @@ async fn dispatch_case_44_kv_get(
                 Err(_) => Response::err(req_id, "kv dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_44_kv_get: classifier/handler diverged"),
+        _ => unreachable!("dispatch_kv_get: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "sqlite-file")]
-async fn dispatch_case_45_import_sqlite_file(
+async fn dispatch_import_sqlite_file(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4670,12 +4670,12 @@ async fn dispatch_case_45_import_sqlite_file(
                 Err(_) => Response::err(req_id, "sqlite-file dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_45_import_sqlite_file: classifier/handler diverged"),
+        _ => unreachable!("dispatch_import_sqlite_file: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "streaming")]
-async fn dispatch_case_46_cdc_read(
+async fn dispatch_cdc_read(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4710,12 +4710,12 @@ async fn dispatch_case_46_cdc_read(
                 Err(_) => Response::err(req_id, "streaming dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_46_cdc_read: classifier/handler diverged"),
+        _ => unreachable!("dispatch_cdc_read: classifier/handler diverged"),
     }
 }
 
 #[cfg(all(feature = "streaming", feature = "stream"))]
-async fn dispatch_case_47_cep_subscribe(
+async fn dispatch_cep_subscribe(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: &VerifiedRequestContext,
@@ -4733,12 +4733,12 @@ async fn dispatch_case_47_cep_subscribe(
                 Err(_) => Response::err(req_id, "cep dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_47_cep_subscribe: classifier/handler diverged"),
+        _ => unreachable!("dispatch_cep_subscribe: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "owl")]
-async fn dispatch_case_48_owl_reason_distributed(
+async fn dispatch_owl_reason_distributed(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified_context: VerifiedRequestContext,
@@ -4761,11 +4761,11 @@ async fn dispatch_case_48_owl_reason_distributed(
                 Err(_) => Response::err(req_id, "owl distributed dispatch routing error"),
             }
         }
-        _ => unreachable!("dispatch_case_48_owl_reason_distributed: classifier/handler diverged"),
+        _ => unreachable!("dispatch_owl_reason_distributed: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_49_apply_change_envelope(
+async fn dispatch_apply_change_envelope(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -4800,11 +4800,11 @@ async fn dispatch_case_49_apply_change_envelope(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_49_apply_change_envelope: classifier/handler diverged"),
+        _ => unreachable!("dispatch_apply_change_envelope: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_50_apply_change_envelopes(
+async fn dispatch_apply_change_envelopes(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -4822,12 +4822,12 @@ async fn dispatch_case_50_apply_change_envelopes(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_50_apply_change_envelopes: classifier/handler diverged"),
+        _ => unreachable!("dispatch_apply_change_envelopes: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "modality-serving")]
-async fn dispatch_case_51_served_modality(
+async fn authorize_and_route_served_modality(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -4856,12 +4856,12 @@ async fn dispatch_case_51_served_modality(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_51_served_modality: classifier/handler diverged"),
+        _ => unreachable!("authorize_and_route_served_modality: classifier/handler diverged"),
     }
 }
 
 #[cfg(feature = "knowledge-batch")]
-async fn dispatch_case_52_knowledge_stream(
+async fn authorize_and_route_knowledge_stream(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -4891,11 +4891,11 @@ async fn dispatch_case_52_knowledge_stream(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_52_knowledge_stream: classifier/handler diverged"),
+        _ => unreachable!("authorize_and_route_knowledge_stream: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_53_get_change_envelope(
+async fn dispatch_get_change_envelope(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -4927,11 +4927,11 @@ async fn dispatch_case_53_get_change_envelope(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_53_get_change_envelope: classifier/handler diverged"),
+        _ => unreachable!("dispatch_get_change_envelope: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_54_get_content_version(
+async fn dispatch_get_content_version(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -4957,11 +4957,11 @@ async fn dispatch_case_54_get_content_version(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_54_get_content_version: classifier/handler diverged"),
+        _ => unreachable!("dispatch_get_content_version: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_55_get_change_cursor(
+async fn dispatch_get_change_cursor(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -4995,11 +4995,11 @@ async fn dispatch_case_55_get_change_cursor(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_55_get_change_cursor: classifier/handler diverged"),
+        _ => unreachable!("dispatch_get_change_cursor: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_56_nl_query(
+async fn dispatch_nl_query(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -5024,11 +5024,11 @@ async fn dispatch_case_56_nl_query(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_56_nl_query: classifier/handler diverged"),
+        _ => unreachable!("dispatch_nl_query: classifier/handler diverged"),
     }
 }
 
-async fn dispatch_case_57_multi_graph_batch_update(
+async fn dispatch_multi_graph_batch_update(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
@@ -5046,7 +5046,7 @@ async fn dispatch_case_57_multi_graph_batch_update(
             )
             .await
         }
-        _ => unreachable!("dispatch_case_57_multi_graph_batch_update: classifier/handler diverged"),
+        _ => unreachable!("dispatch_multi_graph_batch_update: classifier/handler diverged"),
     }
 }
 
@@ -5614,9 +5614,7 @@ async fn dispatch_service_and_ingest_methods(
         // ── Service-level ────────────────────────────────────────────
         Method::Ping => Response::ok(req.id, ResultPayload::String("pong".to_string())),
 
-        method @ Method::Health => {
-            dispatch_boxed(dispatch_case_02_health(state, req.id, method)).await
-        }
+        method @ Method::Health => dispatch_boxed(dispatch_health(state, req.id, method)).await,
 
         // L36: cooperative cancellation of an in-flight request by its `req_id` (CONCEPT:EG-KG.query.streaming-spillable-collect).
         // Service-level (no graph resolution needed — the registry is keyed by req_id,
@@ -5630,29 +5628,27 @@ async fn dispatch_service_and_ingest_methods(
         ),
 
         method @ Method::ParseFile { .. } => {
-            dispatch_boxed(dispatch_case_04_parse_file(req.id, method)).await
+            dispatch_boxed(dispatch_parse_file(req.id, method)).await
         }
 
         method @ Method::ParseFiles { .. } => {
-            dispatch_boxed(dispatch_case_05_parse_files(req.id, method)).await
+            dispatch_boxed(dispatch_parse_files(req.id, method)).await
         }
 
         method @ Method::IndexRepository { .. } => {
-            dispatch_boxed(dispatch_case_06_index_repository(req.id, method)).await
+            dispatch_boxed(dispatch_index_repository(req.id, method)).await
         }
 
         method @ Method::ObserveScreen { .. } => {
-            dispatch_boxed(dispatch_case_07_observe_screen(req.id, method)).await
+            dispatch_boxed(dispatch_observe_screen(req.id, method)).await
         }
 
-        method @ Method::Shutdown => {
-            dispatch_boxed(dispatch_case_08_shutdown(req.id, method)).await
-        }
+        method @ Method::Shutdown => dispatch_boxed(dispatch_shutdown(req.id, method)).await,
 
         // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
         #[cfg(feature = "cost")]
         method @ Method::ResourceStats => {
-            dispatch_boxed(dispatch_case_09_resource_stats(
+            dispatch_boxed(dispatch_unpaged_resource_stats(
                 state,
                 req.id,
                 verified_context,
@@ -5686,7 +5682,7 @@ async fn dispatch_graph_lifecycle_methods(
                 #[cfg(feature = "cost")]
         method @ Method::ResourceStatsPage { .. } => {
             dispatch_boxed(
-                dispatch_case_10_resource_stats_page(
+                dispatch_resource_stats_page(
                     state,
                     req.id,
                     verified_context,
@@ -5699,7 +5695,7 @@ async fn dispatch_graph_lifecycle_methods(
         // ── Multi-tenant graph management ────────────────────────────
                 method @ Method::CreateGraph { .. } => {
             dispatch_boxed(
-                dispatch_case_11_create_graph(
+                dispatch_create_graph(
                     state,
                     req.id,
                     req.agent_id.clone(),
@@ -5711,7 +5707,7 @@ async fn dispatch_graph_lifecycle_methods(
 
                 method @ Method::DeleteGraph { .. } => {
             dispatch_boxed(
-                dispatch_case_12_delete_graph(
+                dispatch_delete_graph(
                     state,
                     req.id,
                     req.agent_id.clone(),
@@ -5724,7 +5720,7 @@ async fn dispatch_graph_lifecycle_methods(
 
                 method @ Method::ListGraphs => {
             dispatch_boxed(
-                dispatch_case_13_list_graphs(
+                dispatch_list_graphs(
                     state,
                     req.id,
                     verified_context,
@@ -5754,7 +5750,7 @@ async fn dispatch_graph_lifecycle_methods(
         | Method::Backup { .. }
         | Method::Restore { .. }) => {
             dispatch_boxed(
-                dispatch_case_14_reshard(
+                dispatch_reshard(
                     state,
                     req.id,
                     req.agent_id.clone(),
@@ -5776,7 +5772,7 @@ async fn dispatch_graph_lifecycle_methods(
         // block above -- see `handlers::placement::try_handle`'s per-variant arms.
                 method @ (Method::PlacementRoute { .. } | Method::PlacementAdmin { .. }) => {
             dispatch_boxed(
-                dispatch_case_15_placement_route(
+                dispatch_placement_route(
                     state,
                     req.id,
                     method,
@@ -5793,7 +5789,7 @@ async fn dispatch_graph_lifecycle_methods(
         // here.
                 method @ (Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. }) => {
             dispatch_boxed(
-                dispatch_case_16_raft_add_learner(
+                dispatch_raft_add_learner(
                     state,
                     req.id,
                     method,
@@ -5812,7 +5808,7 @@ async fn dispatch_graph_lifecycle_methods(
         // intercepted earlier by the `ConsensusNative` branch above).
                 method @ (Method::ClusterMembers | Method::NodeInfoUpsert { .. }) => {
             dispatch_boxed(
-                dispatch_case_17_cluster_members(
+                dispatch_cluster_members(
                     state,
                     req.id,
                     verified_context,
@@ -5833,7 +5829,7 @@ async fn dispatch_graph_lifecycle_methods(
         // `handle_register_server`'s doc comment.
                 method @ Method::RegisterServer { .. } => {
             dispatch_boxed(
-                dispatch_case_18_register_server(
+                dispatch_register_server(
                     state,
                     req.id,
                     req.agent_id.clone(),
@@ -5871,7 +5867,7 @@ async fn dispatch_channel_methods(
     let identity_bootstrap = ctx.identity_bootstrap;
     Ok(match method {
         method @ Method::CreateChannel { .. } => {
-            dispatch_boxed(dispatch_case_19_create_channel(
+            dispatch_boxed(dispatch_create_channel(
                 state,
                 req.id,
                 verified_context,
@@ -5881,7 +5877,7 @@ async fn dispatch_channel_methods(
         }
 
         method @ Method::JoinChannel { .. } => {
-            dispatch_boxed(dispatch_case_20_join_channel(
+            dispatch_boxed(dispatch_join_channel(
                 state,
                 req.id,
                 verified_context,
@@ -5891,7 +5887,7 @@ async fn dispatch_channel_methods(
         }
 
         method @ Method::LeaveChannel { .. } => {
-            dispatch_boxed(dispatch_case_21_leave_channel(
+            dispatch_boxed(dispatch_leave_channel(
                 state,
                 req.id,
                 verified_context,
@@ -5901,7 +5897,7 @@ async fn dispatch_channel_methods(
         }
 
         method @ Method::CloseChannel { .. } => {
-            dispatch_boxed(dispatch_case_22_close_channel(
+            dispatch_boxed(dispatch_close_channel(
                 state,
                 req.id,
                 verified_context,
@@ -5911,7 +5907,7 @@ async fn dispatch_channel_methods(
         }
 
         method @ Method::SendMessage { .. } => {
-            dispatch_boxed(dispatch_case_23_send_message(
+            dispatch_boxed(dispatch_send_message(
                 state,
                 req.id,
                 verified_context,
@@ -5921,7 +5917,7 @@ async fn dispatch_channel_methods(
         }
 
         method @ Method::GetChannelMessages { .. } => {
-            dispatch_boxed(dispatch_case_24_get_channel_messages(
+            dispatch_boxed(dispatch_get_channel_messages(
                 state,
                 req.id,
                 verified_context,
@@ -5931,7 +5927,7 @@ async fn dispatch_channel_methods(
         }
 
         method @ Method::ListChannels => {
-            dispatch_boxed(dispatch_case_25_list_channels(
+            dispatch_boxed(dispatch_list_channels(
                 state,
                 req.id,
                 verified_context,
@@ -5941,7 +5937,7 @@ async fn dispatch_channel_methods(
         }
 
         method @ Method::GetChannelMembers { .. } => {
-            dispatch_boxed(dispatch_case_26_get_channel_members(
+            dispatch_boxed(dispatch_get_channel_members(
                 state,
                 req.id,
                 verified_context,
@@ -5952,7 +5948,7 @@ async fn dispatch_channel_methods(
 
         // ── Zero-Trust Consensus ─────────────────────────────────────────
         method @ Method::RegisterIdentity { .. } => {
-            dispatch_boxed(dispatch_case_27_register_identity(
+            dispatch_boxed(dispatch_register_identity(
                 state,
                 req.id,
                 req.graph.clone(),
@@ -5996,7 +5992,7 @@ async fn dispatch_identity_and_admin_methods(
     let state_machine_authorized = ctx.state_machine_authorized;
     Ok(match method {
         method @ Method::GetIdentity { .. } => {
-            dispatch_boxed(dispatch_case_28_get_identity(state, req.id, method)).await
+            dispatch_boxed(dispatch_get_identity(state, req.id, method)).await
         }
 
         // CA-16 (DEC-CA-04): export the M1 row-visibility policy bundle. Gated
@@ -6011,12 +6007,7 @@ async fn dispatch_identity_and_admin_methods(
         // `server::policy_export`'s module doc for the full design.
         #[cfg(feature = "policy_export")]
         method @ Method::PolicyExport { .. } => {
-            dispatch_boxed(dispatch_case_29_policy_export(
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
+            dispatch_boxed(dispatch_policy_export(req.id, verified_context, method)).await
         }
 
         // ── RBAC policy administration (CONCEPT:EG-KG.compute.feature) ──────────────────
@@ -6024,11 +6015,11 @@ async fn dispatch_identity_and_admin_methods(
         // dispatch "not available in this build" catch-all (mirrors EG-090).
         #[cfg(feature = "security")]
         method @ Method::RbacAdmin { .. } => {
-            dispatch_boxed(dispatch_case_30_rbac_admin(state, req.id, method)).await
+            dispatch_boxed(dispatch_rbac_admin(state, req.id, method)).await
         }
 
         method @ Method::ApplyMultisigMutation { .. } => {
-            dispatch_boxed(dispatch_case_31_apply_multisig_mutation(
+            dispatch_boxed(dispatch_apply_multisig_mutation(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6046,7 +6037,7 @@ async fn dispatch_identity_and_admin_methods(
         // `Kv*`/`CreateChannel` above. See `handlers/jobs.rs` module docs.
         #[cfg(feature = "jobs")]
         method @ Method::AnalyticsJob { .. } => {
-            dispatch_boxed(dispatch_case_32_analytics_job(
+            dispatch_boxed(dispatch_analytics_job(
                 state,
                 req.id,
                 verified_context,
@@ -6061,13 +6052,7 @@ async fn dispatch_identity_and_admin_methods(
         // like `AnalyticsJob` above. See `handlers/statechart.rs` module docs.
         #[cfg(feature = "statechart")]
         method @ Method::Statechart { .. } => {
-            dispatch_boxed(dispatch_case_33_statechart(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
+            dispatch_boxed(dispatch_statechart(state, req.id, verified_context, method)).await
         }
 
         // ── Agent-facing quantum control plane (Q8, CONCEPT:EG-KG.compute.quantum-agent-api,
@@ -6100,13 +6085,7 @@ async fn dispatch_identity_and_admin_methods(
         // backend to do anything, which only exist at that tier.
         #[cfg(feature = "viz-static-export")]
         method @ Method::Viz { .. } => {
-            dispatch_boxed(dispatch_case_36_viz(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
+            dispatch_boxed(dispatch_viz(state, req.id, verified_context, method)).await
         }
 
         // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
@@ -6148,7 +6127,7 @@ async fn dispatch_transaction_and_store_methods(
         | Method::TxnBlobRef { .. }
         | Method::Commit { .. }
         | Method::Rollback { .. }) => {
-            dispatch_boxed(dispatch_case_37_begin_txn(
+            dispatch_boxed(dispatch_begin_txn(
                 state,
                 req.id,
                 req.graph.clone(),
@@ -6169,7 +6148,7 @@ async fn dispatch_transaction_and_store_methods(
         // build without the feature keeps the prior catch-all behavior.
         #[cfg(feature = "tsdb")]
         method @ Method::TxnAddMeasurement { .. } => {
-            dispatch_boxed(dispatch_case_38_txn_add_measurement(
+            dispatch_boxed(dispatch_txn_add_measurement(
                 state,
                 req.id,
                 verified_context,
@@ -6179,17 +6158,11 @@ async fn dispatch_transaction_and_store_methods(
         }
         #[cfg(feature = "owl")]
         method @ Method::TxnAxiom { .. } => {
-            dispatch_boxed(dispatch_case_39_txn_axiom(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
+            dispatch_boxed(dispatch_txn_axiom(state, req.id, verified_context, method)).await
         }
         #[cfg(feature = "sparql")]
         method @ Method::TxnConstruct { .. } => {
-            dispatch_boxed(dispatch_case_40_txn_construct(
+            dispatch_boxed(dispatch_txn_construct(
                 state,
                 req.id,
                 verified_context,
@@ -6202,7 +6175,7 @@ async fn dispatch_transaction_and_store_methods(
         // BeginTxn graph-default rewrite. `query`-gated to match its protocol variant.
         #[cfg(feature = "query")]
         method @ Method::TxnPlanWriteback { .. } => {
-            dispatch_boxed(dispatch_case_41_txn_plan_writeback(
+            dispatch_boxed(dispatch_txn_plan_writeback(
                 state,
                 req.id,
                 verified_context,
@@ -6216,7 +6189,7 @@ async fn dispatch_transaction_and_store_methods(
         // its protocol variant.
         #[cfg(feature = "epistemic")]
         method @ Method::TxnMaterializeBelief { .. } => {
-            dispatch_boxed(dispatch_case_42_txn_materialize_belief(
+            dispatch_boxed(dispatch_txn_materialize_belief(
                 state,
                 req.id,
                 verified_context,
@@ -6240,13 +6213,7 @@ async fn dispatch_transaction_and_store_methods(
         | Method::BlobRef { .. }
         | Method::BlobUnref { .. }
         | Method::BlobGc) => {
-            dispatch_boxed(dispatch_case_43_blob_begin(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
+            dispatch_boxed(dispatch_blob_begin(state, req.id, verified_context, method)).await
         }
 
         // ── Key→Value (CONCEPT:EG-KG.storage.namespaced-kv-surface) ───────────────────────────────
@@ -6260,13 +6227,7 @@ async fn dispatch_transaction_and_store_methods(
         | Method::KvDelete { .. }
         | Method::KvScan { .. }
         | Method::KvCas { .. }) => {
-            dispatch_boxed(dispatch_case_44_kv_get(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
+            dispatch_boxed(dispatch_kv_get(state, req.id, verified_context, method)).await
         }
 
         // ── SQLite `.db` file import/export (CONCEPT:EG-KG.query.eg-feature/EG-332) ──
@@ -6277,7 +6238,7 @@ async fn dispatch_transaction_and_store_methods(
         // without it never has the variants in the enum, so this arm can't be reached.
         #[cfg(feature = "sqlite-file")]
         method @ (Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. }) => {
-            dispatch_boxed(dispatch_case_45_import_sqlite_file(
+            dispatch_boxed(dispatch_import_sqlite_file(
                 state,
                 req.id,
                 verified_context,
@@ -6326,13 +6287,7 @@ async fn dispatch_stream_and_envelope_methods(
         | Method::DropTrigger { .. }
         | Method::ListTriggers { .. }
         | Method::FiredTriggers { .. }) => {
-            dispatch_boxed(dispatch_case_46_cdc_read(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
+            dispatch_boxed(dispatch_cdc_read(state, req.id, verified_context, method)).await
         }
 
         // ── Live CEP standing queries (CONCEPT:EG-KG.query.protocol-types) ───────────────
@@ -6349,7 +6304,7 @@ async fn dispatch_stream_and_envelope_methods(
         method @ (Method::CepSubscribe { .. }
         | Method::CepPoll { .. }
         | Method::CepUnsubscribe { .. }) => {
-            dispatch_boxed(dispatch_case_47_cep_subscribe(
+            dispatch_boxed(dispatch_cep_subscribe(
                 state,
                 req.id,
                 verified_context,
@@ -6365,7 +6320,7 @@ async fn dispatch_stream_and_envelope_methods(
         // Gated `owl`: in a build without it the variant isn't in the enum.
         #[cfg(feature = "owl")]
         method @ Method::OwlReasonDistributed { .. } => {
-            dispatch_boxed(dispatch_case_48_owl_reason_distributed(
+            dispatch_boxed(dispatch_owl_reason_distributed(
                 state,
                 req.id,
                 // `verified_context` is a `&VerifiedRequestContext` here; spell the
@@ -6378,7 +6333,7 @@ async fn dispatch_stream_and_envelope_methods(
 
         // ── Graph operations (dispatch to target graph) ──────────────
         method @ Method::ApplyChangeEnvelope { .. } => {
-            dispatch_boxed(dispatch_case_49_apply_change_envelope(
+            dispatch_boxed(dispatch_apply_change_envelope(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6389,7 +6344,7 @@ async fn dispatch_stream_and_envelope_methods(
             .await
         }
         method @ Method::ApplyChangeEnvelopes { .. } => {
-            dispatch_boxed(dispatch_case_50_apply_change_envelopes(
+            dispatch_boxed(dispatch_apply_change_envelopes(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6400,7 +6355,7 @@ async fn dispatch_stream_and_envelope_methods(
         }
         #[cfg(feature = "modality-serving")]
         method @ Method::ServedModality { .. } => {
-            dispatch_boxed(dispatch_case_51_served_modality(
+            dispatch_boxed(authorize_and_route_served_modality(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6412,7 +6367,7 @@ async fn dispatch_stream_and_envelope_methods(
         }
         #[cfg(feature = "knowledge-batch")]
         method @ Method::KnowledgeStream { .. } => {
-            dispatch_boxed(dispatch_case_52_knowledge_stream(
+            dispatch_boxed(authorize_and_route_knowledge_stream(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6423,7 +6378,7 @@ async fn dispatch_stream_and_envelope_methods(
             .await
         }
         method @ Method::GetChangeEnvelope { .. } => {
-            dispatch_boxed(dispatch_case_53_get_change_envelope(
+            dispatch_boxed(dispatch_get_change_envelope(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6434,7 +6389,7 @@ async fn dispatch_stream_and_envelope_methods(
             .await
         }
         method @ Method::GetContentVersion { .. } => {
-            dispatch_boxed(dispatch_case_54_get_content_version(
+            dispatch_boxed(dispatch_get_content_version(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6466,7 +6421,7 @@ async fn dispatch_query_and_batch_methods(
     let verified_context = ctx.verified_context;
     Ok(match method {
         method @ Method::GetChangeCursor { .. } => {
-            dispatch_boxed(dispatch_case_55_get_change_cursor(
+            dispatch_boxed(dispatch_get_change_cursor(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6483,7 +6438,7 @@ async fn dispatch_query_and_batch_methods(
         // `UnifiedQueryText` pipeline; a build without `nl-query` reaches the graph_ops
         // "not available" catch-all like any other feature-off method.
         method @ Method::NlQuery { .. } => {
-            dispatch_boxed(dispatch_case_56_nl_query(
+            dispatch_boxed(dispatch_nl_query(
                 state,
                 req.id,
                 req.agent_id.clone(),
@@ -6500,7 +6455,7 @@ async fn dispatch_query_and_batch_methods(
         // path CONCURRENTLY, so N distinct graphs commit across N of the K shard
         // writers in parallel.
         method @ Method::MultiGraphBatchUpdate { .. } => {
-            dispatch_boxed(dispatch_case_57_multi_graph_batch_update(
+            dispatch_boxed(dispatch_multi_graph_batch_update(
                 state,
                 req.id,
                 req.agent_id.clone(),
