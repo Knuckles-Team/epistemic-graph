@@ -3650,96 +3650,71 @@ fn current_policy(
     load_policy(policies, graph, tenant, crypto)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn apply_renew(
-    graph: &str,
-    request: &DevelopmentLaneRenewRequest,
-    nodes: &redb::Table<(&str, &str), &[u8]>,
-    holds: &mut redb::Table<(&str, &str), &[u8]>,
-    counters: &mut redb::Table<(&str, &str), &[u8]>,
-    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
-    policies: &redb::Table<(&str, &str), &[u8]>,
-    crypto: DurableCrypto<'_>,
-) -> Result<(Vec<u8>, bool), String> {
-    if request.tenant_ref.is_empty()
+/// Is any field the renew request must carry missing or zero?
+fn renew_request_incomplete(request: &DevelopmentLaneRenewRequest) -> bool {
+    request.tenant_ref.is_empty()
         || request.work_item_id.is_empty()
         || request.owner_id.is_empty()
         || request.hold_id.is_empty()
         || request.idempotency_key.is_empty()
         || request.ttl_ms == 0
+}
+
+/// Is any field the observe request must carry missing or zero?
+fn observe_request_incomplete(request: &DevelopmentLaneObserveRequest) -> bool {
+    request.tenant_ref.is_empty()
+        || request.work_item_id.is_empty()
+        || request.owner_id.is_empty()
+        || request.hold_id.is_empty()
+        || request.idempotency_key.is_empty()
+        || request.observation_revision == 0
+}
+
+/// A tombstoned or no-longer-charged hold cannot be renewed or observed in
+/// place; it needs its fenced cleanup first.
+fn hold_no_longer_active(hold: &DevelopmentLaneHold) -> bool {
+    hold.tombstone || !hold.active_count_charged
+}
+
+/// Is the requested TTL outside the policy's window?
+fn ttl_outside_policy(ttl_ms: u64, policy: &DevelopmentLaneQuotaPolicy) -> bool {
+    ttl_ms < policy.min_ttl_ms || ttl_ms > policy.max_ttl_ms
+}
+
+/// Monotonic observation ordering.  An older revision or a shrinking footprint
+/// is stale; the exact same revision replays only when the footprint is
+/// identical, and is otherwise stale.  `None` means the observation advances.
+fn observation_ordering_refusal(
+    request: &DevelopmentLaneObserveRequest,
+    row: &DurableLaneHold,
+) -> Option<LaneDecision> {
+    if request.observation_revision < row.observation_revision
+        || request.observed_disk_bytes < row.hold.observed_disk_bytes
     {
-        return Ok((renew_result(LaneDecision::Invalid, None, 0)?, false));
+        return Some(LaneDecision::Stale);
     }
-    let policy = current_policy(policies, graph, &request.tenant_ref, crypto)?;
-    let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
-    let Some(_policy) = policy else {
-        return Ok((renew_result(LaneDecision::Policy, None, 0)?, false));
-    };
-    let Some(global_policy) = load_global_policy(policies, graph, crypto)? else {
-        return Ok((
-            renew_result(LaneDecision::Policy, None, policy_revision)?,
-            false,
-        ));
-    };
-    let global_policy_revision = global_policy.policy_revision;
-    // TTL and freshness are graph-global controls.  Existing holds may renew
-    // while a drain is active, but they must observe the current global
-    // policy rather than a tenant row that still references an older global
-    // revision.
-    if request.ttl_ms < global_policy.policy.min_ttl_ms
-        || request.ttl_ms > global_policy.policy.max_ttl_ms
-    {
-        return Ok((
-            renew_result(LaneDecision::Policy, None, policy_revision)?,
-            false,
-        ));
+    if request.observation_revision != row.observation_revision {
+        return None;
     }
-    let Some(mut row) = hold_load(holds, graph, &request.hold_id, crypto)? else {
-        return Ok((
-            renew_result(LaneDecision::NotFound, None, policy_revision)?,
-            false,
-        ));
-    };
-    if let Err(decision) = hold_correlations_match(
-        &row.hold,
-        &request.tenant_ref,
-        &request.work_item_id,
-        &request.owner_id,
-        request.attempt,
-        request.lease_epoch,
-        request.fencing_token,
-        &request.work_item_fence,
-    ) {
-        return Ok((renew_result(decision, Some(&row), policy_revision)?, false));
+    if request.observed_disk_bytes == row.hold.observed_disk_bytes {
+        return Some(LaneDecision::Idempotent);
     }
-    if row.hold.tombstone || !row.hold.active_count_charged {
-        return Ok((
-            renew_result(LaneDecision::Terminal, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if row.hold.hold_revision != request.expected_hold_revision {
-        return Ok((
-            renew_result(LaneDecision::Stale, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if request.now_ms >= row.hold.expires_at_ms {
-        expire_active_hold(
-            graph,
-            &mut row,
-            counters,
-            pressure_index,
-            policy_revision,
-            global_policy_revision,
-            crypto,
-        )?;
-        hold_encode(holds, graph, &row, crypto)?;
-        return Ok((
-            renew_result(LaneDecision::Expired, Some(&row), policy_revision)?,
-            true,
-        ));
-    }
+    Some(LaneDecision::Stale)
+}
+
+/// The renew tail: prove the lifecycle WorkItem and observation freshness,
+/// then extend the live hold in place.  `row` is the already-gated hold.
+#[allow(clippy::too_many_arguments)]
+fn renew_live_hold(
+    graph: &str,
+    request: &DevelopmentLaneRenewRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    mut row: DurableLaneHold,
+    global_policy: &DevelopmentLaneQuotaPolicy,
+    policy_revision: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
     let work_item = match load_work_item(
         nodes,
         graph,
@@ -3771,7 +3746,7 @@ fn apply_renew(
             false,
         ));
     }
-    if !observation_fresh(&row, &global_policy.policy, request.now_ms) {
+    if !observation_fresh(&row, global_policy, request.now_ms) {
         return Ok((
             renew_result(LaneDecision::Stale, Some(&row), policy_revision)?,
             false,
@@ -3802,87 +3777,22 @@ fn apply_renew(
     ))
 }
 
+/// The observe tail: prove the lifecycle WorkItem, apply the monotonic
+/// observation, and charge only the checked positive delta.  `row` is the
+/// already-gated hold.
 #[allow(clippy::too_many_arguments)]
-fn apply_observe(
+fn observe_live_hold(
     graph: &str,
     request: &DevelopmentLaneObserveRequest,
     nodes: &redb::Table<(&str, &str), &[u8]>,
     holds: &mut redb::Table<(&str, &str), &[u8]>,
     counters: &mut redb::Table<(&str, &str), &[u8]>,
     pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
-    policies: &redb::Table<(&str, &str), &[u8]>,
+    mut row: DurableLaneHold,
+    policy_revision: u64,
+    global_policy_revision: u64,
     crypto: DurableCrypto<'_>,
 ) -> Result<(Vec<u8>, bool), String> {
-    if request.tenant_ref.is_empty()
-        || request.work_item_id.is_empty()
-        || request.owner_id.is_empty()
-        || request.hold_id.is_empty()
-        || request.idempotency_key.is_empty()
-        || request.observation_revision == 0
-    {
-        return Ok((observe_result(LaneDecision::Invalid, None, 0)?, false));
-    }
-    let policy = current_policy(policies, graph, &request.tenant_ref, crypto)?;
-    let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
-    let Some(policy) = policy else {
-        return Ok((observe_result(LaneDecision::Policy, None, 0)?, false));
-    };
-    let Some(global_policy) = load_global_policy(policies, graph, crypto)? else {
-        return Ok((
-            observe_result(LaneDecision::Policy, None, policy.policy_revision)?,
-            false,
-        ));
-    };
-    let global_policy_revision = global_policy.policy_revision;
-    let Some(mut row) = hold_load(holds, graph, &request.hold_id, crypto)? else {
-        return Ok((
-            observe_result(LaneDecision::NotFound, None, policy_revision)?,
-            false,
-        ));
-    };
-    if let Err(decision) = hold_correlations_match(
-        &row.hold,
-        &request.tenant_ref,
-        &request.work_item_id,
-        &request.owner_id,
-        request.attempt,
-        request.lease_epoch,
-        request.fencing_token,
-        &request.work_item_fence,
-    ) {
-        return Ok((
-            observe_result(decision, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if row.hold.tombstone || !row.hold.active_count_charged {
-        return Ok((
-            observe_result(LaneDecision::CleanupRequired, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if row.hold.hold_revision != request.expected_hold_revision {
-        return Ok((
-            observe_result(LaneDecision::Stale, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if request.now_ms >= row.hold.expires_at_ms {
-        expire_active_hold(
-            graph,
-            &mut row,
-            counters,
-            pressure_index,
-            policy_revision,
-            global_policy_revision,
-            crypto,
-        )?;
-        hold_encode(holds, graph, &row, crypto)?;
-        return Ok((
-            observe_result(LaneDecision::Expired, Some(&row), policy_revision)?,
-            true,
-        ));
-    }
     let work_item = match load_work_item(
         nodes,
         graph,
@@ -3919,23 +3829,9 @@ fn apply_observe(
             false,
         ));
     }
-    if request.observation_revision < row.observation_revision
-        || request.observed_disk_bytes < row.hold.observed_disk_bytes
-    {
+    if let Some(decision) = observation_ordering_refusal(request, &row) {
         return Ok((
-            observe_result(LaneDecision::Stale, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if request.observation_revision == row.observation_revision {
-        if request.observed_disk_bytes == row.hold.observed_disk_bytes {
-            return Ok((
-                observe_result(LaneDecision::Idempotent, Some(&row), policy_revision)?,
-                false,
-            ));
-        }
-        return Ok((
-            observe_result(LaneDecision::Stale, Some(&row), policy_revision)?,
+            observe_result(decision, Some(&row), policy_revision)?,
             false,
         ));
     }
@@ -3984,6 +3880,189 @@ fn apply_observe(
         observe_result(LaneDecision::Accepted, Some(&row), policy_revision)?,
         true,
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_renew(
+    graph: &str,
+    request: &DevelopmentLaneRenewRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    if renew_request_incomplete(request) {
+        return Ok((renew_result(LaneDecision::Invalid, None, 0)?, false));
+    }
+    let policy = current_policy(policies, graph, &request.tenant_ref, crypto)?;
+    let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
+    let Some(_policy) = policy else {
+        return Ok((renew_result(LaneDecision::Policy, None, 0)?, false));
+    };
+    let Some(global_policy) = load_global_policy(policies, graph, crypto)? else {
+        return Ok((
+            renew_result(LaneDecision::Policy, None, policy_revision)?,
+            false,
+        ));
+    };
+    let global_policy_revision = global_policy.policy_revision;
+    // TTL and freshness are graph-global controls.  Existing holds may renew
+    // while a drain is active, but they must observe the current global
+    // policy rather than a tenant row that still references an older global
+    // revision.
+    if ttl_outside_policy(request.ttl_ms, &global_policy.policy) {
+        return Ok((
+            renew_result(LaneDecision::Policy, None, policy_revision)?,
+            false,
+        ));
+    }
+    let Some(mut row) = hold_load(holds, graph, &request.hold_id, crypto)? else {
+        return Ok((
+            renew_result(LaneDecision::NotFound, None, policy_revision)?,
+            false,
+        ));
+    };
+    if let Err(decision) = hold_correlations_match(
+        &row.hold,
+        &request.tenant_ref,
+        &request.work_item_id,
+        &request.owner_id,
+        request.attempt,
+        request.lease_epoch,
+        request.fencing_token,
+        &request.work_item_fence,
+    ) {
+        return Ok((renew_result(decision, Some(&row), policy_revision)?, false));
+    }
+    if hold_no_longer_active(&row.hold) {
+        return Ok((
+            renew_result(LaneDecision::Terminal, Some(&row), policy_revision)?,
+            false,
+        ));
+    }
+    if row.hold.hold_revision != request.expected_hold_revision {
+        return Ok((
+            renew_result(LaneDecision::Stale, Some(&row), policy_revision)?,
+            false,
+        ));
+    }
+    if request.now_ms >= row.hold.expires_at_ms {
+        expire_active_hold(
+            graph,
+            &mut row,
+            counters,
+            pressure_index,
+            policy_revision,
+            global_policy_revision,
+            crypto,
+        )?;
+        hold_encode(holds, graph, &row, crypto)?;
+        return Ok((
+            renew_result(LaneDecision::Expired, Some(&row), policy_revision)?,
+            true,
+        ));
+    }
+    renew_live_hold(
+        graph,
+        request,
+        nodes,
+        holds,
+        row,
+        &global_policy.policy,
+        policy_revision,
+        crypto,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_observe(
+    graph: &str,
+    request: &DevelopmentLaneObserveRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    if observe_request_incomplete(request) {
+        return Ok((observe_result(LaneDecision::Invalid, None, 0)?, false));
+    }
+    let policy = current_policy(policies, graph, &request.tenant_ref, crypto)?;
+    let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
+    let Some(policy) = policy else {
+        return Ok((observe_result(LaneDecision::Policy, None, 0)?, false));
+    };
+    let Some(global_policy) = load_global_policy(policies, graph, crypto)? else {
+        return Ok((
+            observe_result(LaneDecision::Policy, None, policy.policy_revision)?,
+            false,
+        ));
+    };
+    let global_policy_revision = global_policy.policy_revision;
+    let Some(mut row) = hold_load(holds, graph, &request.hold_id, crypto)? else {
+        return Ok((
+            observe_result(LaneDecision::NotFound, None, policy_revision)?,
+            false,
+        ));
+    };
+    if let Err(decision) = hold_correlations_match(
+        &row.hold,
+        &request.tenant_ref,
+        &request.work_item_id,
+        &request.owner_id,
+        request.attempt,
+        request.lease_epoch,
+        request.fencing_token,
+        &request.work_item_fence,
+    ) {
+        return Ok((
+            observe_result(decision, Some(&row), policy_revision)?,
+            false,
+        ));
+    }
+    if hold_no_longer_active(&row.hold) {
+        return Ok((
+            observe_result(LaneDecision::CleanupRequired, Some(&row), policy_revision)?,
+            false,
+        ));
+    }
+    if row.hold.hold_revision != request.expected_hold_revision {
+        return Ok((
+            observe_result(LaneDecision::Stale, Some(&row), policy_revision)?,
+            false,
+        ));
+    }
+    if request.now_ms >= row.hold.expires_at_ms {
+        expire_active_hold(
+            graph,
+            &mut row,
+            counters,
+            pressure_index,
+            policy_revision,
+            global_policy_revision,
+            crypto,
+        )?;
+        hold_encode(holds, graph, &row, crypto)?;
+        return Ok((
+            observe_result(LaneDecision::Expired, Some(&row), policy_revision)?,
+            true,
+        ));
+    }
+    observe_live_hold(
+        graph,
+        request,
+        nodes,
+        holds,
+        counters,
+        pressure_index,
+        row,
+        policy_revision,
+        global_policy_revision,
+        crypto,
+    )
 }
 
 fn finish_state_matches(
