@@ -1001,10 +1001,14 @@ impl Completion {
 
     /// Apply the deterministic GENERATING rules once (`∃`, `≥`) — lowest priority, and
     /// only on non-blocked nodes, so equality blocking terminates the tree.
-    fn step_generating(&mut self) -> bool {
+    /// Phase (3) of `step_generating`: the ∃-rule. Split out
+    /// (extract-method, cx/wD8) — same terms, same order as before,
+    /// including the `NODE_CAP` safety-valve early return: the original
+    /// `return changed;` mid-loop exited `step_generating` ENTIRELY
+    /// (skipping the ≥-rule too), so this returns `(changed, true)` to let
+    /// the caller reproduce that exact short-circuit.
+    fn step_exists_rule(&mut self) -> (bool, bool) {
         let mut changed = false;
-
-        // (3) ∃-rule.
         for i in self.reps() {
             if self.is_blocked(i) {
                 continue;
@@ -1024,7 +1028,7 @@ impl Completion {
                     .any(|&y| self.nodes[y].label.contains(&filler));
                 if !satisfied {
                     if self.nodes.len() >= NODE_CAP {
-                        return changed;
+                        return (changed, true);
                     }
                     let mut lab = BTreeSet::new();
                     lab.insert(filler.clone());
@@ -1034,49 +1038,81 @@ impl Completion {
                 }
             }
         }
+        (changed, false)
+    }
 
-        // (4) ≥-rule.
+    /// Apply the ≥-rule's known `(n, role, filler)` obligations for one node
+    /// `i`. Split out of `step_min_rule` (extract-method, cx/wD8) — same
+    /// terms, same order as before, same `NODE_CAP` short-circuit
+    /// convention as [`Self::step_exists_rule`].
+    fn apply_min_rule_to_node(&mut self, i: usize) -> (bool, bool) {
+        let mut changed = false;
+        let mins: Vec<(usize, String, Dl)> = self.nodes[i]
+            .label
+            .iter()
+            .filter_map(|c| match c {
+                Dl::Min(n, r, f) => std::option::Option::Some((*n, r.clone(), (**f).clone())),
+                _ => std::option::Option::None,
+            })
+            .collect();
+        for (n, role, filler) in mins {
+            if n == 0 {
+                continue;
+            }
+            let witnesses: Vec<usize> = self
+                .role_neighbors(i, &role)
+                .into_iter()
+                .filter(|&y| self.qualifies(y, &filler))
+                .collect();
+            if witnesses.len() < n {
+                if self.nodes.len() >= NODE_CAP {
+                    return (changed, true);
+                }
+                let mut lab = BTreeSet::new();
+                if !matches!(filler, Dl::Top) {
+                    lab.insert(filler.clone());
+                }
+                let z = self.add_node(lab, BTreeSet::new(), std::option::Option::Some(i));
+                self.edges.push((i, role.clone(), z));
+                // Distinct from every existing qualifying witness (pairwise ≠).
+                for &y in &witnesses {
+                    self.neq.push((z, y));
+                }
+                changed = true;
+            }
+        }
+        (changed, false)
+    }
+
+    /// Phase (4) of `step_generating`: the ≥-rule. Split out
+    /// (extract-method, cx/wD8) — same terms, same order as before,
+    /// same `NODE_CAP` short-circuit convention as [`Self::step_exists_rule`].
+    fn step_min_rule(&mut self) -> (bool, bool) {
+        let mut changed = false;
         for i in self.reps() {
             if self.is_blocked(i) {
                 continue;
             }
-            let mins: Vec<(usize, String, Dl)> = self.nodes[i]
-                .label
-                .iter()
-                .filter_map(|c| match c {
-                    Dl::Min(n, r, f) => std::option::Option::Some((*n, r.clone(), (**f).clone())),
-                    _ => std::option::Option::None,
-                })
-                .collect();
-            for (n, role, filler) in mins {
-                if n == 0 {
-                    continue;
-                }
-                let witnesses: Vec<usize> = self
-                    .role_neighbors(i, &role)
-                    .into_iter()
-                    .filter(|&y| self.qualifies(y, &filler))
-                    .collect();
-                if witnesses.len() < n {
-                    if self.nodes.len() >= NODE_CAP {
-                        return changed;
-                    }
-                    let mut lab = BTreeSet::new();
-                    if !matches!(filler, Dl::Top) {
-                        lab.insert(filler.clone());
-                    }
-                    let z = self.add_node(lab, BTreeSet::new(), std::option::Option::Some(i));
-                    self.edges.push((i, role.clone(), z));
-                    // Distinct from every existing qualifying witness (pairwise ≠).
-                    for &y in &witnesses {
-                        self.neq.push((z, y));
-                    }
-                    changed = true;
-                }
+            let (c, capped) = self.apply_min_rule_to_node(i);
+            if c {
+                changed = true;
+            }
+            if capped {
+                return (changed, true);
             }
         }
+        (changed, false)
+    }
 
-        changed
+    fn step_generating(&mut self) -> bool {
+        // (3) ∃-rule.
+        let (changed3, capped3) = self.step_exists_rule();
+        if capped3 {
+            return changed3;
+        }
+        // (4) ≥-rule.
+        let (changed4, _capped4) = self.step_min_rule();
+        changed3 || changed4
     }
 
     /// Find the first non-deterministic choice point and return its alternatives, or
