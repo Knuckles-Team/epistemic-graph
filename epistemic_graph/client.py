@@ -913,19 +913,24 @@ def _validate_explicit_string_list(name: str, values: Any) -> list[str]:
     return detached
 
 
+def _names_a_host_location(value: str) -> bool:
+    """Whether a source name reaches at a host path (POSIX or Windows) or URL."""
+    if "\x00" in value or value.startswith("~") or value.casefold().startswith("file:"):
+        return True
+    windows_path = PureWindowsPath(value)
+    return (
+        PurePosixPath(value).is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+    )
+
+
 def _logical_source_name(value: Any) -> str:
     """Return a portable source identifier that cannot expose a host path."""
 
     if not isinstance(value, str) or not value.strip() or value != value.strip():
         raise ValueError("source name must be a non-empty logical identifier")
-    if "\x00" in value or value.startswith("~") or value.casefold().startswith("file:"):
-        raise ValueError("source name must not identify a host filesystem location")
-    windows_path = PureWindowsPath(value)
-    if (
-        PurePosixPath(value).is_absolute()
-        or windows_path.is_absolute()
-        or bool(windows_path.drive)
-    ):
+    if _names_a_host_location(value):
         raise ValueError("source name must not identify a host filesystem location")
     normalized = value.replace("\\", "/")
     if any(part in {".", ".."} for part in normalized.split("/")):
@@ -3661,6 +3666,14 @@ def _submit_work_item_request_shape(value: Any) -> dict[str, Any]:
     return _exact_mapping("SubmitWorkItems child", value, allowed)
 
 
+_SUBMIT_WORK_ITEM_COUNTERS = (
+    "command_sequence",
+    "dependency_count",
+    "admitted_count",
+    "max_tenant_in_flight",
+)
+
+
 def _submit_work_item_result(value: Any) -> dict[str, Any]:
     result = _exact_mapping(
         "SubmitWorkItem result",
@@ -3694,17 +3707,29 @@ def _submit_work_item_result(value: Any) -> dict[str, Any]:
         "command_digest",
     ):
         _string(f"SubmitWorkItem result.{field}", result[field])
-    for field in (
-        "command_sequence",
-        "dependency_count",
-        "admitted_count",
-        "max_tenant_in_flight",
-    ):
-        _integer(f"SubmitWorkItem result.{field}", result[field])
+    _integers("SubmitWorkItem result", result, _SUBMIT_WORK_ITEM_COUNTERS)
     _boolean("SubmitWorkItem result.created", result["created"])
     _boolean("SubmitWorkItem result.replayed", result["replayed"])
     if result["created"] == result["replayed"]:
         raise ValueError("SubmitWorkItem result must be created xor replayed")
+    _submit_work_item_reference_lists(result)
+    if result["work_item_id"] not in result["changed_work_item_ids"]:
+        raise ValueError("SubmitWorkItem result does not identify its changed row")
+    return result
+
+
+def _bounded_reference_list(
+    references: list[Any], *, label: str, limit: int, message: str
+) -> None:
+    """Each entry is a non-empty string within ``limit`` UTF-8 bytes."""
+    for reference in references:
+        _string(label, reference)
+        if len(reference.encode("utf-8")) > limit:
+            raise ValueError(message)
+
+
+def _submit_work_item_reference_lists(result: dict[str, Any]) -> None:
+    """The bounded provenance and changed-row reference lists."""
     if (
         not isinstance(result["provenance_refs"], list)
         or len(result["provenance_refs"]) > 64
@@ -3715,19 +3740,18 @@ def _submit_work_item_result(value: Any) -> dict[str, Any]:
         or not 1 <= len(result["changed_work_item_ids"]) <= 1025
     ):
         raise ValueError("SubmitWorkItem result list fields are invalid")
-    for reference in result["provenance_refs"]:
-        _string("SubmitWorkItem result.provenance_refs[]", reference)
-        if len(reference.encode("utf-8")) > 1_048_576:
-            raise ValueError("SubmitWorkItem result.provenance_refs[] exceeds 1 MiB")
-    for reference in result["changed_work_item_ids"]:
-        _string("SubmitWorkItem result.changed_work_item_ids[]", reference)
-        if len(reference.encode("utf-8")) > 512:
-            raise ValueError(
-                "SubmitWorkItem result.changed_work_item_ids[] exceeds 512 bytes"
-            )
-    if result["work_item_id"] not in result["changed_work_item_ids"]:
-        raise ValueError("SubmitWorkItem result does not identify its changed row")
-    return result
+    _bounded_reference_list(
+        result["provenance_refs"],
+        label="SubmitWorkItem result.provenance_refs[]",
+        limit=1_048_576,
+        message="SubmitWorkItem result.provenance_refs[] exceeds 1 MiB",
+    )
+    _bounded_reference_list(
+        result["changed_work_item_ids"],
+        label="SubmitWorkItem result.changed_work_item_ids[]",
+        limit=512,
+        message="SubmitWorkItem result.changed_work_item_ids[] exceeds 512 bytes",
+    )
 
 
 def _submit_work_items_result(value: Any) -> dict[str, Any]:
@@ -4184,22 +4208,7 @@ class WorkItemClient:
         _string("CasWorkItemMetadata.tenant_ref", tenant)
         _string("CasWorkItemMetadata.work_item_id", work_item_id)
 
-        lease_field: dict[str, Any] | None = None
-        if expected_lease is not None:
-            lease_field = {
-                "worker_ref": _string(
-                    "CasWorkItemMetadata.expected_lease.worker_ref",
-                    expected_lease["worker_ref"],
-                ),
-                "lease_epoch": _integer(
-                    "CasWorkItemMetadata.expected_lease.lease_epoch",
-                    int(expected_lease["lease_epoch"]),
-                ),
-                "fencing_token": _integer(
-                    "CasWorkItemMetadata.expected_lease.fencing_token",
-                    int(expected_lease["fencing_token"]),
-                ),
-            }
+        lease_field = _cas_expected_lease(expected_lease)
 
         request = {
             "schema_version": "1",
@@ -4222,29 +4231,7 @@ class WorkItemClient:
             "now_ms": int(now_ms),
         }
         result = await self._client._send("CasWorkItemMetadata", {"request": request})
-        answer = _exact_mapping(
-            "CasWorkItemMetadata result",
-            result,
-            frozenset(
-                {"schema_version", "outcome", "work_item_id", "changed_work_item_ids"}
-            ),
-        )
-        if answer["schema_version"] != "1":
-            raise ValueError("CasWorkItemMetadata result schema_version must be 1")
-        if answer["outcome"] not in {"applied", "conflict", "not_found"}:
-            raise ValueError("CasWorkItemMetadata result outcome is invalid")
-        changed = answer["changed_work_item_ids"]
-        if not isinstance(changed, list):
-            raise ValueError("CasWorkItemMetadata result changed ids are invalid")
-        if answer["outcome"] == "applied" and changed != [work_item_id]:
-            raise ValueError(
-                "applied CasWorkItemMetadata result changed ids are invalid"
-            )
-        if answer["outcome"] != "applied" and changed != []:
-            raise ValueError(
-                "non-applied CasWorkItemMetadata result must not change any row"
-            )
-        return answer
+        return _cas_metadata_result(result, work_item_id)
 
     async def _require_resource_method(self, method: str) -> None:
         """Negotiate the additive method before sending it to an older engine."""
@@ -4464,20 +4451,7 @@ class CapacityLeaseClient:
             for field in ("tenant_ref", "owner_digest")
         ):
             raise ValueError(f"{method} identity field exceeds 512 bytes")
-        leases = value["leases"]
-        if not isinstance(leases, list) or not 1 <= len(leases) <= 16:
-            raise ValueError(f"{method}.leases must contain 1..16 entries")
-        for fence in leases:
-            row = _exact_mapping(
-                f"{method} lease fence",
-                fence,
-                frozenset({"lease_id", "lease_epoch", "fence_token"}),
-            )
-            _string(f"{method}.lease_id", row["lease_id"])
-            if len(row["lease_id"].encode("utf-8")) > 512:
-                raise ValueError(f"{method}.lease_id exceeds 512 bytes")
-            _integer(f"{method}.lease_epoch", row["lease_epoch"], minimum=1)
-            _integer(f"{method}.fence_token", row["fence_token"], minimum=1)
+        _validate_capacity_lease_fences(value["leases"], method)
         _integer(f"{method}.now_ms", value["now_ms"])
         # Mirror the native authority exactly: capacity_lease.rs bounds ttl_ms
         # only on RENEWAL (`if renew && request.ttl_ms.is_some_and(...)`).
@@ -4847,6 +4821,22 @@ def _development_lane_intent(value: Any) -> dict[str, Any]:
     return intent
 
 
+_DEVELOPMENT_LANE_HOLD_COUNTERS = (
+    "predicted_disk_bytes",
+    "observed_disk_bytes",
+    "retained_disk_bytes",
+    "attempt",
+    "lease_epoch",
+    "fencing_token",
+    "hold_revision",
+    "lifecycle_revision",
+    "allocation_revision",
+    "cleanup_revision",
+    "expires_at_ms",
+    "last_renewed_at_ms",
+)
+
+
 def _development_lane_hold(value: Any) -> dict[str, Any]:
     hold = _exact_mapping(
         "DevelopmentLaneHold",
@@ -4932,36 +4922,24 @@ def _development_lane_hold(value: Any) -> dict[str, Any]:
     _development_lane_quota_charge(
         "DevelopmentLaneHold.quota_charge", hold["quota_charge"]
     )
-    for field in (
-        "predicted_disk_bytes",
-        "observed_disk_bytes",
-        "retained_disk_bytes",
-        "attempt",
-        "lease_epoch",
-        "fencing_token",
-        "hold_revision",
-        "lifecycle_revision",
-        "allocation_revision",
-        "cleanup_revision",
-        "expires_at_ms",
-        "last_renewed_at_ms",
-    ):
-        _integer(f"DevelopmentLaneHold.{field}", hold[field])
-    _boolean("DevelopmentLaneHold.active_count_charged", hold["active_count_charged"])
-    _boolean("DevelopmentLaneHold.tombstone", hold["tombstone"])
-    if hold["cleanup_work_item_id"] is not None:
-        _string(
-            "DevelopmentLaneHold.cleanup_work_item_id", hold["cleanup_work_item_id"]
-        )
-    if hold["cleanup_work_item_fence"] is not None:
-        _string(
-            "DevelopmentLaneHold.cleanup_work_item_fence",
-            hold["cleanup_work_item_fence"],
-        )
-    for field in ("cleanup_attempt", "cleanup_lease_epoch", "cleanup_fencing_token"):
-        if hold[field] is not None:
-            _integer(f"DevelopmentLaneHold.{field}", hold[field])
+    _integers("DevelopmentLaneHold", hold, _DEVELOPMENT_LANE_HOLD_COUNTERS)
+    _booleans(
+        "DevelopmentLaneHold", hold, ("active_count_charged", "tombstone")
+    )
+    _development_lane_cleanup_fields(hold)
     return hold
+
+
+def _development_lane_cleanup_fields(hold: dict[str, Any]) -> None:
+    """The optional cleanup-WorkItem back-reference carried by a hold."""
+    for field in ("cleanup_work_item_id", "cleanup_work_item_fence"):
+        if hold[field] is not None:
+            _string(f"DevelopmentLaneHold.{field}", hold[field])
+    _optional_integers(
+        "DevelopmentLaneHold",
+        hold,
+        ("cleanup_attempt", "cleanup_lease_epoch", "cleanup_fencing_token"),
+    )
 
 
 def _development_lane_hold_result(name: str, value: Any) -> dict[str, Any]:
@@ -6462,18 +6440,18 @@ class ReasoningClient:
         """
         return await self._client._send(
             "RunDatalogReasoning",
-            {
-                "subclass_relations": [list(t) for t in (subclass_relations or [])],
-                "subproperty_relations": [
-                    list(t) for t in (subproperty_relations or [])
-                ],
-                "symmetric_properties": list(symmetric_properties or []),
-                "transitive_properties": list(transitive_properties or []),
-                "inverse_properties": [list(t) for t in (inverse_properties or [])],
-                "domain_rules": [list(t) for t in (domain_rules or [])],
-                "range_rules": [list(t) for t in (range_rules or [])],
-                "property_chains": [list(t) for t in (property_chains or [])],
-            },
+            _datalog_rule_params(
+                {
+                    "subclass_relations": subclass_relations,
+                    "subproperty_relations": subproperty_relations,
+                    "symmetric_properties": symmetric_properties,
+                    "transitive_properties": transitive_properties,
+                    "inverse_properties": inverse_properties,
+                    "domain_rules": domain_rules,
+                    "range_rules": range_rules,
+                    "property_chains": property_chains,
+                }
+            ),
         )
 
 
@@ -6761,52 +6739,7 @@ class PlacementClient:
                 }
             },
         )
-        answer = _exact_mapping(
-            "PlacementRoute",
-            answer,
-            frozenset(
-                {
-                    "schema_version",
-                    "route_id",
-                    "tenant_ref",
-                    "partition_ref",
-                    "authoritative",
-                    "placed",
-                    "group",
-                    "epoch",
-                    "fencing_token",
-                    "stale",
-                    "leader_ref",
-                    "endpoints",
-                }
-            ),
-        )
-        if answer["schema_version"] != "1" or answer["authoritative"] is not True:
-            raise ValueError("engine returned a non-authoritative placement route")
-        _string("PlacementRoute.route_id", answer["route_id"])
-        if answer["tenant_ref"] != tenant or answer["partition_ref"] != sub_key:
-            raise ValueError("engine returned a route for a different partition")
-        group = _integer("PlacementRoute.group", answer["group"])
-        epoch = _integer("PlacementRoute.epoch", answer["epoch"])
-        fence = _integer("PlacementRoute.fencing_token", answer["fencing_token"])
-        placed = _boolean("PlacementRoute.placed", answer["placed"])
-        _boolean("PlacementRoute.stale", answer["stale"])
-        if (
-            not isinstance(placed, bool)
-            or group < 0
-            or epoch < 0
-            or fence != group
-            or (placed and epoch == 0)
-        ):
-            raise ValueError("engine returned an invalid placement fence")
-        endpoints = answer["endpoints"]
-        if not isinstance(endpoints, list) or not all(
-            isinstance(e, str) and e for e in endpoints
-        ):
-            raise ValueError(
-                "PlacementRoute.endpoints must be a list of non-empty strings"
-            )
-        return answer
+        return _validate_placement_route(answer, tenant, sub_key)
 
     async def assign(self, tenant: str, group: int) -> int:
         """Assign the WHOLE keyspace of ``tenant`` to ``group`` (the placement
@@ -6912,24 +6845,28 @@ class ClusterTopologyClient:
 
     @classmethod
     def _endpoint_is_bounded(cls, endpoint: Any) -> bool:
-        if (
-            not isinstance(endpoint, str)
-            or not endpoint
-            or len(endpoint) > cls._MAX_FIELD_BYTES
-        ):
+        if not cls._is_bounded_printable(endpoint):
             return False
-        if any(
-            character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
-            for character in endpoint
-        ):
-            return False
-        if not (endpoint.startswith("tcp://") or endpoint.startswith("tls://")):
+        if not endpoint.startswith(("tcp://", "tls://")):
             return False
         address = endpoint.split("://", 1)[1]
         if any(character in address for character in "/?#@"):
             return False
         port = cls._endpoint_port(address)
         return port is not None and 0 < port <= 65_535
+
+    @classmethod
+    def _is_bounded_printable(cls, text: Any) -> bool:
+        """A bounded, non-empty string free of whitespace and control characters."""
+        return (
+            isinstance(text, str)
+            and bool(text)
+            and len(text) <= cls._MAX_FIELD_BYTES
+            and not any(
+                character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+                for character in text
+            )
+        )
 
     @staticmethod
     def _endpoint_host_port(address: str) -> tuple[str, str] | None:
@@ -6962,29 +6899,30 @@ class ClusterTopologyClient:
     @classmethod
     def _certificate(cls, member: dict[str, Any]) -> tuple[Any, ...]:
         certificate = member.get("certificate")
-        if not isinstance(certificate, dict) or set(certificate) != {
-            "id",
-            "rotation_epoch",
-            "not_before_ms",
-            "not_after_ms",
-        }:
+        if not isinstance(certificate, dict) or set(certificate) != _CERTIFICATE_FIELDS:
             raise ValueError("ClusterMembers certificate metadata is malformed")
         certificate_id = certificate["id"]
         if certificate_id is not None and not cls._is_certificate_id(certificate_id):
             raise ValueError("ClusterMembers certificate id is malformed")
         rotation_epoch = certificate["rotation_epoch"]
-        not_before = certificate["not_before_ms"]
-        not_after = certificate["not_after_ms"]
         if not cls._is_u64(rotation_epoch):
             raise ValueError("ClusterMembers certificate rotation epoch is malformed")
+        not_before, not_after = cls._certificate_validity(certificate)
+        if rotation_epoch > 0 and certificate_id is None:
+            raise ValueError("ClusterMembers certificate rotation requires an id")
+        return certificate_id, rotation_epoch, not_before, not_after
+
+    @classmethod
+    def _certificate_validity(cls, certificate: dict[str, Any]) -> tuple[Any, Any]:
+        """The optional not-before / not-after window, checked for inversion."""
+        not_before = certificate["not_before_ms"]
+        not_after = certificate["not_after_ms"]
         for value in (not_before, not_after):
             if value is not None and not cls._is_u64(value):
                 raise ValueError("ClusterMembers certificate validity is malformed")
         if not_before is not None and not_after is not None and not_before > not_after:
             raise ValueError("ClusterMembers certificate validity is inverted")
-        if rotation_epoch > 0 and certificate_id is None:
-            raise ValueError("ClusterMembers certificate rotation requires an id")
-        return certificate_id, rotation_epoch, not_before, not_after
+        return not_before, not_after
 
     @classmethod
     def _is_u64(cls, value: Any) -> bool:
@@ -7472,14 +7410,7 @@ class ServerRegistryClient:
         optional, non-sensitive, size-bounded metadata (encoded as opaque
         JSON). Returns ``True`` on success.
         """
-        if not isinstance(name, str) or not name:
-            raise ValueError("RegisterServer.name is required")
-        if not isinstance(url, str) or not url:
-            raise ValueError("RegisterServer.url is required")
-        if isinstance(ttl_secs, bool) or not isinstance(ttl_secs, int) or ttl_secs <= 0:
-            raise ValueError("RegisterServer.ttl_secs must be a positive integer")
-        if resources is not None and not isinstance(resources, dict):
-            raise ValueError("RegisterServer.resources must be a mapping")
+        _validate_register_server(name, url, ttl_secs, resources)
         resources_json = (
             json.dumps(resources, separators=(",", ":"), sort_keys=True)
             if resources
@@ -7696,26 +7627,12 @@ class ConsensusClient:
     ) -> str:
         """Apply an administrative mutation signed by explicit trusted signers."""
 
-        if (
-            not isinstance(signer_keys, dict)
-            or not isinstance(threshold, int)
-            or isinstance(threshold, bool)
-            or threshold <= 0
-            or len(signer_keys) < threshold
-        ):
-            raise ValueError("threshold requires at least that many explicit signers")
+        _validate_multisig_threshold(signer_keys, threshold)
         if not isinstance(mutation_type, str) or not mutation_type.strip():
             raise ValueError("mutation_type and query must be non-empty strings")
         if not isinstance(query, str) or not query.strip():
             raise ValueError("mutation_type and query must be non-empty strings")
-        if any(
-            not isinstance(signer_id, str)
-            or not signer_id.strip()
-            or not isinstance(signer_key, str)
-            or not signer_key
-            for signer_id, signer_key in signer_keys.items()
-        ):
-            raise ValueError("operation signer ids and keys must be non-empty strings")
+        _validate_multisig_signer_entries(signer_keys)
         idempotency_key = self._client._new_operation_idempotency_key()
         params: dict[str, Any] = {
             "signatures": [],
@@ -10092,6 +10009,213 @@ def _envelope_v2_context_payload(env: _EnvelopeV2) -> dict[str, Any]:
     if env.priority:
         payload["priority"] = env.priority
     return payload
+
+
+def _validate_multisig_threshold(signer_keys: Any, threshold: Any) -> None:
+    """Enough explicit signers to meet the threshold."""
+    if (
+        not isinstance(signer_keys, dict)
+        or not isinstance(threshold, int)
+        or isinstance(threshold, bool)
+        or threshold <= 0
+        or len(signer_keys) < threshold
+    ):
+        raise ValueError("threshold requires at least that many explicit signers")
+
+
+def _validate_multisig_signer_entries(signer_keys: dict[Any, Any]) -> None:
+    """Every signer entry is a non-empty id/key string pair."""
+    if any(
+        not isinstance(signer_id, str)
+        or not signer_id.strip()
+        or not isinstance(signer_key, str)
+        or not signer_key
+        for signer_id, signer_key in signer_keys.items()
+    ):
+        raise ValueError("operation signer ids and keys must be non-empty strings")
+
+
+# The RunDatalogReasoning rule sets, IN WIRE ORDER; the flat ones are plain
+# string lists, the rest are tuple-per-entry relations.
+_DATALOG_FLAT_RULE_SETS = frozenset({"symmetric_properties", "transitive_properties"})
+
+
+def _datalog_rule_params(rule_sets: dict[str, Any]) -> dict[str, Any]:
+    """Normalise every optional Datalog rule set to a wire-shaped list."""
+    return {
+        name: (
+            list(value or [])
+            if name in _DATALOG_FLAT_RULE_SETS
+            else [list(entry) for entry in (value or [])]
+        )
+        for name, value in rule_sets.items()
+    }
+
+
+_PLACEMENT_ROUTE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "route_id",
+        "tenant_ref",
+        "partition_ref",
+        "authoritative",
+        "placed",
+        "group",
+        "epoch",
+        "fencing_token",
+        "stale",
+        "leader_ref",
+        "endpoints",
+    }
+)
+
+
+def _validate_placement_fence(answer: dict[str, Any]) -> None:
+    """The route's group/epoch/fence triple, and its placed/stale flags."""
+    group = _integer("PlacementRoute.group", answer["group"])
+    epoch = _integer("PlacementRoute.epoch", answer["epoch"])
+    fence = _integer("PlacementRoute.fencing_token", answer["fencing_token"])
+    placed = _boolean("PlacementRoute.placed", answer["placed"])
+    _boolean("PlacementRoute.stale", answer["stale"])
+    if (
+        not isinstance(placed, bool)
+        or group < 0
+        or epoch < 0
+        or fence != group
+        or (placed and epoch == 0)
+    ):
+        raise ValueError("engine returned an invalid placement fence")
+
+
+def _validate_placement_route(
+    answer: Any, tenant: str, sub_key: str
+) -> dict[str, Any]:
+    """A complete, authoritative, correctly-addressed engine-authored route."""
+    answer = _exact_mapping("PlacementRoute", answer, _PLACEMENT_ROUTE_FIELDS)
+    if answer["schema_version"] != "1" or answer["authoritative"] is not True:
+        raise ValueError("engine returned a non-authoritative placement route")
+    _string("PlacementRoute.route_id", answer["route_id"])
+    if answer["tenant_ref"] != tenant or answer["partition_ref"] != sub_key:
+        raise ValueError("engine returned a route for a different partition")
+    _validate_placement_fence(answer)
+    endpoints = answer["endpoints"]
+    if not isinstance(endpoints, list) or not all(
+        isinstance(e, str) and e for e in endpoints
+    ):
+        raise ValueError("PlacementRoute.endpoints must be a list of non-empty strings")
+    return answer
+
+
+def _cas_expected_lease(
+    expected_lease: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """The optional live-lease fence carried by a CasWorkItemMetadata request."""
+    if expected_lease is None:
+        return None
+    return {
+        "worker_ref": _string(
+            "CasWorkItemMetadata.expected_lease.worker_ref",
+            expected_lease["worker_ref"],
+        ),
+        "lease_epoch": _integer(
+            "CasWorkItemMetadata.expected_lease.lease_epoch",
+            int(expected_lease["lease_epoch"]),
+        ),
+        "fencing_token": _integer(
+            "CasWorkItemMetadata.expected_lease.fencing_token",
+            int(expected_lease["fencing_token"]),
+        ),
+    }
+
+
+def _cas_metadata_result(result: Any, work_item_id: str) -> dict[str, Any]:
+    """The three-outcome CAS answer, with its changed-row set cross-checked."""
+    answer = _exact_mapping(
+        "CasWorkItemMetadata result",
+        result,
+        frozenset(
+            {"schema_version", "outcome", "work_item_id", "changed_work_item_ids"}
+        ),
+    )
+    if answer["schema_version"] != "1":
+        raise ValueError("CasWorkItemMetadata result schema_version must be 1")
+    if answer["outcome"] not in {"applied", "conflict", "not_found"}:
+        raise ValueError("CasWorkItemMetadata result outcome is invalid")
+    changed = answer["changed_work_item_ids"]
+    if not isinstance(changed, list):
+        raise ValueError("CasWorkItemMetadata result changed ids are invalid")
+    if answer["outcome"] == "applied" and changed != [work_item_id]:
+        raise ValueError("applied CasWorkItemMetadata result changed ids are invalid")
+    if answer["outcome"] != "applied" and changed != []:
+        raise ValueError(
+            "non-applied CasWorkItemMetadata result must not change any row"
+        )
+    return answer
+
+
+def _validate_capacity_lease_fences(leases: Any, method: str) -> None:
+    """1..16 lease fences, each a bounded id with positive epoch/fence token."""
+    if not isinstance(leases, list) or not 1 <= len(leases) <= 16:
+        raise ValueError(f"{method}.leases must contain 1..16 entries")
+    for fence in leases:
+        row = _exact_mapping(
+            f"{method} lease fence",
+            fence,
+            frozenset({"lease_id", "lease_epoch", "fence_token"}),
+        )
+        _string(f"{method}.lease_id", row["lease_id"])
+        if len(row["lease_id"].encode("utf-8")) > 512:
+            raise ValueError(f"{method}.lease_id exceeds 512 bytes")
+        _integer(f"{method}.lease_epoch", row["lease_epoch"], minimum=1)
+        _integer(f"{method}.fence_token", row["fence_token"], minimum=1)
+
+
+async def _read_frame(reader: asyncio.StreamReader) -> dict[str, Any]:
+    """Read ONE length-prefixed msgpack response frame off the wire."""
+    len_buf = await reader.readexactly(4)
+    msg_len = int.from_bytes(len_buf, byteorder="big")
+    if msg_len <= 0 or msg_len > _MAX_RESPONSE_BYTES:
+        raise ConnectionError(
+            "epistemic-graph response exceeded the configured resource limit"
+        )
+    body = await reader.readexactly(msg_len)
+    resp = msgpack.unpackb(body, raw=False)
+    if not isinstance(resp, dict) or not isinstance(resp.get("id"), int):
+        raise ConnectionError("epistemic-graph response is missing its correlation id")
+    return resp
+
+
+def _validate_register_server(
+    name: Any, url: Any, ttl_secs: Any, resources: Any
+) -> None:
+    """The RegisterServer push-registration arguments."""
+    if not isinstance(name, str) or not name:
+        raise ValueError("RegisterServer.name is required")
+    if not isinstance(url, str) or not url:
+        raise ValueError("RegisterServer.url is required")
+    if isinstance(ttl_secs, bool) or not isinstance(ttl_secs, int) or ttl_secs <= 0:
+        raise ValueError("RegisterServer.ttl_secs must be a positive integer")
+    if resources is not None and not isinstance(resources, dict):
+        raise ValueError("RegisterServer.resources must be a mapping")
+
+
+_CERTIFICATE_FIELDS = {"id", "rotation_epoch", "not_before_ms", "not_after_ms"}
+
+
+def _validate_resource_stats_arrays(
+    snapshot: dict[str, Any], *, limit: int, summary: bool
+) -> None:
+    """The two bounded detail arrays a ResourceStats page may carry."""
+    graphs = snapshot.get("graphs", [])
+    tenants = snapshot.get("tenants", [])
+    if not isinstance(graphs, list) or not isinstance(tenants, list):
+        raise RuntimeError("ResourceStats response arrays are malformed")
+    if len(graphs) > limit:
+        raise RuntimeError("ResourceStats response exceeded its bounded graph page")
+    if len(tenants) > _MAX_RESOURCE_STATS_TENANTS:
+        raise RuntimeError("ResourceStats response exceeded its bounded tenant page")
+    if summary and (graphs or tenants):
+        raise RuntimeError("summary ResourceStats response must omit detail arrays")
 
 
 def _decode_send_result(result: Any) -> Any:
@@ -14117,21 +14241,7 @@ class EpistemicGraphClient:
         """
         try:
             while True:
-                len_buf = await reader.readexactly(4)
-                msg_len = int.from_bytes(len_buf, byteorder="big")
-                if msg_len <= 0 or msg_len > _MAX_RESPONSE_BYTES:
-                    raise ConnectionError(
-                        "epistemic-graph response exceeded the configured resource limit"
-                    )
-                body = await reader.readexactly(msg_len)
-                resp = msgpack.unpackb(body, raw=False)
-                if not isinstance(resp, dict) or not isinstance(resp.get("id"), int):
-                    raise ConnectionError(
-                        "epistemic-graph response is missing its correlation id"
-                    )
-                fut = self._pending.pop(resp["id"], None)
-                if fut is not None and not fut.done():
-                    fut.set_result(resp)
+                self._dispatch_response(await _read_frame(reader))
                 # A response with no matching pending future (e.g. a late reply
                 # for a timed-out call) is dropped — the demux keeps the stream
                 # in sync regardless, which is exactly why one
@@ -14149,6 +14259,12 @@ class EpistemicGraphClient:
                     f"epistemic-graph response failed ({type(e).__name__})"
                 ),
             )
+
+    def _dispatch_response(self, resp: dict[str, Any]) -> None:
+        """Hand ONE decoded response frame to the caller waiting on its id."""
+        fut = self._pending.pop(resp["id"], None)
+        if fut is not None and not fut.done():
+            fut.set_result(resp)
 
     async def _ensure_connection(self) -> None:
         """Ensure a live stream + a running reader task (lifecycle lock held)."""
@@ -14400,18 +14516,7 @@ class EpistemicGraphClient:
     ) -> dict[str, Any]:
         if not isinstance(snapshot, dict):
             raise RuntimeError("ResourceStats response must be an object")
-        graphs = snapshot.get("graphs", [])
-        tenants = snapshot.get("tenants", [])
-        if not isinstance(graphs, list) or not isinstance(tenants, list):
-            raise RuntimeError("ResourceStats response arrays are malformed")
-        if len(graphs) > limit:
-            raise RuntimeError("ResourceStats response exceeded its bounded graph page")
-        if len(tenants) > _MAX_RESOURCE_STATS_TENANTS:
-            raise RuntimeError(
-                "ResourceStats response exceeded its bounded tenant page"
-            )
-        if summary and (graphs or tenants):
-            raise RuntimeError("summary ResourceStats response must omit detail arrays")
+        _validate_resource_stats_arrays(snapshot, limit=limit, summary=summary)
         next_cursor = snapshot.get("next_cursor")
         if next_cursor is not None and not _is_bounded_cursor(next_cursor):
             raise RuntimeError("ResourceStats response carried an invalid next_cursor")
