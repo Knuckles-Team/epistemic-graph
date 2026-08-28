@@ -5106,23 +5106,10 @@ fn policy_counter_snapshot(
     Ok(result)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn apply_cleanup(
-    graph: &str,
-    request: &DevelopmentLaneCleanupCompleteRequest,
-    nodes: &redb::Table<(&str, &str), &[u8]>,
-    holds: &mut redb::Table<(&str, &str), &[u8]>,
-    tenant_index: &redb::Table<(&str, &str, &str), &str>,
-    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
-    branch_index: &mut redb::Table<(&str, &str, &str), &str>,
-    worktree_index: &mut redb::Table<(&str, &str), &str>,
-    work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
-    counters: &mut redb::Table<(&str, &str), &[u8]>,
-    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
-    policies: &redb::Table<(&str, &str), &[u8]>,
-    crypto: DurableCrypto<'_>,
-) -> Result<(Vec<u8>, bool), String> {
-    if request.tenant_ref.is_empty()
+/// Is any field the cleanup-complete request must carry missing, or is its
+/// cleanup WorkItem the same node as the lifecycle one?
+fn cleanup_request_incomplete(request: &DevelopmentLaneCleanupCompleteRequest) -> bool {
+    request.tenant_ref.is_empty()
         || request.work_item_id.is_empty()
         || request.owner_id.is_empty()
         || request.hold_id.is_empty()
@@ -5130,164 +5117,18 @@ fn apply_cleanup(
         || request.cleanup_work_item_id == request.work_item_id
         || request.idempotency_key.is_empty()
         || request.removal_proof_ref.is_empty()
-    {
-        return Ok((cleanup_result(LaneDecision::Invalid, None, 0)?, false));
-    }
-    text(&request.removal_proof_ref, "removal proof")
-        .map_err(|decision| format!("cleanup proof: {}", decision_name(decision)))?;
-    let policy = current_policy(policies, graph, &request.tenant_ref, crypto)?;
-    let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
-    let Some(_policy) = policy else {
-        return Ok((cleanup_result(LaneDecision::Policy, None, 0)?, false));
-    };
-    let Some(global_policy) = load_global_policy(policies, graph, crypto)? else {
-        return Ok((
-            cleanup_result(LaneDecision::Policy, None, policy_revision)?,
-            false,
-        ));
-    };
-    let global_policy_revision = global_policy.policy_revision;
-    let Some(mut row) = hold_load(holds, graph, &request.hold_id, crypto)? else {
-        return Ok((
-            cleanup_result(LaneDecision::NotFound, None, policy_revision)?,
-            false,
-        ));
-    };
-    if row.hold.tenant_ref != request.tenant_ref {
-        return Ok((
-            cleanup_result(LaneDecision::NotFound, None, policy_revision)?,
-            false,
-        ));
-    }
-    if let Err(decision) = hold_correlations_match(
-        &row.hold,
-        &request.tenant_ref,
-        &request.work_item_id,
-        &request.owner_id,
-        request.attempt,
-        request.lease_epoch,
-        request.fencing_token,
-        &request.work_item_fence,
-    ) {
-        return Ok((
-            cleanup_result(decision, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if row.hold.state == DevelopmentLaneHoldState::Cleaned {
-        // A fresh invocation against a tombstone must still prove both
-        // WorkItem authorities.  The stored replay tuple is necessary for
-        // exact idempotency, but it is not a substitute for the current
-        // lifecycle terminal fence or the typed cleanup correlation.
-        let lifecycle_work_item = match load_work_item(
-            nodes,
-            graph,
-            &request.work_item_id,
-            &request.tenant_ref,
-            Some(&request.owner_id),
-            request.attempt,
-            request.lease_epoch,
-            request.fencing_token,
-            &request.work_item_fence,
-            DevelopmentLaneWorkItemKind::Lifecycle,
-            true,
-            request.now_ms,
-            crypto,
-            None,
-            None,
-        ) {
-            Ok(value) => value,
-            Err(decision) => {
-                return Ok((
-                    cleanup_result(decision, Some(&row), policy_revision)?,
-                    false,
-                ))
-            }
-        };
-        if !lane_intent_matches_hold(
-            lifecycle_work_item.lane_intent.as_ref(),
-            &row.hold,
-            row.ttl_ms,
-            &row.resource_reservation_id,
-        ) {
-            return Ok((
-                cleanup_result(LaneDecision::InputConflict, Some(&row), policy_revision)?,
-                false,
-            ));
-        }
-        if request.cleanup_attempt == 0
-            || request.cleanup_lease_epoch == 0
-            || request.cleanup_fencing_token == 0
-        {
-            return Ok((
-                cleanup_result(LaneDecision::Invalid, Some(&row), policy_revision)?,
-                false,
-            ));
-        }
-        if let Err(decision) = load_work_item(
-            nodes,
-            graph,
-            &request.cleanup_work_item_id,
-            &request.tenant_ref,
-            None,
-            request.cleanup_attempt,
-            request.cleanup_lease_epoch,
-            request.cleanup_fencing_token,
-            &request.cleanup_work_item_fence,
-            DevelopmentLaneWorkItemKind::Cleanup,
-            false,
-            request.now_ms,
-            crypto,
-            None,
-            Some((
-                &row.hold.hold_id,
-                &row.hold.lane_id,
-                request.expected_hold_revision,
-            )),
-        ) {
-            return Ok((
-                cleanup_result(decision, Some(&row), policy_revision)?,
-                false,
-            ));
-        }
-        let replay_matches = row.cleanup_expected_hold_revision
-            == Some(request.expected_hold_revision)
-            && row.cleanup_removal_proof_ref.as_deref() == Some(request.removal_proof_ref.as_str())
-            && row.hold.cleanup_work_item_id.as_deref()
-                == Some(request.cleanup_work_item_id.as_str())
-            && row.hold.cleanup_work_item_fence.as_deref()
-                == Some(request.cleanup_work_item_fence.as_str())
-            && row.hold.cleanup_attempt == Some(request.cleanup_attempt)
-            && row.hold.cleanup_lease_epoch == Some(request.cleanup_lease_epoch)
-            && row.hold.cleanup_fencing_token == Some(request.cleanup_fencing_token);
-        if !replay_matches {
-            return Ok((
-                cleanup_result(LaneDecision::InputConflict, Some(&row), policy_revision)?,
-                false,
-            ));
-        }
-        return Ok((
-            cleanup_result(LaneDecision::Idempotent, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if !matches!(
-        row.hold.state,
-        DevelopmentLaneHoldState::CleanupPending
-            | DevelopmentLaneHoldState::Released
-            | DevelopmentLaneHoldState::Expired
-    ) {
-        return Ok((
-            cleanup_result(LaneDecision::CleanupRequired, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
-    if row.hold.hold_revision != request.expected_hold_revision {
-        return Ok((
-            cleanup_result(LaneDecision::Stale, Some(&row), policy_revision)?,
-            false,
-        ));
-    }
+}
+
+/// Prove both WorkItem authorities a cleanup needs: the current lifecycle
+/// terminal fence with its typed intent, and the distinct cleanup WorkItem
+/// with its typed correlation.  `Some(decision)` refuses the request.
+fn cleanup_work_item_decision(
+    graph: &str,
+    request: &DevelopmentLaneCleanupCompleteRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    row: &DurableLaneHold,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<LaneDecision>, String> {
     let lifecycle_work_item = match load_work_item(
         nodes,
         graph,
@@ -5306,12 +5147,7 @@ fn apply_cleanup(
         None,
     ) {
         Ok(value) => value,
-        Err(decision) => {
-            return Ok((
-                cleanup_result(decision, Some(&row), policy_revision)?,
-                false,
-            ))
-        }
+        Err(decision) => return Ok(Some(decision)),
     };
     if !lane_intent_matches_hold(
         lifecycle_work_item.lane_intent.as_ref(),
@@ -5319,19 +5155,13 @@ fn apply_cleanup(
         row.ttl_ms,
         &row.resource_reservation_id,
     ) {
-        return Ok((
-            cleanup_result(LaneDecision::InputConflict, Some(&row), policy_revision)?,
-            false,
-        ));
+        return Ok(Some(LaneDecision::InputConflict));
     }
     if request.cleanup_attempt == 0
         || request.cleanup_lease_epoch == 0
         || request.cleanup_fencing_token == 0
     {
-        return Ok((
-            cleanup_result(LaneDecision::Invalid, Some(&row), policy_revision)?,
-            false,
-        ));
+        return Ok(Some(LaneDecision::Invalid));
     }
     if let Err(decision) = load_work_item(
         nodes,
@@ -5354,6 +5184,75 @@ fn apply_cleanup(
             request.expected_hold_revision,
         )),
     ) {
+        return Ok(Some(decision));
+    }
+    Ok(None)
+}
+
+/// Does the tombstone already record exactly this cleanup?
+fn cleanup_replay_matches(
+    row: &DurableLaneHold,
+    request: &DevelopmentLaneCleanupCompleteRequest,
+) -> bool {
+    row.cleanup_expected_hold_revision == Some(request.expected_hold_revision)
+        && row.cleanup_removal_proof_ref.as_deref() == Some(request.removal_proof_ref.as_str())
+        && row.hold.cleanup_work_item_id.as_deref() == Some(request.cleanup_work_item_id.as_str())
+        && row.hold.cleanup_work_item_fence.as_deref()
+            == Some(request.cleanup_work_item_fence.as_str())
+        && row.hold.cleanup_attempt == Some(request.cleanup_attempt)
+        && row.hold.cleanup_lease_epoch == Some(request.cleanup_lease_epoch)
+        && row.hold.cleanup_fencing_token == Some(request.cleanup_fencing_token)
+}
+
+/// A fresh invocation against an already-cleaned tombstone must still prove
+/// both WorkItem authorities.  The stored replay tuple is necessary for exact
+/// idempotency, but it is not a substitute for the current lifecycle terminal
+/// fence or the typed cleanup correlation.
+fn cleanup_tombstone_replay(
+    graph: &str,
+    request: &DevelopmentLaneCleanupCompleteRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    row: &DurableLaneHold,
+    policy_revision: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    if let Some(decision) = cleanup_work_item_decision(graph, request, nodes, row, crypto)? {
+        return Ok((cleanup_result(decision, Some(row), policy_revision)?, false));
+    }
+    if !cleanup_replay_matches(row, request) {
+        return Ok((
+            cleanup_result(LaneDecision::InputConflict, Some(row), policy_revision)?,
+            false,
+        ));
+    }
+    Ok((
+        cleanup_result(LaneDecision::Idempotent, Some(row), policy_revision)?,
+        false,
+    ))
+}
+
+/// The cleanup tail for a retained hold: prove both WorkItems, release the
+/// retained charge and every exclusivity index, and tombstone the hold as
+/// Cleaned while keeping its tenant keyset row discoverable.
+#[allow(clippy::too_many_arguments)]
+fn cleanup_live_hold(
+    graph: &str,
+    request: &DevelopmentLaneCleanupCompleteRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    tenant_index: &redb::Table<(&str, &str, &str), &str>,
+    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
+    branch_index: &mut redb::Table<(&str, &str, &str), &str>,
+    worktree_index: &mut redb::Table<(&str, &str), &str>,
+    work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    mut row: DurableLaneHold,
+    policy_revision: u64,
+    global_policy_revision: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    if let Some(decision) = cleanup_work_item_decision(graph, request, nodes, &row, crypto)? {
         return Ok((
             cleanup_result(decision, Some(&row), policy_revision)?,
             false,
@@ -5429,6 +5328,105 @@ fn apply_cleanup(
         cleanup_result(LaneDecision::Accepted, Some(&row), policy_revision)?,
         true,
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_cleanup(
+    graph: &str,
+    request: &DevelopmentLaneCleanupCompleteRequest,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    tenant_index: &redb::Table<(&str, &str, &str), &str>,
+    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
+    branch_index: &mut redb::Table<(&str, &str, &str), &str>,
+    worktree_index: &mut redb::Table<(&str, &str), &str>,
+    work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(Vec<u8>, bool), String> {
+    if cleanup_request_incomplete(request) {
+        return Ok((cleanup_result(LaneDecision::Invalid, None, 0)?, false));
+    }
+    text(&request.removal_proof_ref, "removal proof")
+        .map_err(|decision| format!("cleanup proof: {}", decision_name(decision)))?;
+    let policy = current_policy(policies, graph, &request.tenant_ref, crypto)?;
+    let policy_revision = policy.as_ref().map_or(0, |value| value.policy_revision);
+    let Some(_policy) = policy else {
+        return Ok((cleanup_result(LaneDecision::Policy, None, 0)?, false));
+    };
+    let Some(global_policy) = load_global_policy(policies, graph, crypto)? else {
+        return Ok((
+            cleanup_result(LaneDecision::Policy, None, policy_revision)?,
+            false,
+        ));
+    };
+    let global_policy_revision = global_policy.policy_revision;
+    let Some(row) = hold_load(holds, graph, &request.hold_id, crypto)? else {
+        return Ok((
+            cleanup_result(LaneDecision::NotFound, None, policy_revision)?,
+            false,
+        ));
+    };
+    if row.hold.tenant_ref != request.tenant_ref {
+        return Ok((
+            cleanup_result(LaneDecision::NotFound, None, policy_revision)?,
+            false,
+        ));
+    }
+    if let Err(decision) = hold_correlations_match(
+        &row.hold,
+        &request.tenant_ref,
+        &request.work_item_id,
+        &request.owner_id,
+        request.attempt,
+        request.lease_epoch,
+        request.fencing_token,
+        &request.work_item_fence,
+    ) {
+        return Ok((
+            cleanup_result(decision, Some(&row), policy_revision)?,
+            false,
+        ));
+    }
+    if row.hold.state == DevelopmentLaneHoldState::Cleaned {
+        return cleanup_tombstone_replay(graph, request, nodes, &row, policy_revision, crypto);
+    }
+    if !matches!(
+        row.hold.state,
+        DevelopmentLaneHoldState::CleanupPending
+            | DevelopmentLaneHoldState::Released
+            | DevelopmentLaneHoldState::Expired
+    ) {
+        return Ok((
+            cleanup_result(LaneDecision::CleanupRequired, Some(&row), policy_revision)?,
+            false,
+        ));
+    }
+    if row.hold.hold_revision != request.expected_hold_revision {
+        return Ok((
+            cleanup_result(LaneDecision::Stale, Some(&row), policy_revision)?,
+            false,
+        ));
+    }
+    cleanup_live_hold(
+        graph,
+        request,
+        nodes,
+        holds,
+        tenant_index,
+        lane_index,
+        branch_index,
+        worktree_index,
+        work_item_index,
+        counters,
+        pressure_index,
+        row,
+        policy_revision,
+        global_policy_revision,
+        crypto,
+    )
 }
 
 /// The graph-global quota-policy CAS, reached only through the frozen
