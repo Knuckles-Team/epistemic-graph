@@ -138,6 +138,9 @@ fn stale_expected_version_is_rejected() {
     let err = store
         .apply_schema_migration(&stale)
         .expect_err("stale migration must be rejected");
-    assert!(err.contains("STALE_SCHEMA_VERSION"), "unexpected error: {err}");
+    assert!(
+        err.contains("STALE_SCHEMA_VERSION"),
+        "unexpected error: {err}"
+    );
     assert_eq!(store.schema_version("widgets").unwrap(), 1);
 }

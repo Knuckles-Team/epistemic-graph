@@ -266,6 +266,116 @@ fn collect_classes(c: &Dl, out: &mut BTreeSet<String>) {
 }
 
 /// Parse a DL ontology (TBox + role box + ABox) from a triple stream.
+/// `s rdfs:subClassOf ok` — apply one subclass GCI. Split out of
+/// `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn apply_subclass_of_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &str) {
+    if let (std::option::Option::Some(sub), std::option::Option::Some(sup)) =
+        (parse_dl(idx, s), parse_dl(idx, ok))
+    {
+        ont.gcis.push((sub.nnf(), sup.nnf()));
+    }
+}
+
+/// `s owl:equivalentClass ok` — apply both directions of the equivalence.
+/// Split out of `parse_dl_ontology` (extract-method, cx/wD8) — same terms,
+/// same order as before.
+fn apply_equivalent_class_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &str) {
+    if let (std::option::Option::Some(a), std::option::Option::Some(b)) =
+        (parse_dl(idx, s), parse_dl(idx, ok))
+    {
+        let (a, b) = (a.nnf(), b.nnf());
+        ont.gcis.push((a.clone(), b.clone()));
+        ont.gcis.push((b, a));
+    }
+}
+
+/// `s owl:disjointWith ok` — A disjoint B ≡ A ⊑ ¬B. Split out of
+/// `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn apply_disjoint_with_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &str) {
+    if let (std::option::Option::Some(a), std::option::Option::Some(b)) =
+        (parse_dl(idx, s), parse_dl(idx, ok))
+    {
+        // A disjoint B  ≡  A ⊑ ¬B.
+        ont.gcis.push((a.nnf(), b.negate()));
+    }
+}
+
+/// `s rdf:type o` — either a vocabulary declaration, a transitive/functional
+/// role marker, an ABox class assertion (named or anonymous class), split
+/// out of `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn apply_rdf_type_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &str, o: &Term) {
+    if let Term::NamedNode(ty) = o {
+        match ty.as_str() {
+            OWL_TRANSITIVE_PROPERTY => {
+                ont.transitive.insert(s.to_string());
+            }
+            OWL_FUNCTIONAL_PROPERTY => {
+                // A functional role is the global axiom ⊤ ⊑ ≤1 r.⊤.
+                ont.gcis
+                    .push((Dl::Top, Dl::Max(1, s.to_string(), Box::new(Dl::Top))));
+            }
+            // Vocabulary declarations carry no ABox content.
+            "http://www.w3.org/2002/07/owl#Class"
+            | "http://www.w3.org/2002/07/owl#ObjectProperty"
+            | "http://www.w3.org/2002/07/owl#DatatypeProperty"
+            | "http://www.w3.org/2002/07/owl#NamedIndividual"
+            | "http://www.w3.org/2002/07/owl#Ontology"
+            | "http://www.w3.org/2002/07/owl#Restriction"
+            | OWL_SYMMETRIC_MARKER => {}
+            // Otherwise `a rdf:type C` is an ABox class assertion.
+            _ => {
+                let class = iri(ty.as_str());
+                ont.abox_types.push((s.to_string(), named_concept(&class)));
+                ont.individuals.insert(s.to_string());
+                ont.classes.insert(class);
+            }
+        }
+    } else if let std::option::Option::Some(c) = parse_dl(idx, ok) {
+        // `a rdf:type [ complex class expr ]` — ABox assertion of an anon class.
+        ont.abox_types.push((s.to_string(), c.nnf()));
+        ont.individuals.insert(s.to_string());
+    }
+}
+
+/// `s owl:sameAs o` — register both individuals and the link. Split out of
+/// `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn apply_same_as_triple(ont: &mut DlOntology, s: &str, o: &Term) {
+    if let Term::NamedNode(b) = o {
+        let b = iri(b.as_str());
+        ont.same_as.push((s.to_string(), b.clone()));
+        ont.individuals.insert(s.to_string());
+        ont.individuals.insert(b);
+    }
+}
+
+/// `s owl:differentFrom o` — register both individuals and the link. Split
+/// out of `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn apply_different_from_triple(ont: &mut DlOntology, s: &str, o: &Term) {
+    if let Term::NamedNode(b) = o {
+        let b = iri(b.as_str());
+        ont.different_from.push((s.to_string(), b.clone()));
+        ont.individuals.insert(s.to_string());
+        ont.individuals.insert(b);
+    }
+}
+
+/// Any other `s p o` with an IRI object between two individuals — a role
+/// edge. Split out of `parse_dl_ontology` (extract-method, cx/wD8) — same
+/// terms, same order as before.
+fn apply_role_edge_triple(ont: &mut DlOntology, s: &str, p: &str, o: &Term) {
+    if let Term::NamedNode(b) = o {
+        let b = iri(b.as_str());
+        ont.abox_roles.push((s.to_string(), iri(p), b.clone()));
+        ont.individuals.insert(s.to_string());
+        ont.individuals.insert(b);
+    }
+}
+
 pub fn parse_dl_ontology(triples: &[Triple]) -> DlOntology {
     let idx = TripleIndex::build(triples);
     let mut ont = DlOntology::default();
@@ -276,95 +386,21 @@ pub fn parse_dl_ontology(triples: &[Triple]) -> DlOntology {
         let o = &t.object;
         let ok = term_key(o);
         match p {
-            RDFS_SUBCLASS_OF => {
-                if let (std::option::Option::Some(sub), std::option::Option::Some(sup)) =
-                    (parse_dl(&idx, &s), parse_dl(&idx, &ok))
-                {
-                    ont.gcis.push((sub.nnf(), sup.nnf()));
-                }
-            }
-            OWL_EQUIVALENT_CLASS => {
-                if let (std::option::Option::Some(a), std::option::Option::Some(b)) =
-                    (parse_dl(&idx, &s), parse_dl(&idx, &ok))
-                {
-                    let (a, b) = (a.nnf(), b.nnf());
-                    ont.gcis.push((a.clone(), b.clone()));
-                    ont.gcis.push((b, a));
-                }
-            }
-            OWL_DISJOINT_WITH => {
-                if let (std::option::Option::Some(a), std::option::Option::Some(b)) =
-                    (parse_dl(&idx, &s), parse_dl(&idx, &ok))
-                {
-                    // A disjoint B  ≡  A ⊑ ¬B.
-                    ont.gcis.push((a.nnf(), b.negate()));
-                }
-            }
+            RDFS_SUBCLASS_OF => apply_subclass_of_triple(&idx, &mut ont, &s, &ok),
+            OWL_EQUIVALENT_CLASS => apply_equivalent_class_triple(&idx, &mut ont, &s, &ok),
+            OWL_DISJOINT_WITH => apply_disjoint_with_triple(&idx, &mut ont, &s, &ok),
             RDFS_SUBPROPERTY_OF => {
                 if let Term::NamedNode(sup) = o {
                     ont.sub_roles.push((s.clone(), iri(sup.as_str())));
                 }
             }
-            OWL_SAME_AS => {
-                if let Term::NamedNode(b) = o {
-                    let b = iri(b.as_str());
-                    ont.same_as.push((s.clone(), b.clone()));
-                    ont.individuals.insert(s.clone());
-                    ont.individuals.insert(b);
-                }
-            }
-            OWL_DIFFERENT_FROM => {
-                if let Term::NamedNode(b) = o {
-                    let b = iri(b.as_str());
-                    ont.different_from.push((s.clone(), b.clone()));
-                    ont.individuals.insert(s.clone());
-                    ont.individuals.insert(b);
-                }
-            }
-            RDF_TYPE => {
-                if let Term::NamedNode(ty) = o {
-                    match ty.as_str() {
-                        OWL_TRANSITIVE_PROPERTY => {
-                            ont.transitive.insert(s.clone());
-                        }
-                        OWL_FUNCTIONAL_PROPERTY => {
-                            // A functional role is the global axiom ⊤ ⊑ ≤1 r.⊤.
-                            ont.gcis
-                                .push((Dl::Top, Dl::Max(1, s.clone(), Box::new(Dl::Top))));
-                        }
-                        // Vocabulary declarations carry no ABox content.
-                        "http://www.w3.org/2002/07/owl#Class"
-                        | "http://www.w3.org/2002/07/owl#ObjectProperty"
-                        | "http://www.w3.org/2002/07/owl#DatatypeProperty"
-                        | "http://www.w3.org/2002/07/owl#NamedIndividual"
-                        | "http://www.w3.org/2002/07/owl#Ontology"
-                        | "http://www.w3.org/2002/07/owl#Restriction"
-                        | OWL_SYMMETRIC_MARKER => {}
-                        // Otherwise `a rdf:type C` is an ABox class assertion.
-                        _ => {
-                            let class = iri(ty.as_str());
-                            ont.abox_types.push((s.clone(), named_concept(&class)));
-                            ont.individuals.insert(s.clone());
-                            ont.classes.insert(class);
-                        }
-                    }
-                } else if let std::option::Option::Some(c) = parse_dl(&idx, &ok) {
-                    // `a rdf:type [ complex class expr ]` — ABox assertion of an anon class.
-                    ont.abox_types.push((s.clone(), c.nnf()));
-                    ont.individuals.insert(s.clone());
-                }
-            }
+            OWL_SAME_AS => apply_same_as_triple(&mut ont, &s, o),
+            OWL_DIFFERENT_FROM => apply_different_from_triple(&mut ont, &s, o),
+            RDF_TYPE => apply_rdf_type_triple(&idx, &mut ont, &s, &ok, o),
             // Structurally-consumed predicates carry no direct axiom here.
             _ if STRUCTURAL_PREDICATES.contains(&p) => {}
             // Anything else with an IRI object between two individuals is a role edge.
-            _ => {
-                if let Term::NamedNode(b) = o {
-                    let b = iri(b.as_str());
-                    ont.abox_roles.push((s.clone(), iri(p), b.clone()));
-                    ont.individuals.insert(s.clone());
-                    ont.individuals.insert(b);
-                }
-            }
+            _ => apply_role_edge_triple(&mut ont, &s, p, o),
         }
     }
 
@@ -386,25 +422,24 @@ const OWL_SYMMETRIC_MARKER: &str = "http://www.w3.org/2002/07/owl#SymmetricPrope
 /// apply [`Dl::nnf`]). Handles named classes, `owl:Thing`/`owl:Nothing`, intersections,
 /// unions, complements, `oneOf` nominals, and every `owl:Restriction` shape (`some`/
 /// `all`/`hasValue` + un/qualified `min`/`max`/exact cardinality).
-fn parse_dl(idx: &TripleIndex, id: &str) -> Option<Dl> {
-    // Builtins.
-    if id == iri(OWL_THING) {
-        return Some(Dl::Top);
-    }
-    if id == iri(OWL_NOTHING) {
-        return Some(Dl::Bottom);
-    }
-    // Boolean combinators.
+/// Try each boolean-combinator shape (`intersectionOf`/`unionOf`/
+/// `complementOf`/`oneOf`) for `id`. Split out of `parse_dl`
+/// (extract-method, cx/wD8) — same terms, same order as before. `Some(_)`
+/// means `id` matched one of these shapes (the inner `Option<Dl>` may still
+/// be `None` on a malformed sub-expression, exactly as the original early
+/// `return`s propagated a `?` failure); `None` means none matched and
+/// parsing should continue to the next category.
+fn try_parse_dl_boolean_combinator(idx: &TripleIndex, id: &str) -> Option<Option<Dl>> {
     if let Some(head) = idx.first_object(id, OWL_INTERSECTION_OF) {
-        let cs = parse_list_concepts(idx, head)?;
-        return Some(Dl::And(cs));
+        let cs = parse_list_concepts(idx, head);
+        return Some(cs.map(Dl::And));
     }
     if let Some(head) = idx.first_object(id, OWL_UNION_OF) {
-        let cs = parse_list_concepts(idx, head)?;
-        return Some(Dl::Or(cs));
+        let cs = parse_list_concepts(idx, head);
+        return Some(cs.map(Dl::Or));
     }
     if let Some(inner) = idx.first_object(id, OWL_COMPLEMENT_OF) {
-        return Some(Dl::Not(Box::new(parse_dl(idx, &term_key(inner))?)));
+        return Some(parse_dl(idx, &term_key(inner)).map(|c| Dl::Not(Box::new(c))));
     }
     if let Some(head) = idx.first_object(id, OWL_ONE_OF) {
         // {a₁, …, aₙ}  ≡  {a₁} ⊔ … ⊔ {aₙ}.
@@ -413,72 +448,98 @@ fn parse_dl(idx: &TripleIndex, id: &str) -> Option<Dl> {
             .map(|t| Dl::Nominal(term_key(t)))
             .collect();
         if members.len() == 1 {
-            return Some(members.into_iter().next().unwrap());
+            return Some(Some(members.into_iter().next().unwrap()));
         }
-        return Some(Dl::Or(members));
+        return Some(Some(Dl::Or(members)));
     }
-    // Restrictions.
-    if let Some(on_prop) = idx.first_object(id, OWL_ON_PROPERTY) {
-        let role = term_key(on_prop);
-        if let Some(filler) = idx.first_object(id, OWL_SOME_VALUES_FROM) {
-            return Some(Dl::Some(role, Box::new(parse_dl(idx, &term_key(filler))?)));
-        }
-        if let Some(filler) = idx.first_object(id, OWL_ALL_VALUES_FROM) {
-            return Some(Dl::All(role, Box::new(parse_dl(idx, &term_key(filler))?)));
-        }
-        if let Some(val) = idx.first_object(id, OWL_HAS_VALUE) {
-            // ∃r.{a}: the value is a nominal filler.
-            return Some(Dl::Some(role, Box::new(Dl::Nominal(term_key(val)))));
-        }
-        // Qualified cardinalities (need an onClass filler).
-        let on_class = idx
-            .first_object(id, OWL_ON_CLASS)
-            .and_then(|c| parse_dl(idx, &term_key(c)))
-            .unwrap_or(Dl::Top);
-        if let Some(n) = idx
-            .first_object(id, OWL_MIN_QUALIFIED_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::Min(n, role, Box::new(on_class)));
-        }
-        if let Some(n) = idx
-            .first_object(id, OWL_MAX_QUALIFIED_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::Max(n, role, Box::new(on_class)));
-        }
-        if let Some(n) = idx
-            .first_object(id, OWL_QUALIFIED_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::And(vec![
-                Dl::Min(n, role.clone(), Box::new(on_class.clone())),
-                Dl::Max(n, role, Box::new(on_class)),
-            ]));
-        }
-        // Unqualified cardinalities (filler ⊤).
-        if let Some(n) = idx
-            .first_object(id, OWL_MIN_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::Min(n, role, Box::new(Dl::Top)));
-        }
-        if let Some(n) = idx
-            .first_object(id, OWL_MAX_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::Max(n, role, Box::new(Dl::Top)));
-        }
-        if let Some(n) = idx
-            .first_object(id, OWL_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::And(vec![
-                Dl::Min(n, role.clone(), Box::new(Dl::Top)),
-                Dl::Max(n, role, Box::new(Dl::Top)),
-            ]));
-        }
-        return None;
+    None
+}
+
+/// Try the `owl:Restriction` shapes (`some`/`all`/`hasValue` + un/qualified
+/// `min`/`max`/exact cardinality) for `id`. Split out of `parse_dl`
+/// (extract-method, cx/wD8) — same terms, same order as before. Same
+/// `Some(_)`/`None` convention as [`try_parse_dl_boolean_combinator`]: `None`
+/// means `id` has no `owl:onProperty` (not a restriction at all), `Some(_)`
+/// means it does — and once it does, the original always returned from
+/// inside this block (down to the explicit `return None` at the end for an
+/// unrecognized restriction shape).
+fn try_parse_dl_restriction(idx: &TripleIndex, id: &str) -> Option<Option<Dl>> {
+    let on_prop = idx.first_object(id, OWL_ON_PROPERTY)?;
+    let role = term_key(on_prop);
+    if let Some(filler) = idx.first_object(id, OWL_SOME_VALUES_FROM) {
+        return Some(parse_dl(idx, &term_key(filler)).map(|c| Dl::Some(role, Box::new(c))));
+    }
+    if let Some(filler) = idx.first_object(id, OWL_ALL_VALUES_FROM) {
+        return Some(parse_dl(idx, &term_key(filler)).map(|c| Dl::All(role, Box::new(c))));
+    }
+    if let Some(val) = idx.first_object(id, OWL_HAS_VALUE) {
+        // ∃r.{a}: the value is a nominal filler.
+        return Some(Some(Dl::Some(role, Box::new(Dl::Nominal(term_key(val))))));
+    }
+    // Qualified cardinalities (need an onClass filler).
+    let on_class = idx
+        .first_object(id, OWL_ON_CLASS)
+        .and_then(|c| parse_dl(idx, &term_key(c)))
+        .unwrap_or(Dl::Top);
+    if let Some(n) = idx
+        .first_object(id, OWL_MIN_QUALIFIED_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::Min(n, role, Box::new(on_class))));
+    }
+    if let Some(n) = idx
+        .first_object(id, OWL_MAX_QUALIFIED_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::Max(n, role, Box::new(on_class))));
+    }
+    if let Some(n) = idx
+        .first_object(id, OWL_QUALIFIED_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::And(vec![
+            Dl::Min(n, role.clone(), Box::new(on_class.clone())),
+            Dl::Max(n, role, Box::new(on_class)),
+        ])));
+    }
+    // Unqualified cardinalities (filler ⊤).
+    if let Some(n) = idx
+        .first_object(id, OWL_MIN_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::Min(n, role, Box::new(Dl::Top))));
+    }
+    if let Some(n) = idx
+        .first_object(id, OWL_MAX_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::Max(n, role, Box::new(Dl::Top))));
+    }
+    if let Some(n) = idx
+        .first_object(id, OWL_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::And(vec![
+            Dl::Min(n, role.clone(), Box::new(Dl::Top)),
+            Dl::Max(n, role, Box::new(Dl::Top)),
+        ])));
+    }
+    Some(None)
+}
+
+fn parse_dl(idx: &TripleIndex, id: &str) -> Option<Dl> {
+    // Builtins.
+    if id == iri(OWL_THING) {
+        return Some(Dl::Top);
+    }
+    if id == iri(OWL_NOTHING) {
+        return Some(Dl::Bottom);
+    }
+    if let Some(result) = try_parse_dl_boolean_combinator(idx, id) {
+        return result;
+    }
+    if let Some(result) = try_parse_dl_restriction(idx, id) {
+        return result;
     }
     // A named class IRI.
     if id.starts_with('<') {
@@ -702,6 +763,38 @@ impl Completion {
 
     /// A clash in the current graph: `⊥`, `{A,¬A}`, `{ {a},¬{a} }`, a self-inequality,
     /// or a `≤n r.C` with `n+1` pairwise-distinct `C`-witnesses.
+    /// Whether node `i`'s own label clashes (contains `⊥`, a directly
+    /// negated atom/nominal, or a violated `≤n r.f` cardinality). Split out
+    /// of `has_clash` (extract-method, cx/wD8) — same terms, same order as
+    /// before.
+    fn node_has_clash(&self, i: usize) -> bool {
+        let label = &self.nodes[i].label;
+        if label.contains(&Dl::Bottom) {
+            return true;
+        }
+        for c in label {
+            match c {
+                Dl::Not(inner)
+                    if matches!(**inner, Dl::Atom(_) | Dl::Nominal(_)) && label.contains(inner) =>
+                {
+                    return true;
+                }
+                Dl::Max(n, r, f) => {
+                    let neigh: Vec<usize> = self
+                        .role_neighbors(i, r)
+                        .into_iter()
+                        .filter(|&y| self.qualifies(y, f))
+                        .collect();
+                    if neigh.len() > *n && self.all_pairwise_distinct(&neigh) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     fn has_clash(&self) -> bool {
         // Forced self-inequality (from a merge of two ≠ nodes).
         for (a, b) in &self.neq {
@@ -710,30 +803,8 @@ impl Completion {
             }
         }
         for i in self.reps() {
-            let label = &self.nodes[i].label;
-            if label.contains(&Dl::Bottom) {
+            if self.node_has_clash(i) {
                 return true;
-            }
-            for c in label {
-                match c {
-                    Dl::Not(inner)
-                        if matches!(**inner, Dl::Atom(_) | Dl::Nominal(_))
-                            && label.contains(inner) =>
-                    {
-                        return true;
-                    }
-                    Dl::Max(n, r, f) => {
-                        let neigh: Vec<usize> = self
-                            .role_neighbors(i, r)
-                            .into_iter()
-                            .filter(|&y| self.qualifies(y, f))
-                            .collect();
-                        if neigh.len() > *n && self.all_pairwise_distinct(&neigh) {
-                            return true;
-                        }
-                    }
-                    _ => {}
-                }
             }
         }
         false
@@ -761,11 +832,13 @@ impl Completion {
     /// identification, `⊓`, `∀` + transitive folding); return whether anything changed.
     /// These have priority OVER the generating rules ([`step_generating`]), so a node's
     /// label is stable before it is used to block or to spawn successors.
-    fn step_nongenerating(&mut self) -> bool {
+    /// Phase (0a) of `step_nongenerating`: union nodes that already share the
+    /// SAME nominal (from a prior merge). Split out (extract-method,
+    /// cx/wD8) — same terms, same order as before. Returns the
+    /// nominal->representative map built along the way (fed into phase
+    /// (0b)) and whether anything changed.
+    fn merge_nodes_sharing_a_nominal(&mut self) -> (HashMap<String, usize>, bool) {
         let mut changed = false;
-
-        // (0) Nominal identification: nodes sharing a nominal are one; a `{a}` concept
-        // identifies its node with the individual `a`.
         let mut nom_rep: HashMap<String, usize> = HashMap::new();
         for i in self.reps() {
             for a in self.nodes[i].nominal.clone() {
@@ -783,6 +856,14 @@ impl Completion {
                 }
             }
         }
+        (nom_rep, changed)
+    }
+
+    /// Phase (0b) of `step_nongenerating`: a `{a}` nominal CONCEPT identifies
+    /// its node with the individual `a`. Split out (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn identify_nominal_concepts(&mut self, mut nom_rep: HashMap<String, usize>) -> bool {
+        let mut changed = false;
         let nominal_concepts: Vec<(usize, String)> = self
             .reps()
             .into_iter()
@@ -815,8 +896,13 @@ impl Completion {
                 }
             }
         }
+        changed
+    }
 
-        // (1) ⊓-rule.
+    /// Phase (1) of `step_nongenerating`: the ⊓-rule. Split out
+    /// (extract-method, cx/wD8) — same terms, same order as before.
+    fn step_and_rule(&mut self) -> bool {
+        let mut changed = false;
         for i in self.reps() {
             let ands: Vec<Vec<Dl>> = self.nodes[i]
                 .label
@@ -834,8 +920,52 @@ impl Completion {
                 }
             }
         }
+        changed
+    }
 
-        // (2) ∀-rule (+ transitive-role folding).
+    /// Phase (2) of `step_nongenerating`: the ∀-rule (+ transitive-role
+    /// folding). Split out (extract-method, cx/wD8) — same terms, same
+    /// order as before.
+    /// Apply the ∀-rule for one `(role, filler)` pair over one `(e, t)` edge
+    /// (+ transitive-role folding). Split out of `apply_all_rule_to_edges`
+    /// (extract-method, cx/wD8) — same terms, same order as before.
+    fn apply_all_rule_to_edge(&mut self, role: &str, filler: &Dl, e: &str, t: usize) -> bool {
+        if !self.roles.is_super(role, e) {
+            return false;
+        }
+        let mut changed = self.nodes[t].label.insert(filler.clone());
+        // Transitive folding: ∀r.C over a transitive sub-role e ⇒ ∀e.C
+        // on the successor, so C reaches the whole e-chain.
+        if self.roles.transitive.contains(e) {
+            let prop = Dl::All(e.to_string(), Box::new(filler.clone()));
+            if self.nodes[t].label.insert(prop) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Apply the ∀-rule's known `(role, filler)` pairs across `edges`
+    /// (+ transitive-role folding). Split out of `step_all_rule`
+    /// (extract-method, cx/wD8) — same terms, same order as before.
+    fn apply_all_rule_to_edges(
+        &mut self,
+        alls: &[(String, Dl)],
+        edges: &[(String, usize)],
+    ) -> bool {
+        let mut changed = false;
+        for (role, filler) in alls {
+            for (e, t) in edges {
+                if self.apply_all_rule_to_edge(role, filler, e, *t) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    fn step_all_rule(&mut self) -> bool {
+        let mut changed = false;
         for i in self.reps() {
             let alls: Vec<(String, Dl)> = self.nodes[i]
                 .label
@@ -854,34 +984,35 @@ impl Completion {
                 .filter(|(f, _, _)| self.find(*f) == i)
                 .map(|(_, e, t)| (e.clone(), self.find(*t)))
                 .collect();
-            for (role, filler) in &alls {
-                for (e, t) in &edges {
-                    if self.roles.is_super(role, e) {
-                        if self.nodes[*t].label.insert(filler.clone()) {
-                            changed = true;
-                        }
-                        // Transitive folding: ∀r.C over a transitive sub-role e ⇒ ∀e.C
-                        // on the successor, so C reaches the whole e-chain.
-                        if self.roles.transitive.contains(e) {
-                            let prop = Dl::All(e.clone(), Box::new(filler.clone()));
-                            if self.nodes[*t].label.insert(prop) {
-                                changed = true;
-                            }
-                        }
-                    }
-                }
+            if self.apply_all_rule_to_edges(&alls, &edges) {
+                changed = true;
             }
         }
-
         changed
+    }
+
+    fn step_nongenerating(&mut self) -> bool {
+        // (0) Nominal identification: nodes sharing a nominal are one; a `{a}` concept
+        // identifies its node with the individual `a`.
+        let (nom_rep, changed0) = self.merge_nodes_sharing_a_nominal();
+        let changed1 = self.identify_nominal_concepts(nom_rep);
+        // (1) ⊓-rule.
+        let changed2 = self.step_and_rule();
+        // (2) ∀-rule (+ transitive-role folding).
+        let changed3 = self.step_all_rule();
+        changed0 || changed1 || changed2 || changed3
     }
 
     /// Apply the deterministic GENERATING rules once (`∃`, `≥`) — lowest priority, and
     /// only on non-blocked nodes, so equality blocking terminates the tree.
-    fn step_generating(&mut self) -> bool {
+    /// Phase (3) of `step_generating`: the ∃-rule. Split out
+    /// (extract-method, cx/wD8) — same terms, same order as before,
+    /// including the `NODE_CAP` safety-valve early return: the original
+    /// `return changed;` mid-loop exited `step_generating` ENTIRELY
+    /// (skipping the ≥-rule too), so this returns `(changed, true)` to let
+    /// the caller reproduce that exact short-circuit.
+    fn step_exists_rule(&mut self) -> (bool, bool) {
         let mut changed = false;
-
-        // (3) ∃-rule.
         for i in self.reps() {
             if self.is_blocked(i) {
                 continue;
@@ -901,7 +1032,7 @@ impl Completion {
                     .any(|&y| self.nodes[y].label.contains(&filler));
                 if !satisfied {
                     if self.nodes.len() >= NODE_CAP {
-                        return changed;
+                        return (changed, true);
                     }
                     let mut lab = BTreeSet::new();
                     lab.insert(filler.clone());
@@ -911,55 +1042,87 @@ impl Completion {
                 }
             }
         }
+        (changed, false)
+    }
 
-        // (4) ≥-rule.
+    /// Apply the ≥-rule's known `(n, role, filler)` obligations for one node
+    /// `i`. Split out of `step_min_rule` (extract-method, cx/wD8) — same
+    /// terms, same order as before, same `NODE_CAP` short-circuit
+    /// convention as [`Self::step_exists_rule`].
+    fn apply_min_rule_to_node(&mut self, i: usize) -> (bool, bool) {
+        let mut changed = false;
+        let mins: Vec<(usize, String, Dl)> = self.nodes[i]
+            .label
+            .iter()
+            .filter_map(|c| match c {
+                Dl::Min(n, r, f) => std::option::Option::Some((*n, r.clone(), (**f).clone())),
+                _ => std::option::Option::None,
+            })
+            .collect();
+        for (n, role, filler) in mins {
+            if n == 0 {
+                continue;
+            }
+            let witnesses: Vec<usize> = self
+                .role_neighbors(i, &role)
+                .into_iter()
+                .filter(|&y| self.qualifies(y, &filler))
+                .collect();
+            if witnesses.len() < n {
+                if self.nodes.len() >= NODE_CAP {
+                    return (changed, true);
+                }
+                let mut lab = BTreeSet::new();
+                if !matches!(filler, Dl::Top) {
+                    lab.insert(filler.clone());
+                }
+                let z = self.add_node(lab, BTreeSet::new(), std::option::Option::Some(i));
+                self.edges.push((i, role.clone(), z));
+                // Distinct from every existing qualifying witness (pairwise ≠).
+                for &y in &witnesses {
+                    self.neq.push((z, y));
+                }
+                changed = true;
+            }
+        }
+        (changed, false)
+    }
+
+    /// Phase (4) of `step_generating`: the ≥-rule. Split out
+    /// (extract-method, cx/wD8) — same terms, same order as before,
+    /// same `NODE_CAP` short-circuit convention as [`Self::step_exists_rule`].
+    fn step_min_rule(&mut self) -> (bool, bool) {
+        let mut changed = false;
         for i in self.reps() {
             if self.is_blocked(i) {
                 continue;
             }
-            let mins: Vec<(usize, String, Dl)> = self.nodes[i]
-                .label
-                .iter()
-                .filter_map(|c| match c {
-                    Dl::Min(n, r, f) => std::option::Option::Some((*n, r.clone(), (**f).clone())),
-                    _ => std::option::Option::None,
-                })
-                .collect();
-            for (n, role, filler) in mins {
-                if n == 0 {
-                    continue;
-                }
-                let witnesses: Vec<usize> = self
-                    .role_neighbors(i, &role)
-                    .into_iter()
-                    .filter(|&y| self.qualifies(y, &filler))
-                    .collect();
-                if witnesses.len() < n {
-                    if self.nodes.len() >= NODE_CAP {
-                        return changed;
-                    }
-                    let mut lab = BTreeSet::new();
-                    if !matches!(filler, Dl::Top) {
-                        lab.insert(filler.clone());
-                    }
-                    let z = self.add_node(lab, BTreeSet::new(), std::option::Option::Some(i));
-                    self.edges.push((i, role.clone(), z));
-                    // Distinct from every existing qualifying witness (pairwise ≠).
-                    for &y in &witnesses {
-                        self.neq.push((z, y));
-                    }
-                    changed = true;
-                }
+            let (c, capped) = self.apply_min_rule_to_node(i);
+            if c {
+                changed = true;
+            }
+            if capped {
+                return (changed, true);
             }
         }
-
-        changed
+        (changed, false)
     }
 
-    /// Find the first non-deterministic choice point and return its alternatives, or
-    /// `None` when the graph is complete (no rule applies): `⊔`, then `choose`, then `≤`.
-    fn next_nondet(&self) -> Option<Vec<Branch>> {
-        // ⊔-rule.
+    fn step_generating(&mut self) -> bool {
+        // (3) ∃-rule.
+        let (changed3, capped3) = self.step_exists_rule();
+        if capped3 {
+            return changed3;
+        }
+        // (4) ≥-rule.
+        let (changed4, _capped4) = self.step_min_rule();
+        changed3 || changed4
+    }
+
+    /// The ⊔-rule: find a node with an un-satisfied `Or` concept. Split out
+    /// of `next_nondet` (extract-method, cx/wD8) — same terms, same order
+    /// as before.
+    fn find_or_rule_branch(&self) -> Option<Vec<Branch>> {
         for i in self.reps() {
             for c in &self.nodes[i].label {
                 if let Dl::Or(ds) = c {
@@ -973,7 +1136,13 @@ impl Completion {
                 }
             }
         }
-        // choose-rule (qualified number restrictions): a witness must commit to C / ¬C.
+        None
+    }
+
+    /// The choose-rule (qualified number restrictions): a witness must
+    /// commit to C / ¬C. Split out of `next_nondet` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn find_choose_rule_branch(&self) -> Option<Vec<Branch>> {
         for i in self.reps() {
             let restr: Vec<(String, Dl)> = self.nodes[i]
                 .label
@@ -999,7 +1168,60 @@ impl Completion {
                 }
             }
         }
-        // ≤-rule: too many witnesses ⇒ merge a mergeable (not-yet-≠) pair.
+        None
+    }
+
+    /// Find a mergeable (not-yet-≠) witness pair for one `≤n r.f` restriction
+    /// with too many qualifying witnesses at node `i`. Split out of
+    /// `find_max_rule_branch` (extract-method, cx/wD8) — same terms, same
+    /// order as before.
+    /// Every not-yet-≠ pair among `ws`, as merge branches. Split out of
+    /// `find_max_rule_merge_at_node` (extract-method, cx/wD8) — same terms,
+    /// same order as before.
+    fn find_mergeable_witness_pairs(&self, ws: &[usize]) -> Vec<Branch> {
+        let mut branches = Vec::new();
+        for a in 0..ws.len() {
+            for b in (a + 1)..ws.len() {
+                if !self.distinct(ws[a], ws[b]) {
+                    branches.push(Branch::Merge(ws[a], ws[b]));
+                }
+            }
+        }
+        branches
+    }
+
+    fn find_max_rule_merge_at_node(&self, i: usize, n: usize, filler: &Dl) -> Option<Vec<Branch>> {
+        // gather qualifying witnesses per the same role via re-scan
+        let roles_here: Vec<String> = self.nodes[i]
+            .label
+            .iter()
+            .filter_map(|c| match c {
+                Dl::Max(m, r, f) if *m == n && **f == *filler => {
+                    std::option::Option::Some(r.clone())
+                }
+                _ => std::option::Option::None,
+            })
+            .collect();
+        for role in roles_here {
+            let ws: Vec<usize> = self
+                .role_neighbors(i, &role)
+                .into_iter()
+                .filter(|&y| self.qualifies(y, filler))
+                .collect();
+            if ws.len() > n {
+                let branches = self.find_mergeable_witness_pairs(&ws);
+                if !branches.is_empty() {
+                    return Some(branches);
+                }
+            }
+        }
+        None
+    }
+
+    /// The ≤-rule: too many witnesses ⇒ merge a mergeable (not-yet-≠) pair.
+    /// Split out of `next_nondet` (extract-method, cx/wD8) — same terms,
+    /// same order as before.
+    fn find_max_rule_branch(&self) -> Option<Vec<Branch>> {
         for i in self.reps() {
             let maxes: Vec<(usize, Dl)> = self.nodes[i]
                 .label
@@ -1010,40 +1232,20 @@ impl Completion {
                 })
                 .collect();
             for (n, filler) in maxes {
-                // gather qualifying witnesses per the same role via re-scan
-                let roles_here: Vec<String> = self.nodes[i]
-                    .label
-                    .iter()
-                    .filter_map(|c| match c {
-                        Dl::Max(m, r, f) if *m == n && **f == filler => {
-                            std::option::Option::Some(r.clone())
-                        }
-                        _ => std::option::Option::None,
-                    })
-                    .collect();
-                for role in roles_here {
-                    let ws: Vec<usize> = self
-                        .role_neighbors(i, &role)
-                        .into_iter()
-                        .filter(|&y| self.qualifies(y, &filler))
-                        .collect();
-                    if ws.len() > n {
-                        let mut branches = Vec::new();
-                        for a in 0..ws.len() {
-                            for b in (a + 1)..ws.len() {
-                                if !self.distinct(ws[a], ws[b]) {
-                                    branches.push(Branch::Merge(ws[a], ws[b]));
-                                }
-                            }
-                        }
-                        if !branches.is_empty() {
-                            return Some(branches);
-                        }
-                    }
+                if let Some(branches) = self.find_max_rule_merge_at_node(i, n, &filler) {
+                    return Some(branches);
                 }
             }
         }
         None
+    }
+
+    /// Find the first non-deterministic choice point and return its alternatives, or
+    /// `None` when the graph is complete (no rule applies): `⊔`, then `choose`, then `≤`.
+    fn next_nondet(&self) -> Option<Vec<Branch>> {
+        self.find_or_rule_branch()
+            .or_else(|| self.find_choose_rule_branch())
+            .or_else(|| self.find_max_rule_branch())
     }
 
     fn apply_branch(&mut self, b: Branch) {
@@ -1059,29 +1261,44 @@ impl Completion {
     /// Is there a clash-free complete completion reachable from this graph? The tableau
     /// decision procedure: saturate deterministically, branch on the first
     /// non-determinism, and recurse. `true` ⇒ satisfiable.
+    /// Saturate the non-generating deterministic rules to fixpoint, checking
+    /// for a clash before and after. Split out of `expand`'s step (1)
+    /// (extract-method, cx/wD8) — same terms, same order as before. Returns
+    /// whether a clash was found.
+    fn saturate_nongenerating(&mut self) -> bool {
+        let mut changed = true;
+        while changed {
+            if self.has_clash() {
+                return true;
+            }
+            changed = self.step_nongenerating();
+        }
+        self.has_clash()
+    }
+
+    /// Try every branch of a non-deterministic choice point, recursing into
+    /// each. Split out of `expand`'s step (2) (extract-method, cx/wD8) —
+    /// same terms, same order as before.
+    fn try_nondet_branches(&mut self, branches: Vec<Branch>) -> bool {
+        for b in branches {
+            let mut child = self.clone();
+            child.apply_branch(b);
+            if child.expand() {
+                return true;
+            }
+        }
+        false
+    }
+
     fn expand(&mut self) -> bool {
         loop {
             // (1) Saturate the non-generating deterministic rules to fixpoint.
-            let mut changed = true;
-            while changed {
-                if self.has_clash() {
-                    return false;
-                }
-                changed = self.step_nongenerating();
-            }
-            if self.has_clash() {
+            if self.saturate_nongenerating() {
                 return false;
             }
             // (2) Resolve the first non-deterministic choice point (⊔ / choose / ≤).
             if let std::option::Option::Some(branches) = self.next_nondet() {
-                for b in branches {
-                    let mut child = self.clone();
-                    child.apply_branch(b);
-                    if child.expand() {
-                        return true;
-                    }
-                }
-                return false;
+                return self.try_nondet_branches(branches);
             }
             // (3) Generating rules last (∃ / ≥) so blocking is checked on stable labels.
             if self.nodes.len() >= NODE_CAP {

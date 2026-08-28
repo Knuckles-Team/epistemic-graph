@@ -806,7 +806,6 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "raft")]
     state.write().await.install_local_placement_authority();
 
-
     spawn_optional_service_listeners(
         &state,
         args.metrics_addr.as_deref(),
@@ -1015,8 +1014,7 @@ async fn spawn_optional_service_listeners(
     // Opt-in AND feature-gated, exactly like the SPARQL/metrics listeners above:
     // starts only when built `--features policy_export` AND
     // --policy-export-addr / EPISTEMIC_GRAPH_POLICY_EXPORT_ADDR is set.
-    let policy_export_addr =
-        resolve_listener_addr(policy_export_addr_arg, "127.0.0.1:7879");
+    let policy_export_addr = resolve_listener_addr(policy_export_addr_arg, "127.0.0.1:7879");
     #[cfg(feature = "policy_export")]
     if let Some(ref policy_export_addr) = policy_export_addr {
         let listener = tokio::net::TcpListener::bind(policy_export_addr).await?;
@@ -1241,8 +1239,7 @@ async fn spawn_optional_service_listeners(
     // it on `ServerState` BEFORE spawning the listener, so the RPC render path
     // and this HTTP path always share the SAME persistent ColumnStore/render
     // cache/provenance -- never two independent engines silently diverging.
-    let viz_interactive_addr =
-        resolve_listener_addr(viz_interactive_addr_arg, "127.0.0.1:5090");
+    let viz_interactive_addr = resolve_listener_addr(viz_interactive_addr_arg, "127.0.0.1:5090");
     #[cfg(feature = "viz-interactive")]
     if let Some(ref viz_interactive_addr) = viz_interactive_addr {
         let viz_persist_dir = state.read().await.persist_dir.clone();
@@ -2020,7 +2017,6 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
             }
         });
     }
-
 }
 
 async fn spawn_memory_and_lifecycle_sweeps(
@@ -2321,7 +2317,6 @@ async fn spawn_memory_and_lifecycle_sweeps(
             }
         });
     }
-
 }
 
 async fn start_raft_and_matview_reload(
@@ -2419,7 +2414,6 @@ async fn start_raft_and_matview_reload(
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod listener_policy_tests {

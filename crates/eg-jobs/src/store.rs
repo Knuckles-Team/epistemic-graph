@@ -189,8 +189,14 @@ fn validate_checkpoint(checkpoint: &Checkpoint) -> Result<()> {
     Ok(())
 }
 
-fn validate_job(job: &AnalyticsJob) -> Result<()> {
-    if job.job_id.is_empty()
+/// Whether any scalar/opaque field on `job` exceeds its storage limit. Split
+/// out of `validate_job` (extract-method, cx/wD8) — one flat guard, same terms
+/// and same order as before.
+/// Whether `job`'s id/input-snapshot/policy scalar fields exceed their
+/// storage limit. Split out of `job_exceeds_storage_limits` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn job_identity_fields_exceed_limits(job: &AnalyticsJob) -> bool {
+    job.job_id.is_empty()
         || job.job_id.len() > MAX_JOB_ID_BYTES
         || !valid_identifier(&job.input_snapshot.graph)
         || job.input_snapshot.dataset_ref.len() > MAX_JOB_STRING_BYTES
@@ -199,7 +205,13 @@ fn validate_job(job: &AnalyticsJob) -> Result<()> {
         || !valid_identifier(&job.policy.actor)
         || job.policy.purpose.len() > MAX_JOB_STRING_BYTES
         || job.policy.policy_fingerprint.len() > MAX_JOB_STRING_BYTES
-        || !valid_identifier(&job.algo.family)
+}
+
+/// Whether `job`'s algo/payload/worker-ref/lease fields exceed their storage
+/// limit. Split out of `job_exceeds_storage_limits` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn job_algo_and_runtime_fields_exceed_limits(job: &AnalyticsJob) -> bool {
+    !valid_identifier(&job.algo.family)
         || !valid_identifier(&job.algo.algorithm)
         || job.algo.params_digest.len() > MAX_JOB_STRING_BYTES
         || job.algo.code_version.len() > MAX_JOB_STRING_BYTES
@@ -213,7 +225,14 @@ fn validate_job(job: &AnalyticsJob) -> Result<()> {
             .lease
             .as_ref()
             .is_some_and(|lease| !valid_identifier(&lease.worker_ref))
-    {
+}
+
+fn job_exceeds_storage_limits(job: &AnalyticsJob) -> bool {
+    job_identity_fields_exceed_limits(job) || job_algo_and_runtime_fields_exceed_limits(job)
+}
+
+fn validate_job(job: &AnalyticsJob) -> Result<()> {
+    if job_exceeds_storage_limits(job) {
         return Err(codec_err("analytics-job record exceeds storage limits"));
     }
     validate_placement(&job.policy)?;
@@ -243,6 +262,47 @@ fn decode_job(bytes: &[u8]) -> Result<AnalyticsJob> {
     let job = decode_stored(bytes)?;
     validate_job(&job)?;
     Ok(job)
+}
+
+/// Whether `job` should count as ready in `metric_counts`. Split out of that
+/// function (extract-method, cx/wD8) — same terms, same order as before,
+/// including the cancellation-reconcile carve-out (an expired,
+/// cancellation-requested lease still needs one worker poll to drive the
+/// durable record to its terminal Cancelled state).
+fn job_is_ready_for_scheduling(job: &AnalyticsJob, live_lease: bool, now_ms: i64) -> bool {
+    let cancellation_reconcile = job.cancel_requested
+        && matches!(
+            &job.state,
+            JobState::Running { .. } | JobState::Publishing { .. }
+        )
+        && !live_lease;
+    cancellation_reconcile
+        || (!job.cancel_requested
+            && job.not_before_ms <= now_ms
+            && (matches!(&job.state, JobState::Submitted)
+                || matches!(
+                    &job.state,
+                    JobState::Running { .. } | JobState::Publishing { .. }
+                ) && !live_lease))
+}
+
+/// Whether `claim_next`'s arguments fail its opaque-reference/limit guard.
+/// Split out of that function (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn claim_next_args_invalid(
+    worker_ref: &str,
+    worker_capabilities: &[String],
+    lease_ms: u64,
+    quota: &TenantJobQuota,
+) -> bool {
+    worker_ref.trim().is_empty()
+        || worker_ref.len() > 256
+        || lease_ms == 0
+        || quota.max_active == 0
+        || worker_capabilities.len() > 256
+        || worker_capabilities
+            .iter()
+            .any(|value| value.is_empty() || value.len() > 256)
 }
 
 fn encode_job(job: &AnalyticsJob) -> Result<Vec<u8>> {
@@ -528,25 +588,7 @@ impl JobStore {
             if matches!(&job.state, JobState::Publishing { .. }) {
                 publishing = publishing.saturating_add(1);
             }
-            // An expired, cancellation-requested lease still needs one worker
-            // poll to drive the durable record to its terminal Cancelled state.
-            // Count that coordinator work as ready so an autoscaled remote-only
-            // fleet cannot strand the cancellation at zero replicas.
-            let cancellation_reconcile = job.cancel_requested
-                && matches!(
-                    &job.state,
-                    JobState::Running { .. } | JobState::Publishing { .. }
-                )
-                && !live_lease;
-            let eligible = cancellation_reconcile
-                || (!job.cancel_requested
-                    && job.not_before_ms <= now_ms
-                    && (matches!(&job.state, JobState::Submitted)
-                        || matches!(
-                            &job.state,
-                            JobState::Running { .. } | JobState::Publishing { .. }
-                        ) && !live_lease));
-            if eligible {
+            if job_is_ready_for_scheduling(&job, live_lease, now_ms) {
                 ready = ready.saturating_add(1);
             }
         }
@@ -564,15 +606,7 @@ impl JobStore {
         lease_ms: u64,
         quota: TenantJobQuota,
     ) -> Result<Option<WorkerClaim>> {
-        if worker_ref.trim().is_empty()
-            || worker_ref.len() > 256
-            || lease_ms == 0
-            || quota.max_active == 0
-            || worker_capabilities.len() > 256
-            || worker_capabilities
-                .iter()
-                .any(|value| value.is_empty() || value.len() > 256)
-        {
+        if claim_next_args_invalid(worker_ref, worker_capabilities, lease_ms, &quota) {
             return Err(codec_err(
                 "worker claim requires an opaque worker reference and limits",
             ));
@@ -710,16 +744,7 @@ impl JobStore {
         let wtx = self.db.begin_write().map_err(redb_err)?;
         let mut job = read_job_in_wtx(&wtx, job_id)?;
         require_lease(&job, worker_ref, epoch, now_ms)?;
-        let lineage = &result.reproducibility;
-        if lineage.input_dataset_ref != job.input_snapshot.dataset_ref
-            || lineage.input_content_digest != job.input_snapshot.content_digest
-            || lineage.input_snapshot_version != job.input_snapshot.version
-            || lineage.algorithm_ref != format!("{}:{}", job.algo.family, job.algo.algorithm)
-            || lineage.params_digest != job.algo.params_digest
-            || lineage.implementation_version != job.algo.code_version
-            || lineage.environment_version != job.algo.env_version
-            || lineage.policy_fingerprint != job.policy.policy_fingerprint
-        {
+        if !lineage_matches_job(&result.reproducibility, &job) {
             return Err(codec_err(
                 "typed result reproducibility manifest does not match its leased job",
             ));
@@ -1686,13 +1711,19 @@ fn capability_index_key(token: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn validate_placement(policy: &JobPolicy) -> Result<()> {
-    let placement = &policy.placement;
-    if !valid_identifier(&policy.tenant)
+/// Whether `policy`'s tenant/actor/purpose/fingerprint scalars exceed their
+/// storage limit. Split out of `validate_placement` (extract-method, cx/wD8).
+fn policy_scalars_exceed_limits(policy: &JobPolicy) -> bool {
+    !valid_identifier(&policy.tenant)
         || !valid_identifier(&policy.actor)
         || policy.purpose.len() > MAX_JOB_STRING_BYTES
         || policy.policy_fingerprint.len() > MAX_JOB_STRING_BYTES
-        || placement.required_capabilities.len() > 64
+}
+
+/// Whether `placement`'s pool/region/capability fields exceed their storage
+/// limit. Split out of `validate_placement` (extract-method, cx/wD8).
+fn placement_fields_exceed_limits(placement: &crate::model::JobPlacement) -> bool {
+    placement.required_capabilities.len() > 64
         || placement.pool.len() > 256
         || placement.region.len() > 256
         || placement.pool.contains('\0')
@@ -1701,7 +1732,11 @@ fn validate_placement(policy: &JobPolicy) -> Result<()> {
             .required_capabilities
             .iter()
             .any(|value| value.is_empty() || value.len() > 256 || value.contains('\0'))
-    {
+}
+
+fn validate_placement(policy: &JobPolicy) -> Result<()> {
+    let placement = &policy.placement;
+    if policy_scalars_exceed_limits(policy) || placement_fields_exceed_limits(placement) {
         return Err(codec_err("job placement exceeds scheduler limits"));
     }
     Ok(())
@@ -1761,22 +1796,15 @@ fn select_ready_for_worker(
                 continue;
             };
             let job = decode_job(value.value())?;
-            if !ready_indexed(&job)
-                || placement_anchor(&job) != anchor
-                || job.not_before_ms > now_ms
-                || job
-                    .policy
-                    .deadline_unix_ms
-                    .is_some_and(|deadline| deadline <= now_ms)
-                || !job_matches_worker(&job, worker_capabilities, capabilities)
-            {
-                continue;
-            }
-            let (active_count, active_cpu) = tenant_active_total(wtx, &job.policy.tenant)?;
-            let requested_cpu = reserved_cpu(&job);
-            if active_count >= quota.max_active
-                || active_cpu.saturating_add(requested_cpu) > quota.max_reserved_cpu_ms
-            {
+            if !job_ready_for_claim(
+                wtx,
+                &job,
+                &anchor,
+                worker_capabilities,
+                capabilities,
+                now_ms,
+                quota,
+            )? {
                 continue;
             }
             let order = (rank, created_at_ms, job_id.to_string());
@@ -1789,6 +1817,36 @@ fn select_ready_for_worker(
         }
     }
     Ok(best.map(|(_, job)| job))
+}
+
+/// Whether `job` (found at `anchor`) is eligible to be claimed by a worker
+/// with `worker_capabilities`/`capabilities`, under `quota`. Split out of
+/// `select_ready_for_worker` (extract-method, cx/wD8) — same terms, same
+/// order, same short-circuiting as before.
+fn job_ready_for_claim(
+    wtx: &WriteTransaction,
+    job: &AnalyticsJob,
+    anchor: &str,
+    worker_capabilities: &[String],
+    capabilities: &BTreeSet<&str>,
+    now_ms: i64,
+    quota: TenantJobQuota,
+) -> Result<bool> {
+    if !ready_indexed(job)
+        || placement_anchor(job) != anchor
+        || job.not_before_ms > now_ms
+        || job
+            .policy
+            .deadline_unix_ms
+            .is_some_and(|deadline| deadline <= now_ms)
+        || !job_matches_worker(job, worker_capabilities, capabilities)
+    {
+        return Ok(false);
+    }
+    let (active_count, active_cpu) = tenant_active_total(wtx, &job.policy.tenant)?;
+    let requested_cpu = reserved_cpu(job);
+    Ok(active_count < quota.max_active
+        && active_cpu.saturating_add(requested_cpu) <= quota.max_reserved_cpu_ms)
 }
 
 fn job_matches_worker(
@@ -1818,132 +1876,168 @@ fn job_matches_worker(
         })
 }
 
-fn reconcile_scheduler(wtx: &WriteTransaction, now_ms: i64) -> Result<bool> {
-    let mut changed = false;
+/// Collect the durable job ids awaiting cancellation reconciliation. Split
+/// out of `reconcile_scheduler` (extract-method, cx/wD8) — same limit check,
+/// same order as before.
+fn collect_cancellation_ids(wtx: &WriteTransaction) -> Result<Vec<String>> {
+    let table = wtx.open_table(JOB_CANCELLATION).map_err(redb_err)?;
+    let mut ids = Vec::new();
+    for row in table.iter().map_err(redb_err)? {
+        let (key, _) = row.map_err(redb_err)?;
+        if ids.len() >= MAX_SCHEDULER_RECONCILE_ITEMS {
+            return Err(codec_err("scheduler reconciliation exceeds limits"));
+        }
+        ids.push(key.value().to_string());
+    }
+    Ok(ids)
+}
 
-    let cancellation_ids = {
-        let table = wtx.open_table(JOB_CANCELLATION).map_err(redb_err)?;
-        let mut ids = Vec::new();
-        for row in table.iter().map_err(redb_err)? {
-            let (key, _) = row.map_err(redb_err)?;
-            if ids.len() >= MAX_SCHEDULER_RECONCILE_ITEMS {
-                return Err(codec_err("scheduler reconciliation exceeds limits"));
-            }
-            ids.push(key.value().to_string());
+/// Reconcile one cancellation-pending job. Split out of `reconcile_scheduler`
+/// (extract-method, cx/wD8) — same terms, same order as before. Returns
+/// whether the durable record changed.
+fn reconcile_cancellation_job(wtx: &WriteTransaction, job_id: &str, now_ms: i64) -> Result<bool> {
+    let mut job = read_job_in_wtx(wtx, job_id)?;
+    let lease_expired = job
+        .lease
+        .as_ref()
+        .is_none_or(|lease| lease.expires_at_ms <= now_ms);
+    if !lease_expired || !cancellation_indexed(&job) {
+        return Ok(false);
+    }
+    let checkpoint = job.state.checkpoint().cloned();
+    job.state = JobState::Cancelled { checkpoint };
+    job.lease = None;
+    job.updated_at_ms = now_ms;
+    write_job_transition(wtx, &job, None)?;
+    Ok(true)
+}
+
+/// Collect the durable job ids whose lease has expired by `now_ms`. Split out
+/// of `reconcile_scheduler` (extract-method, cx/wD8) — same limit check, same
+/// order as before.
+fn collect_expired_lease_ids(wtx: &WriteTransaction, now_ms: i64) -> Result<Vec<String>> {
+    let table = wtx.open_table(JOB_LEASE_EXPIRY).map_err(redb_err)?;
+    let mut ids = Vec::new();
+    for row in table
+        .range((i64::MIN, "")..=(now_ms, "\u{10ffff}"))
+        .map_err(redb_err)?
+    {
+        let (key, _) = row.map_err(redb_err)?;
+        if ids.len() >= MAX_SCHEDULER_RECONCILE_ITEMS {
+            return Err(codec_err("scheduler reconciliation exceeds limits"));
         }
-        ids
-    };
-    for job_id in cancellation_ids {
-        let mut job = read_job_in_wtx(wtx, &job_id)?;
-        let lease_expired = job
-            .lease
-            .as_ref()
-            .is_none_or(|lease| lease.expires_at_ms <= now_ms);
-        if !lease_expired || !cancellation_indexed(&job) {
-            continue;
-        }
+        ids.push(key.value().1.to_string());
+    }
+    Ok(ids)
+}
+
+/// Reconcile one lease-expired job. Split out of `reconcile_scheduler`
+/// (extract-method, cx/wD8) — same terms, same order as before. Returns
+/// whether the durable record changed.
+fn reconcile_expired_lease_job(wtx: &WriteTransaction, job_id: &str, now_ms: i64) -> Result<bool> {
+    let mut job = read_job_in_wtx(wtx, job_id)?;
+    if job
+        .lease
+        .as_ref()
+        .is_none_or(|lease| lease.expires_at_ms > now_ms)
+    {
+        return Ok(false);
+    }
+    if job.cancel_requested && matches!(&job.state, JobState::Running { .. }) {
         let checkpoint = job.state.checkpoint().cloned();
         job.state = JobState::Cancelled { checkpoint };
-        job.lease = None;
-        job.updated_at_ms = now_ms;
-        write_job_transition(wtx, &job, None)?;
-        changed = true;
-    }
-
-    let expired_ids = {
-        let table = wtx.open_table(JOB_LEASE_EXPIRY).map_err(redb_err)?;
-        let mut ids = Vec::new();
-        for row in table
-            .range((i64::MIN, "")..=(now_ms, "\u{10ffff}"))
-            .map_err(redb_err)?
-        {
-            let (key, _) = row.map_err(redb_err)?;
-            if ids.len() >= MAX_SCHEDULER_RECONCILE_ITEMS {
-                return Err(codec_err("scheduler reconciliation exceeds limits"));
-            }
-            ids.push(key.value().1.to_string());
-        }
-        ids
-    };
-    for job_id in expired_ids {
-        let mut job = read_job_in_wtx(wtx, &job_id)?;
-        if job
-            .lease
-            .as_ref()
-            .is_none_or(|lease| lease.expires_at_ms > now_ms)
-        {
-            continue;
-        }
-        if job.cancel_requested && matches!(&job.state, JobState::Running { .. }) {
-            let checkpoint = job.state.checkpoint().cloned();
-            job.state = JobState::Cancelled { checkpoint };
-        } else if job
-            .policy
-            .deadline_unix_ms
-            .is_some_and(|deadline| now_ms >= deadline)
-            && matches!(&job.state, JobState::Submitted | JobState::Running { .. })
-        {
-            let checkpoint = job.state.checkpoint().cloned();
-            job.state = JobState::Failed {
-                reason: "deadline_exceeded".to_string(),
-                checkpoint,
-            };
-        } else if matches!(&job.state, JobState::Running { .. })
-            && job.retry.attempts_made >= job.retry.max_attempts.max(1)
-        {
-            let checkpoint = job.state.checkpoint().cloned();
-            job.state = JobState::Failed {
-                reason: "lease_expired".to_string(),
-                checkpoint,
-            };
-        }
-        // A non-terminal expired owner is durably detached before it enters the
-        // ready queue. Fencing still advances only when the next worker leases it.
-        job.lease = None;
-        job.updated_at_ms = now_ms;
-        write_job_transition(wtx, &job, None)?;
-        changed = true;
-    }
-
-    let deadline_ids = {
-        let table = wtx.open_table(JOB_DEADLINE).map_err(redb_err)?;
-        let mut ids = Vec::new();
-        for row in table
-            .range((i64::MIN, "")..=(now_ms, "\u{10ffff}"))
-            .map_err(redb_err)?
-        {
-            let (key, _) = row.map_err(redb_err)?;
-            if ids.len() >= MAX_SCHEDULER_RECONCILE_ITEMS {
-                return Err(codec_err("scheduler reconciliation exceeds limits"));
-            }
-            ids.push(key.value().1.to_string());
-        }
-        ids
-    };
-    for job_id in deadline_ids {
-        let mut job = read_job_in_wtx(wtx, &job_id)?;
-        let lease_live = job
-            .lease
-            .as_ref()
-            .is_some_and(|lease| lease.expires_at_ms > now_ms);
-        if lease_live
-            || !deadline_indexed(&job)
-            || job
-                .policy
-                .deadline_unix_ms
-                .is_none_or(|deadline| deadline > now_ms)
-        {
-            continue;
-        }
+    } else if job
+        .policy
+        .deadline_unix_ms
+        .is_some_and(|deadline| now_ms >= deadline)
+        && matches!(&job.state, JobState::Submitted | JobState::Running { .. })
+    {
         let checkpoint = job.state.checkpoint().cloned();
         job.state = JobState::Failed {
             reason: "deadline_exceeded".to_string(),
             checkpoint,
         };
-        job.lease = None;
-        job.updated_at_ms = now_ms;
-        write_job_transition(wtx, &job, None)?;
-        changed = true;
+    } else if matches!(&job.state, JobState::Running { .. })
+        && job.retry.attempts_made >= job.retry.max_attempts.max(1)
+    {
+        let checkpoint = job.state.checkpoint().cloned();
+        job.state = JobState::Failed {
+            reason: "lease_expired".to_string(),
+            checkpoint,
+        };
+    }
+    // A non-terminal expired owner is durably detached before it enters the
+    // ready queue. Fencing still advances only when the next worker leases it.
+    job.lease = None;
+    job.updated_at_ms = now_ms;
+    write_job_transition(wtx, &job, None)?;
+    Ok(true)
+}
+
+/// Collect the durable job ids whose deadline has passed by `now_ms`. Split
+/// out of `reconcile_scheduler` (extract-method, cx/wD8) — same limit check,
+/// same order as before.
+fn collect_deadline_ids(wtx: &WriteTransaction, now_ms: i64) -> Result<Vec<String>> {
+    let table = wtx.open_table(JOB_DEADLINE).map_err(redb_err)?;
+    let mut ids = Vec::new();
+    for row in table
+        .range((i64::MIN, "")..=(now_ms, "\u{10ffff}"))
+        .map_err(redb_err)?
+    {
+        let (key, _) = row.map_err(redb_err)?;
+        if ids.len() >= MAX_SCHEDULER_RECONCILE_ITEMS {
+            return Err(codec_err("scheduler reconciliation exceeds limits"));
+        }
+        ids.push(key.value().1.to_string());
+    }
+    Ok(ids)
+}
+
+/// Reconcile one deadline-exceeded job. Split out of `reconcile_scheduler`
+/// (extract-method, cx/wD8) — same terms, same order as before. Returns
+/// whether the durable record changed.
+fn reconcile_deadline_job(wtx: &WriteTransaction, job_id: &str, now_ms: i64) -> Result<bool> {
+    let mut job = read_job_in_wtx(wtx, job_id)?;
+    let lease_live = job
+        .lease
+        .as_ref()
+        .is_some_and(|lease| lease.expires_at_ms > now_ms);
+    if lease_live
+        || !deadline_indexed(&job)
+        || job
+            .policy
+            .deadline_unix_ms
+            .is_none_or(|deadline| deadline > now_ms)
+    {
+        return Ok(false);
+    }
+    let checkpoint = job.state.checkpoint().cloned();
+    job.state = JobState::Failed {
+        reason: "deadline_exceeded".to_string(),
+        checkpoint,
+    };
+    job.lease = None;
+    job.updated_at_ms = now_ms;
+    write_job_transition(wtx, &job, None)?;
+    Ok(true)
+}
+
+fn reconcile_scheduler(wtx: &WriteTransaction, now_ms: i64) -> Result<bool> {
+    let mut changed = false;
+    for job_id in collect_cancellation_ids(wtx)? {
+        if reconcile_cancellation_job(wtx, &job_id, now_ms)? {
+            changed = true;
+        }
+    }
+    for job_id in collect_expired_lease_ids(wtx, now_ms)? {
+        if reconcile_expired_lease_job(wtx, &job_id, now_ms)? {
+            changed = true;
+        }
+    }
+    for job_id in collect_deadline_ids(wtx, now_ms)? {
+        if reconcile_deadline_job(wtx, &job_id, now_ms)? {
+            changed = true;
+        }
     }
     Ok(changed)
 }
@@ -1963,6 +2057,22 @@ fn read_job_in_wtx(wtx: &WriteTransaction, job_id: &str) -> Result<AnalyticsJob>
         .map_err(redb_err)?
         .ok_or_else(|| JobError::NotFound(job_id.to_string()))?;
     decode_job(row.value())
+}
+
+/// Whether a staged result's reproducibility manifest matches the job it was
+/// computed for. Split out of `stage_result_fenced` (extract-method, cx/wD8).
+fn lineage_matches_job(
+    lineage: &crate::result::ReproducibilityManifest,
+    job: &AnalyticsJob,
+) -> bool {
+    lineage.input_dataset_ref == job.input_snapshot.dataset_ref
+        && lineage.input_content_digest == job.input_snapshot.content_digest
+        && lineage.input_snapshot_version == job.input_snapshot.version
+        && lineage.algorithm_ref == format!("{}:{}", job.algo.family, job.algo.algorithm)
+        && lineage.params_digest == job.algo.params_digest
+        && lineage.implementation_version == job.algo.code_version
+        && lineage.environment_version == job.algo.env_version
+        && lineage.policy_fingerprint == job.policy.policy_fingerprint
 }
 
 fn invalid_transition(job: &AnalyticsJob, reason: &'static str) -> JobError {

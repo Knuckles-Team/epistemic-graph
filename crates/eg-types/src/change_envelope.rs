@@ -835,7 +835,10 @@ mod tests {
         let mut envelope = minimal_envelope();
         envelope.schema_version = CHANGE_ENVELOPE_VERSION + 1;
         let err = envelope.validate().unwrap_err();
-        assert!(err.contains("unsupported ChangeEnvelope version"), "got: {err}");
+        assert!(
+            err.contains("unsupported ChangeEnvelope version"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -885,12 +888,15 @@ mod tests {
     #[test]
     fn outbox_intent_unsafe_topic_is_rejected() {
         let mut envelope = minimal_envelope();
-        envelope.mutation.outbox.push(crate::mutation_batch::MutationOutboxIntent {
-            topic: "topic@bad".into(),
-            key: "key-1".into(),
-            payload: rmp_serde::to_vec_named(&serde_json::json!({"a": 1})).unwrap(),
-            headers: Default::default(),
-        });
+        envelope
+            .mutation
+            .outbox
+            .push(crate::mutation_batch::MutationOutboxIntent {
+                topic: "topic@bad".into(),
+                key: "key-1".into(),
+                payload: rmp_serde::to_vec_named(&serde_json::json!({"a": 1})).unwrap(),
+                headers: Default::default(),
+            });
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
     }
@@ -898,13 +904,16 @@ mod tests {
     #[test]
     fn outbox_intent_privacy_violating_payload_is_rejected() {
         let mut envelope = minimal_envelope();
-        envelope.mutation.outbox.push(crate::mutation_batch::MutationOutboxIntent {
-            topic: "topic-1".into(),
-            key: "key-1".into(),
-            payload: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/person/x"}))
-                .unwrap(),
-            headers: Default::default(),
-        });
+        envelope
+            .mutation
+            .outbox
+            .push(crate::mutation_batch::MutationOutboxIntent {
+                topic: "topic-1".into(),
+                key: "key-1".into(),
+                payload: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/person/x"}))
+                    .unwrap(),
+                headers: Default::default(),
+            });
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
     }
@@ -914,7 +923,10 @@ mod tests {
         let mut envelope = minimal_envelope();
         envelope.content_version.object_id = String::new();
         let err = envelope.validate().unwrap_err();
-        assert!(err.contains("content object_id must not be empty"), "got: {err}");
+        assert!(
+            err.contains("content object_id must not be empty"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -963,7 +975,10 @@ mod tests {
             expected_previous: None,
         });
         let err = envelope.validate().unwrap_err();
-        assert!(err.contains("cursor source must not be empty"), "got: {err}");
+        assert!(
+            err.contains("cursor source must not be empty"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -1045,7 +1060,10 @@ mod tests {
             content_digest: "d".repeat(64),
         });
         let err = envelope.validate().unwrap_err();
-        assert!(err.contains("no policy proof for material object"), "got: {err}");
+        assert!(
+            err.contains("no policy proof for material object"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -1097,8 +1115,7 @@ mod tests {
         let mut envelope = minimal_envelope();
         envelope.mutation.operations[0].method = crate::protocol::Method::AddNode {
             node_id: "node@bad".into(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": 1}))
-                .unwrap(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": 1})).unwrap(),
         };
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
