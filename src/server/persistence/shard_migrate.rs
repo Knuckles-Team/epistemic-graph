@@ -1016,6 +1016,11 @@ fn copy_encryption_canary(
     Ok(())
 }
 
+/// One source shard's `ENCRYPTION_CANARY` table as `(key, value)` rows, in table
+/// order. Named so the canary-comparison signatures stay readable.
+#[cfg(feature = "security")]
+type EncryptionCanaryRows = Vec<(String, Vec<u8>)>;
+
 /// Scan every source's `ENCRYPTION_CANARY` table and return ONE consistent set of
 /// rows to carry forward, or `Ok(None)` when no source has a canary at all.
 ///
@@ -1036,8 +1041,8 @@ fn copy_encryption_canary(
 #[cfg(feature = "security")]
 fn find_consistent_encryption_canary_rows(
     src_dbs: &[Database],
-) -> Result<Option<Vec<(String, Vec<u8>)>>, String> {
-    let mut source_rows: Option<Vec<(String, Vec<u8>)>> = None;
+) -> Result<Option<EncryptionCanaryRows>, String> {
+    let mut source_rows: Option<EncryptionCanaryRows> = None;
     let mut source_binding: Option<Vec<u8>> = None;
     for src in src_dbs {
         let rows = read_encryption_canary_rows(src)?;
@@ -1078,7 +1083,7 @@ fn find_consistent_encryption_canary_rows(
 /// Every row of ONE source's `ENCRYPTION_CANARY` table, or empty if that source has
 /// no such table yet.
 #[cfg(feature = "security")]
-fn read_encryption_canary_rows(src: &Database) -> Result<Vec<(String, Vec<u8>)>, String> {
+fn read_encryption_canary_rows(src: &Database) -> Result<EncryptionCanaryRows, String> {
     let rtx = src.begin_read().map_err(|e| e.to_string())?;
     let Some(table) = rtx.open_table(ENCRYPTION_CANARY).ok() else {
         return Ok(Vec::new());

@@ -1613,10 +1613,10 @@ mod tests {
             super::super::commit_crossmodal(
                 &db,
                 "graph-a",
-                &[],
-                &[],
-                &blob_refs,
-                &[],
+                super::super::CrossModalStaged {
+                    blob_refs: &blob_refs,
+                    ..Default::default()
+                },
                 DurableCrypto::none(),
                 #[cfg(feature = "security")]
                 &mut audit_tail,
@@ -1637,10 +1637,10 @@ mod tests {
         super::super::commit_crossmodal(
             &db,
             "graph-a",
-            &[Method::ClearGraph],
-            &[],
-            &[],
-            &[],
+            super::super::CrossModalStaged {
+                methods: &[Method::ClearGraph],
+                ..Default::default()
+            },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit_tail,
@@ -1677,12 +1677,12 @@ mod tests {
         super::super::commit_crossmodal(
             &db,
             "graph-a",
-            &[Method::DeleteGraph {
-                graph_name: "graph-a".to_string(),
-            }],
-            &[],
-            &[],
-            &[],
+            super::super::CrossModalStaged {
+                methods: &[Method::DeleteGraph {
+                    graph_name: "graph-a".to_string(),
+                }],
+                ..Default::default()
+            },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut delete_audit_tail,
