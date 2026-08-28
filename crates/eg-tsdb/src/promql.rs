@@ -399,6 +399,68 @@ struct Lexer<'a> {
     pos: usize,
 }
 
+/// The two-character operator tokens, as a lookup. Consulted before
+/// [`single_char_tok`] so `=~` wins over `=`.
+fn two_char_tok(a: u8, b: u8) -> Option<Tok> {
+    match (a, b) {
+        (b'=', b'~') => Some(Tok::Re),
+        (b'!', b'~') => Some(Tok::Nre),
+        (b'=', b'=') => Some(Tok::EqEq),
+        (b'!', b'=') => Some(Tok::Ne),
+        (b'>', b'=') => Some(Tok::Ge),
+        (b'<', b'=') => Some(Tok::Le),
+        _ => None,
+    }
+}
+
+/// The single-character punctuation/operator tokens, as a lookup table.
+static SINGLE_CHAR_TOKS: [(u8, Tok); 16] = [
+    (b'{', Tok::LBrace),
+    (b'}', Tok::RBrace),
+    (b'(', Tok::LParen),
+    (b')', Tok::RParen),
+    (b'[', Tok::LBracket),
+    (b']', Tok::RBracket),
+    (b',', Tok::Comma),
+    (b'=', Tok::Eq),
+    (b'+', Tok::Plus),
+    (b'-', Tok::Minus),
+    (b'*', Tok::Star),
+    (b'/', Tok::Slash),
+    (b'%', Tok::Percent),
+    (b'^', Tok::Caret),
+    (b'>', Tok::Gt),
+    (b'<', Tok::Lt),
+];
+
+fn single_char_tok(c: u8) -> Option<Tok> {
+    SINGLE_CHAR_TOKS
+        .iter()
+        .find(|(b, _)| *b == c)
+        .map(|(_, t)| t.clone())
+}
+
+fn is_quote(c: u8) -> bool {
+    c == b'"' || c == b'\''
+}
+
+fn is_ident_start(c: u8) -> bool {
+    c == b'_' || c == b':' || c.is_ascii_alphabetic()
+}
+
+/// Nanoseconds per single-character duration unit (`ms` is handled by the caller).
+fn duration_unit_ns(u: u8) -> Option<i64> {
+    match u {
+        b's' => Some(1_000_000_000),
+        b'm' => Some(60 * 1_000_000_000),
+        b'h' => Some(3_600 * 1_000_000_000),
+        b'd' => Some(86_400 * 1_000_000_000),
+        b'w' => Some(7 * 86_400 * 1_000_000_000),
+        b'y' => Some(365 * 86_400 * 1_000_000_000),
+        _ => None,
+    }
+}
+
 impl<'a> Lexer<'a> {
     fn new(src: &'a str) -> Self {
         Self {
@@ -419,83 +481,46 @@ impl<'a> Lexer<'a> {
         self.src.get(self.pos).copied()
     }
 
-    fn next_tok(&mut self) -> Result<Option<Tok>, PromqlError> {
-        while let Some(c) = self.peek() {
-            if c.is_ascii_whitespace() {
-                self.pos += 1;
-            } else {
-                break;
-            }
-        }
-        let Some(c) = self.peek() else {
-            return Ok(None);
-        };
-        // punctuation / operators
-        let two =
-            |a: u8, b: u8, s: &[u8], p: usize| s.get(p) == Some(&a) && s.get(p + 1) == Some(&b);
-        if two(b'=', b'~', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Re));
-        }
-        if two(b'!', b'~', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Nre));
-        }
-        if two(b'=', b'=', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::EqEq));
-        }
-        if two(b'!', b'=', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Ne));
-        }
-        if two(b'>', b'=', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Ge));
-        }
-        if two(b'<', b'=', self.src, self.pos) {
-            self.pos += 2;
-            return Ok(Some(Tok::Le));
-        }
-        let single = match c {
-            b'{' => Some(Tok::LBrace),
-            b'}' => Some(Tok::RBrace),
-            b'(' => Some(Tok::LParen),
-            b')' => Some(Tok::RParen),
-            b'[' => Some(Tok::LBracket),
-            b']' => Some(Tok::RBracket),
-            b',' => Some(Tok::Comma),
-            b'=' => Some(Tok::Eq),
-            b'+' => Some(Tok::Plus),
-            b'-' => Some(Tok::Minus),
-            b'*' => Some(Tok::Star),
-            b'/' => Some(Tok::Slash),
-            b'%' => Some(Tok::Percent),
-            b'^' => Some(Tok::Caret),
-            b'>' => Some(Tok::Gt),
-            b'<' => Some(Tok::Lt),
-            _ => None,
-        };
-        if let Some(t) = single {
+    fn skip_whitespace(&mut self) {
+        while self.peek().is_some_and(|c| c.is_ascii_whitespace()) {
             self.pos += 1;
-            return Ok(Some(t));
         }
-        // string literal
-        if c == b'"' || c == b'\'' {
-            return Ok(Some(self.lex_string(c)?));
-        }
-        // number or duration
-        if c.is_ascii_digit()
+    }
+
+    /// Whether a number/duration literal starts at the current position.
+    fn starts_number(&self, c: u8) -> bool {
+        c.is_ascii_digit()
             || (c == b'.'
                 && self
                     .src
                     .get(self.pos + 1)
                     .is_some_and(|d| d.is_ascii_digit()))
-        {
+    }
+
+    fn next_tok(&mut self) -> Result<Option<Tok>, PromqlError> {
+        self.skip_whitespace();
+        let Some(c) = self.peek() else {
+            return Ok(None);
+        };
+        // punctuation / operators — two-character forms first (`=~` before `=`).
+        if let Some(t) = self.src.get(self.pos + 1).and_then(|n| two_char_tok(c, *n)) {
+            self.pos += 2;
+            return Ok(Some(t));
+        }
+        if let Some(t) = single_char_tok(c) {
+            self.pos += 1;
+            return Ok(Some(t));
+        }
+        // string literal
+        if is_quote(c) {
+            return Ok(Some(self.lex_string(c)?));
+        }
+        // number or duration
+        if self.starts_number(c) {
             return Ok(Some(self.lex_number_or_duration()?));
         }
         // identifier
-        if c == b'_' || c == b':' || c.is_ascii_alphabetic() {
+        if is_ident_start(c) {
             return Ok(Some(self.lex_ident()));
         }
         err(format!(
@@ -583,44 +608,41 @@ impl<'a> Lexer<'a> {
             .map_err(|_| PromqlError(format!("invalid number '{raw}'")))
     }
 
+    /// The leading integer magnitude of one `<int><unit>` duration group.
+    fn lex_duration_magnitude(&mut self) -> Result<i64, PromqlError> {
+        let ds = self.pos;
+        while self.peek().is_some_and(|d| d.is_ascii_digit()) {
+            self.pos += 1;
+        }
+        std::str::from_utf8(&self.src[ds..self.pos])
+            .unwrap_or("0")
+            .parse()
+            .map_err(|_| PromqlError("invalid duration magnitude".into()))
+    }
+
+    /// The unit suffix of one duration group, in nanoseconds. Checks `ms` before `m`.
+    fn lex_duration_unit_ns(&mut self) -> Result<i64, PromqlError> {
+        if self.peek() == Some(b'm') && self.src.get(self.pos + 1) == Some(&b's') {
+            self.pos += 2;
+            return Ok(1_000_000);
+        }
+        let u = self.peek();
+        self.pos += 1;
+        match u.and_then(duration_unit_ns) {
+            Some(ns) => Ok(ns),
+            None => err(format!(
+                "invalid duration unit '{:?}'",
+                u.map(|b| b as char)
+            )),
+        }
+    }
+
     fn lex_duration(&mut self) -> Result<Tok, PromqlError> {
         let mut total: i64 = 0;
         let mut any = false;
-        while let Some(c) = self.peek() {
-            if !c.is_ascii_digit() {
-                break;
-            }
-            let ds = self.pos;
-            while self.peek().is_some_and(|d| d.is_ascii_digit()) {
-                self.pos += 1;
-            }
-            let n: i64 = std::str::from_utf8(&self.src[ds..self.pos])
-                .unwrap_or("0")
-                .parse()
-                .map_err(|_| PromqlError("invalid duration magnitude".into()))?;
-            // unit: check `ms` before `m`
-            let unit_ns: i64 =
-                if self.peek() == Some(b'm') && self.src.get(self.pos + 1) == Some(&b's') {
-                    self.pos += 2;
-                    1_000_000
-                } else {
-                    let u = self.peek();
-                    self.pos += 1;
-                    match u {
-                        Some(b's') => 1_000_000_000,
-                        Some(b'm') => 60 * 1_000_000_000,
-                        Some(b'h') => 3_600 * 1_000_000_000,
-                        Some(b'd') => 86_400 * 1_000_000_000,
-                        Some(b'w') => 7 * 86_400 * 1_000_000_000,
-                        Some(b'y') => 365 * 86_400 * 1_000_000_000,
-                        other => {
-                            return err(format!(
-                                "invalid duration unit '{:?}'",
-                                other.map(|b| b as char)
-                            ))
-                        }
-                    }
-                };
+        while self.peek().is_some_and(|c| c.is_ascii_digit()) {
+            let n = self.lex_duration_magnitude()?;
+            let unit_ns = self.lex_duration_unit_ns()?;
             total += n * unit_ns;
             any = true;
         }
@@ -893,31 +915,44 @@ impl Parser {
             }
             Some(Tok::Ident(name)) => {
                 self.pos += 1;
-                // Aggregation operator?
-                if let Some(op) = agg_op(&name) {
-                    return self.parse_aggregate(op);
-                }
-                // Function call?
-                if self.peek() == Some(&Tok::LParen) {
-                    self.pos += 1;
-                    let mut args = Vec::new();
-                    if self.peek() != Some(&Tok::RParen) {
-                        loop {
-                            args.push(self.parse_expr()?);
-                            if !self.eat(&Tok::Comma) {
-                                break;
-                            }
-                        }
-                    }
-                    self.expect(&Tok::RParen)?;
-                    return Ok(Expr::Call { func: name, args });
-                }
-                // Bare metric selector, optionally with `{...}`.
-                let matchers = self.parse_matchers(Some(name))?;
-                self.finish_selector(matchers)
+                self.parse_ident_atom(name)
             }
             other => err(format!("unexpected token {other:?} at atom position")),
         }
+    }
+
+    // An atom that began with an identifier (already consumed): an aggregation,
+    // a function call, or a bare metric selector — probed in that order.
+    fn parse_ident_atom(&mut self, name: String) -> Result<Expr, PromqlError> {
+        // Aggregation operator?
+        if let Some(op) = agg_op(&name) {
+            return self.parse_aggregate(op);
+        }
+        // Function call?
+        if self.peek() == Some(&Tok::LParen) {
+            self.pos += 1;
+            let args = self.parse_call_args()?;
+            return Ok(Expr::Call { func: name, args });
+        }
+        // Bare metric selector, optionally with `{...}`.
+        let matchers = self.parse_matchers(Some(name))?;
+        self.finish_selector(matchers)
+    }
+
+    // A comma-separated argument list, up to and including the closing `)`.
+    // The opening `(` has already been consumed.
+    fn parse_call_args(&mut self) -> Result<Vec<Expr>, PromqlError> {
+        let mut args = Vec::new();
+        if self.peek() != Some(&Tok::RParen) {
+            loop {
+                args.push(self.parse_expr()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RParen)?;
+        Ok(args)
     }
 
     // Aggregation: `OP` [by/without(labels)] `(` expr `)`  OR  `OP (` expr `)` [by/without(labels)]
@@ -967,37 +1002,42 @@ impl Parser {
             matchers.push(LabelMatcher::new(METRIC_NAME, MatchOp::Eq, name)?);
         }
         if self.eat(&Tok::LBrace) {
-            if self.peek() != Some(&Tok::RBrace) {
-                loop {
-                    let lname = match self.bump() {
-                        Some(Tok::Ident(s)) => s,
-                        other => {
-                            return err(format!("expected label name in matcher, got {other:?}"))
-                        }
-                    };
-                    let op = match self.bump() {
-                        Some(Tok::Eq) => MatchOp::Eq,
-                        Some(Tok::Ne) => MatchOp::Ne,
-                        Some(Tok::Re) => MatchOp::Re,
-                        Some(Tok::Nre) => MatchOp::Nre,
-                        other => return err(format!("expected match operator, got {other:?}")),
-                    };
-                    let val = match self.bump() {
-                        Some(Tok::Str(s)) => s,
-                        other => return err(format!("expected string in matcher, got {other:?}")),
-                    };
-                    matchers.push(LabelMatcher::new(lname, op, val)?);
-                    if !self.eat(&Tok::Comma) {
-                        break;
-                    }
-                }
-            }
-            self.expect(&Tok::RBrace)?;
+            self.parse_matcher_block(&mut matchers)?;
         }
         if matchers.is_empty() {
             return err("selector requires a metric name or at least one matcher");
         }
         Ok(matchers)
+    }
+
+    // The body of a `{...}` matcher block, up to and including the closing brace.
+    // The opening `{` has already been consumed.
+    fn parse_matcher_block(&mut self, matchers: &mut Vec<LabelMatcher>) -> Result<(), PromqlError> {
+        if self.peek() != Some(&Tok::RBrace) {
+            loop {
+                matchers.push(self.parse_one_matcher()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RBrace)
+    }
+
+    // One `<label> <op> "<value>"` triple. Validation order (name, then operator,
+    // then value) is load-bearing: it decides which error a doubly-invalid
+    // matcher reports.
+    fn parse_one_matcher(&mut self) -> Result<LabelMatcher, PromqlError> {
+        let lname = match self.bump() {
+            Some(Tok::Ident(s)) => s,
+            other => return err(format!("expected label name in matcher, got {other:?}")),
+        };
+        let op = matcher_op(self.bump())?;
+        let val = match self.bump() {
+            Some(Tok::Str(s)) => s,
+            other => return err(format!("expected string in matcher, got {other:?}")),
+        };
+        LabelMatcher::new(lname, op, val)
     }
 
     // After matchers, optionally `[range]` (→ Matrix) and `offset <dur>`.
@@ -1036,22 +1076,35 @@ impl Parser {
     }
 }
 
-fn agg_op(name: &str) -> Option<AggOp> {
-    match name {
-        "sum" => Some(AggOp::Sum),
-        "avg" => Some(AggOp::Avg),
-        "min" => Some(AggOp::Min),
-        "max" => Some(AggOp::Max),
-        "count" => Some(AggOp::Count),
-        // CONCEPT:EG-KG.query.bottomk-selection extended aggregations.
-        "stddev" => Some(AggOp::Stddev),
-        "stdvar" => Some(AggOp::Stdvar),
-        "topk" => Some(AggOp::Topk),
-        "bottomk" => Some(AggOp::Bottomk),
-        "quantile" => Some(AggOp::Quantile),
-        "count_values" => Some(AggOp::CountValues),
-        _ => None,
+/// The match operator of a matcher triple.
+fn matcher_op(tok: Option<Tok>) -> Result<MatchOp, PromqlError> {
+    match tok {
+        Some(Tok::Eq) => Ok(MatchOp::Eq),
+        Some(Tok::Ne) => Ok(MatchOp::Ne),
+        Some(Tok::Re) => Ok(MatchOp::Re),
+        Some(Tok::Nre) => Ok(MatchOp::Nre),
+        other => err(format!("expected match operator, got {other:?}")),
     }
+}
+
+/// The aggregation operators, keyed by their PromQL spelling. The tail entries
+/// are the CONCEPT:EG-KG.query.bottomk-selection extended aggregations.
+static AGG_OPS: [(&str, AggOp); 11] = [
+    ("sum", AggOp::Sum),
+    ("avg", AggOp::Avg),
+    ("min", AggOp::Min),
+    ("max", AggOp::Max),
+    ("count", AggOp::Count),
+    ("stddev", AggOp::Stddev),
+    ("stdvar", AggOp::Stdvar),
+    ("topk", AggOp::Topk),
+    ("bottomk", AggOp::Bottomk),
+    ("quantile", AggOp::Quantile),
+    ("count_values", AggOp::CountValues),
+];
+
+fn agg_op(name: &str) -> Option<AggOp> {
+    AGG_OPS.iter().find(|(n, _)| *n == name).map(|(_, op)| *op)
 }
 
 // ───────────────────────────── values ─────────────────────────────
