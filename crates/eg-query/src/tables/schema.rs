@@ -171,24 +171,42 @@ impl ColumnType {
         if base == "numeric" || base == "decimal" {
             return Ok(ColumnType::Numeric(parse_numeric_precision_scale(trimmed)?));
         }
-        let ty = match base.as_str() {
-            "int" | "int4" | "integer" | "serial" | "smallint" | "int2" => ColumnType::Int,
-            "bigint" | "int8" | "bigserial" | "long" => ColumnType::BigInt,
-            "float" | "float4" | "real" => ColumnType::Float,
-            "double" | "float8" | "double precision" => ColumnType::Double,
-            "text" | "varchar" | "char" | "character" | "character varying" | "string" => {
-                ColumnType::Text
-            }
-            "uuid" => ColumnType::Uuid,
-            "bool" | "boolean" => ColumnType::Bool,
-            "timestamptz" | "timestamp with time zone" => ColumnType::TimestampTz,
-            "timestamp" | "datetime" | "timestamp without time zone" => ColumnType::Timestamp,
-            "bytes" | "bytea" | "blob" | "binary" => ColumnType::Bytes,
-            "json" | "jsonb" => ColumnType::Json,
-            other => return Err(format!("unsupported column type `{other}`")),
-        };
-        Ok(ty)
+        parse_base_column_type(&base)
     }
+}
+
+/// The plain (no `(...)` suffix parsing of its own) base-type names: everything
+/// `ColumnType::parse` doesn't special-case above (array/vector/numeric already
+/// handled by the caller). Split from `parse_numeric_ish_base_type` purely to keep
+/// each match's arm count — hence complexity — low.
+fn parse_base_column_type(base: &str) -> Result<ColumnType, String> {
+    if let Some(ty) = parse_numeric_ish_base_type(base) {
+        return Ok(ty);
+    }
+    match base {
+        "text" | "varchar" | "char" | "character" | "character varying" | "string" => {
+            Ok(ColumnType::Text)
+        }
+        "uuid" => Ok(ColumnType::Uuid),
+        "bool" | "boolean" => Ok(ColumnType::Bool),
+        "timestamptz" | "timestamp with time zone" => Ok(ColumnType::TimestampTz),
+        "timestamp" | "datetime" | "timestamp without time zone" => Ok(ColumnType::Timestamp),
+        "bytes" | "bytea" | "blob" | "binary" => Ok(ColumnType::Bytes),
+        "json" | "jsonb" => Ok(ColumnType::Json),
+        other => Err(format!("unsupported column type `{other}`")),
+    }
+}
+
+/// The integer/float base-type names — split out of [`parse_base_column_type`] so
+/// neither match grows past a handful of arms.
+fn parse_numeric_ish_base_type(base: &str) -> Option<ColumnType> {
+    Some(match base {
+        "int" | "int4" | "integer" | "serial" | "smallint" | "int2" => ColumnType::Int,
+        "bigint" | "int8" | "bigserial" | "long" => ColumnType::BigInt,
+        "float" | "float4" | "real" => ColumnType::Float,
+        "double" | "float8" | "double precision" => ColumnType::Double,
+        _ => return None,
+    })
 }
 
 /// Extract `(precision[, scale])` from a `numeric`/`decimal` type spelling (CONCEPT:EG-KG.query.table-schema-constraints/NE-002).
@@ -274,12 +292,32 @@ pub struct ColCheck {
     pub value: Value,
 }
 
+/// The result of [`ColCheck::compare_for_holds`]: either a genuine (possibly
+/// undefined, e.g. NaN) ordering to run through [`ColCheck::op_satisfied`], or —
+/// when neither side is even string-comparable — the final raw-equality answer
+/// (only `Eq` can ever be satisfied in that case).
+enum HoldsComparison {
+    Ordered(Option<std::cmp::Ordering>),
+    RawEquality(bool),
+}
+
 impl ColCheck {
     /// Does `actual` satisfy the check? NULL passes (SQL CHECK is satisfied by NULL).
     pub fn holds(&self, actual: &Value) -> bool {
         if actual.is_null() {
             return true;
         }
+        let ord = match self.compare_for_holds(actual) {
+            HoldsComparison::RawEquality(result) => return result,
+            HoldsComparison::Ordered(ord) => ord,
+        };
+        self.op_satisfied(ord, actual)
+    }
+
+    /// Compare `actual` against `self.value`, preferring (in order) a numeric-text
+    /// comparison, then f64, then string ordering; falls back to raw equality (`Eq`
+    /// only) when nothing else is comparable.
+    fn compare_for_holds(&self, actual: &Value) -> HoldsComparison {
         let numeric_ord = if actual.is_number() || self.value.is_number() {
             match (numeric_check_text(actual), numeric_check_text(&self.value)) {
                 (Some(a), Some(b)) => Some(compare_numeric_text(&a, &b)),
@@ -288,17 +326,22 @@ impl ColCheck {
         } else {
             None
         };
-        let ord = if numeric_ord.is_some() {
-            numeric_ord
-        } else {
-            match (actual.as_f64(), self.value.as_f64()) {
-                (Some(a), Some(b)) => a.partial_cmp(&b),
-                _ => match (actual.as_str(), self.value.as_str()) {
-                    (Some(a), Some(b)) => Some(a.cmp(b)),
-                    _ => return matches!(self.op, CmpOp::Eq) && actual == &self.value,
-                },
-            }
-        };
+        if let Some(ord) = numeric_ord {
+            return HoldsComparison::Ordered(Some(ord));
+        }
+        match (actual.as_f64(), self.value.as_f64()) {
+            (Some(a), Some(b)) => HoldsComparison::Ordered(a.partial_cmp(&b)),
+            _ => match (actual.as_str(), self.value.as_str()) {
+                (Some(a), Some(b)) => HoldsComparison::Ordered(Some(a.cmp(b))),
+                _ => HoldsComparison::RawEquality(
+                    matches!(self.op, CmpOp::Eq) && actual == &self.value,
+                ),
+            },
+        }
+    }
+
+    /// Apply `self.op` to a defined/undefined ordering — the tail of [`Self::holds`].
+    fn op_satisfied(&self, ord: Option<std::cmp::Ordering>, actual: &Value) -> bool {
         use std::cmp::Ordering::*;
         match (self.op, ord) {
             (CmpOp::Eq, Some(o)) => o == Equal,
@@ -429,52 +472,66 @@ impl CheckExpr {
     /// UNKNOWN, which a CHECK treats as satisfied) — mirrors [`ColCheck::holds`].
     pub fn holds(&self, row: &Map<String, Value>) -> bool {
         match self {
-            CheckExpr::Cmp { column, op, value } => {
-                let actual = row.get(column).cloned().unwrap_or(Value::Null);
-                ColCheck {
-                    op: *op,
-                    value: value.clone(),
-                }
-                .holds(&actual)
-            }
-            CheckExpr::ColCmp { left, op, right } => {
-                let a = row.get(left).cloned().unwrap_or(Value::Null);
-                let b = row.get(right).cloned().unwrap_or(Value::Null);
-                if a.is_null() || b.is_null() {
-                    return true;
-                }
-                ColCheck { op: *op, value: b }.holds(&a)
-            }
+            CheckExpr::Cmp { column, op, value } => Self::holds_cmp(row, column, *op, value),
+            CheckExpr::ColCmp { left, op, right } => Self::holds_col_cmp(row, left, *op, right),
             CheckExpr::In {
                 column,
                 values,
                 negated,
-            } => {
-                let actual = row.get(column).cloned().unwrap_or(Value::Null);
-                if actual.is_null() {
-                    return true;
-                }
-                let contains = values.iter().any(|value| {
-                    if actual.is_number() || value.is_number() {
-                        match (numeric_check_text(&actual), numeric_check_text(value)) {
-                            (Some(left), Some(right)) => {
-                                compare_numeric_text(&left, &right) == std::cmp::Ordering::Equal
-                            }
-                            _ => false,
-                        }
-                    } else {
-                        value == &actual
-                    }
-                });
-                contains != *negated
-            }
-            CheckExpr::IsNull { column, negated } => {
-                let actual = row.get(column).cloned().unwrap_or(Value::Null);
-                actual.is_null() != *negated
-            }
+            } => Self::holds_in(row, column, values, *negated),
+            CheckExpr::IsNull { column, negated } => Self::holds_is_null(row, column, *negated),
             CheckExpr::And(a, b) => a.holds(row) && b.holds(row),
             CheckExpr::Or(a, b) => a.holds(row) || b.holds(row),
         }
+    }
+
+    /// The `Cmp` arm of [`Self::holds`]: a missing column reads as `Value::Null`.
+    fn holds_cmp(row: &Map<String, Value>, column: &str, op: CmpOp, value: &Value) -> bool {
+        let actual = row.get(column).cloned().unwrap_or(Value::Null);
+        ColCheck {
+            op,
+            value: value.clone(),
+        }
+        .holds(&actual)
+    }
+
+    /// The `ColCmp` arm of [`Self::holds`]: NULL on either side passes (SQL: a
+    /// comparison against NULL is UNKNOWN, which a CHECK treats as satisfied).
+    fn holds_col_cmp(row: &Map<String, Value>, left: &str, op: CmpOp, right: &str) -> bool {
+        let a = row.get(left).cloned().unwrap_or(Value::Null);
+        let b = row.get(right).cloned().unwrap_or(Value::Null);
+        if a.is_null() || b.is_null() {
+            return true;
+        }
+        ColCheck { op, value: b }.holds(&a)
+    }
+
+    /// The `In` arm of [`Self::holds`]: NULL passes; membership is numeric-aware
+    /// (mirrors [`ColCheck::compare_for_holds`]'s numeric-text path).
+    fn holds_in(row: &Map<String, Value>, column: &str, values: &[Value], negated: bool) -> bool {
+        let actual = row.get(column).cloned().unwrap_or(Value::Null);
+        if actual.is_null() {
+            return true;
+        }
+        let contains = values.iter().any(|value| {
+            if actual.is_number() || value.is_number() {
+                match (numeric_check_text(&actual), numeric_check_text(value)) {
+                    (Some(left), Some(right)) => {
+                        compare_numeric_text(&left, &right) == std::cmp::Ordering::Equal
+                    }
+                    _ => false,
+                }
+            } else {
+                value == &actual
+            }
+        });
+        contains != negated
+    }
+
+    /// The `IsNull` arm of [`Self::holds`].
+    fn holds_is_null(row: &Map<String, Value>, column: &str, negated: bool) -> bool {
+        let actual = row.get(column).cloned().unwrap_or(Value::Null);
+        actual.is_null() != negated
     }
 
     /// Every column name this expression references, for [`TableSchema::validate`]'s
@@ -792,15 +849,7 @@ impl TableSchema {
         let mut pk_count = self.columns.iter().filter(|c| c.primary_key).count();
         let mut names = std::collections::HashSet::new();
         for c in &self.constraints {
-            if let Some(name) = c.name() {
-                validate_schema_name(name, "constraint")?;
-                if !names.insert(name) {
-                    return Err(format!(
-                        "table `{}` declares duplicate constraint `{name}`",
-                        self.name
-                    ));
-                }
-            }
+            self.check_constraint_name_unique(c, &mut names)?;
             match c {
                 TableConstraint::PrimaryKey { columns, .. } => {
                     validate_constraint_width(columns, "PRIMARY KEY")?;
@@ -817,40 +866,10 @@ impl TableSchema {
                     ref_columns,
                     ..
                 } => {
-                    validate_constraint_width(columns, "FOREIGN KEY")?;
-                    validate_constraint_width(ref_columns, "FOREIGN KEY REFERENCES")?;
-                    self.validate_constraint_columns(columns, "FOREIGN KEY", true)?;
-                    validate_schema_name(ref_table, "referenced table")?;
-                    if ref_columns.is_empty() {
-                        return Err(format!(
-                            "table `{}`: FOREIGN KEY REFERENCES must name at least one column",
-                            self.name
-                        ));
-                    }
-                    if columns.len() != ref_columns.len() {
-                        return Err(format!(
-                            "table `{}`: FOREIGN KEY column count ({}) does not match REFERENCES column count ({})",
-                            self.name,
-                            columns.len(),
-                            ref_columns.len()
-                        ));
-                    }
-                    let mut seen_ref = std::collections::HashSet::new();
-                    for ref_column in ref_columns {
-                        validate_schema_name(ref_column, "referenced column")?;
-                        if !seen_ref.insert(ref_column) {
-                            return Err(format!(
-                                "table `{}`: FOREIGN KEY REFERENCES repeats column `{ref_column}`",
-                                self.name
-                            ));
-                        }
-                    }
+                    self.validate_foreign_key_constraint(columns, ref_table, ref_columns)?;
                 }
                 TableConstraint::Check { expr, .. } => {
-                    expr.validate_limits(0)?;
-                    let mut referenced = Vec::new();
-                    expr.referenced_columns(&mut referenced);
-                    self.validate_constraint_columns(&referenced, "CHECK", false)?;
+                    self.validate_check_constraint(expr)?;
                 }
             }
         }
@@ -860,6 +879,76 @@ impl TableSchema {
                 self.name
             ));
         }
+        Ok(())
+    }
+
+    /// Constraint names are optional but, when given, must be schema-legal and
+    /// unique within the table.
+    fn check_constraint_name_unique<'a>(
+        &self,
+        c: &'a TableConstraint,
+        names: &mut std::collections::HashSet<&'a str>,
+    ) -> Result<(), String> {
+        let Some(name) = c.name() else {
+            return Ok(());
+        };
+        validate_schema_name(name, "constraint")?;
+        if !names.insert(name) {
+            return Err(format!(
+                "table `{}` declares duplicate constraint `{name}`",
+                self.name
+            ));
+        }
+        Ok(())
+    }
+
+    /// The `ForeignKey` arm of [`TableSchema::validate_constraints`]: local/referenced
+    /// column widths match, every local column exists, the referenced table name is
+    /// schema-legal, and referenced columns are non-empty and non-repeating.
+    fn validate_foreign_key_constraint(
+        &self,
+        columns: &[String],
+        ref_table: &str,
+        ref_columns: &[String],
+    ) -> Result<(), String> {
+        validate_constraint_width(columns, "FOREIGN KEY")?;
+        validate_constraint_width(ref_columns, "FOREIGN KEY REFERENCES")?;
+        self.validate_constraint_columns(columns, "FOREIGN KEY", true)?;
+        validate_schema_name(ref_table, "referenced table")?;
+        if ref_columns.is_empty() {
+            return Err(format!(
+                "table `{}`: FOREIGN KEY REFERENCES must name at least one column",
+                self.name
+            ));
+        }
+        if columns.len() != ref_columns.len() {
+            return Err(format!(
+                "table `{}`: FOREIGN KEY column count ({}) does not match REFERENCES column count ({})",
+                self.name,
+                columns.len(),
+                ref_columns.len()
+            ));
+        }
+        let mut seen_ref = std::collections::HashSet::new();
+        for ref_column in ref_columns {
+            validate_schema_name(ref_column, "referenced column")?;
+            if !seen_ref.insert(ref_column) {
+                return Err(format!(
+                    "table `{}`: FOREIGN KEY REFERENCES repeats column `{ref_column}`",
+                    self.name
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The `Check` arm of [`TableSchema::validate_constraints`]: the expression is
+    /// within limits and every column it references exists.
+    fn validate_check_constraint(&self, expr: &CheckExpr) -> Result<(), String> {
+        expr.validate_limits(0)?;
+        let mut referenced = Vec::new();
+        expr.referenced_columns(&mut referenced);
+        self.validate_constraint_columns(&referenced, "CHECK", false)?;
         Ok(())
     }
 
@@ -1546,145 +1635,216 @@ impl Cell {
     /// rejected, not silently corrupted.
     pub fn coerce(value: &Value, ty: ColumnType, nullable: bool) -> Result<Cell, String> {
         if value.is_null() {
-            if nullable {
-                return Ok(Cell::Null);
-            }
-            return Err("NULL value in a NOT NULL column".to_string());
+            return if nullable {
+                Ok(Cell::Null)
+            } else {
+                Err("NULL value in a NOT NULL column".to_string())
+            };
         }
-        let cell = match ty {
-            ColumnType::Int | ColumnType::BigInt => match value.as_i64() {
-                Some(i) => Cell::Int(i),
-                None => return Err(format!("expected an integer, got `{value}`")),
-            },
-            ColumnType::Timestamp => match value.as_i64() {
-                Some(i) => Cell::Timestamp(i),
-                None => {
-                    return Err(format!(
-                        "expected a timestamp as integer microseconds, got `{value}`"
-                    ))
-                }
-            },
-            ColumnType::Float | ColumnType::Double => match value.as_f64() {
-                Some(f) => Cell::Float(f),
-                None => return Err(format!("expected a float, got `{value}`")),
-            },
-            ColumnType::Bool => match value.as_bool() {
-                Some(b) => Cell::Bool(b),
-                None => return Err(format!("expected a boolean, got `{value}`")),
-            },
-            ColumnType::Text => match value {
-                Value::String(s) => Cell::Text(s.clone()),
-                // A numeric/bool literal into a text column renders as its text form.
-                Value::Number(_) | Value::Bool(_) => Cell::Text(value.to_string()),
-                other => Cell::Text(other.to_string()),
-            },
-            ColumnType::Bytes => match value {
-                // A string literal stores its UTF-8 bytes; a JSON array of small ints
-                // stores those bytes (the `props`-style escape encoding).
-                Value::String(s) => Cell::Bytes(s.clone().into_bytes()),
-                Value::Array(items) => {
-                    let mut bytes = Vec::with_capacity(items.len());
-                    for it in items {
-                        match it.as_u64() {
-                            Some(n) if n <= 255 => bytes.push(n as u8),
-                            _ => return Err(format!("invalid byte in bytes literal: `{it}`")),
-                        }
+        match ty {
+            ColumnType::Int
+            | ColumnType::BigInt
+            | ColumnType::Timestamp
+            | ColumnType::Float
+            | ColumnType::Double
+            | ColumnType::Bool
+            | ColumnType::Text
+            | ColumnType::Json => Self::coerce_scalar(value, ty),
+            ColumnType::Bytes
+            | ColumnType::Vector(_)
+            | ColumnType::Uuid
+            | ColumnType::TimestampTz
+            | ColumnType::Numeric(_)
+            | ColumnType::Array(_) => Self::coerce_complex(value, ty),
+        }
+    }
+
+    /// The scalar-family arms of [`Cell::coerce`] — every `ColumnType` whose
+    /// coercion is a single direct `serde_json::Value` accessor (no parsing,
+    /// looping, or delegation to another `coerce`).
+    fn coerce_scalar(value: &Value, ty: ColumnType) -> Result<Cell, String> {
+        match ty {
+            ColumnType::Int | ColumnType::BigInt => Self::coerce_int(value),
+            ColumnType::Timestamp => Self::coerce_timestamp_column(value),
+            ColumnType::Float | ColumnType::Double => Self::coerce_float(value),
+            ColumnType::Bool => Self::coerce_bool(value),
+            ColumnType::Text => Ok(Self::coerce_text(value)),
+            ColumnType::Json => Ok(Cell::Json(value.clone())),
+            _ => unreachable!("coerce_scalar called with a non-scalar ColumnType"),
+        }
+    }
+
+    fn coerce_int(value: &Value) -> Result<Cell, String> {
+        match value.as_i64() {
+            Some(i) => Ok(Cell::Int(i)),
+            None => Err(format!("expected an integer, got `{value}`")),
+        }
+    }
+
+    fn coerce_timestamp_column(value: &Value) -> Result<Cell, String> {
+        match value.as_i64() {
+            Some(i) => Ok(Cell::Timestamp(i)),
+            None => Err(format!(
+                "expected a timestamp as integer microseconds, got `{value}`"
+            )),
+        }
+    }
+
+    fn coerce_float(value: &Value) -> Result<Cell, String> {
+        match value.as_f64() {
+            Some(f) => Ok(Cell::Float(f)),
+            None => Err(format!("expected a float, got `{value}`")),
+        }
+    }
+
+    fn coerce_bool(value: &Value) -> Result<Cell, String> {
+        match value.as_bool() {
+            Some(b) => Ok(Cell::Bool(b)),
+            None => Err(format!("expected a boolean, got `{value}`")),
+        }
+    }
+
+    /// A numeric/bool literal into a text column renders as its text form.
+    fn coerce_text(value: &Value) -> Cell {
+        match value {
+            Value::String(s) => Cell::Text(s.clone()),
+            Value::Number(_) | Value::Bool(_) => Cell::Text(value.to_string()),
+            other => Cell::Text(other.to_string()),
+        }
+    }
+
+    /// The non-scalar arms of [`Cell::coerce`] — every `ColumnType` whose coercion
+    /// parses, validates length/precision, or recurses into another `coerce`.
+    fn coerce_complex(value: &Value, ty: ColumnType) -> Result<Cell, String> {
+        match ty {
+            ColumnType::Bytes => Self::coerce_bytes(value),
+            ColumnType::Vector(dim) => Self::coerce_vector(value, dim),
+            ColumnType::Uuid => Self::coerce_uuid(value),
+            ColumnType::TimestampTz => Self::coerce_timestamptz(value),
+            ColumnType::Numeric(precision_scale) => Self::coerce_numeric(value, precision_scale),
+            ColumnType::Array(elem) => Self::coerce_array(value, elem),
+            _ => unreachable!("coerce_complex called with a non-complex ColumnType"),
+        }
+    }
+
+    /// A string literal stores its UTF-8 bytes; a JSON array of small ints stores
+    /// those bytes (the `props`-style escape encoding).
+    fn coerce_bytes(value: &Value) -> Result<Cell, String> {
+        match value {
+            Value::String(s) => Ok(Cell::Bytes(s.clone().into_bytes())),
+            Value::Array(items) => {
+                let mut bytes = Vec::with_capacity(items.len());
+                for it in items {
+                    match it.as_u64() {
+                        Some(n) if n <= 255 => bytes.push(n as u8),
+                        _ => return Err(format!("invalid byte in bytes literal: `{it}`")),
                     }
-                    Cell::Bytes(bytes)
                 }
-                other => return Err(format!("expected bytes, got `{other}`")),
-            },
-            ColumnType::Json => Cell::Json(value.clone()),
-            // CONCEPT:EG-KG.query.vector-json-array-render — a `vector`/`vector(n)` accepts either a JSON array of
-            // numbers (`[1,2,3]`) or the pgvector text literal `'[1,2,3]'`; both decode
-            // to a `Vec<f32>`. When the column declares a dimension, the row length is
-            // enforced so a mis-shaped embedding is rejected, not silently stored.
-            ColumnType::Vector(dim) => {
-                let floats = parse_vector_value(value)?;
-                if let Some(n) = dim {
-                    if floats.len() != n {
-                        return Err(format!(
-                            "vector has {} dimensions, column declares {n}",
-                            floats.len()
-                        ));
-                    }
-                }
-                Cell::Vector(floats)
+                Ok(Cell::Bytes(bytes))
             }
-            // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — a UUID literal is validated (32 hex digits,
-            // optionally 8-4-4-4-12 hyphenated) and normalized to canonical lowercase.
-            ColumnType::Uuid => match value {
-                Value::String(s) => Cell::Bytes(uuid_bytes(s)?),
-                other => return Err(format!("expected a UUID string, got `{other}`")),
-            },
-            // A TIMESTAMPTZ literal is either already-UTC integer microseconds, or an
-            // ISO-8601 string carrying an EXPLICIT offset (`Z`/`+HH:MM`/`-HHMM`); a
-            // zone-less string is rejected rather than silently treated as local time.
-            ColumnType::TimestampTz => match value {
-                Value::Number(_) => match value.as_i64() {
-                    Some(i) => Cell::Timestamp(i),
-                    None => {
-                        return Err(format!(
-                            "expected a timestamptz as integer microseconds, got `{value}`"
-                        ))
-                    }
-                },
-                Value::String(s) => Cell::Timestamp(parse_timestamptz(s)?),
-                other => return Err(format!("expected a timestamptz, got `{other}`")),
-            },
-            // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — a NUMERIC/DECIMAL(p,s) literal is validated
-            // (digit-count overflow / excess scale REJECTED, never silently truncated)
-            // and canonicalized to the declared scale. Storage deliberately uses a
-            // JSON string cell: `Cell::Float` cannot represent exact decimal values,
-            // and adding a new Cell variant would break the on-disk/wire enum contract.
-            ColumnType::Numeric(precision_scale) => {
-                let raw = numeric_literal_text(value)?;
-                let canon = normalize_numeric_literal(&raw, precision_scale)?;
-                Cell::Json(Value::String(canon))
+            other => Err(format!("expected bytes, got `{other}`")),
+        }
+    }
+
+    /// CONCEPT:EG-KG.query.vector-json-array-render — a `vector`/`vector(n)` accepts either a JSON array of
+    /// numbers (`[1,2,3]`) or the pgvector text literal `'[1,2,3]'`; both decode
+    /// to a `Vec<f32>`. When the column declares a dimension, the row length is
+    /// enforced so a mis-shaped embedding is rejected, not silently stored.
+    fn coerce_vector(value: &Value, dim: Option<usize>) -> Result<Cell, String> {
+        let floats = parse_vector_value(value)?;
+        if let Some(n) = dim {
+            if floats.len() != n {
+                return Err(format!(
+                    "vector has {} dimensions, column declares {n}",
+                    floats.len()
+                ));
             }
-            // CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — an array literal (a JSON array, or the postgres
-            // text form `{a,b,c}`); every element is coerced through the scalar
-            // element type's OWN `Cell::coerce` (so e.g. a `uuid[]` element is
-            // format-validated + normalized exactly like a bare `uuid` column) and the
-            // canonical per-element JSON is what is stored — a genuine JSON array, so
-            // round-trip through SELECT is exact.
-            ColumnType::Array(elem) => {
-                let items = match value {
-                    Value::Array(items) => items.clone(),
-                    Value::String(s) => {
-                        if s.len() > MAX_ARRAY_VALUE_BYTES {
-                            return Err(format!(
-                                "array literal exceeds maximum of {MAX_ARRAY_VALUE_BYTES} bytes"
-                            ));
-                        }
-                        parse_pg_array_text(s)?
-                    }
-                    other => return Err(format!("expected an array literal, got `{other}`")),
-                };
-                if items.len() > MAX_ARRAY_ELEMENTS {
+        }
+        Ok(Cell::Vector(floats))
+    }
+
+    /// CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — a UUID literal is validated (32 hex digits,
+    /// optionally 8-4-4-4-12 hyphenated) and normalized to canonical lowercase.
+    fn coerce_uuid(value: &Value) -> Result<Cell, String> {
+        match value {
+            Value::String(s) => Ok(Cell::Bytes(uuid_bytes(s)?)),
+            other => Err(format!("expected a UUID string, got `{other}`")),
+        }
+    }
+
+    /// A TIMESTAMPTZ literal is either already-UTC integer microseconds, or an
+    /// ISO-8601 string carrying an EXPLICIT offset (`Z`/`+HH:MM`/`-HHMM`); a
+    /// zone-less string is rejected rather than silently treated as local time.
+    fn coerce_timestamptz(value: &Value) -> Result<Cell, String> {
+        match value {
+            Value::Number(_) => match value.as_i64() {
+                Some(i) => Ok(Cell::Timestamp(i)),
+                None => Err(format!(
+                    "expected a timestamptz as integer microseconds, got `{value}`"
+                )),
+            },
+            Value::String(s) => Ok(Cell::Timestamp(parse_timestamptz(s)?)),
+            other => Err(format!("expected a timestamptz, got `{other}`")),
+        }
+    }
+
+    /// CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — a NUMERIC/DECIMAL(p,s) literal is validated
+    /// (digit-count overflow / excess scale REJECTED, never silently truncated)
+    /// and canonicalized to the declared scale. Storage deliberately uses a
+    /// JSON string cell: `Cell::Float` cannot represent exact decimal values,
+    /// and adding a new Cell variant would break the on-disk/wire enum contract.
+    fn coerce_numeric(value: &Value, precision_scale: Option<(u32, u32)>) -> Result<Cell, String> {
+        let raw = numeric_literal_text(value)?;
+        let canon = normalize_numeric_literal(&raw, precision_scale)?;
+        Ok(Cell::Json(Value::String(canon)))
+    }
+
+    /// CONCEPT:EG-KG.query.table-schema-constraints/NE-002 — an array literal (a JSON array, or the postgres
+    /// text form `{a,b,c}`); every element is coerced through the scalar
+    /// element type's OWN `Cell::coerce` (so e.g. a `uuid[]` element is
+    /// format-validated + normalized exactly like a bare `uuid` column) and the
+    /// canonical per-element JSON is what is stored — a genuine JSON array, so
+    /// round-trip through SELECT is exact.
+    fn coerce_array(value: &Value, elem: ArrayElemType) -> Result<Cell, String> {
+        let items = Self::coerce_array_items(value)?;
+        if items.len() > MAX_ARRAY_ELEMENTS {
+            return Err(format!(
+                "array has {} elements; maximum is {MAX_ARRAY_ELEMENTS}",
+                items.len()
+            ));
+        }
+        let mut out = Vec::with_capacity(items.len());
+        for item in &items {
+            let scalar = array_item_literal(item, elem)?;
+            let cell = Cell::coerce(&scalar, elem.as_column_type(), true)?;
+            out.push(cell.to_typed_json(elem.as_column_type()));
+        }
+        let array = Value::Array(out);
+        let encoded = serde_json::to_vec(&array)
+            .map_err(|error| format!("array value is not serializable: {error}"))?;
+        if encoded.len() > MAX_ARRAY_VALUE_BYTES {
+            return Err(format!(
+                "array value exceeds maximum of {MAX_ARRAY_VALUE_BYTES} bytes"
+            ));
+        }
+        Ok(Cell::Json(array))
+    }
+
+    /// The raw-items half of [`Cell::coerce_array`]: a JSON array literal verbatim,
+    /// or the postgres text form `{a,b,c}` parsed (length-capped before parsing).
+    fn coerce_array_items(value: &Value) -> Result<Vec<Value>, String> {
+        match value {
+            Value::Array(items) => Ok(items.clone()),
+            Value::String(s) => {
+                if s.len() > MAX_ARRAY_VALUE_BYTES {
                     return Err(format!(
-                        "array has {} elements; maximum is {MAX_ARRAY_ELEMENTS}",
-                        items.len()
+                        "array literal exceeds maximum of {MAX_ARRAY_VALUE_BYTES} bytes"
                     ));
                 }
-                let mut out = Vec::with_capacity(items.len());
-                for item in &items {
-                    let scalar = array_item_literal(item, elem)?;
-                    let cell = Cell::coerce(&scalar, elem.as_column_type(), true)?;
-                    out.push(cell.to_typed_json(elem.as_column_type()));
-                }
-                let array = Value::Array(out);
-                let encoded = serde_json::to_vec(&array)
-                    .map_err(|error| format!("array value is not serializable: {error}"))?;
-                if encoded.len() > MAX_ARRAY_VALUE_BYTES {
-                    return Err(format!(
-                        "array value exceeds maximum of {MAX_ARRAY_VALUE_BYTES} bytes"
-                    ));
-                }
-                Cell::Json(array)
+                parse_pg_array_text(s)
             }
-        };
-        Ok(cell)
+            other => Err(format!("expected an array literal, got `{other}`")),
+        }
     }
 
     /// Render a cell back to a generic [`serde_json::Value`] — the inverse of
@@ -1920,6 +2080,19 @@ fn normalize_numeric_literal(
     raw: &str,
     precision_scale: Option<(u32, u32)>,
 ) -> Result<String, String> {
+    let (sign, int_trimmed, frac_part) = parse_numeric_literal(raw)?;
+    match precision_scale {
+        None => Ok(format_unscaled_numeric(sign, int_trimmed, frac_part)),
+        Some((precision, scale)) => {
+            format_scaled_numeric(raw, sign, int_trimmed, frac_part, precision, scale)
+        }
+    }
+}
+
+/// Split + digit-validate a NUMERIC literal into its sign and its (leading-zero-
+/// trimmed) integer / fractional digit strings. Errors on anything that is not
+/// `[+-]?\d*(\.\d*)?` with at least one digit somewhere.
+fn parse_numeric_literal(raw: &str) -> Result<(&'static str, &str, &str), String> {
     let s = raw.trim();
     let (sign, digits) = match s.strip_prefix('-') {
         Some(rest) => ("-", rest),
@@ -1942,37 +2115,53 @@ fn normalize_numeric_literal(
     {
         return Err(format!("invalid NUMERIC literal `{raw}`"));
     }
-    let int_trimmed = int_part.trim_start_matches('0');
-    let int_digits = if int_trimmed.is_empty() {
-        1
+    Ok((sign, int_part.trim_start_matches('0'), frac_part))
+}
+
+/// The unscaled (no declared precision/scale) canonicalization: trailing fractional
+/// zeros dropped, and a bare-zero value renders unsigned.
+fn format_unscaled_numeric(sign: &str, int_trimmed: &str, frac_part: &str) -> String {
+    let trimmed_frac = frac_part.trim_end_matches('0');
+    let frac = if trimmed_frac.is_empty() {
+        String::new()
     } else {
-        int_trimmed.len()
+        format!(".{trimmed_frac}")
     };
-    let Some((precision, scale)) = precision_scale else {
-        let trimmed_frac = frac_part.trim_end_matches('0');
-        let frac = if trimmed_frac.is_empty() {
-            String::new()
-        } else {
-            format!(".{trimmed_frac}")
-        };
-        let int_out = if int_trimmed.is_empty() {
-            "0"
-        } else {
-            int_trimmed
-        };
-        let sign = if int_trimmed.is_empty() && trimmed_frac.is_empty() {
-            ""
-        } else {
-            sign
-        };
-        return Ok(format!("{sign}{int_out}{frac}"));
+    let int_out = if int_trimmed.is_empty() {
+        "0"
+    } else {
+        int_trimmed
     };
+    let sign = if int_trimmed.is_empty() && trimmed_frac.is_empty() {
+        ""
+    } else {
+        sign
+    };
+    format!("{sign}{int_out}{frac}")
+}
+
+/// The scaled (declared `(precision, scale)`) canonicalization: rejects a literal
+/// with more fractional digits than `scale` or more significant integer digits than
+/// `precision` allows, then zero-pads the fractional part to exactly `scale` digits.
+fn format_scaled_numeric(
+    raw: &str,
+    sign: &str,
+    int_trimmed: &str,
+    frac_part: &str,
+    precision: u32,
+    scale: u32,
+) -> Result<String, String> {
     let scale = scale as usize;
     if frac_part.len() > scale {
         return Err(format!(
             "NUMERIC literal `{raw}` has more than {scale} decimal digit(s)"
         ));
     }
+    let int_digits = if int_trimmed.is_empty() {
+        1
+    } else {
+        int_trimmed.len()
+    };
     let max_int_digits = (precision as usize).saturating_sub(scale).max(1);
     if int_digits > max_int_digits {
         return Err(format!(
@@ -2019,67 +2208,106 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
 /// whole point of the type: no silent local-time assumption).
 fn parse_timestamptz(s: &str) -> Result<i64, String> {
     let raw = s.trim();
-    let bad =
-        || format!("invalid timestamptz literal `{s}` (an explicit UTC offset or `Z` is required)");
-    let (date, rest) = raw.split_once(['T', 't', ' ']).ok_or_else(bad)?;
-    let mut dparts = date.splitn(3, '-');
-    let year: i64 = dparts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
-    let month: u32 = dparts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
-    let day: u32 = dparts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return Err(bad());
-    }
-
-    // Split the time-plus-offset tail. `Z`/`z` is a zero offset; otherwise find the
-    // LAST `+`/`-` (the time-of-day itself never contains one).
-    let (time_part, offset_minutes): (&str, i64) =
-        if let Some(t) = rest.strip_suffix('Z').or_else(|| rest.strip_suffix('z')) {
-            (t, 0)
-        } else if let Some(pos) = rest.rfind(['+', '-']) {
-            let (t, off) = rest.split_at(pos);
-            let sign = if off.starts_with('-') { -1i64 } else { 1i64 };
-            let off = &off[1..];
-            let (oh, om): (&str, &str) = if let Some((h, m)) = off.split_once(':') {
-                (h, m)
-            } else if off.len() >= 3 {
-                off.split_at(off.len() - 2)
-            } else {
-                (off, "0")
-            };
-            let oh: i64 = oh.parse().map_err(|_| bad())?;
-            let om: i64 = om.parse().map_err(|_| bad())?;
-            if oh > 23 || om > 59 {
-                return Err(bad());
-            }
-            (t, sign * (oh * 60 + om))
-        } else {
-            return Err(bad());
-        };
-
-    let mut tparts = time_part.splitn(3, ':');
-    let hh: i64 = tparts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
-    let mm: i64 = tparts.next().ok_or_else(bad)?.parse().map_err(|_| bad())?;
-    let sec_str = tparts.next().ok_or_else(bad)?;
-    let (ss, frac_micros): (i64, i64) = if let Some((s, f)) = sec_str.split_once('.') {
-        let ss: i64 = s.parse().map_err(|_| bad())?;
-        let mut f = f.to_string();
-        while f.len() < 6 {
-            f.push('0');
-        }
-        f.truncate(6);
-        let fm: i64 = f.parse().map_err(|_| bad())?;
-        (ss, fm)
-    } else {
-        (sec_str.parse().map_err(|_| bad())?, 0)
-    };
-    if !(0..24).contains(&hh) || !(0..60).contains(&mm) || !(0..61).contains(&ss) {
-        return Err(bad());
-    }
+    let (date, rest) = raw
+        .split_once(['T', 't', ' '])
+        .ok_or_else(|| timestamptz_bad(s))?;
+    let (year, month, day) = parse_timestamptz_date(s, date)?;
+    let (time_part, offset_minutes) = split_timestamptz_offset(s, rest)?;
+    let (hh, mm, ss, frac_micros) = parse_timestamptz_time(s, time_part)?;
 
     let days = days_from_civil(year, month, day);
     let micros = days * 86_400_000_000i64 + (hh * 3600 + mm * 60 + ss) * 1_000_000i64 + frac_micros
         - offset_minutes * 60_000_000i64;
     Ok(micros)
+}
+
+fn timestamptz_bad(s: &str) -> String {
+    format!("invalid timestamptz literal `{s}` (an explicit UTC offset or `Z` is required)")
+}
+
+/// The `YYYY-MM-DD` half of [`parse_timestamptz`].
+fn parse_timestamptz_date(s: &str, date: &str) -> Result<(i64, u32, u32), String> {
+    let mut dparts = date.splitn(3, '-');
+    let year: i64 = dparts
+        .next()
+        .ok_or_else(|| timestamptz_bad(s))?
+        .parse()
+        .map_err(|_| timestamptz_bad(s))?;
+    let month: u32 = dparts
+        .next()
+        .ok_or_else(|| timestamptz_bad(s))?
+        .parse()
+        .map_err(|_| timestamptz_bad(s))?;
+    let day: u32 = dparts
+        .next()
+        .ok_or_else(|| timestamptz_bad(s))?
+        .parse()
+        .map_err(|_| timestamptz_bad(s))?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return Err(timestamptz_bad(s));
+    }
+    Ok((year, month, day))
+}
+
+/// Split the time-plus-offset tail of [`parse_timestamptz`]. `Z`/`z` is a zero
+/// offset; otherwise find the LAST `+`/`-` (the time-of-day itself never contains
+/// one). Returns the bare time part and the offset in minutes (east of UTC positive).
+fn split_timestamptz_offset<'a>(s: &str, rest: &'a str) -> Result<(&'a str, i64), String> {
+    if let Some(t) = rest.strip_suffix('Z').or_else(|| rest.strip_suffix('z')) {
+        return Ok((t, 0));
+    }
+    let Some(pos) = rest.rfind(['+', '-']) else {
+        return Err(timestamptz_bad(s));
+    };
+    let (t, off) = rest.split_at(pos);
+    let sign = if off.starts_with('-') { -1i64 } else { 1i64 };
+    let off = &off[1..];
+    let (oh, om): (&str, &str) = if let Some((h, m)) = off.split_once(':') {
+        (h, m)
+    } else if off.len() >= 3 {
+        off.split_at(off.len() - 2)
+    } else {
+        (off, "0")
+    };
+    let oh: i64 = oh.parse().map_err(|_| timestamptz_bad(s))?;
+    let om: i64 = om.parse().map_err(|_| timestamptz_bad(s))?;
+    if oh > 23 || om > 59 {
+        return Err(timestamptz_bad(s));
+    }
+    Ok((t, sign * (oh * 60 + om)))
+}
+
+/// The `HH:MM:SS[.ffffff]` half of [`parse_timestamptz`]. Returns
+/// `(hour, minute, second, fractional_microseconds)`.
+fn parse_timestamptz_time(s: &str, time_part: &str) -> Result<(i64, i64, i64, i64), String> {
+    let mut tparts = time_part.splitn(3, ':');
+    let hh: i64 = tparts
+        .next()
+        .ok_or_else(|| timestamptz_bad(s))?
+        .parse()
+        .map_err(|_| timestamptz_bad(s))?;
+    let mm: i64 = tparts
+        .next()
+        .ok_or_else(|| timestamptz_bad(s))?
+        .parse()
+        .map_err(|_| timestamptz_bad(s))?;
+    let sec_str = tparts.next().ok_or_else(|| timestamptz_bad(s))?;
+    let (ss, frac_micros): (i64, i64) = if let Some((sec, f)) = sec_str.split_once('.') {
+        let ss: i64 = sec.parse().map_err(|_| timestamptz_bad(s))?;
+        let mut f = f.to_string();
+        while f.len() < 6 {
+            f.push('0');
+        }
+        f.truncate(6);
+        let fm: i64 = f.parse().map_err(|_| timestamptz_bad(s))?;
+        (ss, fm)
+    } else {
+        (sec_str.parse().map_err(|_| timestamptz_bad(s))?, 0)
+    };
+    if !(0..24).contains(&hh) || !(0..60).contains(&mm) || !(0..61).contains(&ss) {
+        return Err(timestamptz_bad(s));
+    }
+    Ok((hh, mm, ss, frac_micros))
 }
 
 /// Parse a Postgres array TEXT literal `{a,b,c}` into a JSON array of strings (CONCEPT:EG-KG.query.table-schema-constraints/NE-002).
