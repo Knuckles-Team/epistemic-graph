@@ -1206,6 +1206,31 @@ async fn submit_consensus_job_publication_command(
         .ok_or_else(|| "job publication command returned no result".to_string())
 }
 
+/// The target group must answer a job-publication commit with exactly
+/// `Bool(true)`; every other shape is a refusal the coordinator reports rather
+/// than finalizing over.
+#[cfg(all(feature = "raft", feature = "jobs"))]
+fn interpret_job_publication_commit(
+    request_id: u64,
+    outcome: Result<ResultPayload, String>,
+) -> Result<(), Response> {
+    match outcome {
+        Ok(ResultPayload::Bool(true)) => Ok(()),
+        Ok(ResultPayload::Bool(false)) => Err(Response::err(
+            request_id,
+            "job publication target rejected commit",
+        )),
+        Ok(_) => Err(Response::err(
+            request_id,
+            "job publication target returned invalid result",
+        )),
+        Err(error) => Err(Response::err(
+            request_id,
+            format!("job publication target commit failed: {error}"),
+        )),
+    }
+}
+
 #[cfg(all(feature = "raft", feature = "jobs"))]
 #[allow(clippy::too_many_arguments)]
 async fn execute_consensus_job_publication(
@@ -1241,34 +1266,24 @@ async fn execute_consensus_job_publication(
         Ok(command) => command,
         Err(error) => return Response::err(request_id, error),
     };
-    match submit_consensus_job_publication_command(
-        &multi,
-        authority,
+    if let Err(response) = interpret_job_publication_commit(
         request_id,
-        &prepared.coordinator_id,
-        "target-commit",
-        &prepared.target_graph,
-        prepared.target_graph_type,
-        target_route.group,
-        target_route.epoch,
-        target_fence,
-        commit,
-    )
-    .await
-    {
-        Ok(ResultPayload::Bool(true)) => {}
-        Ok(ResultPayload::Bool(false)) => {
-            return Response::err(request_id, "job publication target rejected commit")
-        }
-        Ok(_) => {
-            return Response::err(request_id, "job publication target returned invalid result")
-        }
-        Err(error) => {
-            return Response::err(
-                request_id,
-                format!("job publication target commit failed: {error}"),
-            )
-        }
+        submit_consensus_job_publication_command(
+            &multi,
+            authority,
+            request_id,
+            &prepared.coordinator_id,
+            "target-commit",
+            &prepared.target_graph,
+            prepared.target_graph_type,
+            target_route.group,
+            target_route.epoch,
+            target_fence,
+            commit,
+        )
+        .await,
+    ) {
+        return response;
     }
 
     let finalize = match crate::raft::NativeMutationCommand::job_publication_finalize(
@@ -1279,17 +1294,55 @@ async fn execute_consensus_job_publication(
         Ok(command) => command,
         Err(error) => return Response::err(request_id, error),
     };
-    let control_fence = control.placed.then_some(control.fencing_token());
-    match submit_consensus_job_publication_command(
-        &multi,
-        authority,
-        request_id,
+    finalize_consensus_job_publication(
+        &JobPublicationControl {
+            multi: &multi,
+            authority,
+            request_id,
+            control: &control,
+            control_graph,
+            control_graph_type,
+        },
         &prepared.coordinator_id,
+        finalize,
+    )
+    .await
+}
+
+/// The scheduler's control-group route for a job publication's finalize record.
+#[cfg(all(feature = "raft", feature = "jobs"))]
+struct JobPublicationControl<'a> {
+    multi: &'a Arc<crate::raft::multi::MultiRaft>,
+    authority: &'a CarrierAuthority,
+    request_id: u64,
+    control: &'a crate::raft::multi::RoutedRaftHandle,
+    control_graph: &'a str,
+    control_graph_type: crate::protocol::GraphType,
+}
+
+/// Record the finalize half on the scheduler's control group, after the target
+/// group has already durably committed.
+#[cfg(all(feature = "raft", feature = "jobs"))]
+async fn finalize_consensus_job_publication(
+    control: &JobPublicationControl<'_>,
+    coordinator_id: &str,
+    finalize: crate::raft::NativeMutationCommand,
+) -> Response {
+    let request_id = control.request_id;
+    let control_fence = control
+        .control
+        .placed
+        .then_some(control.control.fencing_token());
+    match submit_consensus_job_publication_command(
+        control.multi,
+        control.authority,
+        request_id,
+        coordinator_id,
         "scheduler-finalize",
-        control_graph,
-        control_graph_type,
-        control.group_id,
-        control.epoch,
+        control.control_graph,
+        control.control_graph_type,
+        control.control.group_id,
+        control.control.epoch,
         control_fence,
         finalize,
     )
@@ -7461,28 +7514,72 @@ async fn dispatch_change_envelopes(
             ),
         );
     }
-    // Per-envelope authority binding — mirror the single `ApplyChangeEnvelope` arm,
-    // minus the two batch-varying fields: the idempotency_key (per envelope, enforced
-    // by the mutation-store idempotency table) and the graph (per envelope, ACL-checked
-    // per group by `dispatch_graph_op`).
+    if let Some(response) =
+        change_envelope_batch_authority_error(req_id, verified_context, &envelopes)
+    {
+        return response;
+    }
+
+    let mut per_index: Vec<serde_json::Value> = vec![serde_json::Value::Null; total];
+    for (graph, group) in group_change_envelopes_by_graph(envelopes) {
+        let indices: Vec<usize> = group.iter().map(|(index, _)| *index).collect();
+        let group_envelopes: Vec<crate::change_envelope::ChangeEnvelope> =
+            group.into_iter().map(|(_, envelope)| envelope).collect();
+        let resp = dispatch_graph_op(
+            state,
+            &graph,
+            req_id,
+            caller,
+            verified_context,
+            Method::ApplyChangeEnvelopes {
+                envelopes: group_envelopes,
+            },
+        )
+        .await;
+        scatter_change_envelope_group_results(&mut per_index, &indices, resp);
+    }
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({ "results": per_index })),
+    )
+}
+
+/// Per-envelope authority binding — mirrors the single `ApplyChangeEnvelope`
+/// arm, minus the two batch-varying fields: the idempotency_key (per envelope,
+/// enforced by the mutation-store idempotency table) and the graph (per
+/// envelope, ACL-checked per group by `dispatch_graph_op`).
+#[cfg(feature = "redb")]
+fn change_envelope_batch_authority_error(
+    req_id: u64,
+    verified_context: &VerifiedRequestContext,
+    envelopes: &[crate::change_envelope::ChangeEnvelope],
+) -> Option<Response> {
     let claims = verified_context.claims();
     let principal = verified_context.principal_persistence_id();
-    for envelope in &envelopes {
+    for envelope in envelopes {
         let ctx = &envelope.mutation.context;
         if envelope.mutation.tenant != claims.tenant
             || ctx.request_id != req_id
             || ctx.principal != principal
             || ctx.policy_fingerprint.as_deref() != Some(claims.policy_version.as_str())
         {
-            return Response::err(
+            return Some(Response::err(
                 req_id,
                 "ApplyChangeEnvelopes context does not match the verified request authority",
-            );
+            ));
         }
     }
+    None
+}
 
-    // Group envelope indices by graph, preserving first-seen graph order and the
-    // per-graph envelope order.
+/// Group envelopes by graph, preserving first-seen graph order and the
+/// per-graph envelope order, and carrying each envelope's REQUEST index so the
+/// per-graph results can be scattered back into request order.
+#[cfg(feature = "redb")]
+fn group_change_envelopes_by_graph(
+    envelopes: Vec<crate::change_envelope::ChangeEnvelope>,
+) -> Vec<(String, Vec<(usize, crate::change_envelope::ChangeEnvelope)>)> {
     let mut graph_order: Vec<String> = Vec::new();
     let mut groups: std::collections::HashMap<
         String,
@@ -7498,58 +7595,52 @@ async fn dispatch_change_envelopes(
             })
             .push((index, envelope));
     }
+    graph_order
+        .into_iter()
+        .map(|graph| {
+            let group = groups.remove(&graph).expect("grouped graph is present");
+            (graph, group)
+        })
+        .collect()
+}
 
-    let mut per_index: Vec<serde_json::Value> = vec![serde_json::Value::Null; total];
-    for graph in graph_order {
-        let group = groups.remove(&graph).expect("grouped graph is present");
-        let indices: Vec<usize> = group.iter().map(|(index, _)| *index).collect();
-        let group_envelopes: Vec<crate::change_envelope::ChangeEnvelope> =
-            group.into_iter().map(|(_, envelope)| envelope).collect();
-        let resp = dispatch_graph_op(
-            state,
-            &graph,
-            req_id,
-            caller,
-            verified_context,
-            Method::ApplyChangeEnvelopes {
-                envelopes: group_envelopes,
-            },
-        )
-        .await;
-        if let Some(err) = resp.error {
-            // A transport/ACL/placement failure for the whole group (distinct from the
-            // per-envelope atomic-batch abort, which returns Ok with conflict entries).
-            for index in &indices {
-                per_index[*index] = serde_json::json!({ "status": "conflict", "error": err });
-            }
-        } else if let Some(ResultPayload::Json(value)) = resp.result {
-            let group_results = value
-                .get("results")
-                .and_then(|results| results.as_array())
-                .cloned()
-                .unwrap_or_default();
-            for (position, index) in indices.iter().enumerate() {
-                per_index[*index] = group_results.get(position).cloned().unwrap_or_else(|| {
-                    serde_json::json!({
-                        "status": "conflict",
-                        "error": "missing per-envelope result in batch response",
-                    })
-                });
-            }
-        } else {
-            for index in &indices {
-                per_index[*index] = serde_json::json!({
-                    "status": "conflict",
-                    "error": "empty batch response",
-                });
-            }
+/// Scatter one graph group's response back into request-ordered slots.
+#[cfg(feature = "redb")]
+fn scatter_change_envelope_group_results(
+    per_index: &mut [serde_json::Value],
+    indices: &[usize],
+    response: Response,
+) {
+    if let Some(err) = response.error {
+        // A transport/ACL/placement failure for the whole group (distinct from the
+        // per-envelope atomic-batch abort, which returns Ok with conflict entries).
+        for index in indices {
+            per_index[*index] = serde_json::json!({ "status": "conflict", "error": err });
         }
+        return;
     }
-
-    Response::ok(
-        req_id,
-        ResultPayload::Json(serde_json::json!({ "results": per_index })),
-    )
+    let Some(ResultPayload::Json(value)) = response.result else {
+        for index in indices {
+            per_index[*index] = serde_json::json!({
+                "status": "conflict",
+                "error": "empty batch response",
+            });
+        }
+        return;
+    };
+    let group_results = value
+        .get("results")
+        .and_then(|results| results.as_array())
+        .cloned()
+        .unwrap_or_default();
+    for (position, index) in indices.iter().enumerate() {
+        per_index[*index] = group_results.get(position).cloned().unwrap_or_else(|| {
+            serde_json::json!({
+                "status": "conflict",
+                "error": "missing per-envelope result in batch response",
+            })
+        });
+    }
 }
 
 /// Apply a batched cross-graph write (CONCEPT:EG-KG.storage.multi-graph-batch-write).
@@ -9239,59 +9330,76 @@ async fn commit_change_envelope_batch_results(
     envelopes: &[eg_types::change_envelope::ChangeEnvelope],
     committed_at_ms: u64,
 ) -> Vec<serde_json::Value> {
-    let mut results: Vec<serde_json::Value> = Vec::with_capacity(envelopes.len());
     match backend
         .commit_change_envelopes(fname, envelopes, committed_at_ms)
         .await
     {
-        Ok(commits) => {
-            for (envelope, committed) in envelopes.iter().zip(commits.iter()) {
-                let projection_error = if committed.replayed {
-                    None
-                } else {
-                    crate::server::mutation_batch::publish_change_envelope_projection(
-                        core, envelope,
-                    )
-                    .err()
-                };
-                let mut entry = change_envelope_result(committed, projection_error.is_some());
-                if let Some(object) = entry.as_object_mut() {
-                    object.insert(
-                        "status".to_string(),
-                        serde_json::Value::String(
-                            if committed.replayed {
-                                "idempotent_skip"
-                            } else {
-                                "applied"
-                            }
-                            .to_string(),
-                        ),
-                    );
-                }
-                results.push(entry);
-            }
-        }
+        Ok(commits) => envelopes
+            .iter()
+            .zip(commits.iter())
+            .map(|(envelope, committed)| change_envelope_applied_entry(core, envelope, committed))
+            .collect(),
         Err((failing_index, error)) => {
-            // The whole graph-batch aborted atomically — nothing committed.
-            // Report the batch outcome per envelope honestly: the offender
-            // carries its own error; the siblings carry the abort cause.
-            for (index, envelope) in envelopes.iter().enumerate() {
-                let this_error = if index == failing_index {
-                    error.clone()
-                } else {
-                    format!(
-                        "ABORTED_ATOMIC_GRAPH_BATCH: sibling envelope {failing_index} failed ({error})"
-                    )
-                };
-                results.push(serde_json::json!({
-                    "status": "conflict",
-                    "envelope_id": envelope.envelope_id,
-                    "error": this_error,
-                }));
-            }
+            change_envelope_abort_entries(envelopes, failing_index, &error)
         }
     }
-    results
+}
+
+/// One committed envelope's result entry. A replayed envelope is an idempotent
+/// skip and does NOT republish its projection; a freshly applied one does, and
+/// a projection failure is surfaced as `projection_pending` rather than
+/// pretending the durable commit did not happen.
+fn change_envelope_applied_entry(
+    core: &Arc<crate::graph::GraphCore>,
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    committed: &eg_types::ChangeEnvelopeCommit,
+) -> serde_json::Value {
+    let projection_error = if committed.replayed {
+        None
+    } else {
+        crate::server::mutation_batch::publish_change_envelope_projection(core, envelope).err()
+    };
+    let mut entry = change_envelope_result(committed, projection_error.is_some());
+    if let Some(object) = entry.as_object_mut() {
+        let status = if committed.replayed {
+            "idempotent_skip"
+        } else {
+            "applied"
+        };
+        object.insert(
+            "status".to_string(),
+            serde_json::Value::String(status.to_string()),
+        );
+    }
+    entry
+}
+
+/// The whole graph-batch aborted atomically — nothing committed. Report the
+/// batch outcome per envelope honestly: the offender carries its own error; the
+/// siblings carry the abort cause.
+fn change_envelope_abort_entries(
+    envelopes: &[eg_types::change_envelope::ChangeEnvelope],
+    failing_index: usize,
+    error: &str,
+) -> Vec<serde_json::Value> {
+    envelopes
+        .iter()
+        .enumerate()
+        .map(|(index, envelope)| {
+            let this_error = if index == failing_index {
+                error.to_string()
+            } else {
+                format!(
+                    "ABORTED_ATOMIC_GRAPH_BATCH: sibling envelope {failing_index} failed ({error})"
+                )
+            };
+            serde_json::json!({
+                "status": "conflict",
+                "envelope_id": envelope.envelope_id,
+                "error": this_error,
+            })
+        })
+        .collect()
 }
 
 async fn dispatch_change_env_apply_change_envelopes(
