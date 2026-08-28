@@ -1822,25 +1822,55 @@ impl<'a> GraphTxn<'a> {
             None => Self::derive_semantic_id(&cluster),
         };
 
-        // Bitemporal span over the children (CONCEPT:EG-KG.compute.preserved/2.250 preserved).
+        let obj = self.build_semantic_object(&cluster, &semantic_id, semantic_props);
+        if let Ok(blob) = rmp_serde::to_vec_named(&serde_json::Value::Object(obj)) {
+            self.add_node(semantic_id.clone(), blob);
+        }
+
+        // Collect EXTERNAL edges to copy onto the semantic node. Gather first (no
+        // mutation during the DashMap scan), then sort + dedup for a deterministic
+        // ledger, then apply after the iterator guard drops.
+        let to_add = self.collect_external_edges(&cluster_set, &semantic_id);
+        self.apply_redirected_edges(to_add);
+
+        // Provenance + mark episodics consolidated (localized — cluster only).
+        self.mark_cluster_consolidated(&cluster, &semantic_id);
+        semantic_id
+    }
+
+    /// Compute the consolidated node's BITEMPORAL span over `cluster`: the MIN of
+    /// the children's `tx_from` and the MAX of their `tx_to`, plus whether any
+    /// child is still open (no `tx_to`) — an open child leaves the span open
+    /// (CONCEPT:EG-KG.compute.preserved/2.250 preserved).
+    fn consolidated_tx_span(&self, cluster: &[String]) -> (Option<u64>, Option<u64>, bool) {
         let mut tx_from_min: Option<u64> = None;
         let mut tx_to_max: Option<u64> = None;
         let mut any_open = false;
-        for epi in &cluster {
-            if let Some(obj) = self.node_object(epi) {
-                if let Some(f) = obj.get("tx_from").and_then(|v| v.as_u64()) {
-                    tx_from_min = Some(tx_from_min.map_or(f, |m| m.min(f)));
-                }
-                match obj.get("tx_to").and_then(|v| v.as_u64()) {
-                    Some(t) => tx_to_max = Some(tx_to_max.map_or(t, |m| m.max(t))),
-                    None => any_open = true, // an open child ⇒ the span stays open
-                }
+        for epi in cluster {
+            let Some(obj) = self.node_object(epi) else {
+                continue;
+            };
+            if let Some(f) = obj.get("tx_from").and_then(|v| v.as_u64()) {
+                tx_from_min = Some(tx_from_min.map_or(f, |m| m.min(f)));
+            }
+            match obj.get("tx_to").and_then(|v| v.as_u64()) {
+                Some(t) => tx_to_max = Some(tx_to_max.map_or(t, |m| m.max(t))),
+                None => any_open = true, // an open child ⇒ the span stays open
             }
         }
+        (tx_from_min, tx_to_max, any_open)
+    }
 
-        // Build the semantic node object: merge onto any existing node (upsert),
-        // then caller props, then computed markers (caller values win).
-        let mut obj = self.node_object(&semantic_id).unwrap_or_default();
+    /// Build the semantic node object: merge onto any existing node (upsert),
+    /// then caller props, then the computed markers (caller values win).
+    fn build_semantic_object(
+        &self,
+        cluster: &[String],
+        semantic_id: &str,
+        semantic_props: serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let (tx_from_min, tx_to_max, any_open) = self.consolidated_tx_span(cluster);
+        let mut obj = self.node_object(semantic_id).unwrap_or_default();
         for (k, v) in semantic_props {
             if k == "id" {
                 continue;
@@ -1863,13 +1893,19 @@ impl<'a> GraphTxn<'a> {
                 obj.insert("tx_to".to_string(), serde_json::json!(t));
             }
         }
-        if let Ok(blob) = rmp_serde::to_vec_named(&serde_json::Value::Object(obj)) {
-            self.add_node(semantic_id.clone(), blob);
-        }
+        obj
+    }
 
-        // Collect EXTERNAL edges to copy onto the semantic node. Gather first (no
-        // mutation during the DashMap scan), then sort + dedup for a deterministic
-        // ledger, then apply after the iterator guard drops.
+    /// Gather the cluster's EXTERNAL edges (exactly one endpoint inside the
+    /// cluster) re-pointed onto the semantic node. Intra-cluster edges are
+    /// subsumed and fully-external edges are unrelated, so both are skipped.
+    /// Read-only: nothing is mutated while the DashMap iterator guard is alive.
+    /// Sorted + deduped for a deterministic ledger.
+    fn collect_external_edges(
+        &self,
+        cluster_set: &std::collections::HashSet<&str>,
+        semantic_id: &str,
+    ) -> Vec<(String, String, Vec<u8>)> {
         let mut to_add: Vec<(String, String, Vec<u8>)> = Vec::new();
         for entry in self.edge_properties.iter() {
             let (src, tgt) = entry.key();
@@ -1881,19 +1917,25 @@ impl<'a> GraphTxn<'a> {
             }
             for blob in entry.value() {
                 if src_in {
-                    if tgt != &semantic_id {
-                        to_add.push((semantic_id.clone(), tgt.clone(), (**blob).clone()));
+                    if tgt.as_str() != semantic_id {
+                        to_add.push((semantic_id.to_string(), tgt.clone(), (**blob).clone()));
                     }
-                } else if src != &semantic_id {
-                    to_add.push((src.clone(), semantic_id.clone(), (**blob).clone()));
+                } else if src.as_str() != semantic_id {
+                    to_add.push((src.clone(), semantic_id.to_string(), (**blob).clone()));
                 }
             }
         }
         to_add.sort();
         to_add.dedup();
+        to_add
+    }
+
+    /// Apply the redirected external edges collected by
+    /// [`GraphTxn::collect_external_edges`]. An identical-relationship edge that
+    /// already connects the endpoints is skipped, so a re-run does not stack
+    /// duplicate redirected edges.
+    fn apply_redirected_edges(&mut self, to_add: Vec<(String, String, Vec<u8>)>) {
         for (src, tgt, blob) in to_add {
-            // Skip if an identical-relationship edge already connects these (keeps a
-            // re-run from stacking duplicate redirected edges).
             let rel = decode_property_value(&blob).ok().and_then(|v| {
                 v.as_object()
                     .and_then(|o| o.get("relationship"))
@@ -1907,19 +1949,18 @@ impl<'a> GraphTxn<'a> {
             }
             let _ = self.add_edge(src, tgt, blob);
         }
+    }
 
-        // Provenance + mark episodics consolidated (localized — cluster only).
-        for epi in &cluster {
-            if epi == &semantic_id || !self.topo.node_map.contains_key(epi) {
+    /// Add the `CONSOLIDATES` provenance edge semantic → each episodic (guarded,
+    /// so it is idempotent) and mark each episodic `consolidated = true` +
+    /// `consolidated_into = <semantic_id>` WITHOUT deleting it (bitemporal
+    /// history preserved). Localized — touches the cluster only.
+    fn mark_cluster_consolidated(&mut self, cluster: &[String], semantic_id: &str) {
+        for epi in cluster {
+            if epi.as_str() == semantic_id || !self.topo.node_map.contains_key(epi) {
                 continue;
             }
-            if !self.has_relationship_edge(&semantic_id, epi, "CONSOLIDATES") {
-                if let Ok(eprops) =
-                    rmp_serde::to_vec_named(&serde_json::json!({"relationship": "CONSOLIDATES"}))
-                {
-                    let _ = self.add_edge(semantic_id.clone(), epi.clone(), eprops);
-                }
-            }
+            self.link_consolidates(semantic_id, epi);
             let mut mark = serde_json::Map::new();
             mark.insert("consolidated".to_string(), serde_json::json!(true));
             mark.insert(
@@ -1928,7 +1969,18 @@ impl<'a> GraphTxn<'a> {
             );
             self.merge_fields(epi, &mark);
         }
-        semantic_id
+    }
+
+    /// Add the guarded `CONSOLIDATES` provenance edge `semantic_id → episodic_id`.
+    fn link_consolidates(&mut self, semantic_id: &str, episodic_id: &str) {
+        if self.has_relationship_edge(semantic_id, episodic_id, "CONSOLIDATES") {
+            return;
+        }
+        if let Ok(eprops) =
+            rmp_serde::to_vec_named(&serde_json::json!({"relationship": "CONSOLIDATES"}))
+        {
+            let _ = self.add_edge(semantic_id.to_string(), episodic_id.to_string(), eprops);
+        }
     }
 
     // ── Memory maintenance — decay + reinforcement (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive) ────────────
@@ -6457,8 +6509,8 @@ impl GraphCore {
         prune: bool,
     ) -> crate::types::DecayStats {
         let mut stats = crate::types::DecayStats::default();
-        let mut node_prune: Vec<String> = Vec::new();
-        let mut edge_prune: Vec<(String, String)> = Vec::new();
+        let node_prune: Vec<String>;
+        let edge_prune: Vec<(String, String)>;
 
         // The property re-encode runs under the topology READ lock: it excludes
         // structural writers (add/remove go through a write txn), so a node can't
@@ -6466,62 +6518,8 @@ impl GraphCore {
         // would resurrect it). Reads/other property updates still proceed.
         {
             let _topo = self.topo.read();
-
-            // ── Nodes ──
-            let node_ids: Vec<String> = self
-                .node_properties
-                .iter()
-                .map(|e| e.key().clone())
-                .collect();
-            for nid in node_ids {
-                if let Some(bytes) = self.node_properties.get(&nid).map(|r| r.value().clone()) {
-                    if let Ok(mut val) = decode_property_value(&bytes) {
-                        if let Some(obj) = val.as_object_mut() {
-                            let (new_conf, changed) = apply_decay(obj, now, default_half_life);
-                            if changed {
-                                stats.nodes_decayed += 1;
-                                if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                                    self.node_properties.insert(nid.clone(), Arc::new(reenc));
-                                }
-                            }
-                            if prune && new_conf < floor {
-                                node_prune.push(nid.clone());
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Edges ── (edge_properties: (src,tgt) -> Vec<Vec<u8>> parallel edges)
-            let edge_keys: Vec<(String, String)> = self
-                .edge_properties
-                .iter()
-                .map(|e| e.key().clone())
-                .collect();
-            for key in edge_keys {
-                let mut min_conf = 1.0f64;
-                if let Some(mut blobs) = self.edge_properties.get_mut(&key) {
-                    for b in blobs.iter_mut() {
-                        if let Ok(mut val) = decode_property_value(b.as_slice()) {
-                            if let Some(obj) = val.as_object_mut() {
-                                let (new_conf, changed) = apply_decay(obj, now, default_half_life);
-                                if changed {
-                                    stats.edges_decayed += 1;
-                                    if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                                        *b = Arc::new(reenc);
-                                    }
-                                }
-                                if new_conf < min_conf {
-                                    min_conf = new_conf;
-                                }
-                            }
-                        }
-                    }
-                }
-                if prune && min_conf < floor {
-                    edge_prune.push(key);
-                }
-            }
+            node_prune = self.decay_all_nodes(now, default_half_life, floor, prune, &mut stats);
+            edge_prune = self.decay_all_edges(now, default_half_life, floor, prune, &mut stats);
         }
 
         // ── Prune below floor (each removal takes its own write txn) ──
@@ -6544,6 +6542,113 @@ impl GraphCore {
             self.mark_dirty();
         }
         stats
+    }
+
+    /// Decay every node's belief `confidence` in place, bumping `stats`.
+    ///
+    /// The caller MUST already hold the topology READ guard — this only touches
+    /// `node_properties`, never the topology, and must not take a lock itself.
+    /// Returns the ids that fell below `floor` (empty unless `prune`).
+    fn decay_all_nodes(
+        &self,
+        now: u64,
+        default_half_life: f64,
+        floor: f64,
+        prune: bool,
+        stats: &mut crate::types::DecayStats,
+    ) -> Vec<String> {
+        let mut node_prune: Vec<String> = Vec::new();
+        let node_ids: Vec<String> = self
+            .node_properties
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
+        for nid in node_ids {
+            let Some(bytes) = self.node_properties.get(&nid).map(|r| r.value().clone()) else {
+                continue;
+            };
+            let Ok(mut val) = decode_property_value(&bytes) else {
+                continue;
+            };
+            let Some(obj) = val.as_object_mut() else {
+                continue;
+            };
+            let (new_conf, changed) = apply_decay(obj, now, default_half_life);
+            if changed {
+                stats.nodes_decayed += 1;
+                if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                    self.node_properties.insert(nid.clone(), Arc::new(reenc));
+                }
+            }
+            if prune && new_conf < floor {
+                node_prune.push(nid.clone());
+            }
+        }
+        node_prune
+    }
+
+    /// Decay every parallel edge blob in place, bumping `stats`.
+    ///
+    /// The caller MUST already hold the topology READ guard (see
+    /// [`GraphCore::decay_all_nodes`]). `edge_properties` maps `(src, tgt)` to the
+    /// parallel-edge blobs. Returns the keys whose WEAKEST parallel edge fell
+    /// below `floor` (empty unless `prune`).
+    fn decay_all_edges(
+        &self,
+        now: u64,
+        default_half_life: f64,
+        floor: f64,
+        prune: bool,
+        stats: &mut crate::types::DecayStats,
+    ) -> Vec<(String, String)> {
+        let mut edge_prune: Vec<(String, String)> = Vec::new();
+        let edge_keys: Vec<(String, String)> = self
+            .edge_properties
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
+        for key in edge_keys {
+            let mut min_conf = 1.0f64;
+            if let Some(mut blobs) = self.edge_properties.get_mut(&key) {
+                for b in blobs.iter_mut() {
+                    let new_conf = Self::decay_edge_blob(b, now, default_half_life, stats);
+                    if new_conf < min_conf {
+                        min_conf = new_conf;
+                    }
+                }
+            }
+            if prune && min_conf < floor {
+                edge_prune.push(key);
+            }
+        }
+        edge_prune
+    }
+
+    /// Decay ONE edge property blob in place, bumping `stats.edges_decayed`.
+    ///
+    /// Returns the blob's confidence after decay, or `1.0` when it is undecodable
+    /// or not a property object — matching the original sweep, which left
+    /// `min_conf` untouched in exactly those cases.
+    fn decay_edge_blob(
+        blob: &mut Arc<Vec<u8>>,
+        now: u64,
+        default_half_life: f64,
+        stats: &mut crate::types::DecayStats,
+    ) -> f64 {
+        let Ok(mut val) = decode_property_value(blob.as_slice()) else {
+            return 1.0;
+        };
+        let Some(obj) = val.as_object_mut() else {
+            return 1.0;
+        };
+        let (new_conf, changed) = apply_decay(obj, now, default_half_life);
+        if changed {
+            stats.edges_decayed += 1;
+            if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                *blob = Arc::new(reenc);
+            }
+        }
+        new_conf
     }
 
     /// Refresh the given nodes on access (spaced-repetition reset): stamp
