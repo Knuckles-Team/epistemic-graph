@@ -22,7 +22,12 @@ use super::auth::{
 #[cfg(feature = "ast")]
 use super::compute::compute_off_lock;
 use super::handlers;
-#[cfg(feature = "redb")]
+// NOT `#[cfg(feature = "redb")]`: `server::persistence` is an unconditional module
+// (server/mod.rs) and three ungated signatures below -- `reconcile_existing_graph_create`,
+// `read_committed_graph_version`, `reconcile_missing_graph_delete` -- name this trait
+// unqualified. Gating the import broke every build without `redb`
+// (`--no-default-features --features server`) with E0405 while the default full build,
+// which enables `redb`, stayed green. See plans/complex/lane-reports/WD10-R-DISPATCH.md.
 use super::persistence::PersistenceBackend;
 use super::state::ServerState;
 use crate::isolation::AccessLevel;
@@ -8877,7 +8882,12 @@ async fn dispatch_op_workitem_claim_capability(
     }
     #[cfg(not(feature = "redb"))]
     {
-        let _ = backend;
+        // `graph_name`/`verified_context`/`method` are consumed only by the `redb`
+        // (and, for `graph_name`, `raft`) arms above, so a build with neither leaves
+        // them bound but unread. Discharged the same way `backend` already was --
+        // the author's own idiom three lines up -- rather than with
+        // `#[allow(unused_variables)]`, which would also hide a genuinely dead binding.
+        let _ = (backend, graph_name, verified_context, method);
         return Response::err(
             req_id,
             "native WorkItem claim capability requires redb persistence",
