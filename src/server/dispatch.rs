@@ -6667,6 +6667,521 @@ async fn clear_coordinated_graph_decision(
     Ok(())
 }
 
+/// Everything the SPARQL-HTTP update coordinator's phases share: the verified
+/// caller, the durable redb backend, and the two saga ids (the parent that
+/// carries the sealed plan and the compensation marker that makes a restart
+/// choose one direction forever). Bundled so each phase helper stays inside the
+/// parameter cap.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+struct SparqlUpdateCoordination<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified_context: &'a VerifiedRequestContext,
+    verified_actor: &'a str,
+    redb: &'a crate::server::persistence::redb_backend::RedbBackend,
+    parent_id: &'a str,
+    compensation_id: &'a str,
+}
+
+/// A resumed saga that already carries its committed result: clear BOTH
+/// retained decisions, then replay the recorded outcome verbatim — a compensated
+/// outcome still answers as the compensation error, never as success.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn replay_sparql_update(
+    coord: &SparqlUpdateCoordination<'_>,
+    result: ResultPayload,
+) -> Response {
+    if let Err(error) = clear_coordinated_graph_decision(coord.redb, coord.parent_id).await {
+        return Response::err(coord.req_id, error);
+    }
+    if let Err(error) = clear_coordinated_graph_decision(coord.redb, coord.compensation_id).await {
+        return Response::err(coord.req_id, error);
+    }
+    if coordinator_result_is_compensated(&result) {
+        Response::err(coord.req_id, "SPARQL update was durably compensated")
+    } else {
+        Response::ok(coord.req_id, result)
+    }
+}
+
+/// Recover the sealed plan of a saga that was already begun by an earlier
+/// attempt. `Err` is this request's final response — either the replayed
+/// outcome or a recovery failure.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn resume_sparql_update_plan(
+    coord: &SparqlUpdateCoordination<'_>,
+    saga: handlers::admin::AdminSaga,
+) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlanV1), Response> {
+    if let Some(result) = saga.replayed.clone() {
+        return Err(replay_sparql_update(coord, result).await);
+    }
+    let encrypted = match eg_mutation_store::read_private_payload(
+        coord.redb.admin_mutation_store(),
+        coord.parent_id,
+    ) {
+        Ok(Some(value)) => value,
+        Ok(None) => {
+            return Err(Response::err(
+                coord.req_id,
+                "SPARQL recovery plan is missing",
+            ))
+        }
+        Err(error) => return Err(Response::err(coord.req_id, error)),
+    };
+    let plan = match open_private_coordinator_plan(
+        coord.redb,
+        &saga.batch,
+        SPARQL_RECOVERY_EVENT,
+        &encrypted,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Err(Response::err(coord.req_id, error)),
+    };
+    Ok((saga, plan))
+}
+
+/// The complete graph set this update may address. An update whose graph is a
+/// variable can reach every resident graph, so the registry is folded in and the
+/// set deduplicated.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn resolve_sparql_update_graphs(
+    coord: &SparqlUpdateCoordination<'_>,
+    query: &str,
+    default_graph: &str,
+) -> Result<Vec<String>, Response> {
+    let mut graphs = match crate::server::sparql_http::update_graphs(query, default_graph) {
+        Ok(graphs) => graphs,
+        Err(error) => return Err(Response::err(coord.req_id, error)),
+    };
+    if crate::server::sparql_http::update_uses_variable_graph(query) {
+        graphs.extend(
+            coord
+                .state
+                .read()
+                .await
+                .registry
+                .list()
+                .into_iter()
+                .map(|(name, _)| name),
+        );
+        graphs.sort();
+        graphs.dedup();
+    }
+    Ok(graphs)
+}
+
+/// Write access is checked against every graph that ALREADY exists, under one
+/// read lock; the names that do not yet exist are returned so the caller can
+/// gate creation separately.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn check_sparql_update_graph_access(
+    coord: &SparqlUpdateCoordination<'_>,
+    graphs: &[String],
+) -> Result<Vec<String>, Response> {
+    let current = timed_read(coord.state).await;
+    for graph in graphs {
+        let Some(entry) = current.registry.get(graph) else {
+            continue;
+        };
+        if let Err(error) = check_graph_access(
+            &current.isolation,
+            Some(coord.verified_actor),
+            graph,
+            entry.graph_type,
+            entry.owner.as_deref(),
+            AccessLevel::Write,
+        ) {
+            return Err(Response::err(coord.req_id, error));
+        }
+    }
+    Ok(graphs
+        .iter()
+        .filter(|graph| !current.registry.exists(graph))
+        .cloned()
+        .collect::<Vec<_>>())
+}
+
+/// Seal a plan as authenticated ciphertext and open the named saga that binds
+/// only its digest. Shared by the parent plan and the compensation marker.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+fn begin_sealed_sparql_saga(
+    coord: &SparqlUpdateCoordination<'_>,
+    plan: &SparqlRecoveryPlanV1,
+    batch_id: &str,
+    event_type: &str,
+) -> Result<handlers::admin::AdminSaga, Response> {
+    let (digest, encrypted) = match seal_private_coordinator_plan(coord.redb, plan) {
+        Ok(value) => value,
+        Err(error) => return Err(Response::err(coord.req_id, error)),
+    };
+    handlers::admin::begin_named_admin_saga_with_private_payload(
+        coord.redb,
+        coord.req_id,
+        Some(coord.verified_actor),
+        handlers::admin::AdminSagaPayload {
+            domain: crate::mutation_batch::MutationDomain::MultiGraph,
+            batch_id,
+            event_type,
+            payload_digest: &digest,
+            encrypted_payload: &encrypted,
+        },
+    )
+    .map_err(|error| Response::err(coord.req_id, error))
+}
+
+/// First attempt: resolve the graph set, gate access, plan the before/after
+/// images, and seal them into a fresh parent saga.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn build_sparql_update_plan(
+    coord: &SparqlUpdateCoordination<'_>,
+    query: &str,
+    default_graph: &str,
+) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlanV1), Response> {
+    let graphs = resolve_sparql_update_graphs(coord, query, default_graph).await?;
+    let missing = check_sparql_update_graph_access(coord, &graphs).await?;
+    if !missing.is_empty() && !coord.verified_context.allows_method("graph:admin", true) {
+        return Err(Response::err(
+            coord.req_id,
+            "ACCESS_DENIED: SPARQL graph creation requires graph:admin",
+        ));
+    }
+    let planned =
+        match crate::server::sparql_http::plan_update(coord.state, query, default_graph, &graphs)
+            .await
+        {
+            Ok(planned) => planned,
+            Err(error) => return Err(Response::err(coord.req_id, error)),
+        };
+    let plan = SparqlRecoveryPlanV1 {
+        schema_version: 1,
+        graphs: planned,
+    };
+    let saga = begin_sealed_sparql_saga(coord, &plan, coord.parent_id, SPARQL_RECOVERY_EVENT)?;
+    Ok((saga, plan))
+}
+
+/// Resolve this request's parent saga and its sealed plan: resume the one an
+/// earlier attempt began, or build a new one.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn stage_sparql_update(
+    coord: &SparqlUpdateCoordination<'_>,
+    query: &str,
+    default_graph: &str,
+) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlanV1), Response> {
+    let resumed = match handlers::admin::resume_named_admin_saga(
+        coord.redb,
+        coord.parent_id,
+        Some(coord.verified_actor),
+    ) {
+        Ok(value) => value,
+        Err(error) => return Err(Response::err(coord.req_id, error)),
+    };
+    let (saga, plan) = match resumed {
+        Some(saga) => resume_sparql_update_plan(coord, saga).await?,
+        None => build_sparql_update_plan(coord, query, default_graph).await?,
+    };
+    if plan.schema_version != 1 {
+        return Err(Response::err(
+            coord.req_id,
+            "unsupported SPARQL recovery plan",
+        ));
+    }
+    Ok((saga, plan))
+}
+
+/// Create every graph the plan introduces that is not already resident, through
+/// the ordinary dispatch path so lifecycle stays durable and authorized.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn create_missing_sparql_graphs(
+    coord: &SparqlUpdateCoordination<'_>,
+    plan: &SparqlRecoveryPlanV1,
+) -> Result<(), Response> {
+    for update in plan.graphs.iter().filter(|update| !update.existed_before) {
+        if timed_read(coord.state).await.registry.exists(&update.graph) {
+            continue;
+        }
+        let request = Request {
+            id: coord.req_id,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(coord.verified_actor.to_string()),
+            method: Method::CreateGraph {
+                graph_name: update.graph.clone(),
+                graph_type: update.graph_type,
+            },
+        };
+        let response = Box::pin(dispatch_with_context(
+            coord.state,
+            request,
+            Some(VerifiedRequestContext::clone(coord.verified_context)),
+        ))
+        .await;
+        if let Some(error) = response.error {
+            return Err(Response::err(coord.req_id, error));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+fn sparql_forward_methods(
+    plan: &SparqlRecoveryPlanV1,
+) -> Vec<(String, crate::protocol::GraphType, Vec<Method>)> {
+    plan.graphs
+        .iter()
+        .map(|update| {
+            (
+                update.graph.clone(),
+                update.graph_type,
+                vec![Method::FromMsgpack {
+                    msgpack: update.after_msgpack.clone(),
+                }],
+            )
+        })
+        .collect()
+}
+
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+fn sparql_rollback_methods(
+    plan: &SparqlRecoveryPlanV1,
+) -> Vec<(String, crate::protocol::GraphType, Vec<Method>)> {
+    plan.graphs
+        .iter()
+        .filter(|update| update.existed_before)
+        .map(|update| {
+            (
+                update.graph.clone(),
+                update.graph_type,
+                vec![Method::FromMsgpack {
+                    msgpack: update.before_msgpack.clone(),
+                }],
+            )
+        })
+        .collect::<Vec<_>>()
+}
+
+/// Close the parent saga on the roll-forward path and clear its retained
+/// decision.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn finish_sparql_commit(
+    coord: &SparqlUpdateCoordination<'_>,
+    saga: handlers::admin::AdminSaga,
+    plan: &SparqlRecoveryPlanV1,
+) -> Response {
+    let result = ResultPayload::Json(serde_json::json!({
+        "outcome": "committed",
+        "updated_graphs": plan.graphs.len(),
+        "created_graphs": plan.graphs.iter().filter(|graph| !graph.existed_before).count(),
+    }));
+    let committed = match handlers::admin::finish_admin_saga(
+        coord.redb,
+        saga.batch,
+        saga.created_at_ms,
+        result,
+    ) {
+        Ok(committed) => committed,
+        Err(error) => return Response::err(coord.req_id, error),
+    };
+    match clear_coordinated_graph_decision(coord.redb, coord.parent_id).await {
+        Ok(_) => Response::ok(coord.req_id, committed),
+        Err(error) => Response::err(coord.req_id, error),
+    }
+}
+
+/// What the roll-forward attempt decided.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+enum SparqlForwardOutcome {
+    /// This request is finished; the response is final.
+    Settled(Response),
+    /// The forward commit did not take. Compensate, carrying the parent saga
+    /// and the durable compensation marker that pins the direction.
+    Compensate(handlers::admin::AdminSaga, handlers::admin::AdminSaga),
+}
+
+/// Roll forward: create the plan's new graphs, commit every after-image, and on
+/// success close the parent saga. Anything else opens the compensation marker.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn try_sparql_forward_commit(
+    coord: &SparqlUpdateCoordination<'_>,
+    plan: &SparqlRecoveryPlanV1,
+    saga: handlers::admin::AdminSaga,
+) -> SparqlForwardOutcome {
+    if let Err(response) = create_missing_sparql_graphs(coord, plan).await {
+        return SparqlForwardOutcome::Settled(response);
+    }
+    let forward = handlers::txn::commit_coordinated_graph_methods(
+        coord.state,
+        coord.req_id,
+        Some(coord.verified_actor),
+        coord.parent_id,
+        sparql_forward_methods(plan),
+    )
+    .await;
+    if forward.error.is_none() && !matches!(forward.result, Some(ResultPayload::Bool(false))) {
+        return SparqlForwardOutcome::Settled(finish_sparql_commit(coord, saga, plan).await);
+    }
+    let marker_plan = SparqlRecoveryPlanV1 {
+        schema_version: 1,
+        graphs: Vec::new(),
+    };
+    match begin_sealed_sparql_saga(
+        coord,
+        &marker_plan,
+        coord.compensation_id,
+        SPARQL_COMPENSATION_EVENT,
+    ) {
+        Ok(marker) => SparqlForwardOutcome::Compensate(saga, marker),
+        Err(response) => SparqlForwardOutcome::Settled(response),
+    }
+}
+
+/// Restore every before-image of a graph that already existed.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn apply_sparql_rollback(
+    coord: &SparqlUpdateCoordination<'_>,
+    plan: &SparqlRecoveryPlanV1,
+) -> Result<(), Response> {
+    let rollback_methods = sparql_rollback_methods(plan);
+    if rollback_methods.is_empty() {
+        return Ok(());
+    }
+    let rollback = handlers::txn::commit_coordinated_graph_methods(
+        coord.state,
+        coord.req_id,
+        Some(coord.verified_actor),
+        coord.compensation_id,
+        rollback_methods,
+    )
+    .await;
+    if let Some(error) = rollback.error {
+        return Err(Response::err(
+            coord.req_id,
+            format!("SPARQL compensation pending: {error}"),
+        ));
+    }
+    if matches!(rollback.result, Some(ResultPayload::Bool(false))) {
+        return Err(Response::err(
+            coord.req_id,
+            "SPARQL compensation decision aborted",
+        ));
+    }
+    Ok(())
+}
+
+/// Drop every graph the plan created, in REVERSE plan order.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn delete_created_sparql_graphs(
+    coord: &SparqlUpdateCoordination<'_>,
+    plan: &SparqlRecoveryPlanV1,
+) -> Result<(), Response> {
+    for update in plan
+        .graphs
+        .iter()
+        .rev()
+        .filter(|update| !update.existed_before)
+    {
+        if !timed_read(coord.state).await.registry.exists(&update.graph) {
+            continue;
+        }
+        let request = Request {
+            id: coord.req_id,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(coord.verified_actor.to_string()),
+            method: Method::DeleteGraph {
+                graph_name: update.graph.clone(),
+            },
+        };
+        let response = Box::pin(dispatch_with_context(
+            coord.state,
+            request,
+            Some(VerifiedRequestContext::clone(coord.verified_context)),
+        ))
+        .await;
+        if let Some(error) = response.error {
+            return Err(Response::err(
+                coord.req_id,
+                format!("SPARQL compensation pending: {error}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Close the compensation marker, then the parent saga, then clear both
+/// retained decisions. The request answers as a durable compensation.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn finish_sparql_compensation(
+    coord: &SparqlUpdateCoordination<'_>,
+    saga: handlers::admin::AdminSaga,
+    compensation_saga: Option<handlers::admin::AdminSaga>,
+) -> Response {
+    if let Some(marker) = compensation_saga {
+        if let Err(error) = handlers::admin::finish_admin_saga(
+            coord.redb,
+            marker.batch,
+            marker.created_at_ms,
+            ResultPayload::Bool(true),
+        ) {
+            return Response::err(coord.req_id, error);
+        }
+    }
+    let result = ResultPayload::Json(serde_json::json!({
+        "outcome": "compensated",
+        "updated_graphs": 0,
+        "created_graphs": 0,
+    }));
+    if let Err(error) =
+        handlers::admin::finish_admin_saga(coord.redb, saga.batch, saga.created_at_ms, result)
+    {
+        return Response::err(coord.req_id, error);
+    }
+    if let Err(error) = clear_coordinated_graph_decision(coord.redb, coord.parent_id).await {
+        return Response::err(coord.req_id, error);
+    }
+    if let Err(error) = clear_coordinated_graph_decision(coord.redb, coord.compensation_id).await {
+        return Response::err(coord.req_id, error);
+    }
+    Response::err(coord.req_id, "SPARQL update was durably compensated")
+}
+
+/// Drive the staged saga: roll forward once, and otherwise compensate. A
+/// compensation marker that ALREADY exists pins the direction — the forward
+/// attempt is skipped entirely, so a restart can never alternate.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+async fn run_coordinated_sparql_http_update(
+    coord: &SparqlUpdateCoordination<'_>,
+    query: &str,
+    default_graph: &str,
+) -> Response {
+    let (saga, plan) = match stage_sparql_update(coord, query, default_graph).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let existing_marker = match handlers::admin::resume_named_admin_saga(
+        coord.redb,
+        coord.compensation_id,
+        Some(coord.verified_actor),
+    ) {
+        Ok(value) => value,
+        Err(error) => return Response::err(coord.req_id, error),
+    };
+    let (saga, compensation_saga) = match existing_marker {
+        Some(marker) => (saga, Some(marker)),
+        None => match try_sparql_forward_commit(coord, &plan, saga).await {
+            SparqlForwardOutcome::Settled(response) => return response,
+            SparqlForwardOutcome::Compensate(saga, marker) => (saga, Some(marker)),
+        },
+    };
+    if let Err(response) = apply_sparql_rollback(coord, &plan).await {
+        return response;
+    }
+    if let Err(response) = delete_created_sparql_graphs(coord, &plan).await {
+        return response;
+    }
+    finish_sparql_compensation(coord, saga, compensation_saga).await
+}
+
 /// Coordinate one signed SPARQL HTTP update over detached graph images. The
 /// complete before/after plan is authenticated ciphertext bound to a digest-only
 /// parent before lifecycle or graph state changes. Clustered graph spans use the
@@ -6686,7 +7201,6 @@ async fn coordinated_sparql_http_update(
     if verified_actor.is_empty() {
         return Response::err(req_id, "ACCESS_DENIED: SPARQL update has no verified actor");
     }
-    let coordinator_caller = Some(verified_actor);
     let parent_method = Method::ApplyMutation {
         event_type: crate::server::sparql_http::SPARQL_HTTP_UPDATE_EVENT.to_string(),
         query: query.clone(),
@@ -6709,312 +7223,16 @@ async fn coordinated_sparql_http_update(
         default_graph,
         &parent_id,
     );
-    let resumed =
-        match handlers::admin::resume_named_admin_saga(redb, &parent_id, coordinator_caller) {
-            Ok(value) => value,
-            Err(error) => return Response::err(req_id, error),
-        };
-    let (saga, plan) = if let Some(saga) = resumed {
-        if let Some(result) = saga.replayed.clone() {
-            if let Err(error) = clear_coordinated_graph_decision(redb, &parent_id).await {
-                return Response::err(req_id, error);
-            }
-            if let Err(error) = clear_coordinated_graph_decision(redb, &compensation_id).await {
-                return Response::err(req_id, error);
-            }
-            return if coordinator_result_is_compensated(&result) {
-                Response::err(req_id, "SPARQL update was durably compensated")
-            } else {
-                Response::ok(req_id, result)
-            };
-        }
-        let encrypted = match eg_mutation_store::read_private_payload(
-            redb.admin_mutation_store(),
-            &parent_id,
-        ) {
-            Ok(Some(value)) => value,
-            Ok(None) => return Response::err(req_id, "SPARQL recovery plan is missing"),
-            Err(error) => return Response::err(req_id, error),
-        };
-        let plan = match open_private_coordinator_plan(
-            redb,
-            &saga.batch,
-            SPARQL_RECOVERY_EVENT,
-            &encrypted,
-        ) {
-            Ok(value) => value,
-            Err(error) => return Response::err(req_id, error),
-        };
-        (saga, plan)
-    } else {
-        let mut graphs = match crate::server::sparql_http::update_graphs(&query, default_graph) {
-            Ok(graphs) => graphs,
-            Err(error) => return Response::err(req_id, error),
-        };
-        if crate::server::sparql_http::update_uses_variable_graph(&query) {
-            graphs.extend(
-                state
-                    .read()
-                    .await
-                    .registry
-                    .list()
-                    .into_iter()
-                    .map(|(name, _)| name),
-            );
-            graphs.sort();
-            graphs.dedup();
-        }
-        let missing = {
-            let current = timed_read(state).await;
-            for graph in &graphs {
-                if let Some(entry) = current.registry.get(graph) {
-                    if let Err(error) = check_graph_access(
-                        &current.isolation,
-                        coordinator_caller,
-                        graph,
-                        entry.graph_type,
-                        entry.owner.as_deref(),
-                        AccessLevel::Write,
-                    ) {
-                        return Response::err(req_id, error);
-                    }
-                }
-            }
-            graphs
-                .iter()
-                .filter(|graph| !current.registry.exists(graph))
-                .cloned()
-                .collect::<Vec<_>>()
-        };
-        if !missing.is_empty() && !verified_context.allows_method("graph:admin", true) {
-            return Response::err(
-                req_id,
-                "ACCESS_DENIED: SPARQL graph creation requires graph:admin",
-            );
-        }
-        let planned =
-            match crate::server::sparql_http::plan_update(state, &query, default_graph, &graphs)
-                .await
-            {
-                Ok(planned) => planned,
-                Err(error) => return Response::err(req_id, error),
-            };
-        let plan = SparqlRecoveryPlanV1 {
-            schema_version: 1,
-            graphs: planned,
-        };
-        let (digest, encrypted) = match seal_private_coordinator_plan(redb, &plan) {
-            Ok(value) => value,
-            Err(error) => return Response::err(req_id, error),
-        };
-        let saga = match handlers::admin::begin_named_admin_saga_with_private_payload(
-            redb,
-            req_id,
-            coordinator_caller,
-            handlers::admin::AdminSagaPayload {
-                domain: crate::mutation_batch::MutationDomain::MultiGraph,
-                batch_id: &parent_id,
-                event_type: SPARQL_RECOVERY_EVENT,
-                payload_digest: &digest,
-                encrypted_payload: &encrypted,
-            },
-        ) {
-            Ok(saga) => saga,
-            Err(error) => return Response::err(req_id, error),
-        };
-        (saga, plan)
-    };
-    if plan.schema_version != 1 {
-        return Response::err(req_id, "unsupported SPARQL recovery plan");
-    }
-
-    let mut compensation_saga = match handlers::admin::resume_named_admin_saga(
+    let coord = SparqlUpdateCoordination {
+        state,
+        req_id,
+        verified_context,
+        verified_actor,
         redb,
-        &compensation_id,
-        coordinator_caller,
-    ) {
-        Ok(value) => value,
-        Err(error) => return Response::err(req_id, error),
+        parent_id: &parent_id,
+        compensation_id: &compensation_id,
     };
-    if compensation_saga.is_none() {
-        for update in plan.graphs.iter().filter(|update| !update.existed_before) {
-            if timed_read(state).await.registry.exists(&update.graph) {
-                continue;
-            }
-            let request = Request {
-                id: req_id,
-                graph: "__commons__".to_string(),
-                auth_token: String::new(),
-                agent_id: Some(verified_actor.to_string()),
-                method: Method::CreateGraph {
-                    graph_name: update.graph.clone(),
-                    graph_type: update.graph_type,
-                },
-            };
-            let response = Box::pin(dispatch_with_context(
-                state,
-                request,
-                Some(verified_context.clone()),
-            ))
-            .await;
-            if let Some(error) = response.error {
-                return Response::err(req_id, error);
-            }
-        }
-        let methods = plan
-            .graphs
-            .iter()
-            .map(|update| {
-                (
-                    update.graph.clone(),
-                    update.graph_type,
-                    vec![Method::FromMsgpack {
-                        msgpack: update.after_msgpack.clone(),
-                    }],
-                )
-            })
-            .collect();
-        let forward = handlers::txn::commit_coordinated_graph_methods(
-            state,
-            req_id,
-            coordinator_caller,
-            &parent_id,
-            methods,
-        )
-        .await;
-        if forward.error.is_none() && !matches!(forward.result, Some(ResultPayload::Bool(false))) {
-            let result = ResultPayload::Json(serde_json::json!({
-                "outcome": "committed",
-                "updated_graphs": plan.graphs.len(),
-                "created_graphs": plan.graphs.iter().filter(|graph| !graph.existed_before).count(),
-            }));
-            return match handlers::admin::finish_admin_saga(
-                redb,
-                saga.batch,
-                saga.created_at_ms,
-                result,
-            ) {
-                Ok(result) => {
-                    if let Err(error) = clear_coordinated_graph_decision(redb, &parent_id).await {
-                        Response::err(req_id, error)
-                    } else {
-                        Response::ok(req_id, result)
-                    }
-                }
-                Err(error) => Response::err(req_id, error),
-            };
-        }
-        let marker = SparqlRecoveryPlanV1 {
-            schema_version: 1,
-            graphs: Vec::new(),
-        };
-        let (digest, encrypted) = match seal_private_coordinator_plan(redb, &marker) {
-            Ok(value) => value,
-            Err(error) => return Response::err(req_id, error),
-        };
-        let marker = match handlers::admin::begin_named_admin_saga_with_private_payload(
-            redb,
-            req_id,
-            coordinator_caller,
-            handlers::admin::AdminSagaPayload {
-                domain: crate::mutation_batch::MutationDomain::MultiGraph,
-                batch_id: &compensation_id,
-                event_type: SPARQL_COMPENSATION_EVENT,
-                payload_digest: &digest,
-                encrypted_payload: &encrypted,
-            },
-        ) {
-            Ok(marker) => marker,
-            Err(error) => return Response::err(req_id, error),
-        };
-        compensation_saga = Some(marker);
-    }
-
-    let rollback_methods = plan
-        .graphs
-        .iter()
-        .filter(|update| update.existed_before)
-        .map(|update| {
-            (
-                update.graph.clone(),
-                update.graph_type,
-                vec![Method::FromMsgpack {
-                    msgpack: update.before_msgpack.clone(),
-                }],
-            )
-        })
-        .collect::<Vec<_>>();
-    if !rollback_methods.is_empty() {
-        let rollback = handlers::txn::commit_coordinated_graph_methods(
-            state,
-            req_id,
-            coordinator_caller,
-            &compensation_id,
-            rollback_methods,
-        )
-        .await;
-        if let Some(error) = rollback.error {
-            return Response::err(req_id, format!("SPARQL compensation pending: {error}"));
-        }
-        if matches!(rollback.result, Some(ResultPayload::Bool(false))) {
-            return Response::err(req_id, "SPARQL compensation decision aborted");
-        }
-    }
-    for update in plan
-        .graphs
-        .iter()
-        .rev()
-        .filter(|update| !update.existed_before)
-    {
-        if !timed_read(state).await.registry.exists(&update.graph) {
-            continue;
-        }
-        let request = Request {
-            id: req_id,
-            graph: "__commons__".to_string(),
-            auth_token: String::new(),
-            agent_id: Some(verified_actor.to_string()),
-            method: Method::DeleteGraph {
-                graph_name: update.graph.clone(),
-            },
-        };
-        let response = Box::pin(dispatch_with_context(
-            state,
-            request,
-            Some(verified_context.clone()),
-        ))
-        .await;
-        if let Some(error) = response.error {
-            return Response::err(req_id, format!("SPARQL compensation pending: {error}"));
-        }
-    }
-    let result = ResultPayload::Json(serde_json::json!({
-        "outcome": "compensated",
-        "updated_graphs": 0,
-        "created_graphs": 0,
-    }));
-    if let Some(marker) = compensation_saga {
-        if let Err(error) = handlers::admin::finish_admin_saga(
-            redb,
-            marker.batch,
-            marker.created_at_ms,
-            ResultPayload::Bool(true),
-        ) {
-            return Response::err(req_id, error);
-        }
-    }
-    match handlers::admin::finish_admin_saga(redb, saga.batch, saga.created_at_ms, result) {
-        Ok(_) => {
-            if let Err(error) = clear_coordinated_graph_decision(redb, &parent_id).await {
-                return Response::err(req_id, error);
-            }
-            if let Err(error) = clear_coordinated_graph_decision(redb, &compensation_id).await {
-                return Response::err(req_id, error);
-            }
-            Response::err(req_id, "SPARQL update was durably compensated")
-        }
-        Err(error) => Response::err(req_id, error),
-    }
+    run_coordinated_sparql_http_update(&coord, &query, default_graph).await
 }
 
 #[cfg(all(
