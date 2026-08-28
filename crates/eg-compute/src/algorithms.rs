@@ -1494,7 +1494,7 @@ fn compute_candidate_pairs(
 
 /// Union-find path-halving root lookup. Split out of `resolve_candidates`
 /// (extract-method, cx/wD8) — was a nested `fn` there, unchanged.
-fn union_find_root(parent: &mut [usize], mut x: usize) -> usize {
+fn find(parent: &mut [usize], mut x: usize) -> usize {
     while parent[x] != x {
         parent[x] = parent[parent[x]];
         x = parent[x];
@@ -1517,10 +1517,7 @@ fn build_same_as_clusters(
         degree[i] += 1;
         degree[j] += 1;
         if s >= merge_threshold && nodes[i].2 == nodes[j].2 {
-            let (ri, rj) = (
-                union_find_root(&mut parent, i),
-                union_find_root(&mut parent, j),
-            );
+            let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
             if ri != rj {
                 parent[ri] = rj;
             }
@@ -1545,7 +1542,7 @@ fn build_same_as_proposals(
     let mut clusters: std::collections::HashMap<usize, Vec<usize>> =
         std::collections::HashMap::new();
     for idx in 0..nodes.len() {
-        let root = union_find_root(parent, idx);
+        let root = find(parent, idx);
         clusters.entry(root).or_default().push(idx);
     }
     let mut proposals: Vec<MergeProposal> = Vec::new();
@@ -1587,7 +1584,7 @@ fn build_extends_proposals(
 ) -> Vec<MergeProposal> {
     let mut proposals = Vec::new();
     for &(i, j, s) in extends_pairs {
-        if union_find_root(parent, i) == union_find_root(parent, j) {
+        if find(parent, i) == find(parent, j) {
             continue; // already in one same_as cluster
         }
         proposals.push(MergeProposal {
