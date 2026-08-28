@@ -770,12 +770,10 @@ impl TableStore {
         )>,
         String,
     > {
-        let Some(catalog_versions) = self.open_schema_catalog_versions_or_ok(rtx, versions)?
-        else {
+        let Some(catalog_versions) = self.open_schema_catalog_versions_or_ok(rtx, versions)? else {
             return Ok(None);
         };
-        let Some(catalog_order) =
-            self.open_schema_catalog_order_or_ok(rtx, &catalog_versions)?
+        let Some(catalog_order) = self.open_schema_catalog_order_or_ok(rtx, &catalog_versions)?
         else {
             return Ok(None);
         };
@@ -1165,13 +1163,8 @@ impl TableStore {
         order: &SchemaOrderTable,
         records: &SchemaRecordsTable,
     ) -> Result<String, String> {
-        let record = Self::resolve_schema_migration_record(
-            scope,
-            table,
-            expected_version,
-            order,
-            records,
-        )?;
+        let record =
+            Self::resolve_schema_migration_record(scope, table, expected_version, order, records)?;
         if record.migration.target_schema_digest != previous_digest {
             return Err(format!(
                 "schema migration chain for `{table}` does not terminate at the catalog digest"
@@ -1205,7 +1198,8 @@ impl TableStore {
             .ok_or_else(|| {
                 format!("schema migration order for `{table}` points to missing `{migration_id}`")
             })?;
-        let record: SchemaMigrationRecord = decode_stored(bytes.value(), "schema migration record")?;
+        let record: SchemaMigrationRecord =
+            decode_stored(bytes.value(), "schema migration record")?;
         verify_migration_record(&record, scope, table, expected_version)?;
         if record.migration.migration_id != migration_id {
             return Err(format!(
@@ -2290,7 +2284,9 @@ fn write_mutation_commit_tables_in(
     )
     .map_err(map_err)?;
     let mut versions = wtx.open_table(MUTATION_VERSION).map_err(map_err)?;
-    versions.insert(version_key, next_version).map_err(map_err)?;
+    versions
+        .insert(version_key, next_version)
+        .map_err(map_err)?;
     let fence_bytes = rmp_serde::to_vec_named(proposed_fence).map_err(|e| e.to_string())?;
     let mut fences = wtx.open_table(MUTATION_FENCE).map_err(map_err)?;
     fences
@@ -2299,7 +2295,10 @@ fn write_mutation_commit_tables_in(
     append_mutation_outbox_intents_in(wtx, batch)
 }
 
-fn append_mutation_outbox_intents_in(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<(), String> {
+fn append_mutation_outbox_intents_in(
+    wtx: &WriteTransaction,
+    batch: &MutationBatch,
+) -> Result<(), String> {
     let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(map_err)?;
     let ordinal = append_operation_outbox_intents_in(&mut outbox, batch, 0)?;
     append_explicit_outbox_intents_in(&mut outbox, batch, ordinal)
@@ -2768,7 +2767,13 @@ fn apply_schema_migration_in(
 
     let (resulting_digest, record_bytes) =
         finalize_migration_record_in(wtx, migration, next_catalog_version)?;
-    write_migration_commit_in(wtx, tenant_scope, migration, &record_bytes, next_catalog_version)?;
+    write_migration_commit_in(
+        wtx,
+        tenant_scope,
+        migration,
+        &record_bytes,
+        next_catalog_version,
+    )?;
 
     Ok(SchemaMigrationApply {
         migration_id: migration.migration_id.clone(),
@@ -2808,7 +2813,12 @@ fn resolve_current_schema_state_in(
     let current_digest = current.schema_digest()?;
     let current_version = schema_version_in(wtx, tenant_scope, &migration.table)?;
     let current_catalog_version = schema_catalog_version_in(wtx, tenant_scope)?;
-    Ok((current, current_digest, current_version, current_catalog_version))
+    Ok((
+        current,
+        current_digest,
+        current_version,
+        current_catalog_version,
+    ))
 }
 
 /// `Some(apply)` when `migration.migration_id` was already applied and the
@@ -2856,7 +2866,9 @@ fn load_existing_migration_record_in(
         ))
         .map_err(map_err)?;
     found
-        .map(|value| decode_stored::<SchemaMigrationRecord>(value.value(), "schema migration record"))
+        .map(|value| {
+            decode_stored::<SchemaMigrationRecord>(value.value(), "schema migration record")
+        })
         .transpose()
 }
 
@@ -2880,7 +2892,8 @@ fn validate_migration_replay_matches_current_state(
             migration.migration_id
         ));
     }
-    if current_version != migration.target_schema_version || current_digest != migration.target_schema_digest
+    if current_version != migration.target_schema_version
+        || current_digest != migration.target_schema_digest
     {
         return Err(format!(
             "schema migration replay `{}` found catalog state that does not match its target",
@@ -3125,7 +3138,10 @@ fn claim_catalog_order_slot_in(
     next_catalog_version: u64,
 ) -> Result<(), String> {
     let mut order = wtx.open_table(SCHEMA_CATALOG_ORDER).map_err(map_err)?;
-    if let Some(previous) = order.get((tenant_scope, next_catalog_version)).map_err(map_err)? {
+    if let Some(previous) = order
+        .get((tenant_scope, next_catalog_version))
+        .map_err(map_err)?
+    {
         return Err(format!(
             "concurrent schema migration claimed catalog version {} as `{}`",
             next_catalog_version,
@@ -4200,6 +4216,381 @@ fn validate_column_checks_in(schema: &TableSchema, cells: &[Cell]) -> Result<(),
     Ok(())
 }
 
+/// The parent side of ONE foreign-key cascade step: the row of `table` that just
+/// changed, its schema, and the tenant scope the cascade stays inside. Bundled so
+/// the recursive FK helpers below stay under the argument cap.
+struct ParentChange<'a> {
+    tenant_scope: &'a str,
+    table: &'a str,
+    schema: &'a TableSchema,
+    old_row: &'a [Cell],
+    /// `None` for a parent DELETE, `Some(..)` for a parent UPDATE.
+    new_row: Option<&'a [Cell]>,
+}
+
+/// The child side of ONE foreign-key cascade step: the referencing table, its
+/// schema, the `FOREIGN KEY` constraint being enforced, and that constraint's
+/// column positions already resolved against `schema`.
+struct FkChild<'a> {
+    table: &'a str,
+    schema: &'a TableSchema,
+    constraint: &'a TableConstraint,
+    idxs: &'a [usize],
+}
+
+/// ONE matched child row of a foreign-key cascade: its row id and its cells as
+/// they stood BEFORE the cascade touched them.
+#[derive(Clone, Copy)]
+struct FkChildRow<'a> {
+    rowid: u64,
+    cells: &'a [Cell],
+}
+
+/// What a single `FOREIGN KEY` on a child table implies for the parent change:
+/// the referential action to take, the child columns that participate, and the
+/// old/new referenced key values. [`plan_fk_cascade`] returns `None` when the
+/// constraint is unaffected (not a FK, references another table, or the
+/// referenced columns did not change).
+struct FkCascadePlan {
+    action: RefAction,
+    child_idxs: Vec<usize>,
+    old_key: Vec<Cell>,
+    new_key: Option<Vec<Cell>>,
+}
+
+/// `true` when a parent UPDATE left every FK-referenced column untouched, so this
+/// constraint's children need no cascade at all. A parent DELETE (`new_key ==
+/// None`) always counts as a change.
+fn fk_ref_key_unchanged(
+    parent_schema: &TableSchema,
+    ref_idxs: &[usize],
+    old_key: &[Cell],
+    new_key: Option<&[Cell]>,
+) -> bool {
+    let Some(nk) = new_key else {
+        return false;
+    };
+    nk.iter()
+        .zip(old_key)
+        .enumerate()
+        .all(|(offset, (new, old))| {
+            typed_cells_equal(new, old, parent_schema.columns()[ref_idxs[offset]].ty)
+        })
+}
+
+/// Resolve ONE of a child table's constraints against the parent change, or
+/// `None` when it implies no work. Pure — it reads no storage.
+fn plan_fk_cascade(
+    parent: &ParentChange<'_>,
+    child_schema: &TableSchema,
+    constraint: &TableConstraint,
+) -> Option<FkCascadePlan> {
+    let TableConstraint::ForeignKey {
+        columns,
+        ref_table,
+        ref_columns,
+        on_delete,
+        on_update,
+        name: _,
+    } = constraint
+    else {
+        return None;
+    };
+    if ref_table != parent.table {
+        return None;
+    }
+    let ref_idxs: Vec<usize> = ref_columns
+        .iter()
+        .map(|c| {
+            parent
+                .schema
+                .column_index(c)
+                .expect("FK ref column existence validated at DDL time")
+        })
+        .collect();
+    let old_key: Vec<Cell> = ref_idxs
+        .iter()
+        .map(|&i| parent.old_row.get(i).cloned().unwrap_or(Cell::Null))
+        .collect();
+    let new_key: Option<Vec<Cell>> = parent.new_row.map(|nr| {
+        ref_idxs
+            .iter()
+            .map(|&i| nr.get(i).cloned().unwrap_or(Cell::Null))
+            .collect()
+    });
+    if fk_ref_key_unchanged(parent.schema, &ref_idxs, &old_key, new_key.as_deref()) {
+        return None;
+    }
+    let action = if parent.new_row.is_some() {
+        *on_update
+    } else {
+        *on_delete
+    };
+    let child_idxs: Vec<usize> = columns
+        .iter()
+        .map(|c| {
+            child_schema
+                .column_index(c)
+                .expect("FK column existence validated at DDL time")
+        })
+        .collect();
+    Some(FkCascadePlan {
+        action,
+        child_idxs,
+        old_key,
+        new_key,
+    })
+}
+
+/// MATCH SIMPLE: a child row whose FK columns contain ANY NULL never references a
+/// parent, so it is exempt. Otherwise it matches when every FK column equals the
+/// parent's old referenced key under the column's type coercion.
+fn fk_child_row_matches(child: &FkChild<'_>, old_key: &[Cell], cells: &[Cell]) -> bool {
+    let any_null = child
+        .idxs
+        .iter()
+        .any(|&i| !matches!(cells.get(i), Some(c) if !matches!(c, Cell::Null)));
+    if any_null {
+        return false;
+    }
+    child.idxs.iter().zip(old_key).all(|(&i, k)| {
+        cells
+            .get(i)
+            .is_some_and(|cell| typed_cells_equal(cell, k, child.schema.columns()[i].ty))
+    })
+}
+
+/// Snapshot every child row that references the parent's OLD key. The read table
+/// is dropped before the caller mutates anything.
+fn collect_fk_child_matches_in(
+    wtx: &WriteTransaction,
+    child: &FkChild<'_>,
+    old_key: &[Cell],
+) -> Result<Vec<(u64, Vec<Cell>)>, String> {
+    let width = child.schema.columns().len();
+    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let mut out = Vec::new();
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
+    for r in rows_t
+        .range((child.table, 0u64)..=(child.table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (k, v) = r.map_err(map_err)?;
+        account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
+        let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
+        if cells.len() < width {
+            cells.resize(width, Cell::Null);
+        }
+        if fk_child_row_matches(child, old_key, &cells) {
+            out.push((k.value().1, cells));
+        }
+    }
+    Ok(out)
+}
+
+/// Persist ONE cascaded child row: revalidate its constraints, encode it, write it
+/// back, recheck uniqueness, and maintain its secondary-index entries. Shared by
+/// the `CASCADE`-update and `SET NULL` paths, which differ only in how `updated`
+/// was derived.
+fn write_cascaded_child_row_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    child: &FkChild<'_>,
+    row: FkChildRow<'_>,
+    updated: &[Cell],
+) -> Result<(), String> {
+    validate_row_constraints_in(wtx, child.schema, updated)?;
+    let blob = rmp_serde::to_vec_named(updated).map_err(|e| format!("encode row: {e}"))?;
+    if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
+        return Err("encoded SQL row exceeds storage value limit".to_string());
+    }
+    {
+        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+        rows_t
+            .insert((child.table, row.rowid), blob.as_slice())
+            .map_err(map_err)?;
+    }
+    validate_uniqueness_in(wtx, child.table, child.schema)?;
+    maintain_secondary_row_in(
+        wtx,
+        tenant_scope,
+        child.table,
+        child.schema,
+        row.rowid,
+        Some(row.cells),
+        Some(updated),
+    )
+}
+
+/// `ON UPDATE CASCADE` for ONE child row: rewrite its FK columns to the parent's
+/// new key, then recurse so the child's OWN children see the change.
+fn cascade_update_child_row_in(
+    wtx: &WriteTransaction,
+    parent: &ParentChange<'_>,
+    child: &FkChild<'_>,
+    row: FkChildRow<'_>,
+    new_key: &[Cell],
+    visited: &mut HashSet<(String, u64)>,
+) -> Result<(), String> {
+    let mut updated = row.cells.to_vec();
+    for (&i, v) in child.idxs.iter().zip(new_key) {
+        updated[i] = v.clone();
+    }
+    write_cascaded_child_row_in(wtx, parent.tenant_scope, child, row, &updated)?;
+    enforce_fk_on_parent_change_in(
+        wtx,
+        parent.tenant_scope,
+        child.table,
+        row.rowid,
+        row.cells,
+        Some(&updated),
+        visited,
+    )
+}
+
+/// `ON DELETE CASCADE` for ONE child row: remove it, drop its index entries, then
+/// recurse so the child's OWN children are cascaded too.
+fn cascade_delete_child_row_in(
+    wtx: &WriteTransaction,
+    parent: &ParentChange<'_>,
+    child: &FkChild<'_>,
+    row: FkChildRow<'_>,
+    visited: &mut HashSet<(String, u64)>,
+) -> Result<(), String> {
+    {
+        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+        rows_t.remove((child.table, row.rowid)).map_err(map_err)?;
+    }
+    maintain_secondary_row_in(
+        wtx,
+        parent.tenant_scope,
+        child.table,
+        child.schema,
+        row.rowid,
+        Some(row.cells),
+        None,
+    )?;
+    enforce_fk_on_parent_change_in(
+        wtx,
+        parent.tenant_scope,
+        child.table,
+        row.rowid,
+        row.cells,
+        None,
+        visited,
+    )
+}
+
+/// `CASCADE` over every matched child row — an UPDATE when the parent supplied a
+/// new key, a DELETE otherwise.
+fn cascade_fk_matches_in(
+    wtx: &WriteTransaction,
+    parent: &ParentChange<'_>,
+    child: &FkChild<'_>,
+    new_key: Option<&[Cell]>,
+    matches: Vec<(u64, Vec<Cell>)>,
+    visited: &mut HashSet<(String, u64)>,
+) -> Result<(), String> {
+    for (child_rowid, child_cells) in matches {
+        let row = FkChildRow {
+            rowid: child_rowid,
+            cells: &child_cells,
+        };
+        match new_key {
+            Some(nk) => cascade_update_child_row_in(wtx, parent, child, row, nk, visited)?,
+            None => cascade_delete_child_row_in(wtx, parent, child, row, visited)?,
+        }
+    }
+    Ok(())
+}
+
+/// `SET NULL` requires every participating child column to be nullable — checked
+/// BEFORE any row is rewritten, exactly as the pre-refactor code did.
+fn ensure_fk_columns_nullable(child: &FkChild<'_>) -> Result<(), String> {
+    for &i in child.idxs {
+        if !child.schema.columns()[i].nullable {
+            return Err(format!(
+                "cannot SET NULL on non-nullable column `{}` of table `{}` for foreign key `{}`",
+                child.schema.columns()[i].name,
+                child.table,
+                TableSchema::constraint_display_name(child.table, child.constraint)
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// `SET NULL` over every matched child row.
+fn set_null_fk_matches_in(
+    wtx: &WriteTransaction,
+    parent: &ParentChange<'_>,
+    child: &FkChild<'_>,
+    matches: Vec<(u64, Vec<Cell>)>,
+) -> Result<(), String> {
+    for (child_rowid, child_cells) in matches {
+        ensure_fk_columns_nullable(child)?;
+        let mut updated = child_cells.clone();
+        for &i in child.idxs {
+            updated[i] = Cell::Null;
+        }
+        write_cascaded_child_row_in(
+            wtx,
+            parent.tenant_scope,
+            child,
+            FkChildRow {
+                rowid: child_rowid,
+                cells: &child_cells,
+            },
+            &updated,
+        )?;
+    }
+    Ok(())
+}
+
+/// Enforce ONE constraint of ONE child table against the parent change: plan it,
+/// snapshot the referencing rows, then take the referential action.
+fn enforce_fk_constraint_on_child_in(
+    wtx: &WriteTransaction,
+    parent: &ParentChange<'_>,
+    child_table: &str,
+    child_schema: &TableSchema,
+    constraint: &TableConstraint,
+    visited: &mut HashSet<(String, u64)>,
+) -> Result<(), String> {
+    let Some(plan) = plan_fk_cascade(parent, child_schema, constraint) else {
+        return Ok(());
+    };
+    let child = FkChild {
+        table: child_table,
+        schema: child_schema,
+        constraint,
+        idxs: &plan.child_idxs,
+    };
+    let matches = collect_fk_child_matches_in(wtx, &child, &plan.old_key)?;
+    if matches.is_empty() {
+        return Ok(());
+    }
+    match plan.action {
+        RefAction::NoAction | RefAction::Restrict => {
+            let cname = TableSchema::constraint_display_name(child_table, constraint);
+            let table = parent.table;
+            Err(format!(
+                "update or delete on table `{table}` violates foreign key constraint `{cname}` on table `{child_table}`"
+            ))
+        }
+        RefAction::Cascade => cascade_fk_matches_in(
+            wtx,
+            parent,
+            &child,
+            plan.new_key.as_deref(),
+            matches,
+            visited,
+        ),
+        RefAction::SetNull => set_null_fk_matches_in(wtx, parent, &child, matches),
+    }
+}
+
 /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — enforce every OTHER table's `FOREIGN KEY` that references
 /// `table` when ONE of `table`'s rows changes: `new_row = None` for a DELETE,
 /// `Some(..)` for an UPDATE (a no-op for a FK whose referenced columns did not
@@ -4220,219 +4611,26 @@ fn enforce_fk_on_parent_change_in(
     }
     let parent_schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    let parent = ParentChange {
+        tenant_scope,
+        table,
+        schema: &parent_schema,
+        old_row,
+        new_row,
+    };
     for child_table in list_tables_in(wtx)? {
-        let child_schema = match get_schema_in(wtx, &child_table)? {
-            Some(s) => s,
-            None => continue,
+        let Some(child_schema) = get_schema_in(wtx, &child_table)? else {
+            continue;
         };
         for c in child_schema.constraints().to_vec() {
-            let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                on_delete,
-                on_update,
-                name: _,
-            } = &c
-            else {
-                continue;
-            };
-            if ref_table != table {
-                continue;
-            }
-            let ref_idxs: Vec<usize> = ref_columns
-                .iter()
-                .map(|c| {
-                    parent_schema
-                        .column_index(c)
-                        .expect("FK ref column existence validated at DDL time")
-                })
-                .collect();
-            let old_key: Vec<Cell> = ref_idxs
-                .iter()
-                .map(|&i| old_row.get(i).cloned().unwrap_or(Cell::Null))
-                .collect();
-            let new_key: Option<Vec<Cell>> = new_row.map(|nr| {
-                ref_idxs
-                    .iter()
-                    .map(|&i| nr.get(i).cloned().unwrap_or(Cell::Null))
-                    .collect()
-            });
-            if let Some(nk) = &new_key {
-                if nk
-                    .iter()
-                    .zip(&old_key)
-                    .enumerate()
-                    .all(|(offset, (new, old))| {
-                        typed_cells_equal(new, old, parent_schema.columns()[ref_idxs[offset]].ty)
-                    })
-                {
-                    continue;
-                }
-            }
-            let action = if new_row.is_some() {
-                *on_update
-            } else {
-                *on_delete
-            };
-            let child_idxs: Vec<usize> = columns
-                .iter()
-                .map(|c| {
-                    child_schema
-                        .column_index(c)
-                        .expect("FK column existence validated at DDL time")
-                })
-                .collect();
-            let width = child_schema.columns().len();
-            let matches: Vec<(u64, Vec<Cell>)> = {
-                let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-                let mut out = Vec::new();
-                let mut scanned_rows = 0usize;
-                let mut scanned_bytes = 0usize;
-                for r in rows_t
-                    .range((child_table.as_str(), 0u64)..=(child_table.as_str(), u64::MAX))
-                    .map_err(map_err)?
-                {
-                    let (k, v) = r.map_err(map_err)?;
-                    account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
-                    let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
-                    if cells.len() < width {
-                        cells.resize(width, Cell::Null);
-                    }
-                    let any_null = child_idxs
-                        .iter()
-                        .any(|&i| !matches!(cells.get(i), Some(c) if !matches!(c, Cell::Null)));
-                    if any_null {
-                        continue;
-                    }
-                    if child_idxs.iter().zip(&old_key).all(|(&i, k)| {
-                        cells.get(i).is_some_and(|cell| {
-                            typed_cells_equal(cell, k, child_schema.columns()[i].ty)
-                        })
-                    }) {
-                        out.push((k.value().1, cells));
-                    }
-                }
-                out
-            };
-            if matches.is_empty() {
-                continue;
-            }
-            match action {
-                RefAction::NoAction | RefAction::Restrict => {
-                    let cname = TableSchema::constraint_display_name(&child_table, &c);
-                    return Err(format!(
-                        "update or delete on table `{table}` violates foreign key constraint `{cname}` on table `{child_table}`"
-                    ));
-                }
-                RefAction::Cascade => {
-                    for (child_rowid, child_cells) in matches {
-                        if let Some(nk) = &new_key {
-                            let mut updated = child_cells.clone();
-                            for (&i, v) in child_idxs.iter().zip(nk) {
-                                updated[i] = v.clone();
-                            }
-                            validate_row_constraints_in(wtx, &child_schema, &updated)?;
-                            let blob = rmp_serde::to_vec_named(&updated)
-                                .map_err(|e| format!("encode row: {e}"))?;
-                            if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
-                                return Err(
-                                    "encoded SQL row exceeds storage value limit".to_string()
-                                );
-                            }
-                            {
-                                let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-                                rows_t
-                                    .insert((child_table.as_str(), child_rowid), blob.as_slice())
-                                    .map_err(map_err)?;
-                            }
-                            validate_uniqueness_in(wtx, &child_table, &child_schema)?;
-                            maintain_secondary_row_in(
-                                wtx,
-                                tenant_scope,
-                                &child_table,
-                                &child_schema,
-                                child_rowid,
-                                Some(&child_cells),
-                                Some(&updated),
-                            )?;
-                            enforce_fk_on_parent_change_in(
-                                wtx,
-                                tenant_scope,
-                                &child_table,
-                                child_rowid,
-                                &child_cells,
-                                Some(&updated),
-                                visited,
-                            )?;
-                        } else {
-                            {
-                                let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-                                rows_t
-                                    .remove((child_table.as_str(), child_rowid))
-                                    .map_err(map_err)?;
-                            }
-                            maintain_secondary_row_in(
-                                wtx,
-                                tenant_scope,
-                                &child_table,
-                                &child_schema,
-                                child_rowid,
-                                Some(&child_cells),
-                                None,
-                            )?;
-                            enforce_fk_on_parent_change_in(
-                                wtx,
-                                tenant_scope,
-                                &child_table,
-                                child_rowid,
-                                &child_cells,
-                                None,
-                                visited,
-                            )?;
-                        }
-                    }
-                }
-                RefAction::SetNull => {
-                    for (child_rowid, child_cells) in matches {
-                        for &i in &child_idxs {
-                            if !child_schema.columns()[i].nullable {
-                                return Err(format!(
-                                    "cannot SET NULL on non-nullable column `{}` of table `{child_table}` for foreign key `{}`",
-                                    child_schema.columns()[i].name,
-                                    TableSchema::constraint_display_name(&child_table, &c)
-                                ));
-                            }
-                        }
-                        let mut updated = child_cells.clone();
-                        for &i in &child_idxs {
-                            updated[i] = Cell::Null;
-                        }
-                        validate_row_constraints_in(wtx, &child_schema, &updated)?;
-                        let blob = rmp_serde::to_vec_named(&updated)
-                            .map_err(|e| format!("encode row: {e}"))?;
-                        if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
-                            return Err("encoded SQL row exceeds storage value limit".to_string());
-                        }
-                        {
-                            let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-                            rows_t
-                                .insert((child_table.as_str(), child_rowid), blob.as_slice())
-                                .map_err(map_err)?;
-                        }
-                        validate_uniqueness_in(wtx, &child_table, &child_schema)?;
-                        maintain_secondary_row_in(
-                            wtx,
-                            tenant_scope,
-                            &child_table,
-                            &child_schema,
-                            child_rowid,
-                            Some(&child_cells),
-                            Some(&updated),
-                        )?;
-                    }
-                }
-            }
+            enforce_fk_constraint_on_child_in(
+                wtx,
+                &parent,
+                &child_table,
+                &child_schema,
+                &c,
+                visited,
+            )?;
         }
     }
     Ok(())
@@ -5723,7 +5921,14 @@ fn build_conflict_scan_state_in(
             cells.resize(width, Cell::Null);
         }
         let rowid = k.value().1;
-        record_existing_row_in_conflict_index(rowid, cells, schema, unique_cols, composite_cols, &mut state);
+        record_existing_row_in_conflict_index(
+            rowid,
+            cells,
+            schema,
+            unique_cols,
+            composite_cols,
+            &mut state,
+        );
     }
     Ok(state)
 }
@@ -5919,7 +6124,10 @@ fn apply_do_update_assignments(
     Ok(())
 }
 
-fn validate_do_update_check_constraints(schema: &TableSchema, cells: &[Cell]) -> Result<(), String> {
+fn validate_do_update_check_constraints(
+    schema: &TableSchema,
+    cells: &[Cell],
+) -> Result<(), String> {
     for (ci, col) in schema.columns().iter().enumerate() {
         if let Some(check) = &col.check {
             if !check.holds(&cells[ci].to_typed_json(col.ty)) {
@@ -6019,8 +6227,7 @@ fn process_insert_on_conflict_row(
     match (conflict_rowid, action) {
         (Some(_), ConflictAction::DoNothing) => { /* skip */ }
         (Some(rid), ConflictAction::DoUpdate(set)) => {
-            let (old_cells, new_cells) =
-                apply_conflict_do_update(rows_t, spec, rid, set, state)?;
+            let (old_cells, new_cells) = apply_conflict_do_update(rows_t, spec, rid, set, state)?;
             out.affected.push(new_cells.clone());
             out.index_changes
                 .push((rid, Some(old_cells), Some(new_cells)));
