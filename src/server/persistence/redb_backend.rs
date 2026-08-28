@@ -1237,24 +1237,24 @@ impl Shard {
                     ));
                 }
                 match crate::crypto::encryption_required_mode() {
-                crate::crypto::EncryptionRequiredMode::Off => {}
-                crate::crypto::EncryptionRequiredMode::Warn => {
-                    tracing::warn!(
-                        "redb encryption-at-rest is OFF ({} is not set) — value blobs are \
+                    crate::crypto::EncryptionRequiredMode::Off => {}
+                    crate::crypto::EncryptionRequiredMode::Warn => {
+                        tracing::warn!(
+                            "redb encryption-at-rest is OFF ({} is not set) — value blobs are \
                          stored in PLAINTEXT. Set {}=on to refuse to start instead of \
                          warning.",
-                        crate::crypto::ENCRYPTION_KEY_ENV,
-                        crate::crypto::ENCRYPTION_REQUIRED_ENV,
-                    );
-                }
-                crate::crypto::EncryptionRequiredMode::On => {
-                    return Err(format!(
-                        "refusing to open the durable graph store: at-rest encryption is \
+                            crate::crypto::ENCRYPTION_KEY_ENV,
+                            crate::crypto::ENCRYPTION_REQUIRED_ENV,
+                        );
+                    }
+                    crate::crypto::EncryptionRequiredMode::On => {
+                        return Err(format!(
+                            "refusing to open the durable graph store: at-rest encryption is \
                          REQUIRED ({}=on) but {} is not set",
-                        crate::crypto::ENCRYPTION_REQUIRED_ENV,
-                        crate::crypto::ENCRYPTION_KEY_ENV,
-                    ));
-                }
+                            crate::crypto::ENCRYPTION_REQUIRED_ENV,
+                            crate::crypto::ENCRYPTION_KEY_ENV,
+                        ));
+                    }
                 }
             }
         }
@@ -5371,8 +5371,8 @@ mod tests {
         tenant: &str,
     ) {
         use crate::epistemic_operations::{
-            DevelopmentLaneHold, DevelopmentLaneHoldHostTargetKind, DevelopmentLaneHoldSchemaVersion,
-            DevelopmentLaneHoldState, DevelopmentLaneQuotaCharge,
+            DevelopmentLaneHold, DevelopmentLaneHoldHostTargetKind,
+            DevelopmentLaneHoldSchemaVersion, DevelopmentLaneHoldState, DevelopmentLaneQuotaCharge,
             DevelopmentLaneQuotaChargeSchemaVersion,
         };
 
@@ -5986,8 +5986,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn encrypted_store_refuses_to_open_without_a_key() {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
-        let dir =
-            std::env::temp_dir().join(format!("eg-redb-enc-nokey-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("eg-redb-enc-nokey-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -9601,9 +9600,9 @@ mod tests {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         let _enc_guard = EncryptionRequiredEnvGuard::set(None, "off");
-        use crate::redb_store::{capacity_lease, development_lane};
         #[cfg(feature = "security")]
         use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+        use crate::redb_store::{capacity_lease, development_lane};
         use crate::redb_store::{RESOURCE_RESERVATIONS, WORK_ITEM_COMMAND_SEQUENCE};
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;

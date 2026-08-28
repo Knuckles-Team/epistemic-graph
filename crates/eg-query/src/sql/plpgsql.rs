@@ -239,108 +239,187 @@ impl Tok {
 /// Tokenize a plpgsql body: identifiers, numbers, `'…'` strings (kept whole), the
 /// multi-char operators `:=` and `..`, and single punctuation chars. `--` line comments
 /// and `/* … */` block comments are skipped.
+/// Skip whitespace or a `--`/`/* */` comment starting at `i`. Split out of
+/// `tokenize` (extract-method, cx/wD8) — same terms, same order as before.
+/// Returns the index to resume at, or `None` if `b[i]` is neither.
+/// Skip a `--` line comment starting at `i` (`b[i] == '-'`). Split out of
+/// `skip_tokenize_trivia` (extract-method, cx/wD8) — same terms, same order
+/// as before.
+fn skip_line_comment(b: &[u8], i: usize) -> usize {
+    let mut j = i;
+    while j < b.len() && b[j] != b'\n' {
+        j += 1;
+    }
+    j
+}
+
+/// Skip a `/* */` block comment starting at `i` (`b[i] == '/'`). Split out
+/// of `skip_tokenize_trivia` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn skip_block_comment(b: &[u8], i: usize) -> usize {
+    let mut j = i + 2;
+    while j < b.len() && !(b[j] == b'*' && b.get(j + 1) == Some(&b'/')) {
+        j += 1;
+    }
+    (j + 2).min(b.len())
+}
+
+fn skip_tokenize_trivia(b: &[u8], i: usize) -> Option<usize> {
+    let c = b[i];
+    if c.is_ascii_whitespace() {
+        return Some(i + 1);
+    }
+    if c == b'-' && b.get(i + 1) == Some(&b'-') {
+        return Some(skip_line_comment(b, i));
+    }
+    if c == b'/' && b.get(i + 1) == Some(&b'*') {
+        return Some(skip_block_comment(b, i));
+    }
+    None
+}
+
+/// Tokenize a single-quoted string literal (Postgres `''` escape) starting
+/// at `i`, kept as one token including quotes. Split out of `tokenize`
+/// (extract-method, cx/wD8) — same terms, same order as before. `Ok(None)`
+/// means `b[i]` isn't a `'`.
+fn tokenize_string_literal(src: &str, b: &[u8], i: usize) -> Result<Option<(Tok, usize)>, String> {
+    if b[i] != b'\'' {
+        return Ok(None);
+    }
+    let start = i;
+    let mut j = i + 1;
+    loop {
+        if j >= b.len() {
+            return Err("unterminated string literal in plpgsql body".to_string());
+        }
+        if b[j] == b'\'' {
+            if b.get(j + 1) == Some(&b'\'') {
+                j += 2;
+                continue;
+            }
+            j += 1;
+            break;
+        }
+        j += 1;
+    }
+    Ok(Some((
+        Tok {
+            text: src[start..j].to_string(),
+            start,
+            end: j,
+        },
+        j,
+    )))
+}
+
+/// Tokenize an identifier/keyword starting at `i`. Split out of `tokenize`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn tokenize_identifier(src: &str, b: &[u8], i: usize) -> Option<(Tok, usize)> {
+    let c = b[i];
+    if !(c.is_ascii_alphabetic() || c == b'_') {
+        return None;
+    }
+    let start = i;
+    let mut j = i + 1;
+    while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_') {
+        j += 1;
+    }
+    Some((
+        Tok {
+            text: src[start..j].to_string(),
+            start,
+            end: j,
+        },
+        j,
+    ))
+}
+
+/// Tokenize an integer/float literal starting at `i` (a leading-dot number
+/// is rare in bodies, handled as punct). Split out of `tokenize`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn tokenize_number(src: &str, b: &[u8], i: usize) -> Option<(Tok, usize)> {
+    let c = b[i];
+    if !c.is_ascii_digit() {
+        return None;
+    }
+    let start = i;
+    let mut j = i + 1;
+    while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'.') {
+        // Stop before the `..` range operator.
+        if b[j] == b'.' && b.get(j + 1) == Some(&b'.') {
+            break;
+        }
+        j += 1;
+    }
+    Some((
+        Tok {
+            text: src[start..j].to_string(),
+            start,
+            end: j,
+        },
+        j,
+    ))
+}
+
+/// Tokenize the `:=` or `..` multi-char operators starting at `i`. Split out
+/// of `tokenize` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn tokenize_multichar_operator(b: &[u8], i: usize) -> Option<(Tok, usize)> {
+    let c = b[i];
+    if c == b':' && b.get(i + 1) == Some(&b'=') {
+        return Some((
+            Tok {
+                text: ":=".to_string(),
+                start: i,
+                end: i + 2,
+            },
+            i + 2,
+        ));
+    }
+    if c == b'.' && b.get(i + 1) == Some(&b'.') {
+        return Some((
+            Tok {
+                text: "..".to_string(),
+                start: i,
+                end: i + 2,
+            },
+            i + 2,
+        ));
+    }
+    None
+}
+
 fn tokenize(src: &str) -> Result<Vec<Tok>, String> {
     let b = src.as_bytes();
     let mut toks = Vec::new();
     let mut i = 0usize;
     while i < b.len() {
-        let c = b[i];
-        if c.is_ascii_whitespace() {
-            i += 1;
+        if let Some(next) = skip_tokenize_trivia(b, i) {
+            i = next;
             continue;
         }
-        // Comments.
-        if c == b'-' && b.get(i + 1) == Some(&b'-') {
-            while i < b.len() && b[i] != b'\n' {
-                i += 1;
-            }
+        if let Some((tok, next)) = tokenize_string_literal(src, b, i)? {
+            toks.push(tok);
+            i = next;
             continue;
         }
-        if c == b'/' && b.get(i + 1) == Some(&b'*') {
-            i += 2;
-            while i < b.len() && !(b[i] == b'*' && b.get(i + 1) == Some(&b'/')) {
-                i += 1;
-            }
-            i = (i + 2).min(b.len());
+        if let Some((tok, next)) = tokenize_identifier(src, b, i) {
+            toks.push(tok);
+            i = next;
             continue;
         }
-        // Single-quoted string (Postgres `''` escape) — kept as one token, quotes included.
-        if c == b'\'' {
-            let start = i;
-            i += 1;
-            loop {
-                if i >= b.len() {
-                    return Err("unterminated string literal in plpgsql body".to_string());
-                }
-                if b[i] == b'\'' {
-                    if b.get(i + 1) == Some(&b'\'') {
-                        i += 2;
-                        continue;
-                    }
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
-            toks.push(Tok {
-                text: src[start..i].to_string(),
-                start,
-                end: i,
-            });
+        if let Some((tok, next)) = tokenize_number(src, b, i) {
+            toks.push(tok);
+            i = next;
             continue;
         }
-        // Identifier / keyword.
-        if c.is_ascii_alphabetic() || c == b'_' {
-            let start = i;
-            i += 1;
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
-                i += 1;
-            }
-            toks.push(Tok {
-                text: src[start..i].to_string(),
-                start,
-                end: i,
-            });
-            continue;
-        }
-        // Number (integer/float; a leading-dot number is rare in bodies, handled as punct).
-        if c.is_ascii_digit() {
-            let start = i;
-            i += 1;
-            while i < b.len() && (b[i].is_ascii_digit() || b[i] == b'.') {
-                // Stop before the `..` range operator.
-                if b[i] == b'.' && b.get(i + 1) == Some(&b'.') {
-                    break;
-                }
-                i += 1;
-            }
-            toks.push(Tok {
-                text: src[start..i].to_string(),
-                start,
-                end: i,
-            });
-            continue;
-        }
-        // Multi-char operators.
-        if c == b':' && b.get(i + 1) == Some(&b'=') {
-            toks.push(Tok {
-                text: ":=".to_string(),
-                start: i,
-                end: i + 2,
-            });
-            i += 2;
-            continue;
-        }
-        if c == b'.' && b.get(i + 1) == Some(&b'.') {
-            toks.push(Tok {
-                text: "..".to_string(),
-                start: i,
-                end: i + 2,
-            });
-            i += 2;
+        if let Some((tok, next)) = tokenize_multichar_operator(b, i) {
+            toks.push(tok);
+            i = next;
             continue;
         }
         // Any other single punctuation char.
+        let c = b[i];
         toks.push(Tok {
             text: (c as char).to_string(),
             start: i,
@@ -487,81 +566,157 @@ impl<'a> Parser<'a> {
         Ok(out)
     }
 
+    /// `WHILE cond LOOP body END LOOP ;`. Split out of `parse_stmt`
+    /// (extract-method, cx/wD8) — same terms, same order as before.
+    fn parse_while_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let cond = self.capture_until(&["loop"])?;
+        self.expect_kw("loop")?;
+        let body = self.parse_stmt_list()?;
+        self.expect_kw("end")?;
+        self.expect_kw("loop")?;
+        self.eat_kw(";");
+        Ok(Stmt::While { cond, body })
+    }
+
+    /// `LOOP body END LOOP ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_bare_loop_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let body = self.parse_stmt_list()?;
+        self.expect_kw("end")?;
+        self.expect_kw("loop")?;
+        self.eat_kw(";");
+        Ok(Stmt::Loop { body })
+    }
+
+    /// `RETURN [expr] ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_return_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        if self.eat_kw(";") {
+            return Ok(Stmt::Return(None));
+        }
+        if self.peek_is("next") || self.peek_is("query") {
+            return Err(
+                "RETURN NEXT/QUERY (set-returning plpgsql) is out of scope (CONCEPT:EG-KG.query.concept-7)"
+                    .to_string(),
+            );
+        }
+        let e = self.capture_until(&[";"])?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Return(Some(e)))
+    }
+
+    /// `EXIT [WHEN cond] ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_exit_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let when = self.parse_optional_when()?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Exit { when })
+    }
+
+    /// `CONTINUE [WHEN cond] ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_continue_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let when = self.parse_optional_when()?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Continue { when })
+    }
+
+    /// `BEGIN body END ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_begin_block_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let body = self.parse_stmt_list()?;
+        if self.peek_is("exception") {
+            return Err(
+                "BEGIN … EXCEPTION handlers are out of scope (CONCEPT:EG-KG.query.concept-7)"
+                    .to_string(),
+            );
+        }
+        self.expect_kw("end")?;
+        self.eat_kw(";");
+        Ok(Stmt::Block(body))
+    }
+
+    /// `PERFORM expr ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_perform_stmt(&mut self) -> Result<Stmt, String> {
+        self.pos += 1;
+        let e = self.capture_until(&[";"])?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Perform(format!("SELECT {e}")))
+    }
+
+    /// `ident := expr ;`. Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_assignment_stmt(&mut self) -> Result<Stmt, String> {
+        let var = self.advance().unwrap().text;
+        self.expect_kw(":=")?;
+        let expr = self.capture_until(&[";"])?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Assign { var, expr })
+    }
+
+    /// Any other embedded SQL verb we can run and discard (`INSERT`/`UPDATE`/
+    /// `DELETE`/`CALL`). Split out of `parse_stmt` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn parse_passthrough_sql_stmt(&mut self) -> Result<Stmt, String> {
+        let sql = self.capture_until(&[";"])?;
+        self.expect_kw(";")?;
+        Ok(Stmt::Perform(sql))
+    }
+
     fn parse_stmt(&mut self) -> Result<Stmt, String> {
         let t = self.peek().ok_or("unexpected end of body")?.clone();
         if t.is("if") {
             return self.parse_if();
         }
         if t.is("while") {
-            self.pos += 1;
-            let cond = self.capture_until(&["loop"])?;
-            self.expect_kw("loop")?;
-            let body = self.parse_stmt_list()?;
-            self.expect_kw("end")?;
-            self.expect_kw("loop")?;
-            self.eat_kw(";");
-            return Ok(Stmt::While { cond, body });
+            return self.parse_while_stmt();
         }
         if t.is("loop") {
-            self.pos += 1;
-            let body = self.parse_stmt_list()?;
-            self.expect_kw("end")?;
-            self.expect_kw("loop")?;
-            self.eat_kw(";");
-            return Ok(Stmt::Loop { body });
+            return self.parse_bare_loop_stmt();
         }
         if t.is("for") {
             return self.parse_for();
         }
         if t.is("return") {
-            self.pos += 1;
-            if self.eat_kw(";") {
-                return Ok(Stmt::Return(None));
-            }
-            if self.peek_is("next") || self.peek_is("query") {
-                return Err(
-                    "RETURN NEXT/QUERY (set-returning plpgsql) is out of scope (CONCEPT:EG-KG.query.concept-7)"
-                        .to_string(),
-                );
-            }
-            let e = self.capture_until(&[";"])?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Return(Some(e)));
+            return self.parse_return_stmt();
         }
         if t.is("exit") {
-            self.pos += 1;
-            let when = self.parse_optional_when()?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Exit { when });
+            return self.parse_exit_stmt();
         }
+        self.parse_stmt_kw_tail(&t)
+    }
+
+    /// The middle of `parse_stmt`'s dispatch: `CONTINUE`, `RAISE`, `BEGIN`,
+    /// `PERFORM`. Split out of `parse_stmt` (extract-method, cx/wD8) — same
+    /// terms, same order as before.
+    fn parse_stmt_kw_tail(&mut self, t: &Tok) -> Result<Stmt, String> {
         if t.is("continue") {
-            self.pos += 1;
-            let when = self.parse_optional_when()?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Continue { when });
+            return self.parse_continue_stmt();
         }
         if t.is("raise") {
             return self.parse_raise();
         }
         if t.is("begin") {
-            self.pos += 1;
-            let body = self.parse_stmt_list()?;
-            if self.peek_is("exception") {
-                return Err(
-                    "BEGIN … EXCEPTION handlers are out of scope (CONCEPT:EG-KG.query.concept-7)"
-                        .to_string(),
-                );
-            }
-            self.expect_kw("end")?;
-            self.eat_kw(";");
-            return Ok(Stmt::Block(body));
+            return self.parse_begin_block_stmt();
         }
         if t.is("perform") {
-            self.pos += 1;
-            let e = self.capture_until(&[";"])?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Perform(format!("SELECT {e}")));
+            return self.parse_perform_stmt();
         }
+        self.parse_stmt_expr_tail(t)
+    }
+
+    /// The tail of `parse_stmt`'s dispatch: `NULL ;`, `SELECT`,
+    /// assignment, a passthrough SQL verb, or the unsupported-statement
+    /// error. Split out of `parse_stmt_kw_tail` (extract-method, cx/wD8) —
+    /// same terms, same order as before.
+    fn parse_stmt_expr_tail(&mut self, t: &Tok) -> Result<Stmt, String> {
         if t.is("null") && self.toks.get(self.pos + 1).is_some_and(|n| n.text == ";") {
             self.pos += 2;
             return Ok(Stmt::Noop);
@@ -577,17 +732,11 @@ impl<'a> Parser<'a> {
             .is_some_and(|c| c.is_ascii_alphabetic() || c == '_'))
             && self.toks.get(self.pos + 1).is_some_and(|n| n.text == ":=");
         if is_assign {
-            let var = self.advance().unwrap().text;
-            self.expect_kw(":=")?;
-            let expr = self.capture_until(&[";"])?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Assign { var, expr });
+            return self.parse_assignment_stmt();
         }
         // Any other embedded SQL verb we can run and discard.
         if t.is("insert") || t.is("update") || t.is("delete") || t.is("call") {
-            let sql = self.capture_until(&[";"])?;
-            self.expect_kw(";")?;
-            return Ok(Stmt::Perform(sql));
+            return self.parse_passthrough_sql_stmt();
         }
         Err(format!(
             "unsupported plpgsql statement starting at `{}` (CONCEPT:EG-KG.query.concept-7)",
@@ -704,40 +853,7 @@ impl<'a> Parser<'a> {
             .start;
         let full = self.src[start..end].to_string();
         let result = if let Some(into_idx) = into_at {
-            // Variable list: idents after INTO until a clause keyword / `;`.
-            let mut vars = Vec::new();
-            let mut j = into_idx + 1;
-            let into_start = self.toks[into_idx].start;
-            let mut into_end = self.toks[into_idx].end;
-            let clause_kw = [
-                "from", "where", "group", "order", "limit", "having", "union",
-            ];
-            while j < self.pos {
-                let tk = &self.toks[j];
-                if tk.text == ";" || clause_kw.iter().any(|k| tk.is(k)) {
-                    break;
-                }
-                if tk.text == "," {
-                    into_end = tk.end;
-                    j += 1;
-                    continue;
-                }
-                if tk
-                    .text
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                {
-                    vars.push(tk.text.clone());
-                    into_end = tk.end;
-                    j += 1;
-                } else {
-                    break;
-                }
-            }
-            if vars.is_empty() {
-                return Err("SELECT … INTO requires at least one target variable".to_string());
-            }
+            let (vars, into_start, into_end) = self.parse_select_into_vars(into_idx)?;
             // Rebuild the SELECT with the `INTO vars` span cut out.
             let mut select_sql = String::new();
             select_sql.push_str(self.src[start..into_start].trim_end());
@@ -752,6 +868,51 @@ impl<'a> Parser<'a> {
         };
         self.expect_kw(";")?;
         Ok(result)
+    }
+
+    /// Parse the `INTO var, var, ...` target-variable list starting right
+    /// after the `INTO` token at `into_idx`. Split out of `parse_select_stmt`
+    /// (extract-method, cx/wD8) — same terms, same order as before. Returns
+    /// (vars, into_start, into_end) — the byte span of `INTO vars` to cut
+    /// out of the reconstructed SELECT text.
+    fn parse_select_into_vars(
+        &self,
+        into_idx: usize,
+    ) -> Result<(Vec<String>, usize, usize), String> {
+        let mut vars = Vec::new();
+        let mut j = into_idx + 1;
+        let into_start = self.toks[into_idx].start;
+        let mut into_end = self.toks[into_idx].end;
+        let clause_kw = [
+            "from", "where", "group", "order", "limit", "having", "union",
+        ];
+        while j < self.pos {
+            let tk = &self.toks[j];
+            if tk.text == ";" || clause_kw.iter().any(|k| tk.is(k)) {
+                break;
+            }
+            if tk.text == "," {
+                into_end = tk.end;
+                j += 1;
+                continue;
+            }
+            if tk
+                .text
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            {
+                vars.push(tk.text.clone());
+                into_end = tk.end;
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        if vars.is_empty() {
+            return Err("SELECT … INTO requires at least one target variable".to_string());
+        }
+        Ok((vars, into_start, into_end))
     }
 
     /// Capture the raw source slice of the tokens from the cursor up to (but not
@@ -858,6 +1019,111 @@ impl<'a> Interp<'a> {
         Ok(Flow::Normal)
     }
 
+    /// `IF arms... [ELSE els] END IF`. Split out of `exec` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn exec_if(
+        &mut self,
+        arms: &[(String, Vec<Stmt>)],
+        els: &Option<Vec<Stmt>>,
+    ) -> Result<Flow, String> {
+        for (cond, body) in arms {
+            if self.eval_bool(cond)? {
+                return self.exec_list(body);
+            }
+        }
+        if let Some(body) = els {
+            return self.exec_list(body);
+        }
+        Ok(Flow::Normal)
+    }
+
+    /// `WHILE cond LOOP body END LOOP`. Split out of `exec` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn exec_while(&mut self, cond: &str, body: &[Stmt]) -> Result<Flow, String> {
+        while self.eval_bool(cond)? {
+            self.tick()?;
+            match self.exec_list(body)? {
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Exit => break,
+                Flow::Continue | Flow::Normal => {}
+            }
+        }
+        Ok(Flow::Normal)
+    }
+
+    /// `LOOP body END LOOP`. Split out of `exec` (extract-method, cx/wD8) —
+    /// same terms, same order as before.
+    fn exec_loop(&mut self, body: &[Stmt]) -> Result<Flow, String> {
+        loop {
+            self.tick()?;
+            match self.exec_list(body)? {
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Exit => break,
+                Flow::Continue | Flow::Normal => {}
+            }
+        }
+        Ok(Flow::Normal)
+    }
+
+    /// `FOR var IN [REVERSE] lo..hi [BY step] LOOP body END LOOP`. Split out
+    /// of `exec` (extract-method, cx/wD8) — same terms, same order as
+    /// before.
+    #[allow(clippy::too_many_arguments)]
+    fn exec_for(
+        &mut self,
+        var: &str,
+        reverse: bool,
+        lo: &str,
+        hi: &str,
+        step: &Option<String>,
+        body: &[Stmt],
+    ) -> Result<Flow, String> {
+        let lo = self.eval(lo)?.as_int()?;
+        let hi = self.eval(hi)?.as_int()?;
+        let step = match step {
+            Some(s) => self.eval(s)?.as_int()?.abs().max(1),
+            None => 1,
+        };
+        let key = var.to_ascii_lowercase();
+        let mut i = lo;
+        // Postgres FOR range is inclusive of both bounds.
+        loop {
+            let done = if reverse { i < hi } else { i > hi };
+            if done {
+                break;
+            }
+            self.tick()?;
+            self.env.insert(key.clone(), Val::Int(i));
+            match self.exec_list(body)? {
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Exit => break,
+                Flow::Continue | Flow::Normal => {}
+            }
+            if reverse {
+                i -= step;
+            } else {
+                i += step;
+            }
+        }
+        Ok(Flow::Normal)
+    }
+
+    /// `SELECT ... INTO vars`. Split out of `exec` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn exec_select_into(&mut self, vars: &[String], select_sql: &str) -> Result<Flow, String> {
+        let sql = substitute_vars(select_sql, &self.env);
+        let res = self.query(&sql)?;
+        let row = res.rows.first();
+        for (i, var) in vars.iter().enumerate() {
+            let v = row
+                .and_then(|r| r.get(i))
+                .map(Val::from_json)
+                .unwrap_or(Val::Null);
+            self.env.insert(var.to_ascii_lowercase(), v);
+        }
+        Ok(Flow::Normal)
+    }
+
     fn exec(&mut self, stmt: &Stmt) -> Result<Flow, String> {
         match stmt {
             Stmt::Noop => Ok(Flow::Normal),
@@ -868,39 +1134,9 @@ impl<'a> Interp<'a> {
             }
             Stmt::Return(None) => Ok(Flow::Return(Val::Null)),
             Stmt::Return(Some(e)) => Ok(Flow::Return(self.eval(e)?)),
-            Stmt::If { arms, els } => {
-                for (cond, body) in arms {
-                    if self.eval_bool(cond)? {
-                        return self.exec_list(body);
-                    }
-                }
-                if let Some(body) = els {
-                    return self.exec_list(body);
-                }
-                Ok(Flow::Normal)
-            }
-            Stmt::While { cond, body } => {
-                while self.eval_bool(cond)? {
-                    self.tick()?;
-                    match self.exec_list(body)? {
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        Flow::Exit => break,
-                        Flow::Continue | Flow::Normal => {}
-                    }
-                }
-                Ok(Flow::Normal)
-            }
-            Stmt::Loop { body } => {
-                loop {
-                    self.tick()?;
-                    match self.exec_list(body)? {
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        Flow::Exit => break,
-                        Flow::Continue | Flow::Normal => {}
-                    }
-                }
-                Ok(Flow::Normal)
-            }
+            Stmt::If { arms, els } => self.exec_if(arms, els),
+            Stmt::While { cond, body } => self.exec_while(cond, body),
+            Stmt::Loop { body } => self.exec_loop(body),
             Stmt::For {
                 var,
                 reverse,
@@ -908,36 +1144,7 @@ impl<'a> Interp<'a> {
                 hi,
                 step,
                 body,
-            } => {
-                let lo = self.eval(lo)?.as_int()?;
-                let hi = self.eval(hi)?.as_int()?;
-                let step = match step {
-                    Some(s) => self.eval(s)?.as_int()?.abs().max(1),
-                    None => 1,
-                };
-                let key = var.to_ascii_lowercase();
-                let mut i = lo;
-                // Postgres FOR range is inclusive of both bounds.
-                loop {
-                    let done = if *reverse { i < hi } else { i > hi };
-                    if done {
-                        break;
-                    }
-                    self.tick()?;
-                    self.env.insert(key.clone(), Val::Int(i));
-                    match self.exec_list(body)? {
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        Flow::Exit => break,
-                        Flow::Continue | Flow::Normal => {}
-                    }
-                    if *reverse {
-                        i -= step;
-                    } else {
-                        i += step;
-                    }
-                }
-                Ok(Flow::Normal)
-            }
+            } => self.exec_for(var, *reverse, lo, hi, step, body),
             Stmt::Exit { when } => match when {
                 Some(c) if !self.eval_bool(c)? => Ok(Flow::Normal),
                 _ => Ok(Flow::Exit),
@@ -954,19 +1161,7 @@ impl<'a> Interp<'a> {
                     Ok(Flow::Normal)
                 }
             }
-            Stmt::SelectInto { vars, select_sql } => {
-                let sql = substitute_vars(select_sql, &self.env);
-                let res = self.query(&sql)?;
-                let row = res.rows.first();
-                for (i, var) in vars.iter().enumerate() {
-                    let v = row
-                        .and_then(|r| r.get(i))
-                        .map(Val::from_json)
-                        .unwrap_or(Val::Null);
-                    self.env.insert(var.to_ascii_lowercase(), v);
-                }
-                Ok(Flow::Normal)
-            }
+            Stmt::SelectInto { vars, select_sql } => self.exec_select_into(vars, select_sql),
             Stmt::Perform(sql) => {
                 let sql = substitute_vars(sql, &self.env);
                 self.query(&sql)?;
@@ -1137,6 +1332,25 @@ fn strip_word<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
 
 /// Read a balanced `(…)` whose `(` is at the start of `s`. Returns the inner text and the
 /// remainder after the matching `)`. Skips `'…'` string literals.
+/// Advance past a `'...'` string literal starting at `b[start] == '\''`
+/// (Postgres `''` escape). Split out of `read_parens` (extract-method,
+/// cx/wD8) — same terms, same order as before. Returns the index just past
+/// the closing quote (or `b.len()` if unterminated).
+fn skip_plpgsql_string_literal(b: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < b.len() {
+        if b[i] == b'\'' {
+            if b.get(i + 1) == Some(&b'\'') {
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
 fn read_parens(s: &str) -> Option<(&str, &str)> {
     let b = s.as_bytes();
     if b.first() != Some(&b'(') {
@@ -1144,22 +1358,13 @@ fn read_parens(s: &str) -> Option<(&str, &str)> {
     }
     let mut depth = 0usize;
     let mut i = 0usize;
-    let mut in_str = false;
     while i < b.len() {
         let c = b[i];
-        if in_str {
-            if c == b'\'' {
-                if b.get(i + 1) == Some(&b'\'') {
-                    i += 2;
-                    continue;
-                }
-                in_str = false;
-            }
-            i += 1;
+        if c == b'\'' {
+            i = skip_plpgsql_string_literal(b, i);
             continue;
         }
         match c {
-            b'\'' => in_str = true,
             b'(' => depth += 1,
             b')' => {
                 depth -= 1;
@@ -1218,47 +1423,69 @@ fn split_top_commas(inner: &str) -> Vec<String> {
 /// Replace whole-word identifiers matching an environment variable with the variable's
 /// SQL literal (CONCEPT:EG-KG.query.concept-7). Quote-aware (a name inside `'…'` is untouched) and a
 /// qualified `t.col` reference is left alone (only bare variable names are substituted).
+/// Copy a `'...'` string literal's body (starting just past the
+/// already-copied opening quote) into `out`, byte for byte. Split out of
+/// `substitute_vars` (extract-method, cx/wD8) — same terms, same order as
+/// before. Returns the index just past the closing quote.
+fn copy_substitute_string_literal(b: &[u8], start: usize, out: &mut String) -> usize {
+    let mut i = start;
+    while i < b.len() {
+        let c = b[i];
+        out.push(c as char);
+        if c == b'\'' {
+            if b.get(i + 1) == Some(&b'\'') {
+                out.push('\'');
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
+/// Substitute one bare (unqualified) identifier starting at `start` with its
+/// environment value's SQL literal, or copy it verbatim if unbound or
+/// qualified (`t.col`). Split out of `substitute_vars` (extract-method,
+/// cx/wD8) — same terms, same order as before. Returns the index just past
+/// the identifier.
+fn substitute_identifier(
+    sql: &str,
+    b: &[u8],
+    start: usize,
+    env: &HashMap<String, Val>,
+    out: &mut String,
+) -> usize {
+    let mut i = start + 1;
+    while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+        i += 1;
+    }
+    let word = &sql[start..i];
+    let qualified = start > 0 && b[start - 1] == b'.';
+    if !qualified {
+        if let Some(v) = env.get(&word.to_ascii_lowercase()) {
+            out.push_str(&v.to_sql_literal());
+            return i;
+        }
+    }
+    out.push_str(word);
+    i
+}
+
 fn substitute_vars(sql: &str, env: &HashMap<String, Val>) -> String {
     let b = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
     let mut i = 0usize;
-    let mut in_str = false;
     while i < b.len() {
         let c = b[i];
-        if in_str {
-            out.push(c as char);
-            if c == b'\'' {
-                if b.get(i + 1) == Some(&b'\'') {
-                    out.push('\'');
-                    i += 2;
-                    continue;
-                }
-                in_str = false;
-            }
-            i += 1;
-            continue;
-        }
         if c == b'\'' {
-            in_str = true;
             out.push('\'');
-            i += 1;
+            i = copy_substitute_string_literal(b, i + 1, &mut out);
             continue;
         }
         if c.is_ascii_alphabetic() || c == b'_' {
-            let start = i;
-            i += 1;
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
-                i += 1;
-            }
-            let word = &sql[start..i];
-            let qualified = start > 0 && b[start - 1] == b'.';
-            if !qualified {
-                if let Some(v) = env.get(&word.to_ascii_lowercase()) {
-                    out.push_str(&v.to_sql_literal());
-                    continue;
-                }
-            }
-            out.push_str(word);
+            i = substitute_identifier(sql, b, i, env, &mut out);
             continue;
         }
         out.push(c as char);

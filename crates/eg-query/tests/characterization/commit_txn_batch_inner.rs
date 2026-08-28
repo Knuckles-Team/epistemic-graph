@@ -24,8 +24,8 @@
 
 use eg_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
 use eg_types::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent,
-    MutationRequestContext, MutationSurface, MUTATION_BATCH_VERSION,
+    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
+    MutationSurface, MUTATION_BATCH_VERSION,
 };
 
 const TENANT: &str = "tenant-commit-txn-batch";
@@ -74,9 +74,8 @@ fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationB
             domain: MutationDomain::SqlCatalog,
             method: eg_types::protocol::Method::ApplyMutation {
                 event_type: "sql_catalog_operation".to_string(),
-                query:
-                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-                        .to_string(),
+                query: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
             },
         }],
         outbox: vec![MutationOutboxIntent {
@@ -126,7 +125,10 @@ fn same_idempotency_key_different_batch_is_a_conflict() {
     let err = store
         .commit_txn_batch(&insert_txn(), &second, 100)
         .expect_err("different batch under the same idempotency key must conflict");
-    assert!(err.contains("IDEMPOTENCY_CONFLICT"), "unexpected error: {err}");
+    assert!(
+        err.contains("IDEMPOTENCY_CONFLICT"),
+        "unexpected error: {err}"
+    );
 }
 
 #[test]
