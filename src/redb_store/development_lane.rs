@@ -1917,92 +1917,50 @@ fn hold_charge(
     revision: u64,
     policy_revision: u64,
 ) -> DevelopmentLaneQuotaCharge {
+    // An uncharged hold contributes nothing to the count/predicted/observed
+    // scopes.  Retained disk is charged either way: only cleanup releases it.
+    let count = u64::from(hold.active_count_charged);
+    let predicted = if hold.active_count_charged {
+        hold.predicted_disk_bytes
+    } else {
+        0
+    };
+    let observed = if hold.active_count_charged {
+        hold.observed_disk_bytes
+    } else {
+        0
+    };
+    let retained = hold.retained_disk_bytes;
     DevelopmentLaneQuotaCharge {
         schema_version: DevelopmentLaneQuotaChargeSchemaVersion::V1,
-        tenant_count: u64::from(hold.active_count_charged),
-        owner_count: u64::from(hold.active_count_charged),
-        session_count: u64::from(hold.active_count_charged),
-        workspace_count: u64::from(hold.active_count_charged),
-        repository_count: u64::from(hold.active_count_charged),
-        host_count: u64::from(hold.active_count_charged),
-        global_count: u64::from(hold.active_count_charged),
-        tenant_predicted_disk_bytes: if hold.active_count_charged {
-            hold.predicted_disk_bytes
-        } else {
-            0
-        },
-        owner_predicted_disk_bytes: if hold.active_count_charged {
-            hold.predicted_disk_bytes
-        } else {
-            0
-        },
-        session_predicted_disk_bytes: if hold.active_count_charged {
-            hold.predicted_disk_bytes
-        } else {
-            0
-        },
-        workspace_predicted_disk_bytes: if hold.active_count_charged {
-            hold.predicted_disk_bytes
-        } else {
-            0
-        },
-        repository_predicted_disk_bytes: if hold.active_count_charged {
-            hold.predicted_disk_bytes
-        } else {
-            0
-        },
-        host_predicted_disk_bytes: if hold.active_count_charged {
-            hold.predicted_disk_bytes
-        } else {
-            0
-        },
-        global_predicted_disk_bytes: if hold.active_count_charged {
-            hold.predicted_disk_bytes
-        } else {
-            0
-        },
-        tenant_observed_disk_bytes: if hold.active_count_charged {
-            hold.observed_disk_bytes
-        } else {
-            0
-        },
-        owner_observed_disk_bytes: if hold.active_count_charged {
-            hold.observed_disk_bytes
-        } else {
-            0
-        },
-        session_observed_disk_bytes: if hold.active_count_charged {
-            hold.observed_disk_bytes
-        } else {
-            0
-        },
-        workspace_observed_disk_bytes: if hold.active_count_charged {
-            hold.observed_disk_bytes
-        } else {
-            0
-        },
-        repository_observed_disk_bytes: if hold.active_count_charged {
-            hold.observed_disk_bytes
-        } else {
-            0
-        },
-        host_observed_disk_bytes: if hold.active_count_charged {
-            hold.observed_disk_bytes
-        } else {
-            0
-        },
-        global_observed_disk_bytes: if hold.active_count_charged {
-            hold.observed_disk_bytes
-        } else {
-            0
-        },
-        tenant_retained_disk_bytes: hold.retained_disk_bytes,
-        owner_retained_disk_bytes: hold.retained_disk_bytes,
-        session_retained_disk_bytes: hold.retained_disk_bytes,
-        workspace_retained_disk_bytes: hold.retained_disk_bytes,
-        repository_retained_disk_bytes: hold.retained_disk_bytes,
-        host_retained_disk_bytes: hold.retained_disk_bytes,
-        global_retained_disk_bytes: hold.retained_disk_bytes,
+        tenant_count: count,
+        owner_count: count,
+        session_count: count,
+        workspace_count: count,
+        repository_count: count,
+        host_count: count,
+        global_count: count,
+        tenant_predicted_disk_bytes: predicted,
+        owner_predicted_disk_bytes: predicted,
+        session_predicted_disk_bytes: predicted,
+        workspace_predicted_disk_bytes: predicted,
+        repository_predicted_disk_bytes: predicted,
+        host_predicted_disk_bytes: predicted,
+        global_predicted_disk_bytes: predicted,
+        tenant_observed_disk_bytes: observed,
+        owner_observed_disk_bytes: observed,
+        session_observed_disk_bytes: observed,
+        workspace_observed_disk_bytes: observed,
+        repository_observed_disk_bytes: observed,
+        host_observed_disk_bytes: observed,
+        global_observed_disk_bytes: observed,
+        tenant_retained_disk_bytes: retained,
+        owner_retained_disk_bytes: retained,
+        session_retained_disk_bytes: retained,
+        workspace_retained_disk_bytes: retained,
+        repository_retained_disk_bytes: retained,
+        host_retained_disk_bytes: retained,
+        global_retained_disk_bytes: retained,
         revision,
         policy_revision,
     }
@@ -4095,6 +4053,81 @@ fn finish_state_name(state: DevelopmentLaneFinishRequestTerminalState) -> &'stat
     }
 }
 
+/// A live hold must be tombstone-free and in one of the pre-terminal states.
+fn hold_not_live(hold: &DevelopmentLaneHold) -> bool {
+    hold.tombstone
+        || !matches!(
+            hold.state,
+            DevelopmentLaneHoldState::Allocating
+                | DevelopmentLaneHoldState::Active
+                | DevelopmentLaneHoldState::Submitted
+        )
+}
+
+/// Is the WorkItem pre-image not a leased/running lifecycle row for this
+/// hold's tenant?
+fn work_item_identity_mismatch(
+    pre_props: &serde_json::Map<String, serde_json::Value>,
+    hold: &DevelopmentLaneHold,
+) -> bool {
+    super::property_string(pre_props, "node_type") != "WorkItem"
+        || super::property_string(pre_props, "kind")
+            != work_item_kind_name(DevelopmentLaneWorkItemKind::Lifecycle)
+        || super::property_string(pre_props, "tenant") != hold.tenant_ref
+        || !matches!(
+            super::property_string(pre_props, "status"),
+            "leased" | "running"
+        )
+}
+
+/// Does the WorkItem pre-image carry a different identity/lease/fence tuple
+/// than the hold it is linked to?
+fn work_item_fence_mismatch(
+    pre_props: &serde_json::Map<String, serde_json::Value>,
+    hold: &DevelopmentLaneHold,
+    work_item_id: &str,
+    attempt: u64,
+) -> bool {
+    hold.work_item_id != work_item_id
+        || hold.attempt != attempt
+        || hold.lease_epoch != super::property_u64(pre_props, "lease_epoch")
+        || hold.fencing_token != super::property_u64(pre_props, "fencing_token")
+        || hold.work_item_fence != super::property_string(pre_props, "work_item_fence")
+        || super::property_string(pre_props, "lease_owner") != hold.owner_id
+}
+
+/// A cancel advances the WorkItem lease epoch / fencing token by exactly one;
+/// every other terminal outcome keeps the pre-image's counter.
+fn expected_terminal_counter(value: u64, advance: bool, overflow: &str) -> Result<u64, String> {
+    if !advance {
+        return Ok(value);
+    }
+    value.checked_add(1).ok_or_else(|| overflow.to_string())
+}
+
+/// Is the caller's post-terminal WorkItem tuple anything other than the exact
+/// expected successor of the pre-image?
+#[allow(clippy::too_many_arguments)]
+fn terminal_tuple_invalid(
+    pre_props: &serde_json::Map<String, serde_json::Value>,
+    attempt: u64,
+    expected_lease_epoch: u64,
+    expected_fencing_token: u64,
+    next_attempt: u64,
+    next_lease_epoch: u64,
+    next_fencing_token: u64,
+    next_work_item_fence: &str,
+) -> bool {
+    next_attempt == 0
+        || next_attempt != attempt
+        || next_lease_epoch == 0
+        || next_lease_epoch != expected_lease_epoch
+        || next_fencing_token == 0
+        || next_fencing_token != expected_fencing_token
+        || next_work_item_fence.is_empty()
+        || next_work_item_fence != super::property_string(pre_props, "work_item_fence")
+}
+
 const ACTIVE_HOLD_REQUIRES_TERMINAL_WORK_ITEM: &str =
     "development lane WorkItem terminalization requires a non-retryable outcome while a hold is active";
 
@@ -4140,14 +4173,7 @@ pub(crate) fn transition_work_item_terminal_hold(
     if !row.hold.active_count_charged {
         return Ok(false);
     }
-    if row.hold.tombstone
-        || !matches!(
-            row.hold.state,
-            DevelopmentLaneHoldState::Allocating
-                | DevelopmentLaneHoldState::Active
-                | DevelopmentLaneHoldState::Submitted
-        )
-    {
+    if hold_not_live(&row.hold) {
         return Err("development lane active hold has an invalid live state".to_string());
     }
 
@@ -4155,20 +4181,8 @@ pub(crate) fn transition_work_item_terminal_hold(
     // caller cannot turn a stale/foreign WorkItem mutation into a lane finish,
     // and a ready/submitted image with an active hold is rejected rather than
     // silently auto-finished.
-    if row.hold.work_item_id != work_item_id
-        || super::property_string(pre_props, "node_type") != "WorkItem"
-        || super::property_string(pre_props, "kind")
-            != work_item_kind_name(DevelopmentLaneWorkItemKind::Lifecycle)
-        || super::property_string(pre_props, "tenant") != row.hold.tenant_ref
-        || !matches!(
-            super::property_string(pre_props, "status"),
-            "leased" | "running"
-        )
-        || row.hold.attempt != attempt
-        || row.hold.lease_epoch != super::property_u64(pre_props, "lease_epoch")
-        || row.hold.fencing_token != super::property_u64(pre_props, "fencing_token")
-        || row.hold.work_item_fence != super::property_string(pre_props, "work_item_fence")
-        || super::property_string(pre_props, "lease_owner") != row.hold.owner_id
+    if work_item_identity_mismatch(pre_props, &row.hold)
+        || work_item_fence_mismatch(pre_props, &row.hold, work_item_id, attempt)
     {
         return Err("development lane WorkItem/hold pre-terminal fence mismatch".to_string());
     }
@@ -4192,29 +4206,26 @@ pub(crate) fn transition_work_item_terminal_hold(
     }
     let pre_lease_epoch = super::property_u64(pre_props, "lease_epoch");
     let pre_fencing_token = super::property_u64(pre_props, "fencing_token");
-    let expected_lease_epoch = if cancel_fence_evolution {
-        pre_lease_epoch
-            .checked_add(1)
-            .ok_or_else(|| "development lane cancel lease epoch overflow".to_string())?
-    } else {
-        pre_lease_epoch
-    };
-    let expected_fencing_token = if cancel_fence_evolution {
-        pre_fencing_token
-            .checked_add(1)
-            .ok_or_else(|| "development lane cancel fencing token overflow".to_string())?
-    } else {
-        pre_fencing_token
-    };
-    if next_attempt == 0
-        || next_attempt != attempt
-        || next_lease_epoch == 0
-        || next_lease_epoch != expected_lease_epoch
-        || next_fencing_token == 0
-        || next_fencing_token != expected_fencing_token
-        || next_work_item_fence.is_empty()
-        || next_work_item_fence != super::property_string(pre_props, "work_item_fence")
-    {
+    let expected_lease_epoch = expected_terminal_counter(
+        pre_lease_epoch,
+        cancel_fence_evolution,
+        "development lane cancel lease epoch overflow",
+    )?;
+    let expected_fencing_token = expected_terminal_counter(
+        pre_fencing_token,
+        cancel_fence_evolution,
+        "development lane cancel fencing token overflow",
+    )?;
+    if terminal_tuple_invalid(
+        pre_props,
+        attempt,
+        expected_lease_epoch,
+        expected_fencing_token,
+        next_attempt,
+        next_lease_epoch,
+        next_fencing_token,
+        next_work_item_fence,
+    ) {
         return Err("development lane terminal WorkItem tuple is invalid".to_string());
     }
     let policy = load_policy(policies, graph, &row.hold.tenant_ref, crypto)?
