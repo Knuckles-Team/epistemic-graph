@@ -1605,6 +1605,18 @@ mod tests {
             .await
             .expect("register");
         backend.shutdown();
+        // `shutdown()` only stops the shard writer thread (which releases the
+        // graph-N.redb file lock); it does NOT drop `admin_mutations`/`node_info`/
+        // `cluster_hierarchy` on this `RedbBackend`. Rust does not drop a
+        // shadowed `let` binding until the END of the enclosing scope, so
+        // WITHOUT this explicit drop the reopen below (`let backend = ...`,
+        // same `src_s` directory) still holds this backend's admin-mutations.redb
+        // handle open and fails with "Database already open. Cannot acquire
+        // lock." (WD5-BUG-05 — this was a test defect, not a fix defect: every
+        // other reopen in this module targets a DIFFERENT directory via a
+        // differently-named variable, so this is the only test that shadows
+        // `backend` on the SAME directory).
+        drop(backend);
 
         let shard0 = src.join(shard_filename(0));
         seed_raw_two_str_row(&shard0, RESOURCE_RESERVATIONS, "g", "r1", b"reservation");
