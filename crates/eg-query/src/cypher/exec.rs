@@ -1665,65 +1665,76 @@ fn project_with(b: &Binding, items: &[WithItem]) -> Binding {
     nb
 }
 
+/// Push `v` onto `scope` unless it's already present (dedup, declaration order).
+fn push_scope_var(v: &str, scope: &mut Vec<String>) {
+    if !scope.iter().any(|s| s == v) {
+        scope.push(v.to_string());
+    }
+}
+
+/// `scope_vars` accumulator for a `MATCH`/`OPTIONAL MATCH` stage: the pattern's start
+/// var, every hop's edge/quantified-group var and node var, and the path var.
+fn accumulate_match_scope(pattern: &Pattern, path_var: &Option<String>, scope: &mut Vec<String>) {
+    if let Some(v) = &pattern.start.var {
+        push_scope_var(v, scope);
+    }
+    for (edge, node) in &pattern.hops {
+        if let Some(group) = edge.group.as_deref() {
+            for var in group_scope_variables(group) {
+                push_scope_var(var, scope);
+            }
+        } else if let Some(var) = edge.var.as_deref() {
+            push_scope_var(var, scope);
+        }
+        if let Some(v) = &node.var {
+            push_scope_var(v, scope);
+        }
+    }
+    if let Some(pv) = path_var {
+        push_scope_var(pv, scope);
+    }
+}
+
+/// `scope_vars` accumulator for a `CALL { subquery }` stage: `RETURN *` recurses into
+/// the subquery's own scope, else each of its explicit RETURN columns.
+fn accumulate_call_scope(subquery: &CypherQuery, scope: &mut Vec<String>) {
+    if subquery.ret.star {
+        for v in scope_vars(&subquery.stages) {
+            push_scope_var(&v, scope);
+        }
+    } else {
+        for it in &subquery.ret.items {
+            push_scope_var(&it.column(), scope);
+        }
+    }
+}
+
+/// `scope_vars` accumulator for a `CALL proc(...) YIELD ...` stage: each yielded
+/// column's alias (or its bare column name).
+fn accumulate_call_proc_scope(yields: &[YieldItem], scope: &mut Vec<String>) {
+    for y in yields {
+        push_scope_var(&y.alias.clone().unwrap_or_else(|| y.col.clone()), scope);
+    }
+}
+
 /// The in-scope variable names (in declaration order) for `RETURN *` — node vars and
 /// path vars accumulate across MATCH stages; a `WITH` narrows scope to its outputs.
 fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
     let mut scope: Vec<String> = Vec::new();
-    let push = |v: &str, scope: &mut Vec<String>| {
-        if !scope.iter().any(|s| s == v) {
-            scope.push(v.to_string());
-        }
-    };
     for stage in stages {
         match stage {
             ReadStage::Match {
                 pattern, path_var, ..
-            } => {
-                if let Some(v) = &pattern.start.var {
-                    push(v, &mut scope);
-                }
-                for (edge, node) in &pattern.hops {
-                    if let Some(group) = edge.group.as_deref() {
-                        for var in group_scope_variables(group) {
-                            push(var, &mut scope);
-                        }
-                    } else if let Some(var) = edge.var.as_deref() {
-                        push(var, &mut scope);
-                    }
-                    if let Some(v) = &node.var {
-                        push(v, &mut scope);
-                    }
-                }
-                if let Some(pv) = path_var {
-                    push(pv, &mut scope);
-                }
-            }
+            } => accumulate_match_scope(pattern, path_var, &mut scope),
             ReadStage::With { items, .. } => {
                 scope = items
                     .iter()
                     .map(|it| it.alias.clone().unwrap_or_else(|| it.var.clone()))
                     .collect();
             }
-            ReadStage::Unwind { var, .. } => push(var, &mut scope),
-            ReadStage::CallProc { yields, .. } => {
-                for y in yields {
-                    push(
-                        &y.alias.clone().unwrap_or_else(|| y.col.clone()),
-                        &mut scope,
-                    );
-                }
-            }
-            ReadStage::Call { subquery } => {
-                if subquery.ret.star {
-                    for v in scope_vars(&subquery.stages) {
-                        push(&v, &mut scope);
-                    }
-                } else {
-                    for it in &subquery.ret.items {
-                        push(&it.column(), &mut scope);
-                    }
-                }
-            }
+            ReadStage::Unwind { var, .. } => push_scope_var(var, &mut scope),
+            ReadStage::CallProc { yields, .. } => accumulate_call_proc_scope(yields, &mut scope),
+            ReadStage::Call { subquery } => accumulate_call_scope(subquery, &mut scope),
         }
     }
     scope
