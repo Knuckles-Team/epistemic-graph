@@ -481,39 +481,64 @@ fn encode_cell(
         return encoder.encode_field(&None::<&str>);
     }
     match ty {
-        PgColType::Int8 => match cell.as_i64() {
-            Some(i) => encoder.encode_field(&i),
-            None => encoder.encode_field(&cell.to_string()),
-        },
-        PgColType::Float8 => match cell.as_f64() {
-            Some(f) => encoder.encode_field(&f),
-            None => encoder.encode_field(&cell.to_string()),
-        },
-        PgColType::Bool => match cell.as_bool() {
-            Some(b) => encoder.encode_field(&b),
-            None => encoder.encode_field(&cell.to_string()),
-        },
+        PgColType::Int8 => encode_int8_cell(encoder, cell),
+        PgColType::Float8 => encode_float8_cell(encoder, cell),
+        PgColType::Bool => encode_bool_cell(encoder, cell),
         PgColType::Text => match cell {
             Value::String(s) => encoder.encode_field(&s.as_str()),
             other => encoder.encode_field(&other.to_string()),
         },
         // CONCEPT:EG-KG.query.pgvector-binary-wire — render a vector (a JSON array of numbers) as the pgvector
         // text literal `[1,2,3]`; a non-array value falls back to its JSON text.
-        PgColType::Vector => match cell {
-            Value::Array(items) => {
-                let parts: Vec<String> = items
-                    .iter()
-                    .map(|v| match v {
-                        Value::Number(n) => n.to_string(),
-                        Value::Null => "0".to_string(),
-                        other => other.to_string(),
-                    })
-                    .collect();
-                encoder.encode_field(&format!("[{}]", parts.join(",")))
-            }
-            Value::String(s) => encoder.encode_field(&s.as_str()),
-            other => encoder.encode_field(&other.to_string()),
-        },
+        PgColType::Vector => encode_vector_cell(encoder, cell),
+    }
+}
+
+/// Encode one `Int8`-typed cell. Split out of `encode_cell` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn encode_int8_cell(encoder: &mut DataRowEncoder, cell: &serde_json::Value) -> PgWireResult<()> {
+    match cell.as_i64() {
+        Some(i) => encoder.encode_field(&i),
+        None => encoder.encode_field(&cell.to_string()),
+    }
+}
+
+/// Encode one `Float8`-typed cell. Split out of `encode_cell` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn encode_float8_cell(encoder: &mut DataRowEncoder, cell: &serde_json::Value) -> PgWireResult<()> {
+    match cell.as_f64() {
+        Some(f) => encoder.encode_field(&f),
+        None => encoder.encode_field(&cell.to_string()),
+    }
+}
+
+/// Encode one `Bool`-typed cell. Split out of `encode_cell` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn encode_bool_cell(encoder: &mut DataRowEncoder, cell: &serde_json::Value) -> PgWireResult<()> {
+    match cell.as_bool() {
+        Some(b) => encoder.encode_field(&b),
+        None => encoder.encode_field(&cell.to_string()),
+    }
+}
+
+/// Encode one `Vector`-typed cell. Split out of `encode_cell` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn encode_vector_cell(encoder: &mut DataRowEncoder, cell: &serde_json::Value) -> PgWireResult<()> {
+    use serde_json::Value;
+    match cell {
+        Value::Array(items) => {
+            let parts: Vec<String> = items
+                .iter()
+                .map(|v| match v {
+                    Value::Number(n) => n.to_string(),
+                    Value::Null => "0".to_string(),
+                    other => other.to_string(),
+                })
+                .collect();
+            encoder.encode_field(&format!("[{}]", parts.join(",")))
+        }
+        Value::String(s) => encoder.encode_field(&s.as_str()),
+        other => encoder.encode_field(&other.to_string()),
     }
 }
 
@@ -567,6 +592,25 @@ struct EngineBackend {
     parser: Arc<EngineQueryParser>,
 }
 
+/// Resolve one inferred `$N` param site to its Postgres column type. Split
+/// out of `param_type_oids` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn param_site_pg_col_type(
+    site: eg_query::ParamSite,
+    cols: &std::collections::HashMap<String, PgColType>,
+) -> PgColType {
+    match site {
+        eg_query::ParamSite::IdColumn => PgColType::Text,
+        eg_query::ParamSite::Column(name) => cols.get(&name).copied().unwrap_or(PgColType::Text),
+        eg_query::ParamSite::Literal(lt) => match lt {
+            eg_query::ParamLiteralType::Int => PgColType::Int8,
+            eg_query::ParamLiteralType::Float => PgColType::Float8,
+            eg_query::ParamLiteralType::Bool => PgColType::Bool,
+            eg_query::ParamLiteralType::Text => PgColType::Text,
+        },
+    }
+}
+
 impl EngineBackend {
     fn new(state: Arc<RwLock<ServerState>>, default_graph: String) -> Self {
         Self {
@@ -615,19 +659,7 @@ impl EngineBackend {
             .map_err(wire_err_to_pg)?;
         let mut out = Vec::with_capacity(sites.len());
         for site in sites {
-            let ty = match site {
-                eg_query::ParamSite::IdColumn => PgColType::Text,
-                eg_query::ParamSite::Column(name) => {
-                    cols.get(&name).copied().unwrap_or(PgColType::Text)
-                }
-                eg_query::ParamSite::Literal(lt) => match lt {
-                    eg_query::ParamLiteralType::Int => PgColType::Int8,
-                    eg_query::ParamLiteralType::Float => PgColType::Float8,
-                    eg_query::ParamLiteralType::Bool => PgColType::Bool,
-                    eg_query::ParamLiteralType::Text => PgColType::Text,
-                },
-            };
-            out.push(pg_type(ty));
+            out.push(pg_type(param_site_pg_col_type(site, &cols)));
         }
         Ok(out)
     }
@@ -817,11 +849,13 @@ impl pgwire::api::copy::CopyHandler for EngineBackend {
 /// columns (CONCEPT:EG-KG.query.register-each-user-table). Supports the Postgres TEXT, CSV, and BINARY formats; each
 /// field is coerced to its target column's [`ColumnType`] so the store's typed insert
 /// path accepts it (and SERIAL/DEFAULT fill any column the COPY omits).
-fn decode_copy_rows(
+/// Resolve the declared type of each COPY target column. Split out of
+/// `decode_copy_rows` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn resolve_copy_column_types(
     state: &CopyState,
     schema: &TableSchema,
-) -> Result<Vec<Vec<serde_json::Value>>, String> {
-    // The declared type of each COPY target column.
+) -> Result<Vec<ColumnType>, String> {
     let columns = state.columns();
     let mut types = Vec::with_capacity(columns.len());
     for name in columns {
@@ -830,6 +864,72 @@ fn decode_copy_rows(
             .ok_or_else(|| format!("COPY column `{name}` does not exist in `{}`", state.table()))?;
         types.push(col.ty);
     }
+    Ok(types)
+}
+
+/// Convert one parsed CSV/TEXT line's fields into a typed row, checking the
+/// field count matches `types`. Split out of `decode_copy_rows`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn copy_row_from_fields(
+    fields: &[Option<String>],
+    types: &[ColumnType],
+) -> Result<Vec<serde_json::Value>, String> {
+    if fields.len() != types.len() {
+        return Err(format!(
+            "COPY row has {} fields, expected {}",
+            fields.len(),
+            types.len()
+        ));
+    }
+    let mut row = Vec::with_capacity(types.len());
+    for (f, ty) in fields.iter().zip(types.iter()) {
+        row.push(copy_field_to_value(f.as_deref(), *ty)?);
+    }
+    Ok(row)
+}
+
+/// What one decoded COPY CSV/TEXT line contributes. Split out of
+/// `decode_copy_rows` (extract-method, cx/wD8): `Stop` for the `\.` sentinel,
+/// `Skip` for a blank or header line, `Row` for a decoded data row.
+enum CopyLineOutcome {
+    Stop,
+    Skip,
+    Row(Vec<serde_json::Value>),
+}
+
+/// Decode one COPY CSV/TEXT line. Split out of `decode_copy_rows`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn decode_copy_text_line(
+    line: &str,
+    li: usize,
+    is_csv: bool,
+    header: bool,
+    delim: char,
+    types: &[ColumnType],
+) -> Result<CopyLineOutcome, String> {
+    // Text format terminates on a `\.` sentinel line; skip a trailing blank.
+    if line == "\\." {
+        return Ok(CopyLineOutcome::Stop);
+    }
+    if line.is_empty() {
+        return Ok(CopyLineOutcome::Skip);
+    }
+    if is_csv && header && li == 0 {
+        return Ok(CopyLineOutcome::Skip); // skip the header row
+    }
+    let fields = if is_csv {
+        parse_csv_line(line, delim)
+    } else {
+        parse_text_line(line, delim)
+    };
+    Ok(CopyLineOutcome::Row(copy_row_from_fields(&fields, types)?))
+}
+
+fn decode_copy_rows(
+    state: &CopyState,
+    schema: &TableSchema,
+) -> Result<Vec<Vec<serde_json::Value>>, String> {
+    let types = resolve_copy_column_types(state, schema)?;
 
     match state.format() {
         CopyFormat::Binary => decode_copy_binary(state.buf(), &types),
@@ -841,33 +941,11 @@ fn decode_copy_rows(
             let mut out = Vec::new();
             for (li, raw_line) in text.split('\n').enumerate() {
                 let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
-                // Text format terminates on a `\.` sentinel line; skip a trailing blank.
-                if line == "\\." {
-                    break;
+                match decode_copy_text_line(line, li, is_csv, state.header(), delim, &types)? {
+                    CopyLineOutcome::Stop => break,
+                    CopyLineOutcome::Skip => continue,
+                    CopyLineOutcome::Row(row) => out.push(row),
                 }
-                if line.is_empty() {
-                    continue;
-                }
-                if is_csv && state.header() && li == 0 {
-                    continue; // skip the header row
-                }
-                let fields = if is_csv {
-                    parse_csv_line(line, delim)
-                } else {
-                    parse_text_line(line, delim)
-                };
-                if fields.len() != types.len() {
-                    return Err(format!(
-                        "COPY row has {} fields, expected {}",
-                        fields.len(),
-                        types.len()
-                    ));
-                }
-                let mut row = Vec::with_capacity(types.len());
-                for (f, ty) in fields.iter().zip(types.iter()) {
-                    row.push(copy_field_to_value(f.as_deref(), *ty)?);
-                }
-                out.push(row);
             }
             Ok(out)
         }
@@ -910,37 +988,63 @@ fn unescape_text(s: &str) -> String {
 
 /// One CSV line → fields, honouring `"`-quoting with `""` escapes (no embedded
 /// newlines). An empty UNQUOTED field is NULL; an empty QUOTED field (`""`) is "".
+/// Parse one CSV field (quoted or unquoted) starting at `chars[start]`.
+/// Returns the decoded content, whether it was quoted, and the index just
+/// past the field (before any delimiter). Split out of `parse_csv_line`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+/// Parse a quoted CSV field's body, starting just past the opening quote.
+/// Split out of `parse_csv_field` (extract-method, cx/wD8) — same terms,
+/// same order as before.
+fn parse_quoted_csv_field(chars: &[char], start: usize) -> (String, usize) {
+    let mut field = String::new();
+    let mut i = start;
+    while i < chars.len() {
+        if chars[i] == '"' {
+            if i + 1 < chars.len() && chars[i + 1] == '"' {
+                field.push('"');
+                i += 2;
+            } else {
+                i += 1; // closing quote
+                break;
+            }
+        } else {
+            field.push(chars[i]);
+            i += 1;
+        }
+    }
+    (field, i)
+}
+
+/// Parse an unquoted CSV field's body, starting at `start`. Split out of
+/// `parse_csv_field` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn parse_unquoted_csv_field(chars: &[char], start: usize, delim: char) -> (String, usize) {
+    let mut field = String::new();
+    let mut i = start;
+    while i < chars.len() && chars[i] != delim {
+        field.push(chars[i]);
+        i += 1;
+    }
+    (field, i)
+}
+
+fn parse_csv_field(chars: &[char], start: usize, delim: char) -> (String, bool, usize) {
+    if start < chars.len() && chars[start] == '"' {
+        let (field, i) = parse_quoted_csv_field(chars, start + 1);
+        (field, true, i)
+    } else {
+        let (field, i) = parse_unquoted_csv_field(chars, start, delim);
+        (field, false, i)
+    }
+}
+
 fn parse_csv_line(line: &str, delim: char) -> Vec<Option<String>> {
     let mut out = Vec::new();
     let chars: Vec<char> = line.chars().collect();
     let mut i = 0;
     while i <= chars.len() {
-        // Parse one field starting at i.
-        let mut field = String::new();
-        let mut was_quoted = false;
-        if i < chars.len() && chars[i] == '"' {
-            was_quoted = true;
-            i += 1;
-            while i < chars.len() {
-                if chars[i] == '"' {
-                    if i + 1 < chars.len() && chars[i + 1] == '"' {
-                        field.push('"');
-                        i += 2;
-                    } else {
-                        i += 1; // closing quote
-                        break;
-                    }
-                } else {
-                    field.push(chars[i]);
-                    i += 1;
-                }
-            }
-        } else {
-            while i < chars.len() && chars[i] != delim {
-                field.push(chars[i]);
-                i += 1;
-            }
-        }
+        let (field, was_quoted, next_i) = parse_csv_field(&chars, i, delim);
+        i = next_i;
         if was_quoted {
             out.push(Some(field));
         } else if field.is_empty() {
@@ -1071,27 +1175,50 @@ fn decode_copy_binary(
 }
 
 /// Decode one BINARY-format field's bytes to a typed JSON value.
+/// Decode a big-endian binary integer field of 1/2/4/8 bytes. Split out of
+/// `decode_binary_field` (extract-method, cx/wD8) — same terms, same order
+/// as before.
+fn decode_int_bytes(b: &[u8]) -> Result<i64, String> {
+    Ok(match b.len() {
+        1 => b[0] as i8 as i64,
+        2 => i16::from_be_bytes(b.try_into().unwrap()) as i64,
+        4 => i32::from_be_bytes(b.try_into().unwrap()) as i64,
+        8 => i64::from_be_bytes(b.try_into().unwrap()),
+        n => return Err(format!("unexpected {n}-byte integer field")),
+    })
+}
+
+/// Decode a big-endian binary float field of 4/8 bytes. Split out of
+/// `decode_binary_field` (extract-method, cx/wD8) — same terms, same order
+/// as before.
+fn decode_float_bytes(bytes: &[u8]) -> Result<f64, String> {
+    Ok(match bytes.len() {
+        4 => f32::from_be_bytes(bytes.try_into().unwrap()) as f64,
+        8 => f64::from_be_bytes(bytes.try_into().unwrap()),
+        n => return Err(format!("unexpected {n}-byte float field")),
+    })
+}
+
+/// Decode a `Text`/`Json` binary field. Split out of `decode_binary_field`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn decode_text_or_json_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value, String> {
+    use serde_json::Value;
+    let s = std::str::from_utf8(bytes).map_err(|e| format!("invalid utf8 text field: {e}"))?;
+    Ok(if ty == ColumnType::Json {
+        serde_json::from_str(s).unwrap_or(Value::String(s.to_string()))
+    } else {
+        Value::String(s.to_string())
+    })
+}
+
 fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value, String> {
     use serde_json::Value;
-    let int = |b: &[u8]| -> Result<i64, String> {
-        Ok(match b.len() {
-            1 => b[0] as i8 as i64,
-            2 => i16::from_be_bytes(b.try_into().unwrap()) as i64,
-            4 => i32::from_be_bytes(b.try_into().unwrap()) as i64,
-            8 => i64::from_be_bytes(b.try_into().unwrap()),
-            n => return Err(format!("unexpected {n}-byte integer field")),
-        })
-    };
     let v = match ty {
         ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => {
-            Value::Number(int(bytes)?.into())
+            Value::Number(decode_int_bytes(bytes)?.into())
         }
         ColumnType::Float | ColumnType::Double => {
-            let f = match bytes.len() {
-                4 => f32::from_be_bytes(bytes.try_into().unwrap()) as f64,
-                8 => f64::from_be_bytes(bytes.try_into().unwrap()),
-                n => return Err(format!("unexpected {n}-byte float field")),
-            };
+            let f = decode_float_bytes(bytes)?;
             serde_json::Number::from_f64(f)
                 .map(Value::Number)
                 .ok_or("non-finite float")?
@@ -1100,15 +1227,7 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
         ColumnType::Bytes => {
             Value::Array(bytes.iter().map(|b| Value::Number((*b).into())).collect())
         }
-        ColumnType::Text | ColumnType::Json => {
-            let s =
-                std::str::from_utf8(bytes).map_err(|e| format!("invalid utf8 text field: {e}"))?;
-            if ty == ColumnType::Json {
-                serde_json::from_str(s).unwrap_or(Value::String(s.to_string()))
-            } else {
-                Value::String(s.to_string())
-            }
-        }
+        ColumnType::Text | ColumnType::Json => decode_text_or_json_field(bytes, ty)?,
         // CONCEPT:EG-KG.query.pgvector-binary-wire — the pgvector BINARY wire format is a distinct later item;
         // for now a vector must be sent via TEXT/CSV COPY (or INSERT).
         ColumnType::Vector(_) => {
@@ -1161,37 +1280,50 @@ struct EngineQueryParser;
 /// digits, tracking the max N seen (Postgres params are 1-based and dense in
 /// practice; max-N is the conventional count). Skips `$` inside single-quoted
 /// string literals so a literal `'$1'` is not miscounted.
+/// Parse the decimal digits of a `$N` param starting right after the `$`.
+/// Split out of `count_params` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn parse_dollar_param_digits(bytes: &[u8], start: usize) -> (usize, usize) {
+    let mut j = start;
+    let mut n = 0usize;
+    while j < bytes.len() && bytes[j].is_ascii_digit() {
+        n = n * 10 + (bytes[j] - b'0') as usize;
+        j += 1;
+    }
+    (n, j)
+}
+
+/// Advance past a single-quoted string literal starting at an opening `'`.
+/// Split out of `count_params` (extract-method, cx/wD8) — same terms, same
+/// order as before. Returns the index just past the literal's closing quote.
+fn skip_string_literal(bytes: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
+            // Doubled '' is an escaped quote inside the literal.
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
 fn count_params(sql: &str) -> usize {
     let bytes = sql.as_bytes();
     let mut i = 0usize;
     let mut max_n = 0usize;
-    let mut in_str = false;
     while i < bytes.len() {
         let b = bytes[i];
-        if in_str {
-            if b == b'\'' {
-                // Doubled '' is an escaped quote inside the literal.
-                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                    i += 2;
-                    continue;
-                }
-                in_str = false;
-            }
-            i += 1;
-            continue;
-        }
         if b == b'\'' {
-            in_str = true;
-            i += 1;
+            i = skip_string_literal(bytes, i);
             continue;
         }
         if b == b'$' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
-            let mut j = i + 1;
-            let mut n = 0usize;
-            while j < bytes.len() && bytes[j].is_ascii_digit() {
-                n = n * 10 + (bytes[j] - b'0') as usize;
-                j += 1;
-            }
+            let (n, j) = parse_dollar_param_digits(bytes, i + 1);
             if n > max_n {
                 max_n = n;
             }
@@ -1312,6 +1444,51 @@ where
 /// plain literal SQL string, identical to what `psql` would send. Scans the SQL
 /// once, skipping `$N` inside single-quoted string literals so a literal `'$1'` is
 /// left intact.
+/// Copy a single-quoted string literal's body (starting just past the
+/// already-copied opening quote) into `out`, byte for byte, unescaping
+/// nothing (a doubled `''` is echoed as two quote chars, same as the source).
+/// Split out of `substitute_params` (extract-method, cx/wD8) — same terms,
+/// same order as before. Returns the index just past the closing quote.
+fn copy_string_literal_body(bytes: &[u8], start: usize, out: &mut String) -> usize {
+    let mut i = start;
+    while i < bytes.len() {
+        let b = bytes[i];
+        out.push(b as char);
+        if b == b'\'' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                out.push('\'');
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
+/// Substitute one `$N` placeholder (digits starting at `start`) with its
+/// bound param's SQL literal. Split out of `substitute_params`
+/// (extract-method, cx/wD8) — same terms, same order as before. Returns the
+/// index just past the placeholder's digits.
+fn substitute_dollar_param<S>(
+    bytes: &[u8],
+    start: usize,
+    portal: &Portal<S>,
+    out: &mut String,
+) -> PgWireResult<usize>
+where
+    S: Clone,
+{
+    let (n, j) = parse_dollar_param_digits(bytes, start);
+    if n == 0 {
+        return Err(user_err("parameter placeholders are 1-based ($1, $2, …)"));
+    }
+    let val = decode_param(portal, n - 1)?;
+    out.push_str(&json_to_sql_literal(&val));
+    Ok(j)
+}
+
 fn substitute_params<S>(sql: &str, portal: &Portal<S>) -> PgWireResult<String>
 where
     S: Clone,
@@ -1319,41 +1496,15 @@ where
     let bytes = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
     let mut i = 0usize;
-    let mut in_str = false;
     while i < bytes.len() {
         let b = bytes[i];
-        if in_str {
-            out.push(b as char);
-            if b == b'\'' {
-                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                    out.push('\'');
-                    i += 2;
-                    continue;
-                }
-                in_str = false;
-            }
-            i += 1;
-            continue;
-        }
         if b == b'\'' {
-            in_str = true;
             out.push('\'');
-            i += 1;
+            i = copy_string_literal_body(bytes, i + 1, &mut out);
             continue;
         }
         if b == b'$' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
-            let mut j = i + 1;
-            let mut n = 0usize;
-            while j < bytes.len() && bytes[j].is_ascii_digit() {
-                n = n * 10 + (bytes[j] - b'0') as usize;
-                j += 1;
-            }
-            if n == 0 {
-                return Err(user_err("parameter placeholders are 1-based ($1, $2, …)"));
-            }
-            let val = decode_param(portal, n - 1)?;
-            out.push_str(&json_to_sql_literal(&val));
-            i = j;
+            i = substitute_dollar_param(bytes, i + 1, portal, &mut out)?;
             continue;
         }
         // Non-ASCII bytes pass through faithfully (we operate on raw bytes here).
@@ -1479,49 +1630,33 @@ impl ExtendedQueryHandler for EngineBackend {
 /// projection schema survives. `param_oids[k]` is the resolved OID of `$(k+1)`; an
 /// out-of-range / unknown param defaults to the empty-text literal. Skips `$N` inside
 /// single-quoted string literals.
+/// The dummy SQL literal for a `$N` placeholder's inferred param type. Split
+/// out of `replace_placeholders_with_dummy` (extract-method, cx/wD8) — same
+/// terms, same order as before.
+fn dummy_literal_for_param(param_oids: &[Type], idx: usize) -> &'static str {
+    match param_oids.get(idx) {
+        Some(t) if *t == Type::INT8 || *t == Type::INT4 => "0",
+        Some(t) if *t == Type::FLOAT8 || *t == Type::FLOAT4 => "0.0",
+        Some(t) if *t == Type::BOOL => "FALSE",
+        _ => "''",
+    }
+}
+
 fn replace_placeholders_with_dummy(sql: &str, param_oids: &[Type]) -> String {
-    let dummy = |idx: usize| -> &'static str {
-        match param_oids.get(idx) {
-            Some(t) if *t == Type::INT8 || *t == Type::INT4 => "0",
-            Some(t) if *t == Type::FLOAT8 || *t == Type::FLOAT4 => "0.0",
-            Some(t) if *t == Type::BOOL => "FALSE",
-            _ => "''",
-        }
-    };
     let bytes = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
     let mut i = 0usize;
-    let mut in_str = false;
     while i < bytes.len() {
         let b = bytes[i];
-        if in_str {
-            out.push(b as char);
-            if b == b'\'' {
-                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                    out.push('\'');
-                    i += 2;
-                    continue;
-                }
-                in_str = false;
-            }
-            i += 1;
-            continue;
-        }
         if b == b'\'' {
-            in_str = true;
             out.push('\'');
-            i += 1;
+            i = copy_string_literal_body(bytes, i + 1, &mut out);
             continue;
         }
         if b == b'$' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
-            let mut j = i + 1;
-            let mut n = 0usize;
-            while j < bytes.len() && bytes[j].is_ascii_digit() {
-                n = n * 10 + (bytes[j] - b'0') as usize;
-                j += 1;
-            }
+            let (n, j) = parse_dollar_param_digits(bytes, i + 1);
             // `$N` is 1-based.
-            out.push_str(dummy(n.saturating_sub(1)));
+            out.push_str(dummy_literal_for_param(param_oids, n.saturating_sub(1)));
             i = j;
             continue;
         }
