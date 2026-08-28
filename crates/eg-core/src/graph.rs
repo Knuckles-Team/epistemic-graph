@@ -7541,50 +7541,67 @@ fn backtrack_match(
         return;
     }
     if pattern_node_idx == pattern_nodes.len() {
-        search.matches.push(current_mapping.clone());
-        if search.matches.len() >= search.max_results {
-            search.truncated = true;
-        }
+        record_vf2_match(current_mapping, search);
         return;
     }
 
     let p_node = &pattern_nodes[pattern_node_idx];
 
     for t_node in host.node_map.keys() {
-        if search.truncated {
-            return;
-        }
-        search.steps += 1;
-        if search.steps > search.max_steps {
-            search.truncated = true;
+        if !vf2_step_allowed(search) {
             return;
         }
         if mapped_targets.contains(t_node) {
             continue;
         }
+        if !check_match(host, p_node, t_node, current_mapping, pattern) {
+            continue;
+        }
 
-        if check_match(host, p_node, t_node, current_mapping, pattern) {
-            current_mapping.insert(p_node.clone(), t_node.clone());
-            mapped_targets.insert(t_node.clone());
+        current_mapping.insert(p_node.clone(), t_node.clone());
+        mapped_targets.insert(t_node.clone());
 
-            backtrack_match(
-                host,
-                pattern_node_idx + 1,
-                pattern_nodes,
-                current_mapping,
-                mapped_targets,
-                pattern,
-                search,
-            );
+        backtrack_match(
+            host,
+            pattern_node_idx + 1,
+            pattern_nodes,
+            current_mapping,
+            mapped_targets,
+            pattern,
+            search,
+        );
 
-            current_mapping.remove(p_node);
-            mapped_targets.remove(t_node);
+        current_mapping.remove(p_node);
+        mapped_targets.remove(t_node);
 
-            if search.truncated {
-                return;
-            }
+        if search.truncated {
+            return;
         }
     }
+}
+
+/// Record one complete pattern→host mapping, truncating the search once
+/// `max_results` mappings have been collected.
+fn record_vf2_match(current_mapping: &HashMap<String, String>, search: &mut Vf2Search) {
+    search.matches.push(current_mapping.clone());
+    if search.matches.len() >= search.max_results {
+        search.truncated = true;
+    }
+}
+
+/// Charge one VF2 candidate step against the budget. Returns `false` when the
+/// caller must stop: the search was ALREADY truncated, or this step exhausted
+/// `max_steps` (which truncates it).
+fn vf2_step_allowed(search: &mut Vf2Search) -> bool {
+    if search.truncated {
+        return false;
+    }
+    search.steps += 1;
+    if search.steps > search.max_steps {
+        search.truncated = true;
+        return false;
+    }
+    true
 }
 
 fn check_match(
@@ -7609,43 +7626,67 @@ fn check_match(
         return false;
     }
 
-    let p_idx = match pattern.node_map.get(p_node) {
-        Some(&idx) => idx,
-        None => return false,
+    let Some(&p_idx) = pattern.node_map.get(p_node) else {
+        return false;
     };
 
-    // In-edges
+    check_in_edges(host, pattern, p_idx, p_node, t_node, current_mapping)
+        && check_out_edges(host, pattern, p_idx, p_node, t_node, current_mapping)
+}
+
+/// Every ALREADY-MAPPED pattern in-edge into `p_node` must have a counterpart
+/// in-edge into `t_node` in the host, with compatible edge properties. A pattern
+/// neighbour that is not yet mapped constrains nothing at this depth.
+fn check_in_edges(
+    host: &GraphView,
+    pattern: &GraphView,
+    p_idx: NodeIndex,
+    p_node: &str,
+    t_node: &str,
+    current_mapping: &HashMap<String, String>,
+) -> bool {
     for in_edge in pattern
         .graph
         .edges_directed(p_idx, petgraph::Direction::Incoming)
     {
         let p_src = &pattern.graph[in_edge.source()];
-        if let Some(t_src) = current_mapping.get(p_src) {
-            if !host.has_edge(t_src, t_node) {
-                return false;
-            }
-            if !check_edge_props(host, pattern, p_src, p_node, t_src, t_node) {
-                return false;
-            }
+        let Some(t_src) = current_mapping.get(p_src) else {
+            continue;
+        };
+        if !host.has_edge(t_src, t_node) {
+            return false;
+        }
+        if !check_edge_props(host, pattern, p_src, p_node, t_src, t_node) {
+            return false;
         }
     }
+    true
+}
 
-    // Out-edges
+/// The out-edge counterpart of [`check_in_edges`].
+fn check_out_edges(
+    host: &GraphView,
+    pattern: &GraphView,
+    p_idx: NodeIndex,
+    p_node: &str,
+    t_node: &str,
+    current_mapping: &HashMap<String, String>,
+) -> bool {
     for out_edge in pattern
         .graph
         .edges_directed(p_idx, petgraph::Direction::Outgoing)
     {
         let p_tgt = &pattern.graph[out_edge.target()];
-        if let Some(t_tgt) = current_mapping.get(p_tgt) {
-            if !host.has_edge(t_node, t_tgt) {
-                return false;
-            }
-            if !check_edge_props(host, pattern, p_node, &p_tgt.clone(), t_node, t_tgt) {
-                return false;
-            }
+        let Some(t_tgt) = current_mapping.get(p_tgt) else {
+            continue;
+        };
+        if !host.has_edge(t_node, t_tgt) {
+            return false;
+        }
+        if !check_edge_props(host, pattern, p_node, p_tgt, t_node, t_tgt) {
+            return false;
         }
     }
-
     true
 }
 
@@ -7657,31 +7698,29 @@ fn check_edge_props(
     t_src: &str,
     t_tgt: &str,
 ) -> bool {
-    if let Some(p_props_list) = pattern
+    let Some(p_props_list) = pattern
         .edge_properties
         .get(&(p_src.to_string(), p_tgt.to_string()))
-    {
-        if let Some(t_props_list) = host
-            .edge_properties
-            .get(&(t_src.to_string(), t_tgt.to_string()))
-        {
-            for p_edge_props in p_props_list {
-                let mut matched = false;
-                for t_edge_props in t_props_list {
-                    if match_props(p_edge_props, t_edge_props) {
-                        matched = true;
-                        break;
-                    }
-                }
-                if !matched {
-                    return false;
-                }
-            }
-        } else {
-            return false;
-        }
-    }
-    true
+    else {
+        // No pattern edge between these endpoints ⇒ nothing to constrain.
+        return true;
+    };
+    let Some(t_props_list) = host
+        .edge_properties
+        .get(&(t_src.to_string(), t_tgt.to_string()))
+    else {
+        return false;
+    };
+    p_props_list
+        .iter()
+        .all(|p_edge_props| any_edge_props_match(p_edge_props, t_props_list))
+}
+
+/// Does ANY of the host's parallel edge blobs satisfy this one pattern blob?
+fn any_edge_props_match(p_edge_props: &[u8], t_props_list: &[Arc<Vec<u8>>]) -> bool {
+    t_props_list
+        .iter()
+        .any(|t_edge_props| match_props(p_edge_props, t_edge_props))
 }
 
 pub fn match_props(p_msgpack: &[u8], t_msgpack: &[u8]) -> bool {
