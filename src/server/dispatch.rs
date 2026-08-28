@@ -2,6 +2,7 @@
 //! graph-operation routing chain. Per-domain mutation kernels own their atomic
 //! durability, audit, CDC, and projection publication.
 
+use std::ops::ControlFlow;
 use std::sync::Arc;
 #[cfg(feature = "ast")]
 use std::sync::OnceLock;
@@ -5599,23 +5600,22 @@ struct DispatchCtx<'a> {
     identity_bootstrap: bool,
 }
 
-/// Service-level, source-ingestion and cost/telemetry methods.
+/// Process-level service control: liveness, readiness, in-flight request
+/// cancellation and shutdown. None of these resolves a graph.
 ///
-/// Returns `Err(method)` for a method this group does not own, so
-/// `dispatch_request_method` can hand it to the next group. The groups
-/// partition disjoint `Method` variants, so the split cannot change which
-/// arm a request reaches.
-async fn dispatch_service_and_ingest_methods(
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_service_control_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
-) -> Result<Response, Method> {
+) -> ControlFlow<Response, Method> {
     #[allow(unused_variables)]
-    let state = ctx.state;
-    #[allow(unused_variables)]
-    let req = ctx.req;
-    #[allow(unused_variables)]
-    let verified_context = ctx.verified_context;
-    Ok(match method {
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         // ── Service-level ────────────────────────────────────────────
         Method::Ping => Response::ok(req.id, ResultPayload::String("pong".to_string())),
 
@@ -5632,6 +5632,27 @@ async fn dispatch_service_and_ingest_methods(
             ResultPayload::Bool(super::request_cancel::cancel(target_req_id)),
         ),
 
+        method @ Method::Shutdown => dispatch_boxed(dispatch_shutdown(req.id, method)).await,
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Source ingestion: parse a file or a batch of files, index a repository,
+/// observe a screen. All are stateless parses that never touch `state`.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_source_ingest_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         method @ Method::ParseFile { .. } => {
             dispatch_boxed(dispatch_parse_file(req.id, method)).await
         }
@@ -5647,9 +5668,27 @@ async fn dispatch_service_and_ingest_methods(
         method @ Method::ObserveScreen { .. } => {
             dispatch_boxed(dispatch_observe_screen(req.id, method)).await
         }
+        other => return ControlFlow::Continue(other),
+    })
+}
 
-        method @ Method::Shutdown => dispatch_boxed(dispatch_shutdown(req.id, method)).await,
-
+/// Cost / efficiency telemetry (CONCEPT:EG-KG.compute.lane-v, Lane V): the unpaged
+/// snapshot and its paged form. These two are ONE surface; the pre-domain cut
+/// had them in two different groups.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_resource_cost_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
         #[cfg(feature = "cost")]
         method @ Method::ResourceStats => {
@@ -5661,79 +5700,88 @@ async fn dispatch_service_and_ingest_methods(
             ))
             .await
         }
-        other => return Err(other),
+        #[cfg(feature = "cost")]
+        method @ Method::ResourceStatsPage { .. } => {
+            dispatch_boxed(dispatch_resource_stats_page(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
+            .await
+        }
+        other => return ControlFlow::Continue(other),
     })
 }
 
-/// Graph lifecycle plus the M3 catalog/reshard/placement/raft admin surface.
+/// Multi-tenant graph lifecycle: create, delete and list graphs.
 ///
-/// Returns `Err(method)` for a method this group does not own, so
-/// `dispatch_request_method` can hand it to the next group. The groups
-/// partition disjoint `Method` variants, so the split cannot change which
-/// arm a request reaches.
+/// Hands a method it does not own back as `ControlFlow::Continue`.
 async fn dispatch_graph_lifecycle_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
-) -> Result<Response, Method> {
+) -> ControlFlow<Response, Method> {
     #[allow(unused_variables)]
-    let state = ctx.state;
-    #[allow(unused_variables)]
-    let req = ctx.req;
-    #[allow(unused_variables)]
-    let verified_context = ctx.verified_context;
-    #[allow(unused_variables)]
-    let state_machine_authorized = ctx.state_machine_authorized;
-    Ok(match method {
-                #[cfg(feature = "cost")]
-        method @ Method::ResourceStatsPage { .. } => {
-            dispatch_boxed(
-                dispatch_resource_stats_page(
-                    state,
-                    req.id,
-                    verified_context,
-                    method,
-                )
-            )
-            .await
-        }
-
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        state_machine_authorized,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         // ── Multi-tenant graph management ────────────────────────────
-                method @ Method::CreateGraph { .. } => {
-            dispatch_boxed(
-                dispatch_create_graph(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    method,
-                )
-            )
+        method @ Method::CreateGraph { .. } => {
+            dispatch_boxed(dispatch_create_graph(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                method,
+            ))
             .await
         }
 
-                method @ Method::DeleteGraph { .. } => {
-            dispatch_boxed(
-                dispatch_delete_graph(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    state_machine_authorized,
-                    method,
-                )
-            )
+        method @ Method::DeleteGraph { .. } => {
+            dispatch_boxed(dispatch_delete_graph(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                state_machine_authorized,
+                method,
+            ))
             .await
         }
 
-                method @ Method::ListGraphs => {
-            dispatch_boxed(
-                dispatch_list_graphs(
-                    state,
-                    req.id,
-                    verified_context,
-                    method,
-                )
-            )
+        method @ Method::ListGraphs => {
+            dispatch_boxed(dispatch_list_graphs(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Cluster and shard administration: reshard/catalog/rebalance/backup/restore,
+/// the placement catalog, Raft membership, cluster topology discovery and the
+/// fleet server registry. All self-routing and cluster-wide, never graph-scoped.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_cluster_admin_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
 
         // ── M3 catalog-driven resharding admin (CONCEPT:EG-KG.backend.m3-admin-dispatch) ──────
         // The wire surface that drives online resharding (EG-032), the tenant catalog
@@ -5844,33 +5892,27 @@ async fn dispatch_graph_lifecycle_methods(
             )
             .await
         }
-
-        // ── Channel operations ───────────────────────────────────────
-        other => return Err(other),
+        other => return ControlFlow::Continue(other),
     })
 }
 
-/// Channel and messaging methods.
+/// Channel and messaging operations: channel lifecycle, membership and message
+/// send/read.
 ///
-/// Returns `Err(method)` for a method this group does not own, so
-/// `dispatch_request_method` can hand it to the next group. The groups
-/// partition disjoint `Method` variants, so the split cannot change which
-/// arm a request reaches.
+/// Hands a method it does not own back as `ControlFlow::Continue`.
 async fn dispatch_channel_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
-) -> Result<Response, Method> {
+) -> ControlFlow<Response, Method> {
     #[allow(unused_variables)]
-    let state = ctx.state;
-    #[allow(unused_variables)]
-    let req = ctx.req;
-    #[allow(unused_variables)]
-    let verified_context = ctx.verified_context;
-    #[allow(unused_variables)]
-    let state_machine_authorized = ctx.state_machine_authorized;
-    #[allow(unused_variables)]
-    let identity_bootstrap = ctx.identity_bootstrap;
-    Ok(match method {
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        // ── Channel operations ───────────────────────────────────────
         method @ Method::CreateChannel { .. } => {
             dispatch_boxed(dispatch_create_channel(
                 state,
@@ -5950,7 +5992,30 @@ async fn dispatch_channel_methods(
             ))
             .await
         }
+        other => return ControlFlow::Continue(other),
+    })
+}
 
+/// Identity and access control: principal registration and read-back, policy
+/// export, RBAC administration and the multisig-governed mutation admission
+/// path. `RegisterIdentity` belongs HERE — the pre-domain cut left it in the
+/// channel group.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_identity_and_access_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        state_machine_authorized,
+        identity_bootstrap,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         // ── Zero-Trust Consensus ─────────────────────────────────────────
         method @ Method::RegisterIdentity { .. } => {
             dispatch_boxed(dispatch_register_identity(
@@ -5964,7 +6029,6 @@ async fn dispatch_channel_methods(
             ))
             .await
         }
-
         // Identity read-back (CONCEPT:EG-KG.compute.feature): closes the `RegisterIdentity`
         // blind-upsert gap. `RegisterIdentity` REPLACES a principal's whole role set on
         // every call, so a caller that wants to add a role without dropping one already
@@ -5972,30 +6036,6 @@ async fn dispatch_channel_methods(
         // the SAME `security:admin` scope as `RegisterIdentity` (see `eg_capabilities::policy`),
         // enforced by the admin-scope check above the method match, so no additional
         // authorization is done here.
-        other => return Err(other),
-    })
-}
-
-/// Identity, policy, RBAC, multisig, jobs, statechart and the standalone
-/// quantum / ASR / viz surfaces.
-///
-/// Returns `Err(method)` for a method this group does not own, so
-/// `dispatch_request_method` can hand it to the next group. The groups
-/// partition disjoint `Method` variants, so the split cannot change which
-/// arm a request reaches.
-async fn dispatch_identity_and_admin_methods(
-    ctx: DispatchCtx<'_>,
-    method: Method,
-) -> Result<Response, Method> {
-    #[allow(unused_variables)]
-    let state = ctx.state;
-    #[allow(unused_variables)]
-    let req = ctx.req;
-    #[allow(unused_variables)]
-    let verified_context = ctx.verified_context;
-    #[allow(unused_variables)]
-    let state_machine_authorized = ctx.state_machine_authorized;
-    Ok(match method {
         method @ Method::GetIdentity { .. } => {
             dispatch_boxed(dispatch_get_identity(state, req.id, method)).await
         }
@@ -6035,7 +6075,29 @@ async fn dispatch_identity_and_admin_methods(
             ))
             .await
         }
+        other => return ControlFlow::Continue(other),
+    })
+}
 
+/// Self-routing compute and media surfaces: the durable analytics-job plane,
+/// statechart programs, quantum programs, speech recognition and static
+/// visualization export. Each runs a program or a model rather than touching
+/// the graph directly, so none of them is identity or admin — the pre-domain
+/// cut had all five in `dispatch_identity_and_admin_methods`.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_compute_and_media_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         // ── Durable analytics-job plane (CONCEPT:INT-P2-1, feature `jobs`) ──────────
         // NOT graph-scoped (own `jobs.redb`, keyed by `job_id`) — self-routes here,
         // BEFORE the per-graph `dispatch_graph_op` chain, exactly like `TsAppend`/
@@ -6092,7 +6154,25 @@ async fn dispatch_identity_and_admin_methods(
         method @ Method::Viz { .. } => {
             dispatch_boxed(dispatch_viz(state, req.id, verified_context, method)).await
         }
+        other => return ControlFlow::Continue(other),
+    })
+}
 
+/// Multi-op OCC transactions and their typed sub-operations.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_transaction_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
         // Stateful + self-routing: a Txn* op targets the graph the txn was opened
         // against (resolved from `open_txns`), NOT necessarily `req.graph`, and
@@ -6101,27 +6181,6 @@ async fn dispatch_identity_and_admin_methods(
         // coalescer/registry-lookup assumes a single `req.graph` target. For
         // BeginTxn the request envelope's `graph` is the default target when the
         // body omits one.
-        other => return Err(other),
-    })
-}
-
-/// Transaction control plus the blob / KV / SQLite-file stores.
-///
-/// Returns `Err(method)` for a method this group does not own, so
-/// `dispatch_request_method` can hand it to the next group. The groups
-/// partition disjoint `Method` variants, so the split cannot change which
-/// arm a request reaches.
-async fn dispatch_transaction_and_store_methods(
-    ctx: DispatchCtx<'_>,
-    method: Method,
-) -> Result<Response, Method> {
-    #[allow(unused_variables)]
-    let state = ctx.state;
-    #[allow(unused_variables)]
-    let req = ctx.req;
-    #[allow(unused_variables)]
-    let verified_context = ctx.verified_context;
-    Ok(match method {
         method @ (Method::BeginTxn { .. }
         | Method::TxnAddNode { .. }
         | Method::TxnRemoveNode { .. }
@@ -6202,7 +6261,26 @@ async fn dispatch_transaction_and_store_methods(
             ))
             .await
         }
+        other => return ControlFlow::Continue(other),
+    })
+}
 
+/// The non-graph durable stores that ride the same connection: the chunked blob
+/// store, the KV namespace and SQLite file import/export.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_store_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         // ── Blob (CONCEPT:EG-KG.storage.blob-namespace) ──────────────────────────────────
         // Content-addressed, NOT graph-scoped: a blob is keyed by digest and may be
         // referenced across graphs, so route at the top level (like txn) before the
@@ -6251,7 +6329,26 @@ async fn dispatch_transaction_and_store_methods(
             ))
             .await
         }
+        other => return ControlFlow::Continue(other),
+    })
+}
 
+/// The reactive subscription plane: CDC tailing, continuous queries, watches,
+/// triggers and live CEP standing queries.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_streaming_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         // ── Streaming / CDC / subscriptions (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ───
         // The reactive READ + REGISTER surface over the CDC hub on `state` (the WRITE
         // side — emitting changes — lives in the dispatch_graph_op write-side-effect
@@ -6260,28 +6357,6 @@ async fn dispatch_transaction_and_store_methods(
         // BEFORE the per-graph chain, like tsdb/blob. Gated `streaming`: in a slim
         // build the arm is absent and the variants fall to the graph_ops not-built
         // catch-all (never a panic, never a mis-route).
-        other => return Err(other),
-    })
-}
-
-/// Streaming, CEP, OWL reasoning, change envelopes, served modality and the
-/// knowledge stream.
-///
-/// Returns `Err(method)` for a method this group does not own, so
-/// `dispatch_request_method` can hand it to the next group. The groups
-/// partition disjoint `Method` variants, so the split cannot change which
-/// arm a request reaches.
-async fn dispatch_stream_and_envelope_methods(
-    ctx: DispatchCtx<'_>,
-    method: Method,
-) -> Result<Response, Method> {
-    #[allow(unused_variables)]
-    let state = ctx.state;
-    #[allow(unused_variables)]
-    let req = ctx.req;
-    #[allow(unused_variables)]
-    let verified_context = ctx.verified_context;
-    Ok(match method {
         #[cfg(feature = "streaming")]
         method @ (Method::CdcRead { .. }
         | Method::RegisterContinuousQuery { .. }
@@ -6317,47 +6392,28 @@ async fn dispatch_stream_and_envelope_methods(
             ))
             .await
         }
+        other => return ControlFlow::Continue(other),
+    })
+}
 
-        // ── Distributed OWL reasoning (CONCEPT:EG-KG.ontology.concept-13) ─────────────
-        // Cross-shard: reasons over the UNION of several graphs, so it self-routes
-        // here (with `state` to gather each shard's snapshot) BEFORE the per-graph
-        // chain — never through `dispatch_graph_op`, which targets a single `req.graph`.
-        // Gated `owl`: in a build without it the variant isn't in the enum.
-        #[cfg(feature = "owl")]
-        method @ Method::OwlReasonDistributed { .. } => {
-            dispatch_boxed(dispatch_owl_reason_distributed(
-                state,
-                req.id,
-                // `verified_context` is a `&VerifiedRequestContext` here; spell the
-                // clone out so it cannot be read as cloning the reference.
-                VerifiedRequestContext::clone(verified_context),
-                method,
-            ))
-            .await
-        }
-
-        // ── Graph operations (dispatch to target graph) ──────────────
-        method @ Method::ApplyChangeEnvelope { .. } => {
-            dispatch_boxed(dispatch_apply_change_envelope(
-                state,
-                req.id,
-                req.agent_id.clone(),
-                req.graph.clone(),
-                verified_context,
-                method,
-            ))
-            .await
-        }
-        method @ Method::ApplyChangeEnvelopes { .. } => {
-            dispatch_boxed(dispatch_apply_change_envelopes(
-                state,
-                req.id,
-                req.agent_id.clone(),
-                verified_context,
-                method,
-            ))
-            .await
-        }
+/// The two governed stream WRITE surfaces — served-modality results and the
+/// knowledge batch stream. Both go through an `authorize_and_route_*` admission
+/// step before reaching the target graph, which is what separates them from the
+/// read-side subscription plane above.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_governed_stream_write_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         #[cfg(feature = "modality-serving")]
         method @ Method::ServedModality { .. } => {
             dispatch_boxed(authorize_and_route_served_modality(
@@ -6377,6 +6433,50 @@ async fn dispatch_stream_and_envelope_methods(
                 req.id,
                 req.agent_id.clone(),
                 req.graph.clone(),
+                verified_context,
+                method,
+            ))
+            .await
+        }
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Change-envelope replication and content versioning: apply one or many
+/// envelopes, read one back, and read the content version / change cursor.
+/// `GetChangeCursor` belongs HERE — the pre-domain cut had it alone in a
+/// "query and batch" group with two unrelated methods.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_change_envelope_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        // ── Graph operations (dispatch to target graph) ──────────────
+        method @ Method::ApplyChangeEnvelope { .. } => {
+            dispatch_boxed(dispatch_apply_change_envelope(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
+            .await
+        }
+        method @ Method::ApplyChangeEnvelopes { .. } => {
+            dispatch_boxed(dispatch_apply_change_envelopes(
+                state,
+                req.id,
+                req.agent_id.clone(),
                 verified_context,
                 method,
             ))
@@ -6404,27 +6504,6 @@ async fn dispatch_stream_and_envelope_methods(
             ))
             .await
         }
-        other => return Err(other),
-    })
-}
-
-/// Change cursors, natural-language query and multi-graph batch update.
-///
-/// Returns `Err(method)` for a method this group does not own, so
-/// `dispatch_request_method` can hand it to the next group. The groups
-/// partition disjoint `Method` variants, so the split cannot change which
-/// arm a request reaches.
-async fn dispatch_query_and_batch_methods(
-    ctx: DispatchCtx<'_>,
-    method: Method,
-) -> Result<Response, Method> {
-    #[allow(unused_variables)]
-    let state = ctx.state;
-    #[allow(unused_variables)]
-    let req = ctx.req;
-    #[allow(unused_variables)]
-    let verified_context = ctx.verified_context;
-    Ok(match method {
         method @ Method::GetChangeCursor { .. } => {
             dispatch_boxed(dispatch_get_change_cursor(
                 state,
@@ -6432,6 +6511,46 @@ async fn dispatch_query_and_batch_methods(
                 req.agent_id.clone(),
                 req.graph.clone(),
                 verified_context,
+                method,
+            ))
+            .await
+        }
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Methods whose graph target rides the METHOD BODY rather than the request
+/// envelope: distributed OWL reasoning over a union of graphs, the
+/// natural-language query facade (the `/nl` HTTP path has no envelope), and the
+/// cross-graph batch write. They self-route here because `dispatch_graph_op`
+/// assumes a single `req.graph`.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
+async fn dispatch_method_scoped_graph_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[allow(unused_variables)]
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        // ── Distributed OWL reasoning (CONCEPT:EG-KG.ontology.concept-13) ─────────────
+        // Cross-shard: reasons over the UNION of several graphs, so it self-routes
+        // here (with `state` to gather each shard's snapshot) BEFORE the per-graph
+        // chain — never through `dispatch_graph_op`, which targets a single `req.graph`.
+        // Gated `owl`: in a build without it the variant isn't in the enum.
+        #[cfg(feature = "owl")]
+        method @ Method::OwlReasonDistributed { .. } => {
+            dispatch_boxed(dispatch_owl_reason_distributed(
+                state,
+                req.id,
+                // `verified_context` is a `&VerifiedRequestContext` here; spell the
+                // clone out so it cannot be read as cloning the reference.
+                VerifiedRequestContext::clone(verified_context),
                 method,
             ))
             .await
@@ -6469,7 +6588,7 @@ async fn dispatch_query_and_batch_methods(
             ))
             .await
         }
-        other => return Err(other),
+        other => return ControlFlow::Continue(other),
     })
 }
 
@@ -6481,11 +6600,14 @@ async fn dispatch_query_and_batch_methods(
 async fn dispatch_sparql_http_update(
     ctx: DispatchCtx<'_>,
     method: Method,
-) -> Result<Response, Method> {
-    let state = ctx.state;
-    let req = ctx.req;
-    let verified_context = ctx.verified_context;
-    Ok(match method {
+) -> ControlFlow<Response, Method> {
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
         Method::ApplyMutation { event_type, query }
             if event_type == crate::server::sparql_http::SPARQL_HTTP_UPDATE_EVENT =>
         {
@@ -6499,66 +6621,61 @@ async fn dispatch_sparql_http_update(
             )
             .await
         }
-        other => return Err(other),
+        other => return ControlFlow::Continue(other),
     })
 }
 
-/// Service, graph-lifecycle, channel and identity/admin methods: everything
-/// resolved before the per-graph data path is consulted.
+/// The control plane: service control, source ingestion, cost telemetry, graph
+/// lifecycle, cluster administration, channels, identity/access and the
+/// compute/media surfaces — everything resolved before the per-graph data path.
+///
+/// Each link is a `?` on `ControlFlow`: `Break(response)` short-circuits (the
+/// group handled it), `Continue(method)` hands the method to the next group.
 async fn dispatch_control_plane_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
-) -> Result<Response, Method> {
-    let method = match dispatch_service_and_ingest_methods(ctx, method).await {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
-    let method = match dispatch_graph_lifecycle_methods(ctx, method).await {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
-    let method = match dispatch_channel_methods(ctx, method).await {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
-    dispatch_identity_and_admin_methods(ctx, method).await
+) -> ControlFlow<Response, Method> {
+    let method = dispatch_service_control_methods(ctx, method).await?;
+    let method = dispatch_source_ingest_methods(ctx, method).await?;
+    let method = dispatch_resource_cost_methods(ctx, method).await?;
+    let method = dispatch_graph_lifecycle_methods(ctx, method).await?;
+    let method = dispatch_cluster_admin_methods(ctx, method).await?;
+    let method = dispatch_channel_methods(ctx, method).await?;
+    let method = dispatch_identity_and_access_methods(ctx, method).await?;
+    dispatch_compute_and_media_methods(ctx, method).await
 }
 
-/// Transaction/store, streaming/envelope, query/batch and the guarded
-/// SPARQL-over-HTTP update. A method none of these claims is handed back for the
-/// ordinary per-graph chain.
+/// The data plane: transactions, the non-graph stores, the subscription plane,
+/// the governed stream writes, change-envelope replication, the method-scoped
+/// graph targets and the guarded SPARQL-over-HTTP update. A method none of these
+/// claims is handed back for the ordinary per-graph chain.
 async fn dispatch_data_plane_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
-) -> Result<Response, Method> {
-    let method = match dispatch_transaction_and_store_methods(ctx, method).await {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
-    let method = match dispatch_stream_and_envelope_methods(ctx, method).await {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
-    let method = match dispatch_query_and_batch_methods(ctx, method).await {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
+) -> ControlFlow<Response, Method> {
+    let method = dispatch_transaction_methods(ctx, method).await?;
+    let method = dispatch_store_methods(ctx, method).await?;
+    let method = dispatch_streaming_methods(ctx, method).await?;
+    let method = dispatch_governed_stream_write_methods(ctx, method).await?;
+    let method = dispatch_change_envelope_methods(ctx, method).await?;
+    let method = dispatch_method_scoped_graph_methods(ctx, method).await?;
     #[cfg(feature = "sparql-http")]
     {
         dispatch_sparql_http_update(ctx, method).await
     }
     #[cfg(not(feature = "sparql-http"))]
     {
-        Err(method)
+        ControlFlow::Continue(method)
     }
 }
 
 /// Route one authenticated request to its handler.
 ///
-/// The single 59-arm `match req.method` this replaced is now seven group
-/// dispatchers over disjoint `Method` variants, tried in order; each hands
-/// back a method it does not own. A method no group claims falls through to
-/// the ordinary per-graph chain, which is exactly what the old `_` arm did.
+/// The single 59-arm `match req.method` this replaced is now fifteen group
+/// dispatchers, one per DOMAIN, over disjoint `Method` variants, tried in
+/// order; each hands a method it does not own back as
+/// `ControlFlow::Continue`. A method no group claims falls through to the
+/// ordinary per-graph chain, which is exactly what the old `_` arm did.
 async fn dispatch_request_method(
     state: &Arc<RwLock<ServerState>>,
     req: Request,
@@ -6580,12 +6697,12 @@ async fn dispatch_request_method(
         identity_bootstrap,
     };
     let method = match dispatch_control_plane_methods(ctx, method).await {
-        Ok(response) => return response,
-        Err(method) => method,
+        ControlFlow::Break(response) => return response,
+        ControlFlow::Continue(method) => method,
     };
     let method = match dispatch_data_plane_methods(ctx, method).await {
-        Ok(response) => return response,
-        Err(method) => method,
+        ControlFlow::Break(response) => return response,
+        ControlFlow::Continue(method) => method,
     };
     dispatch_graph_op(
         state,
