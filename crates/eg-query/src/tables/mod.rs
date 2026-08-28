@@ -12,18 +12,31 @@
 //!   * [`store`] — the durable redb [`TableStore`]: a catalog system table + a
 //!     per-table row store, all writes commit-before-ack at `Durability::Immediate`,
 //!     persisting across restart.
+//!   * [`embedding_binding`] — the SEPARATE, tenant-scoped catalog of semantic
+//!     (embedding) bindings: which text-bearing source is embedded, by which
+//!     digest-pinned model, into which vector column. Kept out of [`index`] on
+//!     that module's own instruction — its kind enum is closed so a vector/ANN
+//!     request cannot silently enter the scalar directory.
 //!   * [`index`] — bounded, schema/version-bound scalar secondary-index catalog
 //!     identities and deterministic equality/range/order key contracts. Vector
 //!     columns remain in the separate ANN path.
 //!   * [`provider`] — Arrow materialization so each user table registers as a
 //!     DataFusion `TableProvider` alongside `nodes`/`edges`.
 
+pub mod embedding_binding;
 pub mod index;
 pub mod migration;
 pub mod provider;
 pub mod schema;
 pub mod store;
 
+pub use embedding_binding::{
+    catalog_key as embedding_binding_catalog_key, decode_binding, default_target_column,
+    encode_binding, is_embeddable, model_digest, prepare_catalog_write, validate_binding,
+    BindingRequest, BindingState, EmbeddingBinding, Maintenance, ModelRef, SourceSelector,
+    StampedVector, TargetVector, EMBEDDING_BINDING_SCHEMA_VERSION, EMBEDDING_TARGET_SUFFIX,
+    MAX_EMBEDDING_BINDINGS_PER_TABLE, MAX_EMBEDDING_DIM,
+};
 pub use index::{
     SecondaryIndexColumn, SecondaryIndexKind, SecondaryIndexLookup, SecondaryIndexOrder,
     SecondaryIndexSpec,
