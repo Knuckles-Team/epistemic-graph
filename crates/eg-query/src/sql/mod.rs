@@ -50,6 +50,12 @@
 mod ann;
 mod catalog;
 mod classify;
+/// `eg_embed(text)` — the server-side text→vector SQL scalar function (design
+/// `plans/semantic-indexing/DESIGN-embedding-bindings.md` §3.1, §9 phase 2). Returns the
+/// `List<Float32>` a `vector(n)` column materializes as, so it drops straight into the
+/// existing pgvector distance operators (`col <=> eg_embed('leaky pump')`) and a
+/// psql/ORM caller never pre-embeds client-side. Fail-closed when unbound.
+mod embed_udf;
 mod exec;
 /// CA-19 (GOC-77 W01-W05, BUG-224) — the `iceberg('namespace.table'[, snapshot_id])`
 /// federated table function over the official apache/iceberg-rust REST-catalog client.
@@ -97,6 +103,11 @@ pub use classify::{
     InsertSelect, InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite,
     StatementKind, TableWhereEq, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
+// Design §9 phase 2 — the `eg_embed(text)` scalar function plus the seam a facade binds
+// the engine's existing `eg_plan::TextEmbedder` through (`eg-query` cannot name that
+// trait directly: `eg-plan` depends on `eg-query`, so the reverse edge is a package
+// cycle — see `embed_udf`'s module doc).
+pub use embed_udf::{bind_text_embedder, eg_embed_udf, eg_embed_udf_with, EmbedFn, EG_EMBED_FN};
 pub use exec::{
     default_spill_rows, exec_sql, exec_sql_arrow, exec_sql_arrow_cancellable, exec_sql_cached,
     exec_sql_over_tables, exec_sql_typed, exec_sql_typed_cancellable, exec_sql_typed_with_tables,
