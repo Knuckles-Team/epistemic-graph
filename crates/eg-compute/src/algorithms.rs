@@ -208,6 +208,116 @@ pub fn degree_centrality_all(core: &GraphView) -> Vec<(String, f64)> {
 /// (Phase C-D). Each source's contribution is computed in parallel; the partials
 /// are then summed back in SOURCE ORDER, so the floating-point result is bit-for-bit
 /// identical to the sequential version (determinism preserved).
+/// Single-source BFS shortest-path counting (the forward pass of Brandes'
+/// algorithm). Split out of `betweenness_centrality`'s `source_contribution`
+/// closure (extract-method, cx/wD8) — same terms, same arithmetic order as
+/// before. Returns the visit order stack, the predecessor DAG, and the
+/// shortest-path counts `sigma`.
+fn bfs_shortest_path_counts(
+    core: &GraphView,
+    nodes: &[NodeIndex],
+    source: NodeIndex,
+) -> (
+    Vec<NodeIndex>,
+    HashMap<NodeIndex, Vec<NodeIndex>>,
+    HashMap<NodeIndex, f64>,
+) {
+    let mut stack = Vec::new();
+    let mut predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+    let mut sigma: HashMap<NodeIndex, f64> = HashMap::new();
+    let mut dist: HashMap<NodeIndex, i64> = HashMap::new();
+
+    for &v in nodes {
+        predecessors.insert(v, Vec::new());
+        sigma.insert(v, 0.0);
+        dist.insert(v, -1);
+    }
+    sigma.insert(source, 1.0);
+    dist.insert(source, 0);
+
+    let mut queue = VecDeque::new();
+    queue.push_back(source);
+
+    while let Some(v) = queue.pop_front() {
+        stack.push(v);
+        let v_dist = dist[&v];
+        bfs_relax_neighbors(
+            core,
+            v,
+            v_dist,
+            &mut queue,
+            &mut dist,
+            &mut sigma,
+            &mut predecessors,
+        );
+    }
+    (stack, predecessors, sigma)
+}
+
+/// Relax `v`'s out-neighbors for one BFS-frontier step. Split out of
+/// `bfs_shortest_path_counts` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before.
+#[allow(clippy::too_many_arguments)]
+fn bfs_relax_neighbors(
+    core: &GraphView,
+    v: NodeIndex,
+    v_dist: i64,
+    queue: &mut VecDeque<NodeIndex>,
+    dist: &mut HashMap<NodeIndex, i64>,
+    sigma: &mut HashMap<NodeIndex, f64>,
+    predecessors: &mut HashMap<NodeIndex, Vec<NodeIndex>>,
+) {
+    for neighbor in core.graph.neighbors(v) {
+        if dist[&neighbor] < 0 {
+            queue.push_back(neighbor);
+            dist.insert(neighbor, v_dist + 1);
+        }
+        if dist[&neighbor] == v_dist + 1 {
+            let sigma_v = sigma[&v];
+            if let Some(s) = sigma.get_mut(&neighbor) {
+                *s += sigma_v;
+            }
+            if let Some(p) = predecessors.get_mut(&neighbor) {
+                p.push(v);
+            }
+        }
+    }
+}
+
+/// Single-source dependency accumulation (the backward pass of Brandes'
+/// algorithm). Split out of `betweenness_centrality`'s `source_contribution`
+/// closure (extract-method, cx/wD8) — same terms, same arithmetic order as
+/// before, including the exact `(sigma[v] / sigma[w]) * (1.0 + delta[w])`
+/// evaluation order.
+fn accumulate_betweenness_dependencies(
+    nodes: &[NodeIndex],
+    mut stack: Vec<NodeIndex>,
+    predecessors: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    sigma: &HashMap<NodeIndex, f64>,
+    source: NodeIndex,
+) -> Vec<(NodeIndex, f64)> {
+    let mut delta: HashMap<NodeIndex, f64> = HashMap::new();
+    for &v in nodes {
+        delta.insert(v, 0.0);
+    }
+
+    let mut contrib = Vec::new();
+    while let Some(w) = stack.pop() {
+        if sigma[&w] > 0.0 {
+            for &v in &predecessors[&w] {
+                let d = (sigma[&v] / sigma[&w]) * (1.0 + delta[&w]);
+                if let Some(dv) = delta.get_mut(&v) {
+                    *dv += d;
+                }
+            }
+        }
+        if w != source && delta[&w] != 0.0 {
+            contrib.push((w, delta[&w]));
+        }
+    }
+    contrib
+}
+
 pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
     use rayon::prelude::*;
 
@@ -216,64 +326,11 @@ pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
 
     // One independent single-source dependency accumulation. Returns (w, delta[w])
     // for every w != source — the partial betweenness this source contributes.
-    let source_contribution = |source: NodeIndex| -> Vec<(NodeIndex, f64)> {
-        let mut stack = Vec::new();
-        let mut predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut sigma: HashMap<NodeIndex, f64> = HashMap::new();
-        let mut dist: HashMap<NodeIndex, i64> = HashMap::new();
-
-        for &v in &nodes {
-            predecessors.insert(v, Vec::new());
-            sigma.insert(v, 0.0);
-            dist.insert(v, -1);
-        }
-        sigma.insert(source, 1.0);
-        dist.insert(source, 0);
-
-        let mut queue = VecDeque::new();
-        queue.push_back(source);
-
-        while let Some(v) = queue.pop_front() {
-            stack.push(v);
-            let v_dist = dist[&v];
-            for neighbor in core.graph.neighbors(v) {
-                if dist[&neighbor] < 0 {
-                    queue.push_back(neighbor);
-                    dist.insert(neighbor, v_dist + 1);
-                }
-                if dist[&neighbor] == v_dist + 1 {
-                    let sigma_v = sigma[&v];
-                    if let Some(s) = sigma.get_mut(&neighbor) {
-                        *s += sigma_v;
-                    }
-                    if let Some(p) = predecessors.get_mut(&neighbor) {
-                        p.push(v);
-                    }
-                }
-            }
-        }
-
-        let mut delta: HashMap<NodeIndex, f64> = HashMap::new();
-        for &v in &nodes {
-            delta.insert(v, 0.0);
-        }
-
-        let mut contrib = Vec::new();
-        while let Some(w) = stack.pop() {
-            if sigma[&w] > 0.0 {
-                for &v in &predecessors[&w] {
-                    let d = (sigma[&v] / sigma[&w]) * (1.0 + delta[&w]);
-                    if let Some(dv) = delta.get_mut(&v) {
-                        *dv += d;
-                    }
-                }
-            }
-            if w != source && delta[&w] != 0.0 {
-                contrib.push((w, delta[&w]));
-            }
-        }
-        contrib
-    };
+    let source_contribution =
+        |source: NodeIndex| -> Vec<(NodeIndex, f64)> {
+            let (stack, predecessors, sigma) = bfs_shortest_path_counts(core, &nodes, source);
+            accumulate_betweenness_dependencies(&nodes, stack, &predecessors, &sigma, source)
+        };
 
     // Compute every source's contribution in parallel; collect preserves source
     // order so the sequential reduction below is order-stable.
@@ -364,6 +421,44 @@ pub fn pagerank(core: &GraphView, damping: f64, iterations: usize) -> Vec<(Strin
 // ── Component / Community Algorithms ─────────────────────────────────────
 
 /// Weakly connected components (treats directed edges as undirected).
+/// BFS-collect the weakly-connected component containing `start`, marking
+/// every visited node in `visited`. Split out of `connected_components`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn collect_weakly_connected_component(
+    core: &GraphView,
+    start: NodeIndex,
+    visited: &mut HashSet<NodeIndex>,
+) -> Vec<String> {
+    let mut component = Vec::new();
+    let mut queue = VecDeque::new();
+    queue.push_back(start);
+    visited.insert(start);
+
+    while let Some(curr) = queue.pop_front() {
+        component.push(core.graph[curr].clone());
+        // Traverse both directions (weakly connected)
+        for edge in core
+            .graph
+            .edges_directed(curr, petgraph::Direction::Outgoing)
+        {
+            let neighbor = edge.target();
+            if visited.insert(neighbor) {
+                queue.push_back(neighbor);
+            }
+        }
+        for edge in core
+            .graph
+            .edges_directed(curr, petgraph::Direction::Incoming)
+        {
+            let neighbor = edge.source();
+            if visited.insert(neighbor) {
+                queue.push_back(neighbor);
+            }
+        }
+    }
+    component
+}
+
 pub fn connected_components(core: &GraphView) -> Vec<Vec<String>> {
     let mut visited: HashSet<NodeIndex> = HashSet::new();
     let mut components: Vec<Vec<String>> = Vec::new();
@@ -372,36 +467,7 @@ pub fn connected_components(core: &GraphView) -> Vec<Vec<String>> {
         if visited.contains(&start) {
             continue;
         }
-
-        let mut component = Vec::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(start);
-        visited.insert(start);
-
-        while let Some(curr) = queue.pop_front() {
-            component.push(core.graph[curr].clone());
-            // Traverse both directions (weakly connected)
-            for edge in core
-                .graph
-                .edges_directed(curr, petgraph::Direction::Outgoing)
-            {
-                let neighbor = edge.target();
-                if visited.insert(neighbor) {
-                    queue.push_back(neighbor);
-                }
-            }
-            for edge in core
-                .graph
-                .edges_directed(curr, petgraph::Direction::Incoming)
-            {
-                let neighbor = edge.source();
-                if visited.insert(neighbor) {
-                    queue.push_back(neighbor);
-                }
-            }
-        }
-
-        components.push(component);
+        components.push(collect_weakly_connected_component(core, start, &mut visited));
     }
 
     components
@@ -682,13 +748,18 @@ fn top_types(counts: &HashMap<String, usize>, limit: usize) -> Vec<(String, usiz
 /// moving never improves) still gets a level 1 — synthesized as one singleton
 /// cluster per node — so `ClusterHierarchyClusters`/`Expand` always have
 /// something to serve rather than erroring on a small graph.
-pub fn cluster_hierarchy(
+/// Project the filtered node id list + directed adjacency over dense indices.
+/// Split out of `cluster_hierarchy` step 1 (extract-method, cx/wD8) — same
+/// terms, same order as before.
+fn project_cluster_graph(
     view: &GraphView,
     label: Option<&str>,
-    resolution: f64,
-    seed: u64,
-) -> ClusterHierarchyResult {
-    // 1) Project: filtered node id list + directed adjacency over dense indices.
+) -> (
+    Vec<String>,
+    Vec<String>,
+    crate::graph_algos::AdjacencyGraph<usize>,
+    usize,
+) {
     let mut ids: Vec<String> = view.node_map.keys().cloned().collect();
     if let Some(want) = label {
         ids.retain(|id| {
@@ -721,11 +792,93 @@ pub fn cluster_hierarchy(
             base_edge_count += 1;
         }
     }
-    let base_node_count = ids.len();
     let graph: crate::graph_algos::AdjacencyGraph<usize> =
-        crate::graph_algos::AdjacencyGraph::from_adjacency(
-            adjacency.into_iter().enumerate(),
-        );
+        crate::graph_algos::AdjacencyGraph::from_adjacency(adjacency.into_iter().enumerate());
+    (ids, node_types, graph, base_edge_count)
+}
+
+/// Build one cluster-hierarchy level's result + this level's node->cluster
+/// membership. Split out of `cluster_hierarchy`'s per-level loop body
+/// (extract-method, cx/wD8) — same terms, same arithmetic order as before
+/// (the `internal_weight`/`inter` accumulation loop is untouched).
+#[allow(clippy::too_many_arguments)]
+fn build_cluster_level(
+    level: usize,
+    communities: &[Vec<usize>],
+    parent: &[Option<usize>],
+    graph: &crate::graph_algos::AdjacencyGraph<usize>,
+    node_types: &[String],
+    base_node_count: usize,
+) -> (ClusterLevelResult, Vec<u32>) {
+    // Local orig_idx -> this-level-cluster-local-idx, for the O(E) edge pass.
+    let mut membership: Vec<u32> = vec![0u32; base_node_count];
+    for (c, members) in communities.iter().enumerate() {
+        for &m in members {
+            membership[m] = c as u32;
+        }
+    }
+
+    let mut internal_weight = vec![0.0f64; communities.len()];
+    let mut inter: HashMap<(u32, u32), f64> = HashMap::new();
+    for i in 0..base_node_count {
+        let ci = membership[i];
+        for &(j, w) in graph.out_edges(i) {
+            let cj = membership[j];
+            if ci == cj {
+                internal_weight[ci as usize] += w;
+            } else {
+                *inter.entry((ci, cj)).or_insert(0.0) += w;
+            }
+        }
+    }
+    let mut inter_cluster_edges: Vec<(u32, u32, f64)> =
+        inter.into_iter().map(|((s, d), w)| (s, d, w)).collect();
+    inter_cluster_edges.sort_unstable_by_key(|&(s, d, _)| (s, d));
+
+    let clusters: Vec<ClusterMeta> = communities
+        .iter()
+        .enumerate()
+        .map(|(c, members)| {
+            let mut type_counts: HashMap<String, usize> = HashMap::new();
+            for &m in members {
+                *type_counts.entry(node_types[m].clone()).or_insert(0) += 1;
+            }
+            let top = top_types(&type_counts, 5);
+            let id = format_cluster_id(level, c);
+            let label = top
+                .first()
+                .map(|(t, _)| format!("{t} cluster ({c})"))
+                .unwrap_or_else(|| id.clone());
+            ClusterMeta {
+                id,
+                label,
+                node_count: members.len(),
+                edge_count: internal_weight[c],
+                parent_id: parent[c].map(|p| format_cluster_id(level + 1, p)),
+                top_node_types: top,
+            }
+        })
+        .collect();
+
+    (
+        ClusterLevelResult {
+            level,
+            clusters,
+            inter_cluster_edges,
+        },
+        membership,
+    )
+}
+
+pub fn cluster_hierarchy(
+    view: &GraphView,
+    label: Option<&str>,
+    resolution: f64,
+    seed: u64,
+) -> ClusterHierarchyResult {
+    // 1) Project: filtered node id list + directed adjacency over dense indices.
+    let (ids, node_types, graph, base_edge_count) = project_cluster_graph(view, label);
+    let base_node_count = ids.len();
 
     // 2) Cluster: the tested, connectivity-guaranteeing hierarchical kernel.
     let cfg = crate::graph_algos::LeidenConfig {
@@ -759,13 +912,14 @@ pub fn cluster_hierarchy(
                 )
             };
 
-        // Local orig_idx -> this-level-cluster-local-idx, for the O(E) edge pass.
-        let mut membership: Vec<u32> = vec![0u32; base_node_count];
-        for (c, members) in communities.iter().enumerate() {
-            for &m in members {
-                membership[m] = c as u32;
-            }
-        }
+        let (level_result, membership) = build_cluster_level(
+            level,
+            &communities,
+            &parent,
+            &graph,
+            &node_types,
+            base_node_count,
+        );
         if level == 1 {
             leaf_membership = ids
                 .iter()
@@ -773,54 +927,7 @@ pub fn cluster_hierarchy(
                 .map(|(i, id)| (id.clone(), membership[i]))
                 .collect();
         }
-
-        let mut internal_weight = vec![0.0f64; communities.len()];
-        let mut inter: HashMap<(u32, u32), f64> = HashMap::new();
-        for i in 0..base_node_count {
-            let ci = membership[i];
-            for &(j, w) in graph.out_edges(i) {
-                let cj = membership[j];
-                if ci == cj {
-                    internal_weight[ci as usize] += w;
-                } else {
-                    *inter.entry((ci, cj)).or_insert(0.0) += w;
-                }
-            }
-        }
-        let mut inter_cluster_edges: Vec<(u32, u32, f64)> =
-            inter.into_iter().map(|((s, d), w)| (s, d, w)).collect();
-        inter_cluster_edges.sort_unstable_by_key(|&(s, d, _)| (s, d));
-
-        let clusters: Vec<ClusterMeta> = communities
-            .iter()
-            .enumerate()
-            .map(|(c, members)| {
-                let mut type_counts: HashMap<String, usize> = HashMap::new();
-                for &m in members {
-                    *type_counts.entry(node_types[m].clone()).or_insert(0) += 1;
-                }
-                let top = top_types(&type_counts, 5);
-                let id = format_cluster_id(level, c);
-                let label = top
-                    .first()
-                    .map(|(t, _)| format!("{t} cluster ({c})"))
-                    .unwrap_or_else(|| id.clone());
-                ClusterMeta {
-                    id,
-                    label,
-                    node_count: members.len(),
-                    edge_count: internal_weight[c],
-                    parent_id: parent[c].map(|p| format_cluster_id(level + 1, p)),
-                    top_node_types: top,
-                }
-            })
-            .collect();
-
-        levels.push(ClusterLevelResult {
-            level,
-            clusters,
-            inter_cluster_edges,
-        });
+        levels.push(level_result);
     }
 
     ClusterHierarchyResult {
@@ -1096,6 +1203,61 @@ pub fn compute_exponential_decay(values: &[f64], alpha: f64) -> Vec<f64> {
 }
 
 /// Order book matching simulation.
+/// Match a buy order against the resting ask book. Split out of
+/// `simulate_order_matching` (extract-method, cx/wD8) — same terms, same
+/// fill-volume arithmetic order (`remaining_vol.min(ask.1)` then subtract
+/// from both sides) as before.
+fn match_order_against_asks(
+    ask_book: &mut [(f64, f64)],
+    order_id: &str,
+    price: f64,
+    mut remaining_vol: f64,
+) -> Vec<HashMap<String, String>> {
+    let mut matches = Vec::new();
+    for ask in ask_book {
+        let ask_price = ask.0;
+        if ask_price <= price && remaining_vol > 0.0 && ask.1 > 0.0 {
+            let fill_vol = remaining_vol.min(ask.1);
+            remaining_vol -= fill_vol;
+            ask.1 -= fill_vol;
+
+            let mut m = HashMap::new();
+            m.insert("order_id".to_string(), order_id.to_string());
+            m.insert("match_price".to_string(), ask_price.to_string());
+            m.insert("match_volume".to_string(), fill_vol.to_string());
+            matches.push(m);
+        }
+    }
+    matches
+}
+
+/// Match a sell order against the resting bid book. Split out of
+/// `simulate_order_matching` (extract-method, cx/wD8) — same terms, same
+/// fill-volume arithmetic order as before.
+fn match_order_against_bids(
+    bid_book: &mut [(f64, f64)],
+    order_id: &str,
+    price: f64,
+    mut remaining_vol: f64,
+) -> Vec<HashMap<String, String>> {
+    let mut matches = Vec::new();
+    for bid in bid_book {
+        let bid_price = bid.0;
+        if bid_price >= price && remaining_vol > 0.0 && bid.1 > 0.0 {
+            let fill_vol = remaining_vol.min(bid.1);
+            remaining_vol -= fill_vol;
+            bid.1 -= fill_vol;
+
+            let mut m = HashMap::new();
+            m.insert("order_id".to_string(), order_id.to_string());
+            m.insert("match_price".to_string(), bid_price.to_string());
+            m.insert("match_volume".to_string(), fill_vol.to_string());
+            matches.push(m);
+        }
+    }
+    matches
+}
+
 pub fn simulate_order_matching(
     bids: Vec<(f64, f64)>,
     asks: Vec<(f64, f64)>,
@@ -1109,38 +1271,20 @@ pub fn simulate_order_matching(
     ask_book.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
     for (order_id, side, price, volume) in orders {
-        let mut remaining_vol = volume;
-
         if side.to_lowercase() == "buy" {
-            for ask in &mut ask_book {
-                let ask_price = ask.0;
-                if ask_price <= price && remaining_vol > 0.0 && ask.1 > 0.0 {
-                    let fill_vol = remaining_vol.min(ask.1);
-                    remaining_vol -= fill_vol;
-                    ask.1 -= fill_vol;
-
-                    let mut m = HashMap::new();
-                    m.insert("order_id".to_string(), order_id.clone());
-                    m.insert("match_price".to_string(), ask_price.to_string());
-                    m.insert("match_volume".to_string(), fill_vol.to_string());
-                    matches.push(m);
-                }
-            }
+            matches.extend(match_order_against_asks(
+                &mut ask_book,
+                &order_id,
+                price,
+                volume,
+            ));
         } else {
-            for bid in &mut bid_book {
-                let bid_price = bid.0;
-                if bid_price >= price && remaining_vol > 0.0 && bid.1 > 0.0 {
-                    let fill_vol = remaining_vol.min(bid.1);
-                    remaining_vol -= fill_vol;
-                    bid.1 -= fill_vol;
-
-                    let mut m = HashMap::new();
-                    m.insert("order_id".to_string(), order_id.clone());
-                    m.insert("match_price".to_string(), bid_price.to_string());
-                    m.insert("match_volume".to_string(), fill_vol.to_string());
-                    matches.push(m);
-                }
-            }
+            matches.extend(match_order_against_bids(
+                &mut bid_book,
+                &order_id,
+                price,
+                volume,
+            ));
         }
     }
 
