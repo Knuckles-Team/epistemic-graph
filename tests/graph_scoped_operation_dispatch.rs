@@ -1,13 +1,17 @@
-//! CX-EG-06 characterization tests for `dispatch_graph_op_inner`
-//! (`src/server/dispatch.rs`, CCN 152 as measured by the repo's lizard-based
-//! complexity gate before this lane's refactor).
+//! Characterization tests for `dispatch_graph_op_inner`
+//! (`src/server/dispatch.rs`) — the routing point for every `Method` that
+//! operates within an already-identified graph: the graph-not-found guard,
+//! the terminal `graph_ops` path (AddNode/GetEdges/AddEdge), the SQL/Cypher
+//! query gateway, native audit-chain verification, the time-series surface
+//! when no `tsdb_store` is configured, access control before graph-op
+//! dispatch, and the metrics/`mark_dirty()` tail.
 //!
 //! `dispatch_graph_op_inner` is private to `dispatch.rs`, so it is exercised
 //! black-box through the real served `dispatch` surface (which routes every
 //! graph-scoped `Method` through `dispatch_graph_op` -> `dispatch_graph_op_inner`),
 //! exactly the pattern used by
-//! `tests/characterization_cx_eg_05_apply_mutation_batch_in_wtx.rs` and
-//! `tests/characterization_cx_eg_06_dispatch_inner.rs` (see either file's doc
+//! `tests/mutation_batch_commit_lifecycle.rs` and
+//! `tests/protocol_method_routing.rs` (see either file's doc
 //! comment for why this lives directly under `tests/` rather than
 //! `tests/characterization/`).
 //!

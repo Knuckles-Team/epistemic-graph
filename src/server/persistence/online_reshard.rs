@@ -2916,15 +2916,17 @@ pub(crate) fn export_graph_raw(db: &Database, graph: &str) -> Result<RawGraphRow
         }
     }
 
-    populate_wd5_bug04_rows_for_graph(&rtx, graph, &mut out)?;
+    populate_orchestration_extension_rows_for_graph(&rtx, graph, &mut out)?;
 
     Ok(out)
 }
 
-/// Populate the WD5-BUG-04 fields (RESOURCE_*, development_lane_*, capacity_lease_*,
-/// provenance_anchor_members, work_item_command_sequence) of `out` for ONE graph.
+/// Populate the orchestration-extension fields (RESOURCE_*, development_lane_*,
+/// capacity_lease_*, provenance_anchor_members, work_item_command_sequence) of
+/// `out` for ONE graph — the reshard-completeness fields that live alongside
+/// the core node/edge/mutation/change tables handled elsewhere in this module.
 /// Split out of `export_graph_raw` so that function's own complexity does not grow.
-fn populate_wd5_bug04_rows_for_graph(
+fn populate_orchestration_extension_rows_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
     out: &mut RawGraphRows,
@@ -2940,10 +2942,12 @@ fn populate_wd5_bug04_rows_for_graph(
     Ok(())
 }
 
-/// Replace, don't merely upsert, every WD5-BUG-04 table for ONE graph inside the
-/// caller's already-open write transaction — same contract as `import_mutation_rows`/
+/// Replace, don't merely upsert, every orchestration-extension table (resource
+/// reservations, development lanes, capacity leases, provenance-anchor
+/// members, work-item command sequence) for ONE graph inside the caller's
+/// already-open write transaction — same contract as `import_mutation_rows`/
 /// `import_change_rows`. Split out of `import_graph_raw` for the same reason.
-fn import_wd5_bug04_rows(
+fn import_orchestration_extension_rows(
     wtx: &redb::WriteTransaction,
     graph: &str,
     rows: &RawGraphRows,
@@ -3046,7 +3050,7 @@ pub(crate) fn import_graph_raw(
         }
         import_mutation_rows(&wtx, graph, &rows.mutation)?;
         import_change_rows(&wtx, graph, &rows.change)?;
-        import_wd5_bug04_rows(&wtx, graph, rows)?;
+        import_orchestration_extension_rows(&wtx, graph, rows)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())

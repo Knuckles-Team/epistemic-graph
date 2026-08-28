@@ -1,10 +1,17 @@
-//! CX-EG-06 characterization tests for `dispatch_inner`
-//! (`src/server/dispatch.rs`, CCN 188 as measured by the repo's lizard-based
-//! complexity gate before this lane's refactor).
+//! Characterization tests for `dispatch_inner` (`src/server/dispatch.rs`) —
+//! the top-level protocol `Method` router: service-level commands
+//! (Ping/Health/Shutdown), graph lifecycle (CreateGraph/DeleteGraph/
+//! ListGraphs, including nonce-replay rejection and duplicate-name
+//! handling), identity (GetIdentity/RegisterIdentity), channels
+//! (create/join/send/list/leave, spoofed-sender denial),
+//! ApplyChangeEnvelopes, MultiGraphBatchUpdate, the txn family
+//! (Begin/Add/Commit/Rollback), the auth gate ahead of the whole match, and
+//! the wildcard fallthrough into `dispatch_graph_op` /
+//! `dispatch_graph_op_inner`.
 //!
 //! `dispatch_inner` is private to `dispatch.rs`, so it is exercised
 //! black-box through the real served `dispatch` surface, exactly the
-//! pattern used by `tests/characterization_cx_eg_05_apply_mutation_batch_in_wtx.rs`
+//! pattern used by `tests/mutation_batch_commit_lifecycle.rs`
 //! (see that file's doc comment for why this lives directly under `tests/`
 //! rather than `tests/characterization/`).
 //!
