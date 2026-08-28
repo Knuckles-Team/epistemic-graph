@@ -12465,6 +12465,107 @@ pub fn exact_performance_probe_edge_ordinal(
 }
 
 /// Apply a decoded `BatchUpdate` op-list as row writes.
+/// `BatchOperation::AddNode`.  An upsert merges over the durable pre-image
+/// first; a plain add replaces the row outright.
+fn apply_batch_add_node_row(
+    graph: &str,
+    index: usize,
+    id: &str,
+    mut properties_msgpack: Vec<u8>,
+    upsert: bool,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if upsert {
+        let current = nodes
+            .get((graph, id))
+            .map_err(|error| error.to_string())?
+            .map(|stored| crypto.unseal(stored.value()))
+            .transpose()?;
+        if let Some(current) = current {
+            properties_msgpack =
+                crate::algorithms::merge_batch_node_properties(&current, &properties_msgpack)
+                    .map_err(|reason| {
+                        format!("BatchUpdate op[{index}] cannot upsert node '{id}': {reason}")
+                    })?;
+        }
+    }
+    let sealed = crypto.seal(&properties_msgpack);
+    nodes
+        .insert((graph, id), sealed.as_ref())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// `BatchOperation::AddEdge`.  Both endpoints must exist at this point in the
+/// batch; an upsert first drops the existing pair.
+#[allow(clippy::too_many_arguments)]
+fn apply_batch_add_edge_row(
+    graph: &str,
+    index: usize,
+    source: &str,
+    target: &str,
+    properties_msgpack: &[u8],
+    upsert: bool,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let source_exists = nodes
+        .get((graph, source))
+        .map_err(|error| error.to_string())?
+        .is_some();
+    let target_exists = nodes
+        .get((graph, target))
+        .map_err(|error| error.to_string())?
+        .is_some();
+    if !source_exists || !target_exists {
+        return Err(format!(
+            "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
+        ));
+    }
+    if upsert {
+        remove_durable_edge_pair(graph, source, target, edges)?;
+    }
+    let ordinal = next_edge_ordinal(edges, graph, source, target)?;
+    let sealed = crypto.seal(properties_msgpack);
+    edges
+        .insert((graph, source, target, ordinal), sealed.as_ref())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// `BatchOperation::AddEmbedding`.
+///
+/// CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): `semantic_store` is
+/// a scratch decode written back durably ONLY after the whole batch loop returns
+/// `Ok` (`if semantic_dirty { write_semantic_store(...) }` in the caller), and
+/// that caller's caller drops the enclosing `WriteTransaction` without
+/// committing on any `Err` -- so, exactly like the "node does not exist" check
+/// here, a rejected write never partially lands durably.
+fn apply_batch_add_embedding_row(
+    graph: &str,
+    index: usize,
+    id: String,
+    embedding: Vec<f32>,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    semantic_store: &mut crate::compute::semantic::SemanticStore,
+) -> Result<(), String> {
+    if nodes
+        .get((graph, id.as_str()))
+        .map_err(|error| error.to_string())?
+        .is_none()
+    {
+        return Err(format!(
+            "BatchUpdate op[{index}] embedding node '{id}' does not exist"
+        ));
+    }
+    semantic_store
+        .add_embedding(id, embedding)
+        .map_err(|error| format!("BatchUpdate op[{index}] {error}"))?;
+    Ok(())
+}
+
 fn apply_batch_rows(
     graph: &str,
     operations_msgpack: &[u8],
@@ -12498,29 +12599,18 @@ fn apply_batch_rows(
         match operation {
             BatchOperation::AddNode {
                 id,
-                mut properties_msgpack,
+                properties_msgpack,
                 upsert,
             } => {
-                if upsert {
-                    let current = nodes
-                        .get((graph, id.as_str()))
-                        .map_err(|error| error.to_string())?
-                        .map(|stored| crypto.unseal(stored.value()))
-                        .transpose()?;
-                    if let Some(current) = current {
-                        properties_msgpack = crate::algorithms::merge_batch_node_properties(
-                            &current,
-                            &properties_msgpack,
-                        )
-                        .map_err(|reason| {
-                            format!("BatchUpdate op[{index}] cannot upsert node '{id}': {reason}")
-                        })?;
-                    }
-                }
-                let sealed = crypto.seal(&properties_msgpack);
-                nodes
-                    .insert((graph, id.as_str()), sealed.as_ref())
-                    .map_err(|error| error.to_string())?;
+                apply_batch_add_node_row(
+                    graph,
+                    index,
+                    id.as_str(),
+                    properties_msgpack,
+                    upsert,
+                    nodes,
+                    crypto,
+                )?;
             }
             BatchOperation::RemoveNode { id } => {
                 remove_durable_node_rows(graph, &id, nodes, edges)?;
@@ -12532,54 +12622,30 @@ fn apply_batch_rows(
                 properties_msgpack,
                 upsert,
             } => {
-                let source_exists = nodes
-                    .get((graph, source.as_str()))
-                    .map_err(|error| error.to_string())?
-                    .is_some();
-                let target_exists = nodes
-                    .get((graph, target.as_str()))
-                    .map_err(|error| error.to_string())?
-                    .is_some();
-                if !source_exists || !target_exists {
-                    return Err(format!(
-                        "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
-                    ));
-                }
-                if upsert {
-                    remove_durable_edge_pair(graph, &source, &target, edges)?;
-                }
-                let ordinal = next_edge_ordinal(edges, graph, &source, &target)?;
-                let sealed = crypto.seal(&properties_msgpack);
-                edges
-                    .insert(
-                        (graph, source.as_str(), target.as_str(), ordinal),
-                        sealed.as_ref(),
-                    )
-                    .map_err(|error| error.to_string())?;
+                apply_batch_add_edge_row(
+                    graph,
+                    index,
+                    source.as_str(),
+                    target.as_str(),
+                    &properties_msgpack,
+                    upsert,
+                    nodes,
+                    edges,
+                    crypto,
+                )?;
             }
             BatchOperation::RemoveEdge { source, target } => {
                 remove_durable_edge_pair(graph, &source, &target, edges)?;
             }
             BatchOperation::AddEmbedding { id, embedding } => {
-                if nodes
-                    .get((graph, id.as_str()))
-                    .map_err(|error| error.to_string())?
-                    .is_none()
-                {
-                    return Err(format!(
-                        "BatchUpdate op[{index}] embedding node '{id}' does not exist"
-                    ));
-                }
-                // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): `semantic_store` is a scratch
-                // decode written back durably ONLY after this whole loop returns
-                // `Ok` (`if semantic_dirty { write_semantic_store(...) }` below), and
-                // this function's caller drops the enclosing `WriteTransaction`
-                // without committing on any `Err` — so, exactly like the existing
-                // "node does not exist" check two lines up, a rejected write here
-                // never partially lands durably.
-                semantic_store
-                    .add_embedding(id, embedding)
-                    .map_err(|error| format!("BatchUpdate op[{index}] {error}"))?;
+                apply_batch_add_embedding_row(
+                    graph,
+                    index,
+                    id,
+                    embedding,
+                    nodes,
+                    &mut semantic_store,
+                )?;
                 semantic_dirty = true;
             }
         }
