@@ -9255,10 +9255,12 @@ struct ServedModalityCtx<'a> {
 
 #[cfg(feature = "modality-serving")]
 async fn dispatch_op_served_modality(ctx: ServedModalityCtx<'_>, method: Method) -> Response {
+    #[cfg(feature = "raft")]
     let state = ctx.state;
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
     let caller = ctx.caller;
+    #[cfg(feature = "raft")]
     let verified_context = ctx.verified_context;
     let tenant_scope = ctx.tenant_scope;
     let gateway_authz_ctx = ctx.gateway_authz_ctx;
@@ -9433,7 +9435,7 @@ async fn dispatch_op_raft_write_routing_barrier(
 
 async fn check_change_envelope_placement_fence(
     req_id: u64,
-    graph_name: &str,
+    #[cfg(feature = "raft")] graph_name: &str,
     envelope: &eg_types::change_envelope::ChangeEnvelope,
     #[cfg(feature = "raft")] routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
 ) -> Result<(), Response> {
@@ -9597,6 +9599,7 @@ async fn dispatch_change_env_apply_change_envelope(
     ctx: ApplyChangeEnvelopeCtx<'_>,
     method: Method,
 ) -> Response {
+    #[cfg(feature = "raft")]
     let state = ctx.state;
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
@@ -9606,11 +9609,13 @@ async fn dispatch_change_env_apply_change_envelope(
     let routed_raft = ctx.routed_raft;
     #[cfg(feature = "raft")]
     let graph_type = ctx.graph_type;
+    #[cfg(feature = "raft")]
     let tenant_scope = ctx.tenant_scope;
     match method {
         Method::ApplyChangeEnvelope { envelope } => {
             if let Err(resp) = check_change_envelope_placement_fence(
                 req_id,
+                #[cfg(feature = "raft")]
                 graph_name,
                 &envelope,
                 #[cfg(feature = "raft")]
