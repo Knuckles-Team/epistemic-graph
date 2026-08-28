@@ -1473,10 +1473,70 @@ fn edge_props_match(
     true
 }
 
+/// The per-BFS invariants [`bfs_expand_node`] needs, held once for the whole walk
+/// instead of re-passed as separate params.
+struct BfsCtx<'a> {
+    view: &'a GraphView,
+    edge: &'a EdgePat,
+    min: usize,
+    src_idx: petgraph::stable_graph::NodeIndex,
+}
+
+/// The BFS's mutable accumulators, bundled so [`bfs_expand_node`] takes one `&mut`
+/// param instead of three.
+#[derive(Default)]
+struct BfsAccum {
+    visited: HashSet<petgraph::stable_graph::NodeIndex>,
+    reached: HashSet<String>,
+    out: Vec<String>,
+}
+
+/// Expand one frontier node across both configured directions at this depth,
+/// pushing newly-visited neighbours onto `next` and (once `depth >= min`, and
+/// excluding `src` itself — see [`bfs_reachable`]'s doc on the undirected-hop
+/// self-revisit) newly-reached ids onto `accum.out`.
+fn bfs_expand_node(
+    ctx: &BfsCtx<'_>,
+    node: petgraph::stable_graph::NodeIndex,
+    dirs: &[petgraph::Direction],
+    depth: usize,
+    accum: &mut BfsAccum,
+    next: &mut Vec<petgraph::stable_graph::NodeIndex>,
+) {
+    for &dir in dirs {
+        for e in ctx.view.graph.edges_directed(node, dir) {
+            let nbr = match dir {
+                petgraph::Direction::Outgoing => e.target(),
+                petgraph::Direction::Incoming => e.source(),
+            };
+            let from_id = &ctx.view.graph[e.source()];
+            let to_id = &ctx.view.graph[e.target()];
+            if !rel_matches(ctx.view, from_id, to_id, ctx.edge.rel_type.as_deref()) {
+                continue;
+            }
+            if accum.visited.insert(nbr) {
+                next.push(nbr);
+            }
+            if depth >= ctx.min && nbr != ctx.src_idx {
+                let nbr_id = ctx.view.graph[nbr].clone();
+                if accum.reached.insert(nbr_id.clone()) {
+                    accum.out.push(nbr_id);
+                }
+            }
+        }
+    }
+}
+
 /// BFS from `src` over REL-typed edges in `edge.direction`, returning every node
 /// id reached at a hop-depth within `[min,max]` (depth ≥ 1). Each target appears
 /// once (the shallowest depth that reaches it). `edge.direction == Both` walks
 /// edges in either direction at every hop (CONCEPT:EG-KG.query.undirected-relationship-pattern).
+///
+/// Excludes the START node itself from the result: a directed acyclic hop
+/// essentially never revisits `src`, but an undirected hop trivially does at
+/// depth 2 (src -> nbr -> src, walking the SAME edge back) — without that guard
+/// (in [`bfs_expand_node`]) the source would incorrectly appear as one of its own
+/// var-length results.
 fn bfs_reachable(
     view: &GraphView,
     src: &str,
@@ -1487,51 +1547,28 @@ fn bfs_reachable(
     let Some(&src_idx) = view.node_map.get(src) else {
         return Vec::new();
     };
-    let mut reached: HashSet<String> = HashSet::new();
-    let mut out: Vec<String> = Vec::new();
+    let ctx = BfsCtx {
+        view,
+        edge,
+        min,
+        src_idx,
+    };
+    let mut accum = BfsAccum::default();
+    accum.visited.insert(src_idx);
     let mut frontier: Vec<petgraph::stable_graph::NodeIndex> = vec![src_idx];
-    let mut visited: HashSet<petgraph::stable_graph::NodeIndex> = HashSet::new();
-    visited.insert(src_idx);
     let dirs = petgraph_directions(edge.direction);
 
     for depth in 1..=max {
         let mut next: Vec<petgraph::stable_graph::NodeIndex> = Vec::new();
         for &node in &frontier {
-            for &dir in dirs {
-                for e in view.graph.edges_directed(node, dir) {
-                    let nbr = match dir {
-                        petgraph::Direction::Outgoing => e.target(),
-                        petgraph::Direction::Incoming => e.source(),
-                    };
-                    let from_id = &view.graph[e.source()];
-                    let to_id = &view.graph[e.target()];
-                    if !rel_matches(view, from_id, to_id, edge.rel_type.as_deref()) {
-                        continue;
-                    }
-                    if visited.insert(nbr) {
-                        next.push(nbr);
-                    }
-                    // Exclude the START node itself from `reached`: a directed
-                    // acyclic hop essentially never revisits `src`, but an
-                    // undirected hop (CONCEPT:EG-KG.query.undirected-relationship-pattern) trivially
-                    // does at depth 2 (src -> nbr -> src, walking the SAME edge
-                    // back) — without this guard the source would incorrectly
-                    // appear as one of its own var-length results.
-                    if depth >= min && nbr != src_idx {
-                        let nbr_id = view.graph[nbr].clone();
-                        if reached.insert(nbr_id.clone()) {
-                            out.push(nbr_id);
-                        }
-                    }
-                }
-            }
+            bfs_expand_node(&ctx, node, dirs, depth, &mut accum, &mut next);
         }
         if next.is_empty() {
             break;
         }
         frontier = next;
     }
-    out
+    accum.out
 }
 
 /// Resolve which of `(a→b)` / `(b→a)` is the REAL stored edge direction for a
