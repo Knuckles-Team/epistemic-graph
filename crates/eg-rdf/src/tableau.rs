@@ -422,25 +422,24 @@ const OWL_SYMMETRIC_MARKER: &str = "http://www.w3.org/2002/07/owl#SymmetricPrope
 /// apply [`Dl::nnf`]). Handles named classes, `owl:Thing`/`owl:Nothing`, intersections,
 /// unions, complements, `oneOf` nominals, and every `owl:Restriction` shape (`some`/
 /// `all`/`hasValue` + un/qualified `min`/`max`/exact cardinality).
-fn parse_dl(idx: &TripleIndex, id: &str) -> Option<Dl> {
-    // Builtins.
-    if id == iri(OWL_THING) {
-        return Some(Dl::Top);
-    }
-    if id == iri(OWL_NOTHING) {
-        return Some(Dl::Bottom);
-    }
-    // Boolean combinators.
+/// Try each boolean-combinator shape (`intersectionOf`/`unionOf`/
+/// `complementOf`/`oneOf`) for `id`. Split out of `parse_dl`
+/// (extract-method, cx/wD8) — same terms, same order as before. `Some(_)`
+/// means `id` matched one of these shapes (the inner `Option<Dl>` may still
+/// be `None` on a malformed sub-expression, exactly as the original early
+/// `return`s propagated a `?` failure); `None` means none matched and
+/// parsing should continue to the next category.
+fn try_parse_dl_boolean_combinator(idx: &TripleIndex, id: &str) -> Option<Option<Dl>> {
     if let Some(head) = idx.first_object(id, OWL_INTERSECTION_OF) {
-        let cs = parse_list_concepts(idx, head)?;
-        return Some(Dl::And(cs));
+        let cs = parse_list_concepts(idx, head);
+        return Some(cs.map(Dl::And));
     }
     if let Some(head) = idx.first_object(id, OWL_UNION_OF) {
-        let cs = parse_list_concepts(idx, head)?;
-        return Some(Dl::Or(cs));
+        let cs = parse_list_concepts(idx, head);
+        return Some(cs.map(Dl::Or));
     }
     if let Some(inner) = idx.first_object(id, OWL_COMPLEMENT_OF) {
-        return Some(Dl::Not(Box::new(parse_dl(idx, &term_key(inner))?)));
+        return Some(parse_dl(idx, &term_key(inner)).map(|c| Dl::Not(Box::new(c))));
     }
     if let Some(head) = idx.first_object(id, OWL_ONE_OF) {
         // {a₁, …, aₙ}  ≡  {a₁} ⊔ … ⊔ {aₙ}.
@@ -449,72 +448,98 @@ fn parse_dl(idx: &TripleIndex, id: &str) -> Option<Dl> {
             .map(|t| Dl::Nominal(term_key(t)))
             .collect();
         if members.len() == 1 {
-            return Some(members.into_iter().next().unwrap());
+            return Some(Some(members.into_iter().next().unwrap()));
         }
-        return Some(Dl::Or(members));
+        return Some(Some(Dl::Or(members)));
     }
-    // Restrictions.
-    if let Some(on_prop) = idx.first_object(id, OWL_ON_PROPERTY) {
-        let role = term_key(on_prop);
-        if let Some(filler) = idx.first_object(id, OWL_SOME_VALUES_FROM) {
-            return Some(Dl::Some(role, Box::new(parse_dl(idx, &term_key(filler))?)));
-        }
-        if let Some(filler) = idx.first_object(id, OWL_ALL_VALUES_FROM) {
-            return Some(Dl::All(role, Box::new(parse_dl(idx, &term_key(filler))?)));
-        }
-        if let Some(val) = idx.first_object(id, OWL_HAS_VALUE) {
-            // ∃r.{a}: the value is a nominal filler.
-            return Some(Dl::Some(role, Box::new(Dl::Nominal(term_key(val)))));
-        }
-        // Qualified cardinalities (need an onClass filler).
-        let on_class = idx
-            .first_object(id, OWL_ON_CLASS)
-            .and_then(|c| parse_dl(idx, &term_key(c)))
-            .unwrap_or(Dl::Top);
-        if let Some(n) = idx
-            .first_object(id, OWL_MIN_QUALIFIED_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::Min(n, role, Box::new(on_class)));
-        }
-        if let Some(n) = idx
-            .first_object(id, OWL_MAX_QUALIFIED_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::Max(n, role, Box::new(on_class)));
-        }
-        if let Some(n) = idx
-            .first_object(id, OWL_QUALIFIED_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::And(vec![
-                Dl::Min(n, role.clone(), Box::new(on_class.clone())),
-                Dl::Max(n, role, Box::new(on_class)),
-            ]));
-        }
-        // Unqualified cardinalities (filler ⊤).
-        if let Some(n) = idx
-            .first_object(id, OWL_MIN_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::Min(n, role, Box::new(Dl::Top)));
-        }
-        if let Some(n) = idx
-            .first_object(id, OWL_MAX_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::Max(n, role, Box::new(Dl::Top)));
-        }
-        if let Some(n) = idx
-            .first_object(id, OWL_CARDINALITY)
-            .and_then(literal_usize)
-        {
-            return Some(Dl::And(vec![
-                Dl::Min(n, role.clone(), Box::new(Dl::Top)),
-                Dl::Max(n, role, Box::new(Dl::Top)),
-            ]));
-        }
-        return None;
+    None
+}
+
+/// Try the `owl:Restriction` shapes (`some`/`all`/`hasValue` + un/qualified
+/// `min`/`max`/exact cardinality) for `id`. Split out of `parse_dl`
+/// (extract-method, cx/wD8) — same terms, same order as before. Same
+/// `Some(_)`/`None` convention as [`try_parse_dl_boolean_combinator`]: `None`
+/// means `id` has no `owl:onProperty` (not a restriction at all), `Some(_)`
+/// means it does — and once it does, the original always returned from
+/// inside this block (down to the explicit `return None` at the end for an
+/// unrecognized restriction shape).
+fn try_parse_dl_restriction(idx: &TripleIndex, id: &str) -> Option<Option<Dl>> {
+    let on_prop = idx.first_object(id, OWL_ON_PROPERTY)?;
+    let role = term_key(on_prop);
+    if let Some(filler) = idx.first_object(id, OWL_SOME_VALUES_FROM) {
+        return Some(parse_dl(idx, &term_key(filler)).map(|c| Dl::Some(role, Box::new(c))));
+    }
+    if let Some(filler) = idx.first_object(id, OWL_ALL_VALUES_FROM) {
+        return Some(parse_dl(idx, &term_key(filler)).map(|c| Dl::All(role, Box::new(c))));
+    }
+    if let Some(val) = idx.first_object(id, OWL_HAS_VALUE) {
+        // ∃r.{a}: the value is a nominal filler.
+        return Some(Some(Dl::Some(role, Box::new(Dl::Nominal(term_key(val))))));
+    }
+    // Qualified cardinalities (need an onClass filler).
+    let on_class = idx
+        .first_object(id, OWL_ON_CLASS)
+        .and_then(|c| parse_dl(idx, &term_key(c)))
+        .unwrap_or(Dl::Top);
+    if let Some(n) = idx
+        .first_object(id, OWL_MIN_QUALIFIED_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::Min(n, role, Box::new(on_class))));
+    }
+    if let Some(n) = idx
+        .first_object(id, OWL_MAX_QUALIFIED_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::Max(n, role, Box::new(on_class))));
+    }
+    if let Some(n) = idx
+        .first_object(id, OWL_QUALIFIED_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::And(vec![
+            Dl::Min(n, role.clone(), Box::new(on_class.clone())),
+            Dl::Max(n, role, Box::new(on_class)),
+        ])));
+    }
+    // Unqualified cardinalities (filler ⊤).
+    if let Some(n) = idx
+        .first_object(id, OWL_MIN_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::Min(n, role, Box::new(Dl::Top))));
+    }
+    if let Some(n) = idx
+        .first_object(id, OWL_MAX_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::Max(n, role, Box::new(Dl::Top))));
+    }
+    if let Some(n) = idx
+        .first_object(id, OWL_CARDINALITY)
+        .and_then(literal_usize)
+    {
+        return Some(Some(Dl::And(vec![
+            Dl::Min(n, role.clone(), Box::new(Dl::Top)),
+            Dl::Max(n, role, Box::new(Dl::Top)),
+        ])));
+    }
+    Some(None)
+}
+
+fn parse_dl(idx: &TripleIndex, id: &str) -> Option<Dl> {
+    // Builtins.
+    if id == iri(OWL_THING) {
+        return Some(Dl::Top);
+    }
+    if id == iri(OWL_NOTHING) {
+        return Some(Dl::Bottom);
+    }
+    if let Some(result) = try_parse_dl_boolean_combinator(idx, id) {
+        return result;
+    }
+    if let Some(result) = try_parse_dl_restriction(idx, id) {
+        return result;
     }
     // A named class IRI.
     if id.starts_with('<') {
