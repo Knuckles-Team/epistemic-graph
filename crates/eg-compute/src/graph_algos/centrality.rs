@@ -190,27 +190,7 @@ where
 
     while iterations < config.max_iterations {
         iterations += 1;
-        for slot in next.iter_mut() {
-            *slot = 0.0;
-        }
-        for (u, xu) in x.iter().enumerate().take(n) {
-            for &(v, w) in graph.out_edges(u) {
-                next[v] += w * xu;
-            }
-        }
-        let norm = next.iter().map(|v| v * v).sum::<f64>().sqrt();
-        if norm > 0.0 {
-            for slot in next.iter_mut() {
-                *slot /= norm;
-            }
-        }
-        let delta = x
-            .iter()
-            .zip(next.iter())
-            .map(|(a, b)| (a - b).powi(2))
-            .sum::<f64>()
-            .sqrt();
-        std::mem::swap(&mut x, &mut next);
+        let delta = eigenvector_power_step(graph, n, &mut x, &mut next);
         if delta <= config.tolerance {
             converged = true;
             break;
@@ -222,6 +202,42 @@ where
         iterations,
         converged,
     }
+}
+
+/// One power-iteration step: `next = normalize(A^T x)`, then swap `next` into `x` in
+/// place. Returns the L2 delta between the old and new iterate (the caller's
+/// convergence signal).
+fn eigenvector_power_step<N>(
+    graph: &AdjacencyGraph<N>,
+    n: usize,
+    x: &mut Vec<f64>,
+    next: &mut Vec<f64>,
+) -> f64
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    for slot in next.iter_mut() {
+        *slot = 0.0;
+    }
+    for (u, xu) in x.iter().enumerate().take(n) {
+        for &(v, w) in graph.out_edges(u) {
+            next[v] += w * xu;
+        }
+    }
+    let norm = next.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if norm > 0.0 {
+        for slot in next.iter_mut() {
+            *slot /= norm;
+        }
+    }
+    let delta = x
+        .iter()
+        .zip(next.iter())
+        .map(|(a, b)| (a - b).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    std::mem::swap(x, next);
+    delta
 }
 
 /// Configuration for [`article_rank`]. Same shape/defaults as
