@@ -6438,15 +6438,13 @@ fn row_map(schema: &TableSchema, cells: &[Cell]) -> serde_json::Map<String, Valu
     map
 }
 
-fn update_in(
-    wtx: &WriteTransaction,
-    tenant_scope: &str,
+/// Resolve an UPDATE's `SET` map into `(column index, coerced cell)` pairs,
+/// validating each supplied value against the column's declared type/nullability.
+fn resolve_update_assignments(
+    schema: &TableSchema,
     table: &str,
     set: &serde_json::Map<String, Value>,
-    selector: &eg_types::RowPredicate,
-) -> Result<Vec<Vec<Cell>>, String> {
-    let schema =
-        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+) -> Result<Vec<(usize, Cell)>, String> {
     let mut assigns: Vec<(usize, Cell)> = Vec::with_capacity(set.len());
     for (col, val) in set {
         validate_mutation_value(val)?;
@@ -6456,6 +6454,75 @@ fn update_in(
         let c = &schema.columns()[idx];
         assigns.push((idx, Cell::coerce(val, c.ty, c.nullable)?));
     }
+    Ok(assigns)
+}
+
+/// Per-column CHECK constraints on a row an UPDATE has just rewritten.
+fn validate_updated_row_checks(schema: &TableSchema, cells: &[Cell]) -> Result<(), String> {
+    for (ci, col) in schema.columns().iter().enumerate() {
+        let Some(check) = &col.check else {
+            continue;
+        };
+        if !check.holds(&cells[ci].to_typed_json(col.ty)) {
+            return Err(format!(
+                "updated row violates CHECK constraint on column `{}`",
+                col.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — everything an UPDATE owes AFTER its row writes are
+/// staged: secondary-index maintenance, uniqueness, then table-level CHECK +
+/// outgoing FOREIGN KEY and the parent-side referential action for every OTHER
+/// table whose FK references a column this UPDATE changed
+/// (NO ACTION/RESTRICT/CASCADE/SET NULL).
+fn finish_update_pass_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    schema: &TableSchema,
+    changed: &[(u64, Vec<Cell>, Vec<Cell>)],
+) -> Result<(), String> {
+    for (rowid, old_cells, new_cells) in changed {
+        maintain_secondary_row_in(
+            wtx,
+            tenant_scope,
+            table,
+            schema,
+            *rowid,
+            Some(old_cells),
+            Some(new_cells),
+        )?;
+    }
+    validate_uniqueness_in(wtx, table, schema)?;
+    let mut visited = HashSet::new();
+    for (rowid, old_cells, new_cells) in changed {
+        validate_row_constraints_in(wtx, schema, new_cells)?;
+        enforce_fk_on_parent_change_in(
+            wtx,
+            tenant_scope,
+            table,
+            *rowid,
+            old_cells,
+            Some(new_cells),
+            &mut visited,
+        )?;
+    }
+    Ok(())
+}
+
+fn update_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    set: &serde_json::Map<String, Value>,
+    selector: &eg_types::RowPredicate,
+) -> Result<Vec<Vec<Cell>>, String> {
+    let schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    let assigns = resolve_update_assignments(&schema, table, set)?;
     let width = schema.columns().len();
     let mut updated: Vec<Vec<Cell>> = Vec::new();
     // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `(rowid, old_cells, new_cells)` for the parent-side
@@ -6487,17 +6554,7 @@ fn update_in(
             for (idx, cell) in &assigns {
                 cells[*idx] = cell.clone();
             }
-            // CHECK constraints on the updated row.
-            for (ci, col) in schema.columns().iter().enumerate() {
-                if let Some(check) = &col.check {
-                    if !check.holds(&cells[ci].to_typed_json(col.ty)) {
-                        return Err(format!(
-                            "updated row violates CHECK constraint on column `{}`",
-                            col.name
-                        ));
-                    }
-                }
-            }
+            validate_updated_row_checks(&schema, &cells)?;
             let blob = rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
             if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
                 return Err("encoded SQL row exceeds storage value limit".to_string());
@@ -6509,34 +6566,7 @@ fn update_in(
             updated.push(cells);
         }
     }
-    for (rowid, old_cells, new_cells) in &changed {
-        maintain_secondary_row_in(
-            wtx,
-            tenant_scope,
-            table,
-            &schema,
-            *rowid,
-            Some(old_cells),
-            Some(new_cells),
-        )?;
-    }
-    validate_uniqueness_in(wtx, table, &schema)?;
-    // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — table-level CHECK + outgoing FOREIGN KEY, then the
-    // parent-side referential action for every OTHER table whose FK references a
-    // column this UPDATE changed (NO ACTION/RESTRICT/CASCADE/SET NULL).
-    let mut visited = HashSet::new();
-    for (rowid, old_cells, new_cells) in &changed {
-        validate_row_constraints_in(wtx, &schema, new_cells)?;
-        enforce_fk_on_parent_change_in(
-            wtx,
-            tenant_scope,
-            table,
-            *rowid,
-            old_cells,
-            Some(new_cells),
-            &mut visited,
-        )?;
-    }
+    finish_update_pass_in(wtx, tenant_scope, table, &schema, &changed)?;
     Ok(updated)
 }
 
@@ -6596,21 +6626,12 @@ fn delete_in(
     Ok(removed)
 }
 
-/// Enforce PK/UNIQUE uniqueness over the table's CURRENT state (reads staged writes
-/// through `wtx`). Called AFTER an insert/update stages its writes, so a duplicate
-/// returns `Err` and the whole transaction rolls back. NULLs are exempt (SQL allows
-/// multiple NULLs in a UNIQUE column; a PK column is NOT NULL and so never NULL here).
-fn validate_uniqueness_in(
-    wtx: &WriteTransaction,
-    table: &str,
-    schema: &TableSchema,
-) -> Result<(), String> {
-    // Single-column groups from the per-column PK/UNIQUE flags, PLUS every
-    // multi-column PK/UNIQUE table-level constraint (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) — each
-    // group is checked independently (a composite key is the JOIN of its columns'
-    // individual coerced-value keys; a NULL in ANY participating column exempts the
-    // row from THAT group, mirroring single-column UNIQUE's NULL exemption and
-    // Postgres's multi-column UNIQUE semantics).
+/// Every uniqueness group to enforce for `table`: one per PK/UNIQUE-flagged
+/// column, PLUS one per multi-column PK/UNIQUE table-level constraint
+/// (CONCEPT:EG-KG.query.table-schema-constraints/NE-001), each paired with the label its violation message
+/// uses. Groups are checked independently — a composite key is the JOIN of its
+/// columns' individual coerced-value keys.
+fn unique_check_groups(table: &str, schema: &TableSchema) -> Vec<(Vec<usize>, String)> {
     let mut groups: Vec<(Vec<usize>, String)> = schema
         .columns()
         .iter()
@@ -6635,6 +6656,54 @@ fn validate_uniqueness_in(
         let name = TableSchema::constraint_display_name(table, c);
         groups.push((idxs, format!("`{name}`")));
     }
+    groups
+}
+
+/// The structural key for ONE uniqueness group on ONE row, or `None` when any
+/// participating cell is NULL — which exempts the row from THAT group, mirroring
+/// single-column UNIQUE's NULL exemption and Postgres's multi-column semantics.
+fn composite_unique_key(schema: &TableSchema, idxs: &[usize], cells: &[Cell]) -> Option<String> {
+    let mut parts: Vec<String> = Vec::with_capacity(idxs.len());
+    for &ci in idxs {
+        parts.push(unique_cell_key(&cells[ci], schema.columns()[ci].ty)?);
+    }
+    // Encode the tuple boundary structurally; concatenating with a delimiter
+    // lets a tenant value containing that delimiter collide with a different
+    // composite key.
+    Some(serde_json::to_string(&parts).expect("Vec<String> is serializable"))
+}
+
+/// Check ONE decoded row against every uniqueness group, recording the keys it
+/// occupies in `seen`.
+fn check_row_uniqueness(
+    schema: &TableSchema,
+    groups: &[(Vec<usize>, String)],
+    seen: &mut [HashSet<String>],
+    cells: &[Cell],
+) -> Result<(), String> {
+    for (slot, (idxs, label)) in groups.iter().enumerate() {
+        let Some(key) = composite_unique_key(schema, idxs, cells) else {
+            continue;
+        };
+        if !seen[slot].insert(key) {
+            return Err(format!(
+                "duplicate key value violates unique constraint on {label}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Enforce PK/UNIQUE uniqueness over the table's CURRENT state (reads staged writes
+/// through `wtx`). Called AFTER an insert/update stages its writes, so a duplicate
+/// returns `Err` and the whole transaction rolls back. NULLs are exempt (SQL allows
+/// multiple NULLs in a UNIQUE column; a PK column is NOT NULL and so never NULL here).
+fn validate_uniqueness_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    schema: &TableSchema,
+) -> Result<(), String> {
+    let groups = unique_check_groups(table, schema);
     if groups.is_empty() {
         return Ok(());
     }
@@ -6653,31 +6722,7 @@ fn validate_uniqueness_in(
         if cells.len() < width {
             cells.resize(width, Cell::Null);
         }
-        for (slot, (idxs, label)) in groups.iter().enumerate() {
-            let mut parts: Vec<String> = Vec::with_capacity(idxs.len());
-            let mut any_null = false;
-            for &ci in idxs {
-                match unique_cell_key(&cells[ci], schema.columns()[ci].ty) {
-                    Some(k) => parts.push(k),
-                    None => {
-                        any_null = true;
-                        break;
-                    }
-                }
-            }
-            if any_null {
-                continue;
-            }
-            // Encode the tuple boundary structurally; concatenating with a
-            // delimiter lets a tenant value containing that delimiter collide
-            // with a different composite key.
-            let key = serde_json::to_string(&parts).expect("Vec<String> is serializable");
-            if !seen[slot].insert(key) {
-                return Err(format!(
-                    "duplicate key value violates unique constraint on {label}"
-                ));
-            }
-        }
+        check_row_uniqueness(schema, &groups, &mut seen, &cells)?;
     }
     Ok(())
 }
