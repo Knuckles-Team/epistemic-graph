@@ -75,9 +75,9 @@ use crate::redb_store::{
 // image by design (see the module doc + `import_graph_raw`/`import_graph_delta`'s
 // `work_item_capability::clear_graph_rows_in_wtx` purge) — see this lane's report for
 // the full per-table per-graph-vs-global classification.
-use crate::redb_store::{capacity_lease, development_lane};
 #[cfg(feature = "security")]
 use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+use crate::redb_store::{capacity_lease, development_lane};
 use crate::redb_store::{
     RESOURCE_ANTI_AFFINITY, RESOURCE_CONCURRENCY, RESOURCE_DISK_POLICIES, RESOURCE_EXCLUSIVITY,
     RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
@@ -156,7 +156,7 @@ pub(crate) struct RawDevelopmentLaneRows {
     pub worktree_index: Vec<(String, String)>,
     pub work_item_index: Vec<(String, u64, String)>,
     pub counters: Vec<(String, Vec<u8>)>,
-    pub pressure_index: Vec<(String, String, String, u64, String, u8)>,
+    pub pressure_index: Vec<LanePressureIndexRow>,
     pub policies: Vec<(String, Vec<u8>)>,
     pub invocations: Vec<(String, String, Vec<u8>)>,
 }
@@ -257,6 +257,41 @@ impl RawGraphRows {
     /// Validate the raw row set and derive its identity from `graph_meta`.
     /// A raw image may be completely empty during a route-only reshard, but it
     /// may never carry graph-scoped authority without the identity that owns it.
+    /// Whether these raw rows carry ANY authority-bearing content.
+    ///
+    /// Split into two halves because WD5-BUG-04 added five more subsystems to
+    /// this predicate (resource, development_lane, capacity_lease,
+    /// work_item_command_sequence, provenance_anchor_members) and each `||` is
+    /// a cyclomatic decision point — inline, the chain took `durable_identity`
+    /// from 10 to 15, over the cap. The predicate itself is unchanged: same
+    /// operands, same order, same short-circuit behaviour.
+    fn has_core_authority(&self) -> bool {
+        #[cfg(feature = "security")]
+        let has_audit_or_provenance =
+            !self.audit.is_empty() || !self.provenance_anchor_members.is_empty();
+        #[cfg(not(feature = "security"))]
+        let has_audit_or_provenance = false;
+        !self.nodes.is_empty()
+            || !self.edges.is_empty()
+            || !self.ledger.is_empty()
+            || self.semantic.is_some()
+            || has_audit_or_provenance
+    }
+
+    /// The subsystem row-sets, all compared against their empty default.
+    fn has_subsystem_authority(&self) -> bool {
+        self.mutation != RawMutationRows::default()
+            || self.change != RawChangeRows::default()
+            || self.resource != RawResourceRows::default()
+            || self.development_lane != RawDevelopmentLaneRows::default()
+            || self.capacity_lease != RawCapacityLeaseRows::default()
+            || self.work_item_command_sequence.is_some()
+    }
+
+    fn has_any_authority(&self) -> bool {
+        self.has_core_authority() || self.has_subsystem_authority()
+    }
+
     pub(crate) fn durable_identity(
         &self,
         graph: &str,
@@ -270,23 +305,7 @@ impl RawGraphRows {
             return Ok(Some(identity));
         }
 
-        #[cfg(feature = "security")]
-        let has_audit_or_provenance =
-            !self.audit.is_empty() || !self.provenance_anchor_members.is_empty();
-        #[cfg(not(feature = "security"))]
-        let has_audit_or_provenance = false;
-        let has_authority = !self.nodes.is_empty()
-            || !self.edges.is_empty()
-            || !self.ledger.is_empty()
-            || self.semantic.is_some()
-            || has_audit_or_provenance
-            || self.mutation != RawMutationRows::default()
-            || self.change != RawChangeRows::default()
-            || self.resource != RawResourceRows::default()
-            || self.development_lane != RawDevelopmentLaneRows::default()
-            || self.capacity_lease != RawCapacityLeaseRows::default()
-            || self.work_item_command_sequence.is_some();
-        if has_authority {
+        if self.has_any_authority() {
             return Err("raw graph rows contain authority without durable identity".to_string());
         }
         Ok(None)
@@ -879,8 +898,13 @@ fn export_resource_reservations_for_graph(
     Ok(out)
 }
 
-fn clear_resource_reservations_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_RESERVATIONS).map_err(|e| e.to_string())?;
+fn clear_resource_reservations_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(RESOURCE_RESERVATIONS)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -891,7 +915,9 @@ fn clear_resource_reservations_rows_raw(wtx: &redb::WriteTransaction, graph: &st
         keys.push(reservation_id.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -901,7 +927,9 @@ fn insert_resource_reservations_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_RESERVATIONS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(RESOURCE_RESERVATIONS)
+        .map_err(|e| e.to_string())?;
     for (reservation_id, value) in rows {
         table
             .insert((graph, reservation_id.as_str()), value.as_slice())
@@ -924,13 +952,22 @@ fn export_resource_reservation_tenant_index_for_graph(
         if g != graph {
             break;
         }
-        out.push((tenant.to_string(), index_key.to_string(), v.value().to_string()));
+        out.push((
+            tenant.to_string(),
+            index_key.to_string(),
+            v.value().to_string(),
+        ));
     }
     Ok(out)
 }
 
-fn clear_resource_reservation_tenant_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).map_err(|e| e.to_string())?;
+fn clear_resource_reservation_tenant_index_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(RESOURCE_RESERVATION_TENANT_INDEX)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, String)> = Vec::new();
     for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -941,7 +978,9 @@ fn clear_resource_reservation_tenant_index_rows_raw(wtx: &redb::WriteTransaction
         keys.push((tenant.to_string(), index_key.to_string()));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -951,7 +990,9 @@ fn insert_resource_reservation_tenant_index_rows(
     graph: &str,
     rows: &[(String, String, String)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(RESOURCE_RESERVATION_TENANT_INDEX)
+        .map_err(|e| e.to_string())?;
     for (tenant, index_key, value) in rows {
         table
             .insert((graph, tenant.as_str(), index_key.as_str()), value.as_str())
@@ -968,21 +1009,36 @@ fn export_resource_reservation_attempts_for_graph(
     let Ok(table) = rtx.open_table(RESOURCE_RESERVATION_ATTEMPTS) else {
         return Ok(out);
     };
-    for row in table.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+    for row in table
+        .range((graph, "", 0u64)..)
+        .map_err(|e| e.to_string())?
+    {
         let (k, v) = row.map_err(|e| e.to_string())?;
         let (g, reservation_id, attempt_seq) = k.value();
         if g != graph {
             break;
         }
-        out.push((reservation_id.to_string(), attempt_seq, v.value().to_string()));
+        out.push((
+            reservation_id.to_string(),
+            attempt_seq,
+            v.value().to_string(),
+        ));
     }
     Ok(out)
 }
 
-fn clear_resource_reservation_attempts_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).map_err(|e| e.to_string())?;
+fn clear_resource_reservation_attempts_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(RESOURCE_RESERVATION_ATTEMPTS)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, u64)> = Vec::new();
-    for row in table.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+    for row in table
+        .range((graph, "", 0u64)..)
+        .map_err(|e| e.to_string())?
+    {
         let (k, _v) = row.map_err(|e| e.to_string())?;
         let (g, reservation_id, attempt_seq) = k.value();
         if g != graph {
@@ -991,7 +1047,9 @@ fn clear_resource_reservation_attempts_rows_raw(wtx: &redb::WriteTransaction, gr
         keys.push((reservation_id.to_string(), attempt_seq));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1)).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1001,10 +1059,15 @@ fn insert_resource_reservation_attempts_rows(
     graph: &str,
     rows: &[(String, u64, String)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(RESOURCE_RESERVATION_ATTEMPTS)
+        .map_err(|e| e.to_string())?;
     for (reservation_id, attempt_seq, value) in rows {
         table
-            .insert((graph, reservation_id.as_str(), *attempt_seq), value.as_str())
+            .insert(
+                (graph, reservation_id.as_str(), *attempt_seq),
+                value.as_str(),
+            )
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -1041,7 +1104,9 @@ fn clear_resource_hosts_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> R
         keys.push(host_id.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1079,8 +1144,13 @@ fn export_resource_exclusivity_for_graph(
     Ok(out)
 }
 
-fn clear_resource_exclusivity_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_EXCLUSIVITY).map_err(|e| e.to_string())?;
+fn clear_resource_exclusivity_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(RESOURCE_EXCLUSIVITY)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1091,7 +1161,9 @@ fn clear_resource_exclusivity_rows_raw(wtx: &redb::WriteTransaction, graph: &str
         keys.push(key.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1101,7 +1173,9 @@ fn insert_resource_exclusivity_rows(
     graph: &str,
     rows: &[(String, String)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_EXCLUSIVITY).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(RESOURCE_EXCLUSIVITY)
+        .map_err(|e| e.to_string())?;
     for (key, value) in rows {
         table
             .insert((graph, key.as_str()), value.as_str())
@@ -1129,8 +1203,13 @@ fn export_resource_fairness_for_graph(
     Ok(out)
 }
 
-fn clear_resource_fairness_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_FAIRNESS).map_err(|e| e.to_string())?;
+fn clear_resource_fairness_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(RESOURCE_FAIRNESS)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1141,7 +1220,9 @@ fn clear_resource_fairness_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -
         keys.push(key.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1151,7 +1232,9 @@ fn insert_resource_fairness_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_FAIRNESS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(RESOURCE_FAIRNESS)
+        .map_err(|e| e.to_string())?;
     for (key, value) in rows {
         table
             .insert((graph, key.as_str()), value.as_slice())
@@ -1179,8 +1262,13 @@ fn export_resource_concurrency_for_graph(
     Ok(out)
 }
 
-fn clear_resource_concurrency_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_CONCURRENCY).map_err(|e| e.to_string())?;
+fn clear_resource_concurrency_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(RESOURCE_CONCURRENCY)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1191,7 +1279,9 @@ fn clear_resource_concurrency_rows_raw(wtx: &redb::WriteTransaction, graph: &str
         keys.push(key.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1201,7 +1291,9 @@ fn insert_resource_concurrency_rows(
     graph: &str,
     rows: &[(String, u64)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_CONCURRENCY).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(RESOURCE_CONCURRENCY)
+        .map_err(|e| e.to_string())?;
     for (key, value) in rows {
         table
             .insert((graph, key.as_str()), *value)
@@ -1229,8 +1321,13 @@ fn export_resource_anti_affinity_for_graph(
     Ok(out)
 }
 
-fn clear_resource_anti_affinity_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_ANTI_AFFINITY).map_err(|e| e.to_string())?;
+fn clear_resource_anti_affinity_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(RESOURCE_ANTI_AFFINITY)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, String)> = Vec::new();
     for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1241,7 +1338,9 @@ fn clear_resource_anti_affinity_rows_raw(wtx: &redb::WriteTransaction, graph: &s
         keys.push((key.to_string(), reservation_id.to_string()));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1251,7 +1350,9 @@ fn insert_resource_anti_affinity_rows(
     graph: &str,
     rows: &[(String, String, u64)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_ANTI_AFFINITY).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(RESOURCE_ANTI_AFFINITY)
+        .map_err(|e| e.to_string())?;
     for (key, reservation_id, value) in rows {
         table
             .insert((graph, key.as_str(), reservation_id.as_str()), *value)
@@ -1279,8 +1380,13 @@ fn export_resource_disk_policies_for_graph(
     Ok(out)
 }
 
-fn clear_resource_disk_policies_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_DISK_POLICIES).map_err(|e| e.to_string())?;
+fn clear_resource_disk_policies_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(RESOURCE_DISK_POLICIES)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1291,7 +1397,9 @@ fn clear_resource_disk_policies_rows_raw(wtx: &redb::WriteTransaction, graph: &s
         keys.push(key.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1301,7 +1409,9 @@ fn insert_resource_disk_policies_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(RESOURCE_DISK_POLICIES).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(RESOURCE_DISK_POLICIES)
+        .map_err(|e| e.to_string())?;
     for (key, value) in rows {
         table
             .insert((graph, key.as_str()), value.as_slice())
@@ -1332,7 +1442,9 @@ fn export_lane_holds_for_graph(
 }
 
 fn clear_lane_holds_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::HOLDS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::HOLDS)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1343,7 +1455,9 @@ fn clear_lane_holds_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Resul
         keys.push(hold_id.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1353,7 +1467,9 @@ fn insert_lane_holds_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::HOLDS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::HOLDS)
+        .map_err(|e| e.to_string())?;
     for (hold_id, value) in rows {
         table
             .insert((graph, hold_id.as_str()), value.as_slice())
@@ -1376,13 +1492,22 @@ fn export_lane_tenant_index_for_graph(
         if g != graph {
             break;
         }
-        out.push((tenant.to_string(), index_key.to_string(), v.value().to_string()));
+        out.push((
+            tenant.to_string(),
+            index_key.to_string(),
+            v.value().to_string(),
+        ));
     }
     Ok(out)
 }
 
-fn clear_lane_tenant_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::TENANT_INDEX).map_err(|e| e.to_string())?;
+fn clear_lane_tenant_index_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(development_lane::TENANT_INDEX)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, String)> = Vec::new();
     for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1393,7 +1518,9 @@ fn clear_lane_tenant_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -
         keys.push((tenant.to_string(), index_key.to_string()));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1403,7 +1530,9 @@ fn insert_lane_tenant_index_rows(
     graph: &str,
     rows: &[(String, String, String)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::TENANT_INDEX).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::TENANT_INDEX)
+        .map_err(|e| e.to_string())?;
     for (tenant, index_key, value) in rows {
         table
             .insert((graph, tenant.as_str(), index_key.as_str()), value.as_str())
@@ -1426,13 +1555,19 @@ fn export_lane_index_for_graph(
         if g != graph {
             break;
         }
-        out.push((lane.to_string(), index_key.to_string(), v.value().to_string()));
+        out.push((
+            lane.to_string(),
+            index_key.to_string(),
+            v.value().to_string(),
+        ));
     }
     Ok(out)
 }
 
 fn clear_lane_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::LANE_INDEX).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::LANE_INDEX)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, String)> = Vec::new();
     for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1443,7 +1578,9 @@ fn clear_lane_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Resul
         keys.push((lane.to_string(), index_key.to_string()));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1453,7 +1590,9 @@ fn insert_lane_index_rows(
     graph: &str,
     rows: &[(String, String, String)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::LANE_INDEX).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::LANE_INDEX)
+        .map_err(|e| e.to_string())?;
     for (lane, index_key, value) in rows {
         table
             .insert((graph, lane.as_str(), index_key.as_str()), value.as_str())
@@ -1476,13 +1615,22 @@ fn export_lane_repository_branch_index_for_graph(
         if g != graph {
             break;
         }
-        out.push((repository.to_string(), branch.to_string(), v.value().to_string()));
+        out.push((
+            repository.to_string(),
+            branch.to_string(),
+            v.value().to_string(),
+        ));
     }
     Ok(out)
 }
 
-fn clear_lane_repository_branch_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::REPOSITORY_BRANCH_INDEX).map_err(|e| e.to_string())?;
+fn clear_lane_repository_branch_index_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(development_lane::REPOSITORY_BRANCH_INDEX)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, String)> = Vec::new();
     for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1493,7 +1641,9 @@ fn clear_lane_repository_branch_index_rows_raw(wtx: &redb::WriteTransaction, gra
         keys.push((repository.to_string(), branch.to_string()));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1503,10 +1653,15 @@ fn insert_lane_repository_branch_index_rows(
     graph: &str,
     rows: &[(String, String, String)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::REPOSITORY_BRANCH_INDEX).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::REPOSITORY_BRANCH_INDEX)
+        .map_err(|e| e.to_string())?;
     for (repository, branch, value) in rows {
         table
-            .insert((graph, repository.as_str(), branch.as_str()), value.as_str())
+            .insert(
+                (graph, repository.as_str(), branch.as_str()),
+                value.as_str(),
+            )
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -1531,8 +1686,13 @@ fn export_lane_worktree_index_for_graph(
     Ok(out)
 }
 
-fn clear_lane_worktree_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::WORKTREE_INDEX).map_err(|e| e.to_string())?;
+fn clear_lane_worktree_index_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(development_lane::WORKTREE_INDEX)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1543,7 +1703,9 @@ fn clear_lane_worktree_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str)
         keys.push(worktree.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1553,7 +1715,9 @@ fn insert_lane_worktree_index_rows(
     graph: &str,
     rows: &[(String, String)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::WORKTREE_INDEX).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::WORKTREE_INDEX)
+        .map_err(|e| e.to_string())?;
     for (worktree, value) in rows {
         table
             .insert((graph, worktree.as_str()), value.as_str())
@@ -1570,7 +1734,10 @@ fn export_lane_work_item_index_for_graph(
     let Ok(table) = rtx.open_table(development_lane::WORK_ITEM_INDEX) else {
         return Ok(out);
     };
-    for row in table.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+    for row in table
+        .range((graph, "", 0u64)..)
+        .map_err(|e| e.to_string())?
+    {
         let (k, v) = row.map_err(|e| e.to_string())?;
         let (g, work_item_id, seq) = k.value();
         if g != graph {
@@ -1581,10 +1748,18 @@ fn export_lane_work_item_index_for_graph(
     Ok(out)
 }
 
-fn clear_lane_work_item_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::WORK_ITEM_INDEX).map_err(|e| e.to_string())?;
+fn clear_lane_work_item_index_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(development_lane::WORK_ITEM_INDEX)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, u64)> = Vec::new();
-    for row in table.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+    for row in table
+        .range((graph, "", 0u64)..)
+        .map_err(|e| e.to_string())?
+    {
         let (k, _v) = row.map_err(|e| e.to_string())?;
         let (g, work_item_id, seq) = k.value();
         if g != graph {
@@ -1593,7 +1768,9 @@ fn clear_lane_work_item_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str
         keys.push((work_item_id.to_string(), seq));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1)).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1603,7 +1780,9 @@ fn insert_lane_work_item_index_rows(
     graph: &str,
     rows: &[(String, u64, String)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::WORK_ITEM_INDEX).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::WORK_ITEM_INDEX)
+        .map_err(|e| e.to_string())?;
     for (work_item_id, seq, value) in rows {
         table
             .insert((graph, work_item_id.as_str(), *seq), value.as_str())
@@ -1632,7 +1811,9 @@ fn export_lane_counters_for_graph(
 }
 
 fn clear_lane_counters_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::COUNTERS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::COUNTERS)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1643,7 +1824,9 @@ fn clear_lane_counters_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Re
         keys.push(counter.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1653,7 +1836,9 @@ fn insert_lane_counters_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::COUNTERS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::COUNTERS)
+        .map_err(|e| e.to_string())?;
     for (counter, value) in rows {
         table
             .insert((graph, counter.as_str()), value.as_slice())
@@ -1662,38 +1847,84 @@ fn insert_lane_counters_rows(
     Ok(())
 }
 
+/// One `development_lane::PRESSURE_INDEX` row, owned.
+///
+/// Named rather than repeated inline: the raw 6-tuple appeared in three
+/// signatures and clippy's `type_complexity` (a hard error under
+/// `-D warnings`, which is what the pre-push gate runs) rejected it. An alias
+/// is the fix clippy itself suggests; the alternative — an
+/// `#[allow(clippy::type_complexity)]` — would be a one-line baseline, and
+/// this program does not add those.
+///
+/// Field order matches the table's own key/value layout:
+/// `(graph, lane, pressure_key, observed_at_ms, source_ref, level)`.
+type LanePressureIndexRow = (String, String, String, u64, String, u8);
+
 fn export_lane_pressure_index_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
-) -> Result<Vec<(String, String, String, u64, String, u8)>, String> {
+) -> Result<Vec<LanePressureIndexRow>, String> {
     let mut out = Vec::new();
     let Ok(table) = rtx.open_table(development_lane::PRESSURE_INDEX) else {
         return Ok(out);
     };
-    for row in table.range((graph, "", "", "", 0u64, "")..).map_err(|e| e.to_string())? {
+    for row in table
+        .range((graph, "", "", "", 0u64, "")..)
+        .map_err(|e| e.to_string())?
+    {
         let (k, v) = row.map_err(|e| e.to_string())?;
         let (g, tenant, lane, repository, ts, kind) = k.value();
         if g != graph {
             break;
         }
-        out.push((tenant.to_string(), lane.to_string(), repository.to_string(), ts, kind.to_string(), v.value()));
+        out.push((
+            tenant.to_string(),
+            lane.to_string(),
+            repository.to_string(),
+            ts,
+            kind.to_string(),
+            v.value(),
+        ));
     }
     Ok(out)
 }
 
-fn clear_lane_pressure_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::PRESSURE_INDEX).map_err(|e| e.to_string())?;
+fn clear_lane_pressure_index_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(development_lane::PRESSURE_INDEX)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, String, String, u64, String)> = Vec::new();
-    for row in table.range((graph, "", "", "", 0u64, "")..).map_err(|e| e.to_string())? {
+    for row in table
+        .range((graph, "", "", "", 0u64, "")..)
+        .map_err(|e| e.to_string())?
+    {
         let (k, _v) = row.map_err(|e| e.to_string())?;
         let (g, tenant, lane, repository, ts, kind) = k.value();
         if g != graph {
             break;
         }
-        keys.push((tenant.to_string(), lane.to_string(), repository.to_string(), ts, kind.to_string()));
+        keys.push((
+            tenant.to_string(),
+            lane.to_string(),
+            repository.to_string(),
+            ts,
+            kind.to_string(),
+        ));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1.as_str(), key_val.2.as_str(), key_val.3, key_val.4.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((
+                graph,
+                key_val.0.as_str(),
+                key_val.1.as_str(),
+                key_val.2.as_str(),
+                key_val.3,
+                key_val.4.as_str(),
+            ))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1701,12 +1932,24 @@ fn clear_lane_pressure_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str)
 fn insert_lane_pressure_index_rows(
     wtx: &redb::WriteTransaction,
     graph: &str,
-    rows: &[(String, String, String, u64, String, u8)],
+    rows: &[LanePressureIndexRow],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::PRESSURE_INDEX).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::PRESSURE_INDEX)
+        .map_err(|e| e.to_string())?;
     for (tenant, lane, repository, ts, kind, value) in rows {
         table
-            .insert((graph, tenant.as_str(), lane.as_str(), repository.as_str(), *ts, kind.as_str()), *value)
+            .insert(
+                (
+                    graph,
+                    tenant.as_str(),
+                    lane.as_str(),
+                    repository.as_str(),
+                    *ts,
+                    kind.as_str(),
+                ),
+                *value,
+            )
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -1732,7 +1975,9 @@ fn export_lane_policies_for_graph(
 }
 
 fn clear_lane_policies_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::POLICIES).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::POLICIES)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1743,7 +1988,9 @@ fn clear_lane_policies_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Re
         keys.push(policy_id.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1753,7 +2000,9 @@ fn insert_lane_policies_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::POLICIES).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::POLICIES)
+        .map_err(|e| e.to_string())?;
     for (policy_id, value) in rows {
         table
             .insert((graph, policy_id.as_str()), value.as_slice())
@@ -1776,13 +2025,22 @@ fn export_lane_invocations_for_graph(
         if g != graph {
             break;
         }
-        out.push((hold_id.to_string(), invocation_id.to_string(), v.value().to_vec()));
+        out.push((
+            hold_id.to_string(),
+            invocation_id.to_string(),
+            v.value().to_vec(),
+        ));
     }
     Ok(out)
 }
 
-fn clear_lane_invocations_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::INVOCATIONS).map_err(|e| e.to_string())?;
+fn clear_lane_invocations_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(development_lane::INVOCATIONS)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, String)> = Vec::new();
     for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1793,7 +2051,9 @@ fn clear_lane_invocations_rows_raw(wtx: &redb::WriteTransaction, graph: &str) ->
         keys.push((hold_id.to_string(), invocation_id.to_string()));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1803,10 +2063,15 @@ fn insert_lane_invocations_rows(
     graph: &str,
     rows: &[(String, String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(development_lane::INVOCATIONS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(development_lane::INVOCATIONS)
+        .map_err(|e| e.to_string())?;
     for (hold_id, invocation_id, value) in rows {
         table
-            .insert((graph, hold_id.as_str(), invocation_id.as_str()), value.as_slice())
+            .insert(
+                (graph, hold_id.as_str(), invocation_id.as_str()),
+                value.as_slice(),
+            )
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -1834,7 +2099,9 @@ fn export_capacity_cells_for_graph(
 }
 
 fn clear_capacity_cells_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(capacity_lease::CELLS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(capacity_lease::CELLS)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1845,7 +2112,9 @@ fn clear_capacity_cells_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> R
         keys.push(cell_id.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1855,7 +2124,9 @@ fn insert_capacity_cells_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(capacity_lease::CELLS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(capacity_lease::CELLS)
+        .map_err(|e| e.to_string())?;
     for (cell_id, value) in rows {
         table
             .insert((graph, cell_id.as_str()), value.as_slice())
@@ -1884,7 +2155,9 @@ fn export_capacity_leases_for_graph(
 }
 
 fn clear_capacity_leases_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(capacity_lease::LEASES).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(capacity_lease::LEASES)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1895,7 +2168,9 @@ fn clear_capacity_leases_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> 
         keys.push(lease_id.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1905,7 +2180,9 @@ fn insert_capacity_leases_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(capacity_lease::LEASES).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(capacity_lease::LEASES)
+        .map_err(|e| e.to_string())?;
     for (lease_id, value) in rows {
         table
             .insert((graph, lease_id.as_str()), value.as_slice())
@@ -1934,7 +2211,9 @@ fn export_capacity_usage_for_graph(
 }
 
 fn clear_capacity_usage_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(capacity_lease::USAGE).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(capacity_lease::USAGE)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<String> = Vec::new();
     for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1945,7 +2224,9 @@ fn clear_capacity_usage_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> R
         keys.push(cell_id.to_string());
     }
     for key_val in keys {
-        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1955,7 +2236,9 @@ fn insert_capacity_usage_rows(
     graph: &str,
     rows: &[(String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(capacity_lease::USAGE).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(capacity_lease::USAGE)
+        .map_err(|e| e.to_string())?;
     for (cell_id, value) in rows {
         table
             .insert((graph, cell_id.as_str()), value.as_slice())
@@ -1983,8 +2266,13 @@ fn export_capacity_idempotency_for_graph(
     Ok(out)
 }
 
-fn clear_capacity_idempotency_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(capacity_lease::IDEMPOTENCY).map_err(|e| e.to_string())?;
+fn clear_capacity_idempotency_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(capacity_lease::IDEMPOTENCY)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<(String, String)> = Vec::new();
     for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -1995,7 +2283,9 @@ fn clear_capacity_idempotency_rows_raw(wtx: &redb::WriteTransaction, graph: &str
         keys.push((tenant.to_string(), key.to_string()));
     }
     for key_val in keys {
-        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+        table
+            .remove((graph, key_val.0.as_str(), key_val.1.as_str()))
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -2005,7 +2295,9 @@ fn insert_capacity_idempotency_rows(
     graph: &str,
     rows: &[(String, String, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(capacity_lease::IDEMPOTENCY).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(capacity_lease::IDEMPOTENCY)
+        .map_err(|e| e.to_string())?;
     for (tenant, key, value) in rows {
         table
             .insert((graph, tenant.as_str(), key.as_str()), value.as_slice())
@@ -2037,8 +2329,13 @@ fn export_provenance_anchor_members_for_graph(
 }
 
 #[cfg(feature = "security")]
-fn clear_provenance_anchor_members_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(PROVENANCE_ANCHOR_MEMBERS).map_err(|e| e.to_string())?;
+fn clear_provenance_anchor_members_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(PROVENANCE_ANCHOR_MEMBERS)
+        .map_err(|e| e.to_string())?;
     let mut keys: Vec<u64> = Vec::new();
     for row in table.range((graph, 0u64)..).map_err(|e| e.to_string())? {
         let (k, _v) = row.map_err(|e| e.to_string())?;
@@ -2060,7 +2357,9 @@ fn insert_provenance_anchor_members_rows(
     graph: &str,
     rows: &[(u64, Vec<u8>)],
 ) -> Result<(), String> {
-    let mut table = wtx.open_table(PROVENANCE_ANCHOR_MEMBERS).map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(PROVENANCE_ANCHOR_MEMBERS)
+        .map_err(|e| e.to_string())?;
     for (seq, value) in rows {
         table
             .insert((graph, *seq), value.as_slice())
@@ -2244,7 +2543,10 @@ fn clear_lane_core_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result
     Ok(())
 }
 
-fn clear_lane_index_group_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+fn clear_lane_index_group_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
     clear_lane_tenant_index_rows_raw(wtx, graph)?;
     clear_lane_index_rows_raw(wtx, graph)?;
     clear_lane_repository_branch_index_rows_raw(wtx, graph)?;
@@ -2262,7 +2564,10 @@ fn clear_lane_misc_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result
 /// crypto — same "verbatim, never decode" contract as the rest of this module; NOT
 /// `development_lane::clear_native_graph_rows_in_wtx`, which decrypts rows to
 /// enforce delete-time invariants that do not apply to a MOVE).
-fn clear_development_lane_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+fn clear_development_lane_rows_raw(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
     clear_lane_core_rows_raw(wtx, graph)?;
     clear_lane_index_group_rows_raw(wtx, graph)?;
     clear_lane_misc_rows_raw(wtx, graph)?;

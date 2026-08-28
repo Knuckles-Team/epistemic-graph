@@ -941,6 +941,34 @@ pub struct RestoreReport {
 /// `persist_dir` must not already hold target shard files (the migration refuses to
 /// clobber) — restore into a FRESH dir. OFFLINE with respect to the TARGET: nothing may
 /// be serving out of `persist_dir` while it is rebuilt.
+/// Whether every counter the migration reported matches the backup manifest.
+///
+/// Extracted because WD5-BUG-04 added a tenth clause
+/// (`capability_and_resource`) to what was already a nine-clause `||` chain,
+/// and each `||` is a cyclomatic decision point — inline, it pushed
+/// `restore_bundle` from 20 to 21. The comparison is unchanged: same operands,
+/// same order, same short-circuit semantics (De Morgan: the `||`-of-`!=` guard
+/// becomes an `&&`-of-`==` predicate, negated at the call site).
+///
+/// This cross-check is what makes the 30-table routing fix meaningful: if a
+/// restore silently dropped a subsystem, the counts diverge HERE rather than
+/// producing a quietly incomplete database.
+fn restored_totals_match_manifest(
+    migration: &shard_migrate::MigrationReport,
+    manifest: &BackupManifest,
+) -> bool {
+    migration.source_shards == manifest.shard_count
+        && migration.graphs as u64 == manifest.graphs
+        && migration.nodes == manifest.nodes
+        && migration.edges == manifest.edges
+        && migration.ledger == manifest.ledger
+        && migration.semantic == manifest.semantic
+        && migration.audit == manifest.audit
+        && migration.auxiliary == manifest.auxiliary
+        && migration.global == manifest.global
+        && migration.capability_and_resource == manifest.capability_and_resource
+}
+
 pub fn restore_bundle(
     bundle_dir: &Path,
     persist_dir: &Path,
@@ -980,17 +1008,7 @@ pub fn restore_bundle(
     let k = target_shards;
     // The bundle's graph*.redb files are exactly the source shard set EG-030 consumes.
     let migration = shard_migrate::migrate_shards(bundle_dir, persist_dir, k)?;
-    if migration.source_shards != manifest.shard_count
-        || migration.graphs as u64 != manifest.graphs
-        || migration.nodes != manifest.nodes
-        || migration.edges != manifest.edges
-        || migration.ledger != manifest.ledger
-        || migration.semantic != manifest.semantic
-        || migration.audit != manifest.audit
-        || migration.auxiliary != manifest.auxiliary
-        || migration.global != manifest.global
-        || migration.capability_and_resource != manifest.capability_and_resource
-    {
+    if !restored_totals_match_manifest(&migration, &manifest) {
         return Err("restored graph totals do not match the backup manifest".to_string());
     }
     let admin_source = bundle_dir.join(ADMIN_MUTATIONS_FILE);
