@@ -7785,51 +7785,112 @@ async fn multi_graph_batch_update(
     let clustered = timed_read(state).await.multi_raft.is_some();
     #[cfg(not(feature = "raft"))]
     let clustered = false;
-    let saga = if clustered {
-        None
-    } else {
-        let method = Method::MultiGraphBatchUpdate {
-            batches_msgpack: batches_msgpack.to_vec(),
-        };
-        let saga = match handlers::admin::begin_admin_saga(
-            redb,
-            req_id,
-            caller,
-            &method,
-            crate::mutation_batch::MutationDomain::MultiGraph,
-        ) {
-            Ok(saga) => saga,
-            Err(error) => return Response::err(req_id, error),
-        };
-        if let Some(result) = saga.replayed.clone() {
-            return Response::ok(req_id, result);
-        }
-        Some(saga)
+    let saga = match begin_multi_graph_saga(redb, req_id, caller, batches_msgpack, clustered) {
+        Ok(saga) => saga,
+        Err(response) => return response,
     };
+    let (results, errors) = if batches.is_empty() {
+        (serde_json::Map::new(), serde_json::Map::new())
+    } else {
+        run_multi_graph_batches(state, req_id, caller, verified_context, batches).await
+    };
+    let result = ResultPayload::Json(serde_json::json!({"results": results, "errors": errors}));
+    finish_multi_graph_batch(redb, req_id, saga, result)
+}
+
+/// Open the durable admin saga that makes a single-node multi-graph batch
+/// idempotent. A clustered node has no saga (raft already orders each
+/// sub-batch). `Err` is this request's final response — a begin failure, or the
+/// replayed result of an attempt that already committed.
+#[cfg(feature = "redb")]
+fn begin_multi_graph_saga(
+    redb: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    caller: Option<&str>,
+    batches_msgpack: &[u8],
+    clustered: bool,
+) -> Result<Option<handlers::admin::AdminSaga>, Response> {
+    if clustered {
+        return Ok(None);
+    }
+    let method = Method::MultiGraphBatchUpdate {
+        batches_msgpack: batches_msgpack.to_vec(),
+    };
+    let saga = match handlers::admin::begin_admin_saga(
+        redb,
+        req_id,
+        caller,
+        &method,
+        crate::mutation_batch::MutationDomain::MultiGraph,
+    ) {
+        Ok(saga) => saga,
+        Err(error) => return Err(Response::err(req_id, error)),
+    };
+    if let Some(result) = saga.replayed.clone() {
+        return Err(Response::ok(req_id, result));
+    }
+    Ok(Some(saga))
+}
+
+/// Close the saga (when there is one) over the assembled partial-success reply.
+#[cfg(feature = "redb")]
+fn finish_multi_graph_batch(
+    redb: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    saga: Option<handlers::admin::AdminSaga>,
+    result: ResultPayload,
+) -> Response {
+    let Some(saga) = saga else {
+        return Response::ok(req_id, result);
+    };
+    match handlers::admin::finish_admin_saga(redb, saga.batch, saga.created_at_ms, result) {
+        Ok(result) => Response::ok(req_id, result),
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+/// Record one sub-batch's outcome. A graph's failure lands in `errors`; a
+/// success lands in `results`, with a non-JSON payload recorded as null so the
+/// reply always names every graph exactly once.
+#[cfg(feature = "redb")]
+fn record_multi_graph_result(
+    results: &mut serde_json::Map<String, serde_json::Value>,
+    errors: &mut serde_json::Map<String, serde_json::Value>,
+    graph: String,
+    response: Response,
+) {
+    if let Some(err) = response.error {
+        errors.insert(graph, serde_json::Value::String(err));
+    } else if let Some(ResultPayload::Json(value)) = response.result {
+        results.insert(graph, value);
+    } else {
+        results.insert(graph, serde_json::Value::Null);
+    }
+}
+
+/// Fan each sub-batch onto its own task so distinct graphs apply concurrently.
+/// The `Arc<RwLock<ServerState>>` is cheaply cloned; `dispatch_graph_op` takes
+/// the registry read-lock only briefly then releases it before the per-graph
+/// write lock, so the writes overlap across shard writers.
+#[cfg(feature = "redb")]
+async fn run_multi_graph_batches(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    caller: Option<&str>,
+    verified_context: &VerifiedRequestContext,
+    batches: Vec<(String, serde_bytes::ByteBuf)>,
+) -> (
+    serde_json::Map<String, serde_json::Value>,
+    serde_json::Map<String, serde_json::Value>,
+) {
     let mut results = serde_json::Map::new();
     let mut errors = serde_json::Map::new();
-    if batches.is_empty() {
-        let result = ResultPayload::Json(serde_json::json!({"results": results, "errors": errors}));
-        return if let Some(saga) = saga {
-            match handlers::admin::finish_admin_saga(redb, saga.batch, saga.created_at_ms, result) {
-                Ok(result) => Response::ok(req_id, result),
-                Err(error) => Response::err(req_id, error),
-            }
-        } else {
-            Response::ok(req_id, result)
-        };
-    }
-
-    // Fan each sub-batch onto its own task so distinct graphs apply concurrently.
-    // The Arc<RwLock<ServerState>> is cheaply cloned; dispatch_graph_op takes the
-    // registry read-lock only briefly then releases it before the per-graph write
-    // lock, so the writes overlap across shard writers.
     let caller_owned = caller.map(str::to_string);
     let mut set = tokio::task::JoinSet::new();
     for (graph, ops) in batches {
         let state = Arc::clone(state);
         let caller_owned = caller_owned.clone();
-        let verified_context = verified_context.clone();
+        let verified_context = VerifiedRequestContext::clone(verified_context);
         set.spawn(async move {
             let resp = dispatch_graph_op(
                 &state,
@@ -7848,15 +7909,7 @@ async fn multi_graph_batch_update(
 
     while let Some(joined) = set.join_next().await {
         match joined {
-            Ok((graph, resp)) => {
-                if let Some(err) = resp.error {
-                    errors.insert(graph, serde_json::Value::String(err));
-                } else if let Some(ResultPayload::Json(v)) = resp.result {
-                    results.insert(graph, v);
-                } else {
-                    results.insert(graph, serde_json::Value::Null);
-                }
-            }
+            Ok((graph, resp)) => record_multi_graph_result(&mut results, &mut errors, graph, resp),
             Err(join_err) => {
                 // A panicked/cancelled sub-batch task — surface it, don't abort.
                 let _ = join_err;
@@ -7867,16 +7920,7 @@ async fn multi_graph_batch_update(
             }
         }
     }
-
-    let result = ResultPayload::Json(serde_json::json!({"results": results, "errors": errors}));
-    if let Some(saga) = saga {
-        match handlers::admin::finish_admin_saga(redb, saga.batch, saga.created_at_ms, result) {
-            Ok(result) => Response::ok(req_id, result),
-            Err(error) => Response::err(req_id, error),
-        }
-    } else {
-        Response::ok(req_id, result)
-    }
+    (results, errors)
 }
 
 #[cfg(not(feature = "redb"))]
