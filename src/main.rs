@@ -13,7 +13,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 #[cfg(feature = "security")]
 use tokio::sync::RwLock;
-#[cfg(feature = "security")]
+// NOT cfg-gated: `info!` is used 110 times in this file, the great majority in code
+// paths that carry no cfg of their own. Gating the import on `security` broke
+// `--no-default-features --features server` with 13 `cannot find macro `info`` errors
+// (BUG-CX-104, same shape as the dispatch.rs/graph_ops.rs fixes: an import gated more
+// narrowly than its uses).
 use tracing::info;
 
 #[cfg(feature = "security")]
