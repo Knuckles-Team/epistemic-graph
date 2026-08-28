@@ -5396,19 +5396,62 @@ async fn dispatch_inner(
         let _ = control;
     }
 
-    let response = match req.method {
+    let req_id = req.id;
+    let response = dispatch_request_method(
+        state,
+        req,
+        &verified_context,
+        state_machine_authorized,
+        identity_bootstrap,
+    )
+    .await;
+    finalize_dispatch_response(req_id, response, session_control)
+}
+
+/// The request fields every dispatch group needs after `req.method` has been
+/// moved out of the `Request`. Keeping the field names (`id`, `graph`,
+/// `agent_id`) means each relocated match arm still reads exactly as it did
+/// inside `dispatch_inner`.
+struct DispatchHeader {
+    id: u64,
+    graph: String,
+    agent_id: Option<String>,
+}
+
+/// The authenticated, preamble-resolved context shared by every dispatch group.
+/// All fields are shared references or flags, so this is `Copy` and each group
+/// call is free.
+#[derive(Clone, Copy)]
+struct DispatchCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req: &'a DispatchHeader,
+    verified_context: &'a VerifiedRequestContext,
+    state_machine_authorized: bool,
+    identity_bootstrap: bool,
+}
+
+/// Service-level, source-ingestion and cost/telemetry methods.
+///
+/// Returns `Err(method)` for a method this group does not own, so
+/// `dispatch_request_method` can hand it to the next group. The groups
+/// partition disjoint `Method` variants, so the split cannot change which
+/// arm a request reaches.
+async fn dispatch_service_and_ingest_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[allow(unused_variables)]
+    let state = ctx.state;
+    #[allow(unused_variables)]
+    let req = ctx.req;
+    #[allow(unused_variables)]
+    let verified_context = ctx.verified_context;
+    Ok(match method {
         // ── Service-level ────────────────────────────────────────────
         Method::Ping => Response::ok(req.id, ResultPayload::String("pong".to_string())),
 
-                method @ Method::Health => {
-            dispatch_boxed(
-                dispatch_case_02_health(
-                    state,
-                    req.id,
-                    method,
-                )
-            )
-            .await
+        method @ Method::Health => {
+            dispatch_boxed(dispatch_case_02_health(state, req.id, method)).await
         }
 
         // L36: cooperative cancellation of an in-flight request by its `req_id` (CONCEPT:EG-KG.query.streaming-spillable-collect).
@@ -5422,76 +5465,67 @@ async fn dispatch_inner(
             ResultPayload::Bool(super::request_cancel::cancel(target_req_id)),
         ),
 
-                method @ Method::ParseFile { .. } => {
-            dispatch_boxed(
-                dispatch_case_04_parse_file(
-                    req.id,
-                    method,
-                )
-            )
-            .await
+        method @ Method::ParseFile { .. } => {
+            dispatch_boxed(dispatch_case_04_parse_file(req.id, method)).await
         }
 
-                method @ Method::ParseFiles { .. } => {
-            dispatch_boxed(
-                dispatch_case_05_parse_files(
-                    req.id,
-                    method,
-                )
-            )
-            .await
+        method @ Method::ParseFiles { .. } => {
+            dispatch_boxed(dispatch_case_05_parse_files(req.id, method)).await
         }
 
-                method @ Method::IndexRepository { .. } => {
-            dispatch_boxed(
-                dispatch_case_06_index_repository(
-                    req.id,
-                    method,
-                )
-            )
-            .await
+        method @ Method::IndexRepository { .. } => {
+            dispatch_boxed(dispatch_case_06_index_repository(req.id, method)).await
         }
 
-                method @ Method::ObserveScreen { .. } => {
-            dispatch_boxed(
-                dispatch_case_07_observe_screen(
-                    req.id,
-                    method,
-                )
-            )
-            .await
+        method @ Method::ObserveScreen { .. } => {
+            dispatch_boxed(dispatch_case_07_observe_screen(req.id, method)).await
         }
 
-                method @ Method::Shutdown => {
-            dispatch_boxed(
-                dispatch_case_08_shutdown(
-                    req.id,
-                    method,
-                )
-            )
-            .await
+        method @ Method::Shutdown => {
+            dispatch_boxed(dispatch_case_08_shutdown(req.id, method)).await
         }
 
         // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
-                #[cfg(feature = "cost")]
+        #[cfg(feature = "cost")]
         method @ Method::ResourceStats => {
-            dispatch_boxed(
-                dispatch_case_09_resource_stats(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_09_resource_stats(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
+        other => return Err(other),
+    })
+}
+
+/// Graph lifecycle plus the M3 catalog/reshard/placement/raft admin surface.
+///
+/// Returns `Err(method)` for a method this group does not own, so
+/// `dispatch_request_method` can hand it to the next group. The groups
+/// partition disjoint `Method` variants, so the split cannot change which
+/// arm a request reaches.
+async fn dispatch_graph_lifecycle_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[allow(unused_variables)]
+    let state = ctx.state;
+    #[allow(unused_variables)]
+    let req = ctx.req;
+    #[allow(unused_variables)]
+    let verified_context = ctx.verified_context;
+    #[allow(unused_variables)]
+    let state_machine_authorized = ctx.state_machine_authorized;
+    Ok(match method {
                 #[cfg(feature = "cost")]
         method @ Method::ResourceStatsPage { .. } => {
             dispatch_boxed(
                 dispatch_case_10_resource_stats_page(
                     state,
                     req.id,
-                    &verified_context,
+                    verified_context,
                     method,
                 )
             )
@@ -5529,7 +5563,7 @@ async fn dispatch_inner(
                 dispatch_case_13_list_graphs(
                     state,
                     req.id,
-                    &verified_context,
+                    verified_context,
                     method,
                 )
             )
@@ -5617,7 +5651,7 @@ async fn dispatch_inner(
                 dispatch_case_17_cluster_members(
                     state,
                     req.id,
-                    &verified_context,
+                    verified_context,
                     method,
                 )
             )
@@ -5639,7 +5673,7 @@ async fn dispatch_inner(
                     state,
                     req.id,
                     req.agent_id.clone(),
-                    &verified_context,
+                    verified_context,
                     method,
                 )
             )
@@ -5647,115 +5681,122 @@ async fn dispatch_inner(
         }
 
         // ── Channel operations ───────────────────────────────────────
-                method @ Method::CreateChannel { .. } => {
-            dispatch_boxed(
-                dispatch_case_19_create_channel(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        other => return Err(other),
+    })
+}
+
+/// Channel and messaging methods.
+///
+/// Returns `Err(method)` for a method this group does not own, so
+/// `dispatch_request_method` can hand it to the next group. The groups
+/// partition disjoint `Method` variants, so the split cannot change which
+/// arm a request reaches.
+async fn dispatch_channel_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[allow(unused_variables)]
+    let state = ctx.state;
+    #[allow(unused_variables)]
+    let req = ctx.req;
+    #[allow(unused_variables)]
+    let verified_context = ctx.verified_context;
+    #[allow(unused_variables)]
+    let state_machine_authorized = ctx.state_machine_authorized;
+    #[allow(unused_variables)]
+    let identity_bootstrap = ctx.identity_bootstrap;
+    Ok(match method {
+        method @ Method::CreateChannel { .. } => {
+            dispatch_boxed(dispatch_case_19_create_channel(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
-                method @ Method::JoinChannel { .. } => {
-            dispatch_boxed(
-                dispatch_case_20_join_channel(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::JoinChannel { .. } => {
+            dispatch_boxed(dispatch_case_20_join_channel(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
-                method @ Method::LeaveChannel { .. } => {
-            dispatch_boxed(
-                dispatch_case_21_leave_channel(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::LeaveChannel { .. } => {
+            dispatch_boxed(dispatch_case_21_leave_channel(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
-                method @ Method::CloseChannel { .. } => {
-            dispatch_boxed(
-                dispatch_case_22_close_channel(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::CloseChannel { .. } => {
+            dispatch_boxed(dispatch_case_22_close_channel(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
-                method @ Method::SendMessage { .. } => {
-            dispatch_boxed(
-                dispatch_case_23_send_message(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::SendMessage { .. } => {
+            dispatch_boxed(dispatch_case_23_send_message(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
-                method @ Method::GetChannelMessages { .. } => {
-            dispatch_boxed(
-                dispatch_case_24_get_channel_messages(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::GetChannelMessages { .. } => {
+            dispatch_boxed(dispatch_case_24_get_channel_messages(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
-                method @ Method::ListChannels => {
-            dispatch_boxed(
-                dispatch_case_25_list_channels(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::ListChannels => {
+            dispatch_boxed(dispatch_case_25_list_channels(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
-                method @ Method::GetChannelMembers { .. } => {
-            dispatch_boxed(
-                dispatch_case_26_get_channel_members(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::GetChannelMembers { .. } => {
+            dispatch_boxed(dispatch_case_26_get_channel_members(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
         // ── Zero-Trust Consensus ─────────────────────────────────────────
-                method @ Method::RegisterIdentity { .. } => {
-            dispatch_boxed(
-                dispatch_case_27_register_identity(
-                    state,
-                    req.id,
-                    req.graph.clone(),
-                    &verified_context,
-                    state_machine_authorized,
-                    identity_bootstrap,
-                    method,
-                )
-            )
+        method @ Method::RegisterIdentity { .. } => {
+            dispatch_boxed(dispatch_case_27_register_identity(
+                state,
+                req.id,
+                req.graph.clone(),
+                verified_context,
+                state_machine_authorized,
+                identity_bootstrap,
+                method,
+            ))
             .await
         }
 
@@ -5766,15 +5807,32 @@ async fn dispatch_inner(
         // the SAME `security:admin` scope as `RegisterIdentity` (see `eg_capabilities::policy`),
         // enforced by the admin-scope check above the method match, so no additional
         // authorization is done here.
-                method @ Method::GetIdentity { .. } => {
-            dispatch_boxed(
-                dispatch_case_28_get_identity(
-                    state,
-                    req.id,
-                    method,
-                )
-            )
-            .await
+        other => return Err(other),
+    })
+}
+
+/// Identity, policy, RBAC, multisig, jobs, statechart and the standalone
+/// quantum / ASR / viz surfaces.
+///
+/// Returns `Err(method)` for a method this group does not own, so
+/// `dispatch_request_method` can hand it to the next group. The groups
+/// partition disjoint `Method` variants, so the split cannot change which
+/// arm a request reaches.
+async fn dispatch_identity_and_admin_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[allow(unused_variables)]
+    let state = ctx.state;
+    #[allow(unused_variables)]
+    let req = ctx.req;
+    #[allow(unused_variables)]
+    let verified_context = ctx.verified_context;
+    #[allow(unused_variables)]
+    let state_machine_authorized = ctx.state_machine_authorized;
+    Ok(match method {
+        method @ Method::GetIdentity { .. } => {
+            dispatch_boxed(dispatch_case_28_get_identity(state, req.id, method)).await
         }
 
         // CA-16 (DEC-CA-04): export the M1 row-visibility policy bundle. Gated
@@ -5787,45 +5845,34 @@ async fn dispatch_inner(
         // is always folded into `principals` here, so every export call is
         // self-proving against a real verified token (DEC-CA-04 A2). See
         // `server::policy_export`'s module doc for the full design.
-                #[cfg(feature = "policy_export")]
+        #[cfg(feature = "policy_export")]
         method @ Method::PolicyExport { .. } => {
-            dispatch_boxed(
-                dispatch_case_29_policy_export(
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_29_policy_export(
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
         // ── RBAC policy administration (CONCEPT:EG-KG.compute.feature) ──────────────────
         // Gated at the handler; a non-security build has no arm and falls to the
         // dispatch "not available in this build" catch-all (mirrors EG-090).
-                #[cfg(feature = "security")]
+        #[cfg(feature = "security")]
         method @ Method::RbacAdmin { .. } => {
-            dispatch_boxed(
-                dispatch_case_30_rbac_admin(
-                    state,
-                    req.id,
-                    method,
-                )
-            )
-            .await
+            dispatch_boxed(dispatch_case_30_rbac_admin(state, req.id, method)).await
         }
 
-                method @ Method::ApplyMultisigMutation { .. } => {
-            dispatch_boxed(
-                dispatch_case_31_apply_multisig_mutation(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    req.graph.clone(),
-                    &verified_context,
-                    state_machine_authorized,
-                    method,
-                )
-            )
+        method @ Method::ApplyMultisigMutation { .. } => {
+            dispatch_boxed(dispatch_case_31_apply_multisig_mutation(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                state_machine_authorized,
+                method,
+            ))
             .await
         }
 
@@ -5833,16 +5880,14 @@ async fn dispatch_inner(
         // NOT graph-scoped (own `jobs.redb`, keyed by `job_id`) — self-routes here,
         // BEFORE the per-graph `dispatch_graph_op` chain, exactly like `TsAppend`/
         // `Kv*`/`CreateChannel` above. See `handlers/jobs.rs` module docs.
-                #[cfg(feature = "jobs")]
+        #[cfg(feature = "jobs")]
         method @ Method::AnalyticsJob { .. } => {
-            dispatch_boxed(
-                dispatch_case_32_analytics_job(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_32_analytics_job(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -5850,16 +5895,14 @@ async fn dispatch_inner(
         // NOT graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) —
         // self-routes here, BEFORE the per-graph `dispatch_graph_op` chain, exactly
         // like `AnalyticsJob` above. See `handlers/statechart.rs` module docs.
-                #[cfg(feature = "statechart")]
+        #[cfg(feature = "statechart")]
         method @ Method::Statechart { .. } => {
-            dispatch_boxed(
-                dispatch_case_33_statechart(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_33_statechart(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -5891,16 +5934,14 @@ async fn dispatch_inner(
         // already gates the wire `Method::Viz` variant on) — a deliberate,
         // documented deviation: the handler needs a real ColumnStore + export
         // backend to do anything, which only exist at that tier.
-                #[cfg(feature = "viz-static-export")]
+        #[cfg(feature = "viz-static-export")]
         method @ Method::Viz { .. } => {
-            dispatch_boxed(
-                dispatch_case_36_viz(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_36_viz(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -5912,7 +5953,28 @@ async fn dispatch_inner(
         // coalescer/registry-lookup assumes a single `req.graph` target. For
         // BeginTxn the request envelope's `graph` is the default target when the
         // body omits one.
-                method @ (Method::BeginTxn { .. }
+        other => return Err(other),
+    })
+}
+
+/// Transaction control plus the blob / KV / SQLite-file stores.
+///
+/// Returns `Err(method)` for a method this group does not own, so
+/// `dispatch_request_method` can hand it to the next group. The groups
+/// partition disjoint `Method` variants, so the split cannot change which
+/// arm a request reaches.
+async fn dispatch_transaction_and_store_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[allow(unused_variables)]
+    let state = ctx.state;
+    #[allow(unused_variables)]
+    let req = ctx.req;
+    #[allow(unused_variables)]
+    let verified_context = ctx.verified_context;
+    Ok(match method {
+        method @ (Method::BeginTxn { .. }
         | Method::TxnAddNode { .. }
         | Method::TxnRemoveNode { .. }
         | Method::TxnAddEdge { .. }
@@ -5922,15 +5984,13 @@ async fn dispatch_inner(
         | Method::TxnBlobRef { .. }
         | Method::Commit { .. }
         | Method::Rollback { .. }) => {
-            dispatch_boxed(
-                dispatch_case_37_begin_txn(
-                    state,
-                    req.id,
-                    req.graph.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_37_begin_txn(
+                state,
+                req.id,
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -5943,71 +6003,61 @@ async fn dispatch_inner(
         // stage fns directly) but ERRORED over the native RPC surface — a "seamless" leak
         // (docs/north_star.md). Each is `cfg`-gated to match its protocol variant, so a slim
         // build without the feature keeps the prior catch-all behavior.
-                #[cfg(feature = "tsdb")]
+        #[cfg(feature = "tsdb")]
         method @ Method::TxnAddMeasurement { .. } => {
-            dispatch_boxed(
-                dispatch_case_38_txn_add_measurement(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_38_txn_add_measurement(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
-                #[cfg(feature = "owl")]
+        #[cfg(feature = "owl")]
         method @ Method::TxnAxiom { .. } => {
-            dispatch_boxed(
-                dispatch_case_39_txn_axiom(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_39_txn_axiom(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
-                #[cfg(feature = "sparql")]
+        #[cfg(feature = "sparql")]
         method @ Method::TxnConstruct { .. } => {
-            dispatch_boxed(
-                dispatch_case_40_txn_construct(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_40_txn_construct(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
         // Planner-writeback staging (CONCEPT:EG-KG.query.plan-dag, D7) — carries its OWN
         // `graph` (like `TxnConstruct`), so it routes straight to the txn handler with NO
         // BeginTxn graph-default rewrite. `query`-gated to match its protocol variant.
-                #[cfg(feature = "query")]
+        #[cfg(feature = "query")]
         method @ Method::TxnPlanWriteback { .. } => {
-            dispatch_boxed(
-                dispatch_case_41_txn_plan_writeback(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_41_txn_plan_writeback(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
         // Materialize-belief staging (CONCEPT:EG-KG.epistemic.epistemic-substrate, D5) —
         // carries its OWN `graph` (like `TxnPlanWriteback`), so it routes straight to the
         // txn handler with NO BeginTxn graph-default rewrite. `epistemic`-gated to match
         // its protocol variant.
-                #[cfg(feature = "epistemic")]
+        #[cfg(feature = "epistemic")]
         method @ Method::TxnMaterializeBelief { .. } => {
-            dispatch_boxed(
-                dispatch_case_42_txn_materialize_belief(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_42_txn_materialize_belief(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -6016,7 +6066,7 @@ async fn dispatch_inner(
         // referenced across graphs, so route at the top level (like txn) before the
         // per-graph chain. The variants only exist with the `blob` feature; without
         // it they aren't in the enum and a slim build can't reach this arm.
-                #[cfg(feature = "blob")]
+        #[cfg(feature = "blob")]
         method @ (Method::BlobBegin { .. }
         | Method::BlobChunkPut { .. }
         | Method::BlobCommit { .. }
@@ -6026,14 +6076,12 @@ async fn dispatch_inner(
         | Method::BlobRef { .. }
         | Method::BlobUnref { .. }
         | Method::BlobGc) => {
-            dispatch_boxed(
-                dispatch_case_43_blob_begin(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_43_blob_begin(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -6042,20 +6090,18 @@ async fn dispatch_inner(
         // lives off the node/edge graph, so route at the top level (like blob/txn)
         // before the per-graph chain. The variants only exist with the `kv` feature;
         // without it they aren't in the enum and a slim build can't reach this arm.
-                #[cfg(feature = "kv")]
+        #[cfg(feature = "kv")]
         method @ (Method::KvGet { .. }
         | Method::KvPut { .. }
         | Method::KvDelete { .. }
         | Method::KvScan { .. }
         | Method::KvCas { .. }) => {
-            dispatch_boxed(
-                dispatch_case_44_kv_get(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_44_kv_get(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -6065,16 +6111,14 @@ async fn dispatch_inner(
         // self-route here (like the Blob*/Kv* ops) BEFORE the per-graph chain. Gated
         // `sqlite-file` (which pulls the bundled C sqlite kept OUT of pi); a build
         // without it never has the variants in the enum, so this arm can't be reached.
-                #[cfg(feature = "sqlite-file")]
+        #[cfg(feature = "sqlite-file")]
         method @ (Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. }) => {
-            dispatch_boxed(
-                dispatch_case_45_import_sqlite_file(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_45_import_sqlite_file(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -6086,7 +6130,29 @@ async fn dispatch_inner(
         // BEFORE the per-graph chain, like tsdb/blob. Gated `streaming`: in a slim
         // build the arm is absent and the variants fall to the graph_ops not-built
         // catch-all (never a panic, never a mis-route).
-                #[cfg(feature = "streaming")]
+        other => return Err(other),
+    })
+}
+
+/// Streaming, CEP, OWL reasoning, change envelopes, served modality and the
+/// knowledge stream.
+///
+/// Returns `Err(method)` for a method this group does not own, so
+/// `dispatch_request_method` can hand it to the next group. The groups
+/// partition disjoint `Method` variants, so the split cannot change which
+/// arm a request reaches.
+async fn dispatch_stream_and_envelope_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[allow(unused_variables)]
+    let state = ctx.state;
+    #[allow(unused_variables)]
+    let req = ctx.req;
+    #[allow(unused_variables)]
+    let verified_context = ctx.verified_context;
+    Ok(match method {
+        #[cfg(feature = "streaming")]
         method @ (Method::CdcRead { .. }
         | Method::RegisterContinuousQuery { .. }
         | Method::ReadContinuousQuery { .. }
@@ -6096,14 +6162,12 @@ async fn dispatch_inner(
         | Method::DropTrigger { .. }
         | Method::ListTriggers { .. }
         | Method::FiredTriggers { .. }) => {
-            dispatch_boxed(
-                dispatch_case_46_cdc_read(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_46_cdc_read(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -6117,16 +6181,16 @@ async fn dispatch_inner(
         // `all(streaming, stream)`: the CDC feed AND the live NFA engine. A build missing
         // either (e.g. `pi` — streaming, no stream) omits this arm; the `Cep*` variants
         // (gated `streaming`) then fall to the graph_ops not-available catch-all.
-                #[cfg(all(feature = "streaming", feature = "stream"))]
-        method @ (Method::CepSubscribe { .. } | Method::CepPoll { .. } | Method::CepUnsubscribe { .. }) => {
-            dispatch_boxed(
-                dispatch_case_47_cep_subscribe(
-                    state,
-                    req.id,
-                    &verified_context,
-                    method,
-                )
-            )
+        #[cfg(all(feature = "streaming", feature = "stream"))]
+        method @ (Method::CepSubscribe { .. }
+        | Method::CepPoll { .. }
+        | Method::CepUnsubscribe { .. }) => {
+            dispatch_boxed(dispatch_case_47_cep_subscribe(
+                state,
+                req.id,
+                verified_context,
+                method,
+            ))
             .await
         }
 
@@ -6135,110 +6199,117 @@ async fn dispatch_inner(
         // here (with `state` to gather each shard's snapshot) BEFORE the per-graph
         // chain — never through `dispatch_graph_op`, which targets a single `req.graph`.
         // Gated `owl`: in a build without it the variant isn't in the enum.
-                #[cfg(feature = "owl")]
+        #[cfg(feature = "owl")]
         method @ Method::OwlReasonDistributed { .. } => {
-            dispatch_boxed(
-                dispatch_case_48_owl_reason_distributed(
-                    state,
-                    req.id,
-                    verified_context.clone(),
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_48_owl_reason_distributed(
+                state,
+                req.id,
+                // `verified_context` is a `&VerifiedRequestContext` here; spell the
+                // clone out so it cannot be read as cloning the reference.
+                VerifiedRequestContext::clone(verified_context),
+                method,
+            ))
             .await
         }
 
         // ── Graph operations (dispatch to target graph) ──────────────
-                method @ Method::ApplyChangeEnvelope { .. } => {
-            dispatch_boxed(
-                dispatch_case_49_apply_change_envelope(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    req.graph.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::ApplyChangeEnvelope { .. } => {
+            dispatch_boxed(dispatch_case_49_apply_change_envelope(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
-                method @ Method::ApplyChangeEnvelopes { .. } => {
-            dispatch_boxed(
-                dispatch_case_50_apply_change_envelopes(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::ApplyChangeEnvelopes { .. } => {
+            dispatch_boxed(dispatch_case_50_apply_change_envelopes(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
-                #[cfg(feature = "modality-serving")]
+        #[cfg(feature = "modality-serving")]
         method @ Method::ServedModality { .. } => {
-            dispatch_boxed(
-                dispatch_case_51_served_modality(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    req.graph.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_51_served_modality(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
-                #[cfg(feature = "knowledge-batch")]
+        #[cfg(feature = "knowledge-batch")]
         method @ Method::KnowledgeStream { .. } => {
-            dispatch_boxed(
-                dispatch_case_52_knowledge_stream(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    req.graph.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+            dispatch_boxed(dispatch_case_52_knowledge_stream(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
-                method @ Method::GetChangeEnvelope { .. } => {
-            dispatch_boxed(
-                dispatch_case_53_get_change_envelope(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    req.graph.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::GetChangeEnvelope { .. } => {
+            dispatch_boxed(dispatch_case_53_get_change_envelope(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
-                method @ Method::GetContentVersion { .. } => {
-            dispatch_boxed(
-                dispatch_case_54_get_content_version(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    req.graph.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::GetContentVersion { .. } => {
+            dispatch_boxed(dispatch_case_54_get_content_version(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
-                method @ Method::GetChangeCursor { .. } => {
-            dispatch_boxed(
-                dispatch_case_55_get_change_cursor(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    req.graph.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+        other => return Err(other),
+    })
+}
+
+/// Change cursors, natural-language query and multi-graph batch update.
+///
+/// Returns `Err(method)` for a method this group does not own, so
+/// `dispatch_request_method` can hand it to the next group. The groups
+/// partition disjoint `Method` variants, so the split cannot change which
+/// arm a request reaches.
+async fn dispatch_query_and_batch_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[allow(unused_variables)]
+    let state = ctx.state;
+    #[allow(unused_variables)]
+    let req = ctx.req;
+    #[allow(unused_variables)]
+    let verified_context = ctx.verified_context;
+    Ok(match method {
+        method @ Method::GetChangeCursor { .. } => {
+            dispatch_boxed(dispatch_case_55_get_change_cursor(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
         // Natural-language query (CONCEPT:EG-KG.query.core-query-input/EG-080): the graph rides the METHOD
@@ -6247,17 +6318,15 @@ async fn dispatch_inner(
         // handler (behind `nl-query`) turns NL→UQL and runs the deterministic
         // `UnifiedQueryText` pipeline; a build without `nl-query` reaches the graph_ops
         // "not available" catch-all like any other feature-off method.
-                method @ Method::NlQuery { .. } => {
-            dispatch_boxed(
-                dispatch_case_56_nl_query(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    req.graph.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::NlQuery { .. } => {
+            dispatch_boxed(dispatch_case_56_nl_query(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                req.graph.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
         // Batched CROSS-GRAPH write (CONCEPT:EG-KG.storage.multi-graph-batch-write) — the
@@ -6266,19 +6335,33 @@ async fn dispatch_inner(
         // graph-op path. Each sub-batch fans through the normal per-graph write
         // path CONCURRENTLY, so N distinct graphs commit across N of the K shard
         // writers in parallel.
-                method @ Method::MultiGraphBatchUpdate { .. } => {
-            dispatch_boxed(
-                dispatch_case_57_multi_graph_batch_update(
-                    state,
-                    req.id,
-                    req.agent_id.clone(),
-                    &verified_context,
-                    method,
-                )
-            )
+        method @ Method::MultiGraphBatchUpdate { .. } => {
+            dispatch_boxed(dispatch_case_57_multi_graph_batch_update(
+                state,
+                req.id,
+                req.agent_id.clone(),
+                verified_context,
+                method,
+            ))
             .await
         }
-        #[cfg(feature = "sparql-http")]
+        other => return Err(other),
+    })
+}
+
+/// The one guarded arm: a SPARQL-over-HTTP UPDATE arrives as an
+/// `ApplyMutation` whose event type is the SPARQL-HTTP update marker. Any
+/// other `ApplyMutation` falls through to the ordinary per-graph chain,
+/// exactly as the guard's own fallthrough did.
+#[cfg(feature = "sparql-http")]
+async fn dispatch_sparql_http_update(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req = ctx.req;
+    let verified_context = ctx.verified_context;
+    Ok(match method {
         Method::ApplyMutation { event_type, query }
             if event_type == crate::server::sparql_http::SPARQL_HTTP_UPDATE_EVENT =>
         {
@@ -6286,25 +6369,109 @@ async fn dispatch_inner(
                 state,
                 req.id,
                 req.agent_id.as_deref(),
-                &verified_context,
+                verified_context,
                 &req.graph,
                 query,
             )
             .await
         }
-        _ => {
-            dispatch_graph_op(
-                state,
-                &req.graph,
-                req.id,
-                req.agent_id.as_deref(),
-                &verified_context,
-                req.method,
-            )
-            .await
-        }
+        other => return Err(other),
+    })
+}
+
+/// Service, graph-lifecycle, channel and identity/admin methods: everything
+/// resolved before the per-graph data path is consulted.
+async fn dispatch_control_plane_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let method = match dispatch_service_and_ingest_methods(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
     };
-    finalize_dispatch_response(req.id, response, session_control)
+    let method = match dispatch_graph_lifecycle_methods(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    let method = match dispatch_channel_methods(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    dispatch_identity_and_admin_methods(ctx, method).await
+}
+
+/// Transaction/store, streaming/envelope, query/batch and the guarded
+/// SPARQL-over-HTTP update. A method none of these claims is handed back for the
+/// ordinary per-graph chain.
+async fn dispatch_data_plane_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let method = match dispatch_transaction_and_store_methods(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    let method = match dispatch_stream_and_envelope_methods(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    let method = match dispatch_query_and_batch_methods(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    #[cfg(feature = "sparql-http")]
+    {
+        dispatch_sparql_http_update(ctx, method).await
+    }
+    #[cfg(not(feature = "sparql-http"))]
+    {
+        Err(method)
+    }
+}
+
+/// Route one authenticated request to its handler.
+///
+/// The single 59-arm `match req.method` this replaced is now seven group
+/// dispatchers over disjoint `Method` variants, tried in order; each hands
+/// back a method it does not own. A method no group claims falls through to
+/// the ordinary per-graph chain, which is exactly what the old `_` arm did.
+async fn dispatch_request_method(
+    state: &Arc<RwLock<ServerState>>,
+    req: Request,
+    verified_context: &VerifiedRequestContext,
+    state_machine_authorized: bool,
+    identity_bootstrap: bool,
+) -> Response {
+    let method = req.method;
+    let req = DispatchHeader {
+        id: req.id,
+        graph: req.graph,
+        agent_id: req.agent_id,
+    };
+    let ctx = DispatchCtx {
+        state,
+        req: &req,
+        verified_context,
+        state_machine_authorized,
+        identity_bootstrap,
+    };
+    let method = match dispatch_control_plane_methods(ctx, method).await {
+        Ok(response) => return response,
+        Err(method) => method,
+    };
+    let method = match dispatch_data_plane_methods(ctx, method).await {
+        Ok(response) => return response,
+        Err(method) => method,
+    };
+    dispatch_graph_op(
+        state,
+        &req.graph,
+        req.id,
+        req.agent_id.as_deref(),
+        verified_context,
+        method,
+    )
+    .await
 }
 
 /// Runs the session-control saga's completion side-effect after the main
