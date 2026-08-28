@@ -1498,6 +1498,218 @@ async fn abort_consensus_transaction(
     .await
 }
 
+/// The control-plane consensus route a coordinator drives its decision, abort
+/// and finalize records through, together with the identity every submission is
+/// signed under. Bundled so each phase helper below stays inside the parameter
+/// cap while still seeing the whole coordination context.
+#[cfg(feature = "raft")]
+struct TransactionCoordination<'a> {
+    multi: &'a Arc<crate::raft::multi::MultiRaft>,
+    authority: &'a CarrierAuthority,
+    request_id: u64,
+    server_secret: &'a str,
+    control_group: crate::raft::GroupId,
+    control_epoch: u64,
+    control_fence: Option<u64>,
+    control_graph_type: crate::protocol::GraphType,
+}
+
+#[cfg(feature = "raft")]
+impl TransactionCoordination<'_> {
+    async fn abort(
+        &self,
+        fanout: &handlers::txn::ConsensusTransactionFanout,
+    ) -> Result<bool, String> {
+        abort_consensus_transaction(
+            self.multi,
+            self.authority,
+            self.request_id,
+            self.server_secret,
+            &fanout.coordinator_id,
+            &fanout.participants,
+            self.control_group,
+            self.control_epoch,
+            self.control_fence,
+            self.control_graph_type,
+        )
+        .await
+    }
+}
+
+/// Abort after a failed prepare, and turn the abort's OWN outcome into the
+/// response the caller returns. `prepare_error` is `None` for a clean refusal
+/// (the transaction simply did not commit) and `Some` for a submission failure;
+/// the two cases report differently, exactly as the inline arms did.
+#[cfg(feature = "raft")]
+async fn resolve_failed_consensus_prepare(
+    coordination: &TransactionCoordination<'_>,
+    fanout: &handlers::txn::ConsensusTransactionFanout,
+    prepare_error: Option<String>,
+) -> Response {
+    let request_id = coordination.request_id;
+    match (coordination.abort(fanout).await, prepare_error) {
+        (Ok(false), None) => Response::ok(request_id, ResultPayload::Bool(false)),
+        (Ok(false), Some(error)) => Response::err(
+            request_id,
+            format!("consensus participant prepare failed: {error}"),
+        ),
+        (Ok(true), _) => Response::err(request_id, "consensus abort finalized as commit"),
+        (Err(cleanup_error), None) => Response::err(request_id, cleanup_error),
+        (Err(cleanup_error), Some(error)) => Response::err(
+            request_id,
+            format!("consensus participant prepare failed: {error}; abort failed: {cleanup_error}"),
+        ),
+    }
+}
+
+/// Phase 1: prepare every participant. Any refusal or submission failure aborts
+/// the transaction and yields the caller's response.
+#[cfg(feature = "raft")]
+async fn prepare_consensus_participants(
+    coordination: &TransactionCoordination<'_>,
+    fanout: &handlers::txn::ConsensusTransactionFanout,
+) -> Result<(), Response> {
+    let request_id = coordination.request_id;
+    for participant in &fanout.participants {
+        let command = match crate::raft::NativeMutationCommand::transaction_participant(
+            crate::raft::TransactionParticipantPhase::Prepare,
+            fanout.coordinator_id.clone(),
+            participant.participant_id,
+            Some(&participant.sealed_plan_source),
+            coordination.server_secret,
+        ) {
+            Ok(command) => command,
+            Err(error) => return Err(Response::err(request_id, error)),
+        };
+        let operation = format!("prepare-{}", participant.participant_id);
+        let submitted = submit_consensus_transaction_command(
+            coordination.multi,
+            coordination.authority,
+            request_id,
+            &fanout.coordinator_id,
+            &operation,
+            participant.group_id,
+            participant.placement_epoch,
+            participant.fencing_token,
+            participant.graph_type,
+            command,
+        )
+        .await;
+        match submitted {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(resolve_failed_consensus_prepare(coordination, fanout, None).await)
+            }
+            Err(error) => {
+                return Err(
+                    resolve_failed_consensus_prepare(coordination, fanout, Some(error)).await,
+                )
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Phase 2: record the COMMIT decision on the control group.
+#[cfg(feature = "raft")]
+async fn decide_consensus_commit(
+    coordination: &TransactionCoordination<'_>,
+    fanout: &handlers::txn::ConsensusTransactionFanout,
+) -> Result<(), Response> {
+    let request_id = coordination.request_id;
+    let decided = submit_consensus_transaction_decision(
+        coordination.multi,
+        coordination.authority,
+        request_id,
+        &fanout.coordinator_id,
+        coordination.control_group,
+        coordination.control_epoch,
+        coordination.control_fence,
+        coordination.control_graph_type,
+        true,
+    )
+    .await;
+    let decision_error = match decided {
+        Ok(true) => return Ok(()),
+        Ok(false) => {
+            return Err(Response::err(
+                request_id,
+                "consensus transaction was durably aborted",
+            ))
+        }
+        Err(error) => error,
+    };
+    // A prior retry may already have decided ABORT. Conversely, if the
+    // COMMIT reply was merely lost, the abort decision will conflict and
+    // preserve the durable COMMIT. Either way this cleanup cannot reverse a
+    // recorded outcome.
+    Err(match coordination.abort(fanout).await {
+        Ok(false) => Response::err(
+            request_id,
+            format!("consensus transaction was durably aborted: {decision_error}"),
+        ),
+        Ok(true) => Response::err(request_id, "consensus abort finalized as commit"),
+        Err(cleanup_error) => Response::err(
+            request_id,
+            format!(
+                "consensus decision failed: {decision_error}; resolution failed: {cleanup_error}"
+            ),
+        ),
+    })
+}
+
+/// Phase 3: drive every participant to COMMIT. The decision is already durable,
+/// so a failure here is reported for retry rather than aborted.
+#[cfg(feature = "raft")]
+async fn commit_consensus_participants(
+    coordination: &TransactionCoordination<'_>,
+    fanout: &handlers::txn::ConsensusTransactionFanout,
+) -> Result<(), Response> {
+    let request_id = coordination.request_id;
+    for participant in &fanout.participants {
+        let command = match crate::raft::NativeMutationCommand::transaction_participant(
+            crate::raft::TransactionParticipantPhase::Commit,
+            fanout.coordinator_id.clone(),
+            participant.participant_id,
+            Some(&participant.sealed_plan_source),
+            coordination.server_secret,
+        ) {
+            Ok(command) => command,
+            Err(error) => return Err(Response::err(request_id, error)),
+        };
+        let operation = format!("commit-{}", participant.participant_id);
+        match submit_consensus_transaction_command(
+            coordination.multi,
+            coordination.authority,
+            request_id,
+            &fanout.coordinator_id,
+            &operation,
+            participant.group_id,
+            participant.placement_epoch,
+            participant.fencing_token,
+            participant.graph_type,
+            command,
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(Response::err(
+                    request_id,
+                    "decided consensus participant did not commit; retry will resume",
+                ))
+            }
+            Err(error) => {
+                return Err(Response::err(
+                    request_id,
+                    format!("decided consensus participant commit failed: {error}"),
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "raft")]
 #[allow(clippy::too_many_arguments)]
 async fn execute_consensus_transaction(
@@ -1516,185 +1728,34 @@ async fn execute_consensus_transaction(
             Ok(fanout) => fanout,
             Err(error) => return Response::err(request_id, error),
         };
-    let control_fence = control.placed.then_some(control.group_id);
-    for participant in &fanout.participants {
-        let command = match crate::raft::NativeMutationCommand::transaction_participant(
-            crate::raft::TransactionParticipantPhase::Prepare,
-            fanout.coordinator_id.clone(),
-            participant.participant_id,
-            Some(&participant.sealed_plan_source),
-            server_secret,
-        ) {
-            Ok(command) => command,
-            Err(error) => return Response::err(request_id, error),
-        };
-        let operation = format!("prepare-{}", participant.participant_id);
-        match submit_consensus_transaction_command(
-            &multi,
-            authority,
-            request_id,
-            &fanout.coordinator_id,
-            &operation,
-            participant.group_id,
-            participant.placement_epoch,
-            participant.fencing_token,
-            participant.graph_type,
-            command,
-        )
-        .await
-        {
-            Ok(true) => {}
-            Ok(false) => {
-                return match abort_consensus_transaction(
-                    &multi,
-                    authority,
-                    request_id,
-                    server_secret,
-                    &fanout.coordinator_id,
-                    &fanout.participants,
-                    control.group_id,
-                    control.epoch,
-                    control_fence,
-                    control_graph_type,
-                )
-                .await
-                {
-                    Ok(false) => Response::ok(request_id, ResultPayload::Bool(false)),
-                    Ok(true) => Response::err(request_id, "consensus abort finalized as commit"),
-                    Err(error) => Response::err(request_id, error),
-                };
-            }
-            Err(error) => {
-                let cleanup = abort_consensus_transaction(
-                    &multi,
-                    authority,
-                    request_id,
-                    server_secret,
-                    &fanout.coordinator_id,
-                    &fanout.participants,
-                    control.group_id,
-                    control.epoch,
-                    control_fence,
-                    control_graph_type,
-                )
-                .await;
-                return match cleanup {
-                    Ok(false) => Response::err(
-                        request_id,
-                        format!("consensus participant prepare failed: {error}"),
-                    ),
-                    Ok(true) => Response::err(request_id, "consensus abort finalized as commit"),
-                    Err(cleanup_error) => Response::err(
-                        request_id,
-                        format!(
-                            "consensus participant prepare failed: {error}; abort failed: {cleanup_error}"
-                        ),
-                    ),
-                };
-            }
-        }
-    }
-
-    match submit_consensus_transaction_decision(
-        &multi,
+    let coordination = TransactionCoordination {
+        multi: &multi,
         authority,
         request_id,
-        &fanout.coordinator_id,
-        control.group_id,
-        control.epoch,
-        control_fence,
+        server_secret,
+        control_group: control.group_id,
+        control_epoch: control.epoch,
+        control_fence: control.placed.then_some(control.group_id),
         control_graph_type,
-        true,
-    )
-    .await
-    {
-        Ok(true) => {}
-        Ok(false) => return Response::err(request_id, "consensus transaction was durably aborted"),
-        Err(error) => {
-            // A prior retry may already have decided ABORT. Conversely, if the
-            // COMMIT reply was merely lost, the abort decision will conflict and
-            // preserve the durable COMMIT. Either way this cleanup cannot reverse a
-            // recorded outcome.
-            return match abort_consensus_transaction(
-                &multi,
-                authority,
-                request_id,
-                server_secret,
-                &fanout.coordinator_id,
-                &fanout.participants,
-                control.group_id,
-                control.epoch,
-                control_fence,
-                control_graph_type,
-            )
-            .await
-            {
-                Ok(false) => Response::err(
-                    request_id,
-                    format!("consensus transaction was durably aborted: {error}"),
-                ),
-                Ok(true) => Response::err(request_id, "consensus abort finalized as commit"),
-                Err(cleanup_error) => Response::err(
-                    request_id,
-                    format!(
-                        "consensus decision failed: {error}; resolution failed: {cleanup_error}"
-                    ),
-                ),
-            };
-        }
+    };
+    if let Err(response) = prepare_consensus_participants(&coordination, &fanout).await {
+        return response;
     }
-
-    for participant in &fanout.participants {
-        let command = match crate::raft::NativeMutationCommand::transaction_participant(
-            crate::raft::TransactionParticipantPhase::Commit,
-            fanout.coordinator_id.clone(),
-            participant.participant_id,
-            Some(&participant.sealed_plan_source),
-            server_secret,
-        ) {
-            Ok(command) => command,
-            Err(error) => return Response::err(request_id, error),
-        };
-        let operation = format!("commit-{}", participant.participant_id);
-        match submit_consensus_transaction_command(
-            &multi,
-            authority,
-            request_id,
-            &fanout.coordinator_id,
-            &operation,
-            participant.group_id,
-            participant.placement_epoch,
-            participant.fencing_token,
-            participant.graph_type,
-            command,
-        )
-        .await
-        {
-            Ok(true) => {}
-            Ok(false) => {
-                return Response::err(
-                    request_id,
-                    "decided consensus participant did not commit; retry will resume",
-                )
-            }
-            Err(error) => {
-                return Response::err(
-                    request_id,
-                    format!("decided consensus participant commit failed: {error}"),
-                )
-            }
-        }
+    if let Err(response) = decide_consensus_commit(&coordination, &fanout).await {
+        return response;
     }
-
+    if let Err(response) = commit_consensus_participants(&coordination, &fanout).await {
+        return response;
+    }
     match submit_consensus_transaction_finalize(
-        &multi,
-        authority,
+        coordination.multi,
+        coordination.authority,
         request_id,
         &fanout.coordinator_id,
-        control.group_id,
-        control.epoch,
-        control_fence,
-        control_graph_type,
+        coordination.control_group,
+        coordination.control_epoch,
+        coordination.control_fence,
+        coordination.control_graph_type,
         true,
     )
     .await
@@ -2957,150 +3018,186 @@ async fn dispatch_case_10_resource_stats_page(
     }
 }
 
+/// A `CreateGraph` that finds the graph already resident is either a retry of a
+/// durably-committed create (idempotent success) or a genuine collision.
+async fn reconcile_existing_graph_create(
+    backend: &Arc<dyn PersistenceBackend>,
+    graph_name: &str,
+    req_id: u64,
+    created_result: ResultPayload,
+) -> Response {
+    match crate::server::mutation_batch::lifecycle_was_committed(
+        backend, "create", graph_name, req_id,
+    )
+    .await
+    {
+        Ok(true) => Response::ok(req_id, created_result),
+        Ok(false) => Response::err(req_id, format!("Graph '{graph_name}' already exists")),
+        Err(e) => Response::err(
+            req_id,
+            format!("durable graph-create reconciliation failed: {e}"),
+        ),
+    }
+}
+
+/// The authoritative version the durable lifecycle commit published. Anything
+/// other than a positive version means the registry must not publish this
+/// incarnation.
+async fn read_committed_graph_version(
+    backend: &Arc<dyn PersistenceBackend>,
+    graph_fname: &str,
+    req_id: u64,
+) -> Result<u64, Response> {
+    match backend.read_mutation_graph_version(graph_fname).await {
+        Ok(Some(version)) if version > 0 => Ok(version),
+        Ok(Some(_)) => Err(Response::err(
+            req_id,
+            "durable graph registration published an invalid zero version",
+        )),
+        Ok(None) => Err(Response::err(
+            req_id,
+            "durable graph registration published no authoritative version",
+        )),
+        Err(error) => Err(Response::err(
+            req_id,
+            format!("durable graph version read failed: {error}"),
+        )),
+    }
+}
+
 async fn dispatch_case_11_create_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
     method: Method,
 ) -> Response {
-    match method {
+    let Method::CreateGraph {
+        graph_name,
+        graph_type,
+    } = method
+    else {
+        unreachable!("dispatch_case_11_create_graph: classifier/handler diverged")
+    };
+    // Lifecycle shares the same per-graph serialization lane as ordinary
+    // MutationBatch/txn writes.  The durable identity must land before the
+    // registry publishes this incarnation.
+    let _mutation_guard = crate::server::mutation_batch::lock_graph(&graph_name).await;
+    let (backend, already_exists) = {
+        let s = timed_read(state).await;
+        (s.persistence.clone(), s.registry.exists(&graph_name))
+    };
+    let Some(backend) = backend else {
+        return Response::err(req_id, "graph creation requires durable persistence");
+    };
+    let created_result = ResultPayload::Json(serde_json::json!({
+        "created": graph_name.clone()
+    }));
+    let incarnation_id =
+        crate::server::mutation_batch::lifecycle_batch_id("create", &graph_name, req_id);
+    if already_exists {
+        return reconcile_existing_graph_create(&backend, &graph_name, req_id, created_result)
+            .await;
+    }
+    if let Err(e) = crate::server::mutation_batch::commit_lifecycle(
+        &backend,
+        "create",
+        req_id,
+        req_agent_id.as_deref(),
+        &graph_name,
         Method::CreateGraph {
-            graph_name,
+            graph_name: graph_name.clone(),
             graph_type,
-        } => {
-            // Lifecycle shares the same per-graph serialization lane as ordinary
-            // MutationBatch/txn writes.  The durable identity must land before the
-            // registry publishes this incarnation.
-            let _mutation_guard = crate::server::mutation_batch::lock_graph(&graph_name).await;
-            let (backend, already_exists) = {
-                let s = timed_read(state).await;
-                (s.persistence.clone(), s.registry.exists(&graph_name))
-            };
-            let Some(backend) = backend else {
-                return Response::err(req_id, "graph creation requires durable persistence");
-            };
-            let created_result = ResultPayload::Json(serde_json::json!({
-                "created": graph_name.clone()
-            }));
-            let incarnation_id =
-                crate::server::mutation_batch::lifecycle_batch_id("create", &graph_name, req_id);
-            if already_exists {
-                match crate::server::mutation_batch::lifecycle_was_committed(
-                    &backend,
-                    "create",
-                    &graph_name,
-                    req_id,
-                )
-                .await
-                {
-                    Ok(true) => return Response::ok(req_id, created_result),
-                    Ok(false) => {}
-                    Err(e) => {
-                        return Response::err(
-                            req_id,
-                            format!("durable graph-create reconciliation failed: {e}"),
-                        )
-                    }
-                }
-                return Response::err(req_id, format!("Graph '{}' already exists", graph_name));
-            }
-            if let Err(e) = crate::server::mutation_batch::commit_lifecycle(
-                &backend,
-                "create",
-                req_id,
-                req_agent_id.as_deref(),
-                &graph_name,
-                Method::CreateGraph {
-                    graph_name: graph_name.clone(),
-                    graph_type,
-                },
-                &created_result,
-            )
-            .await
-            {
-                return Response::err(req_id, format!("durable graph registration failed: {e}"));
-            }
-            let graph_fname = crate::persist::sanitize(&graph_name);
-            let committed_version = match backend.read_mutation_graph_version(&graph_fname).await {
-                Ok(Some(version)) if version > 0 => version,
-                Ok(Some(_)) => {
-                    return Response::err(
-                        req_id,
-                        "durable graph registration published an invalid zero version",
-                    )
-                }
-                Ok(None) => {
-                    return Response::err(
-                        req_id,
-                        "durable graph registration published no authoritative version",
-                    )
-                }
-                Err(error) => {
-                    return Response::err(
-                        req_id,
-                        format!("durable graph version read failed: {error}"),
-                    )
-                }
-            };
+        },
+        &created_result,
+    )
+    .await
+    {
+        return Response::err(req_id, format!("durable graph registration failed: {e}"));
+    }
+    let graph_fname = crate::persist::sanitize(&graph_name);
+    let committed_version = match read_committed_graph_version(&backend, &graph_fname, req_id).await
+    {
+        Ok(version) => version,
+        Err(response) => return response,
+    };
 
-            let mut s = timed_write(state).await;
-            // Bounded hot-context cache admission (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): a
-            // new graph is about to be resident, so make room for it FIRST — evict
-            // the coldest resident graph if the finite cap is already reached.
-            #[cfg(feature = "redb")]
+    let mut s = timed_write(state).await;
+    // Bounded hot-context cache admission (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): a
+    // new graph is about to be resident, so make room for it FIRST — evict
+    // the coldest resident graph if the finite cap is already reached.
+    #[cfg(feature = "redb")]
+    {
+        let cap = crate::server::persistence::cold_offload::max_resident_graphs();
+        let tracker = s.cold_tracker.clone();
+        crate::server::persistence::cold_offload::admit_capacity(
+            &mut s,
+            &tracker,
+            &graph_name,
+            cap,
+        ); // `s`: &mut ServerState via RwLockWriteGuard's DerefMut
+    }
+    // The creator (when identified) becomes the graph owner, which is
+    // what peer-deny / manager-access checks resolve against.
+    match s.registry.create_graph_with_incarnation(
+        &graph_name,
+        graph_type,
+        req_agent_id.clone(),
+        incarnation_id,
+        committed_version,
+    ) {
+        Ok(()) => {
+            crate::metrics::set_graph_size(&graph_name, 0, 0);
+            // Close the CreateGraph RBAC-provisioning gap (P0 tenant-graph
+            // fix): a tenant graph's `owner` field is otherwise dead under
+            // the mandatory `security` build (`check_access` ignores
+            // `graph_owner`), so nothing has ever made a freshly-created
+            // tenant graph durably readable/writable by an ordinary
+            // registered principal. Idempotent; a failure here must never
+            // fail graph creation itself (the graph is already durably
+            // committed) — it is logged and self-heals on the next
+            // `CreateGraph` for a sibling graph of the same tenant, or the
+            // deployment-time remediation pass. Security-only (mirrors the
+            // `Method::RbacAdmin` precedent above): a non-`security` build
+            // decides graph access via `check_access`'s owner-based ACL
+            // branch directly, so there is no RBAC store here to provision.
+            #[cfg(feature = "security")]
+            if let Err(error) = s
+                .isolation
+                .provision_tenant_graph_access(&graph_name, req_agent_id.as_deref())
             {
-                let cap = crate::server::persistence::cold_offload::max_resident_graphs();
-                let tracker = s.cold_tracker.clone();
-                crate::server::persistence::cold_offload::admit_capacity(
-                    &mut s,
-                    &tracker,
-                    &graph_name,
-                    cap,
-                ); // `s`: &mut ServerState via RwLockWriteGuard's DerefMut
+                tracing::warn!(
+                    graph = %graph_name,
+                    %error,
+                    "tenant graph RBAC auto-provisioning failed after graph creation \
+                     committed; the graph exists but may still be unreadable for \
+                     non-System principals until this is retried"
+                );
             }
-            // The creator (when identified) becomes the graph owner, which is
-            // what peer-deny / manager-access checks resolve against.
-            match s.registry.create_graph_with_incarnation(
-                &graph_name,
-                graph_type,
-                req_agent_id.clone(),
-                incarnation_id,
-                committed_version,
-            ) {
-                Ok(()) => {
-                    crate::metrics::set_graph_size(&graph_name, 0, 0);
-                    // Close the CreateGraph RBAC-provisioning gap (P0 tenant-graph
-                    // fix): a tenant graph's `owner` field is otherwise dead under
-                    // the mandatory `security` build (`check_access` ignores
-                    // `graph_owner`), so nothing has ever made a freshly-created
-                    // tenant graph durably readable/writable by an ordinary
-                    // registered principal. Idempotent; a failure here must never
-                    // fail graph creation itself (the graph is already durably
-                    // committed) — it is logged and self-heals on the next
-                    // `CreateGraph` for a sibling graph of the same tenant, or the
-                    // deployment-time remediation pass. Security-only (mirrors the
-                    // `Method::RbacAdmin` precedent above): a non-`security` build
-                    // decides graph access via `check_access`'s owner-based ACL
-                    // branch directly, so there is no RBAC store here to provision.
-                    #[cfg(feature = "security")]
-                    if let Err(error) = s
-                        .isolation
-                        .provision_tenant_graph_access(&graph_name, req_agent_id.as_deref())
-                    {
-                        tracing::warn!(
-                            graph = %graph_name,
-                            %error,
-                            "tenant graph RBAC auto-provisioning failed after graph creation \
-                             committed; the graph exists but may still be unreadable for \
-                             non-System principals until this is retried"
-                        );
-                    }
-                    Response::ok(req_id, created_result)
-                }
-                Err(e) => Response::err(req_id, e),
-            }
+            Response::ok(req_id, created_result)
         }
-        _ => unreachable!("dispatch_case_11_create_graph: classifier/handler diverged"),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// A `DeleteGraph` that finds nothing in the catalog is either a retry of a
+/// durably-committed delete (idempotent success) or a genuine miss.
+async fn reconcile_missing_graph_delete(
+    backend: &Arc<dyn PersistenceBackend>,
+    graph_name: &str,
+    req_id: u64,
+    deleted_result: ResultPayload,
+) -> Response {
+    match crate::server::mutation_batch::lifecycle_was_committed(
+        backend, "delete", graph_name, req_id,
+    )
+    .await
+    {
+        Ok(true) => Response::ok(req_id, deleted_result),
+        Ok(false) => Response::err(req_id, format!("Graph '{graph_name}' not found")),
+        Err(e) => Response::err(
+            req_id,
+            format!("durable graph-delete reconciliation failed: {e}"),
+        ),
     }
 }
 
@@ -3111,82 +3208,72 @@ async fn dispatch_case_12_delete_graph(
     state_machine_authorized: bool,
     method: Method,
 ) -> Response {
-    match method {
-        Method::DeleteGraph { ref graph_name } => {
-            // Fence gateway/txn writes for this graph across durable purge and RAM
-            // teardown.  A retry after a crash at that boundary reconciles from the
-            // durable batch record.
-            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-            let (backend, exists) = {
-                let s = timed_read(state).await;
-                let record = s.registry.catalog_record(graph_name);
-                if !state_machine_authorized {
-                    if let Some(record) = record.as_ref() {
-                        if let Err(denied) = check_graph_access(
-                            &s.isolation,
-                            req_agent_id.as_deref(),
-                            graph_name,
-                            record.graph_type,
-                            record.owner.as_deref(),
-                            AccessLevel::Write,
-                        ) {
-                            return Response::err(req_id, denied);
-                        }
-                    }
-                }
-                (s.persistence.clone(), record.is_some())
-            };
-            let Some(backend) = backend else {
-                return Response::err(req_id, "graph deletion requires durable persistence");
-            };
-            let deleted_result = ResultPayload::Json(serde_json::json!({
-                "deleted": graph_name
-            }));
-            if !exists {
-                match crate::server::mutation_batch::lifecycle_was_committed(
-                    &backend, "delete", graph_name, req_id,
+    let Method::DeleteGraph { ref graph_name } = method else {
+        unreachable!("dispatch_case_12_delete_graph: classifier/handler diverged")
+    };
+    // Fence gateway/txn writes for this graph across durable purge and RAM
+    // teardown.  A retry after a crash at that boundary reconciles from the
+    // durable batch record.
+    let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+    let (backend, exists, denied) = {
+        let s = timed_read(state).await;
+        let record = s.registry.catalog_record(graph_name);
+        // Read-lock half of the access gate; `teardown_deleted_graph_in_memory`
+        // re-checks under the write lock after the durable purge commits.
+        let denied = if state_machine_authorized {
+            None
+        } else {
+            record.as_ref().and_then(|record| {
+                check_graph_access(
+                    &s.isolation,
+                    req_agent_id.as_deref(),
+                    graph_name,
+                    record.graph_type,
+                    record.owner.as_deref(),
+                    AccessLevel::Write,
                 )
-                .await
-                {
-                    Ok(true) => return Response::ok(req_id, deleted_result),
-                    Ok(false) => {}
-                    Err(e) => {
-                        return Response::err(
-                            req_id,
-                            format!("durable graph-delete reconciliation failed: {e}"),
-                        )
-                    }
-                }
-                return Response::err(req_id, format!("Graph '{}' not found", graph_name));
-            }
-            if let Err(e) = crate::server::mutation_batch::commit_lifecycle(
-                &backend,
-                "delete",
-                req_id,
-                req_agent_id.as_deref(),
-                graph_name,
-                Method::DeleteGraph {
-                    graph_name: graph_name.clone(),
-                },
-                &deleted_result,
-            )
-            .await
-            {
-                return Response::err(req_id, format!("durable graph purge failed: {e}"));
-            }
-
-            teardown_deleted_graph_in_memory(
-                state,
-                req_id,
-                req_agent_id.as_deref(),
-                graph_name,
-                state_machine_authorized,
-                deleted_result,
-            )
-            .await
-        }
-        _ => unreachable!("dispatch_case_12_delete_graph: classifier/handler diverged"),
+                .err()
+            })
+        };
+        (s.persistence.clone(), record.is_some(), denied)
+    };
+    if let Some(denied) = denied {
+        return Response::err(req_id, denied);
     }
+    let Some(backend) = backend else {
+        return Response::err(req_id, "graph deletion requires durable persistence");
+    };
+    let deleted_result = ResultPayload::Json(serde_json::json!({
+        "deleted": graph_name
+    }));
+    if !exists {
+        return reconcile_missing_graph_delete(&backend, graph_name, req_id, deleted_result).await;
+    }
+    if let Err(e) = crate::server::mutation_batch::commit_lifecycle(
+        &backend,
+        "delete",
+        req_id,
+        req_agent_id.as_deref(),
+        graph_name,
+        Method::DeleteGraph {
+            graph_name: graph_name.clone(),
+        },
+        &deleted_result,
+    )
+    .await
+    {
+        return Response::err(req_id, format!("durable graph purge failed: {e}"));
+    }
+
+    teardown_deleted_graph_in_memory(
+        state,
+        req_id,
+        req_agent_id.as_deref(),
+        graph_name,
+        state_machine_authorized,
+        deleted_result,
+    )
+    .await
 }
 
 /// The in-memory teardown half of `DeleteGraph`, after the durable purge has
@@ -3885,53 +3972,53 @@ async fn dispatch_case_29_policy_export(
 }
 
 #[cfg(feature = "security")]
+/// A unit-returning RBAC admin mutation answers with a fixed acknowledgement
+/// string on success and the store's own message on failure.
+fn rbac_admin_ack(req_id: u64, outcome: Result<(), String>, acknowledgement: &str) -> Response {
+    match outcome {
+        Ok(()) => Response::ok(req_id, ResultPayload::String(acknowledgement.to_string())),
+        Err(message) => Response::err(req_id, message),
+    }
+}
+
 async fn dispatch_case_30_rbac_admin(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     method: Method,
 ) -> Response {
-    match method {
-        Method::RbacAdmin { op } => {
-            use crate::acl::RbacAdminOp;
-            let mut s = timed_write(state).await;
-            match op {
-                RbacAdminOp::AddRole(role) => match s.isolation.try_add_role(role) {
-                    Ok(()) => Response::ok(req_id, ResultPayload::String("role_added".to_string())),
-                    Err(message) => Response::err(req_id, message),
-                },
-                RbacAdminOp::RemoveRole(name) => match s.isolation.try_remove_role(&name) {
-                    Ok(()) => {
-                        Response::ok(req_id, ResultPayload::String("role_removed".to_string()))
-                    }
-                    Err(message) => Response::err(req_id, message),
-                },
-                RbacAdminOp::AddGrant(grant) => match s.isolation.try_add_grant(grant) {
-                    Ok(()) => {
-                        Response::ok(req_id, ResultPayload::String("grant_added".to_string()))
-                    }
-                    Err(message) => Response::err(req_id, message),
-                },
-                RbacAdminOp::RemoveGrant(grant) => match s.isolation.try_remove_grant(&grant) {
-                    Ok(removed) => Response::ok(
-                        req_id,
-                        ResultPayload::Json(serde_json::json!({ "removed": removed })),
-                    ),
-                    Err(message) => Response::err(req_id, message),
-                },
-                RbacAdminOp::List => {
-                    let policy = s.isolation.rbac();
-                    let roles: Vec<_> = policy.roles().cloned().collect();
-                    Response::ok(
-                        req_id,
-                        ResultPayload::Json(serde_json::json!({
-                            "roles": roles,
-                            "grants": policy.grants(),
-                        })),
-                    )
-                }
-            }
+    use crate::acl::RbacAdminOp;
+    let Method::RbacAdmin { op } = method else {
+        unreachable!("dispatch_case_30_rbac_admin: classifier/handler diverged")
+    };
+    let mut s = timed_write(state).await;
+    match op {
+        RbacAdminOp::AddRole(role) => {
+            rbac_admin_ack(req_id, s.isolation.try_add_role(role), "role_added")
         }
-        _ => unreachable!("dispatch_case_30_rbac_admin: classifier/handler diverged"),
+        RbacAdminOp::RemoveRole(name) => {
+            rbac_admin_ack(req_id, s.isolation.try_remove_role(&name), "role_removed")
+        }
+        RbacAdminOp::AddGrant(grant) => {
+            rbac_admin_ack(req_id, s.isolation.try_add_grant(grant), "grant_added")
+        }
+        RbacAdminOp::RemoveGrant(grant) => match s.isolation.try_remove_grant(&grant) {
+            Ok(removed) => Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({ "removed": removed })),
+            ),
+            Err(message) => Response::err(req_id, message),
+        },
+        RbacAdminOp::List => {
+            let policy = s.isolation.rbac();
+            let roles: Vec<_> = policy.roles().cloned().collect();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "roles": roles,
+                    "grants": policy.grants(),
+                })),
+            )
+        }
     }
 }
 
@@ -4780,53 +4867,63 @@ async fn check_resource_and_capacity_scope(
     Ok(())
 }
 
+/// The tenant a resource/capacity/work-item body names, if any. This is a
+/// correlation carried by the request body, NOT an authority claim.
+fn requested_tenant_ref(method: &Method) -> Option<&str> {
+    match method {
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => Some(request.tenant_ref.as_str()),
+        Method::QueryWorkItemReservation { request }
+        | Method::ResourceReservationStatus { request } => Some(request.tenant_ref.as_str()),
+        Method::UpdateResourceHost { request } => Some(request.tenant_ref.as_str()),
+        Method::AcquireCapacity { request } => Some(request.tenant_ref.as_str()),
+        Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+            Some(request.tenant_ref.as_str())
+        }
+        Method::ReclaimExpiredCapacity { request } => Some(request.tenant_ref.as_str()),
+        Method::ReconcileCapacity { request } | Method::CapacityStatus { request } => {
+            Some(request.tenant_ref.as_str())
+        }
+        Method::SubmitWorkItem { request } => Some(request.context.tenant_id.as_str()),
+        Method::SubmitWorkItems { request } => Some(request.context.tenant_id.as_str()),
+        _ => None,
+    }
+}
+
+/// Only `kg:admin`, or an explicitly privileged aggregate READER on the two
+/// reconciliation surfaces, may name a tenant other than the verified one.
+fn cross_tenant_access_allowed(method: &Method, verified_context: &VerifiedRequestContext) -> bool {
+    verified_context.allows_action("kg:admin")
+        || (matches!(
+            method,
+            Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. }
+        ) && verified_context.allows_action("resource:read:aggregate"))
+        || (matches!(
+            method,
+            Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. }
+        ) && verified_context.allows_action("capacity:read:aggregate"))
+}
+
 fn check_cross_tenant_scope(
     req: &Request,
     verified_context: &VerifiedRequestContext,
     state_machine_authorized: bool,
     identity_bootstrap: bool,
 ) -> Result<(), Response> {
-    if !state_machine_authorized && !identity_bootstrap {
-        let requested_tenant = match &req.method {
-            Method::ReserveWorkItemResources { request }
-            | Method::ReleaseWorkItemResources { request }
-            | Method::ReclaimWorkItemResources { request } => Some(request.tenant_ref.as_str()),
-            Method::QueryWorkItemReservation { request }
-            | Method::ResourceReservationStatus { request } => Some(request.tenant_ref.as_str()),
-            Method::UpdateResourceHost { request } => Some(request.tenant_ref.as_str()),
-            Method::AcquireCapacity { request } => Some(request.tenant_ref.as_str()),
-            Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
-                Some(request.tenant_ref.as_str())
-            }
-            Method::ReclaimExpiredCapacity { request } => Some(request.tenant_ref.as_str()),
-            Method::ReconcileCapacity { request } | Method::CapacityStatus { request } => {
-                Some(request.tenant_ref.as_str())
-            }
-            Method::SubmitWorkItem { request } => Some(request.context.tenant_id.as_str()),
-            Method::SubmitWorkItems { request } => Some(request.context.tenant_id.as_str()),
-            _ => None,
-        };
-        if requested_tenant.is_some_and(|tenant| tenant != verified_context.tenant()) {
-            let cross_tenant_allowed = verified_context.allows_action("kg:admin")
-                || (matches!(
-                    &req.method,
-                    Method::QueryWorkItemReservation { .. }
-                        | Method::ResourceReservationStatus { .. }
-                ) && verified_context.allows_action("resource:read:aggregate"))
-                || (matches!(
-                    &req.method,
-                    Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. }
-                ) && verified_context.allows_action("capacity:read:aggregate"));
-            if !cross_tenant_allowed {
-                crate::metrics::access_denied();
-                return Err(Response::err(
-                    req.id,
-                    "ACCESS_DENIED: resource tenant must match verified request tenant",
-                ));
-            }
-        }
+    if state_machine_authorized || identity_bootstrap {
+        return Ok(());
     }
-    Ok(())
+    let names_other_tenant =
+        requested_tenant_ref(&req.method).is_some_and(|tenant| tenant != verified_context.tenant());
+    if !names_other_tenant || cross_tenant_access_allowed(&req.method, verified_context) {
+        return Ok(());
+    }
+    crate::metrics::access_denied();
+    Err(Response::err(
+        req.id,
+        "ACCESS_DENIED: resource tenant must match verified request tenant",
+    ))
 }
 
 async fn check_scope_and_admin_authority(
@@ -4878,36 +4975,32 @@ async fn check_scope_and_admin_authority(
     Ok(())
 }
 
+/// Every carrier context a submit method asserts, in the order the inline
+/// checks validated them: the envelope's own context first, then each child's.
+/// That order is load-bearing — a batch invalid at both levels must keep
+/// reporting the envelope's failure.
+fn submit_work_item_contexts(method: &Method) -> Vec<&crate::epistemic_operations::RequestContext> {
+    match method {
+        Method::SubmitWorkItem { request } => vec![&request.context],
+        Method::SubmitWorkItems { request } => std::iter::once(&request.context)
+            .chain(request.requests.iter().map(|child| &child.context))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn check_submit_work_item_context(
     req: &Request,
     verified_context: &VerifiedRequestContext,
     state_machine_authorized: bool,
     identity_bootstrap: bool,
 ) -> Result<(), Response> {
-    if !state_machine_authorized && !identity_bootstrap {
-        match &req.method {
-            Method::SubmitWorkItem { request } => {
-                if let Err(error) =
-                    validate_submit_context(&req.graph, &request.context, verified_context)
-                {
-                    return Err(Response::err(req.id, error));
-                }
-            }
-            Method::SubmitWorkItems { request } => {
-                if let Err(error) =
-                    validate_submit_context(&req.graph, &request.context, verified_context)
-                {
-                    return Err(Response::err(req.id, error));
-                }
-                for child in &request.requests {
-                    if let Err(error) =
-                        validate_submit_context(&req.graph, &child.context, verified_context)
-                    {
-                        return Err(Response::err(req.id, error));
-                    }
-                }
-            }
-            _ => {}
+    if state_machine_authorized || identity_bootstrap {
+        return Ok(());
+    }
+    for context in submit_work_item_contexts(&req.method) {
+        if let Err(error) = validate_submit_context(&req.graph, context, verified_context) {
+            return Err(Response::err(req.id, error));
         }
     }
     Ok(())
