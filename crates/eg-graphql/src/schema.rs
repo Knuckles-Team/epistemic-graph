@@ -171,12 +171,12 @@ fn is_label_key(k: &str) -> bool {
     matches!(k, "type" | "node_type" | "label" | "labels")
 }
 
-/// All labels a node carries (from `type`/`node_type`/`label` + the `labels` array).
-pub(crate) fn node_labels(val: &Value) -> Result<Vec<String>, String> {
-    let obj = val
-        .as_object()
-        .ok_or_else(|| "GraphQL: node properties must be an object".to_string())?;
-    let mut out = Vec::new();
+/// Fold the singular `type`/`node_type`/`label` keys into `out`, appending the first one
+/// seen and erroring if a later key disagrees with it.
+fn collect_singular_labels(
+    obj: &serde_json::Map<String, Value>,
+    out: &mut Vec<String>,
+) -> Result<(), String> {
     let mut singular: Option<&str> = None;
     for key in ["type", "node_type", "label"] {
         let Some(value) = obj.get(key) else { continue };
@@ -195,22 +195,39 @@ pub(crate) fn node_labels(val: &Value) -> Result<Vec<String>, String> {
             out.push(s.to_string());
         }
     }
-    if let Some(labels) = obj.get("labels") {
-        let arr = labels
-            .as_array()
-            .ok_or_else(|| "GraphQL: `labels` must be an array of strings".to_string())?;
-        let mut array_labels = BTreeSet::new();
-        for x in arr {
-            let s = x.as_str().filter(|name| !name.is_empty()).ok_or_else(|| {
-                "GraphQL: every `labels` entry must be a non-empty string".to_string()
-            })?;
-            if !array_labels.insert(s) {
-                return Err(format!("GraphQL: duplicate `labels` entry `{s}`"));
-            }
-            if !out.iter().any(|existing| existing == s) {
-                out.push(s.to_string());
-            }
+    Ok(())
+}
+
+/// Fold the `labels` array into `out`, rejecting a malformed shape or an internal
+/// duplicate and skipping any entry already present (from the singular keys).
+fn collect_array_labels(labels: &Value, out: &mut Vec<String>) -> Result<(), String> {
+    let arr = labels
+        .as_array()
+        .ok_or_else(|| "GraphQL: `labels` must be an array of strings".to_string())?;
+    let mut array_labels = BTreeSet::new();
+    for x in arr {
+        let s = x.as_str().filter(|name| !name.is_empty()).ok_or_else(|| {
+            "GraphQL: every `labels` entry must be a non-empty string".to_string()
+        })?;
+        if !array_labels.insert(s) {
+            return Err(format!("GraphQL: duplicate `labels` entry `{s}`"));
         }
+        if !out.iter().any(|existing| existing == s) {
+            out.push(s.to_string());
+        }
+    }
+    Ok(())
+}
+
+/// All labels a node carries (from `type`/`node_type`/`label` + the `labels` array).
+pub(crate) fn node_labels(val: &Value) -> Result<Vec<String>, String> {
+    let obj = val
+        .as_object()
+        .ok_or_else(|| "GraphQL: node properties must be an object".to_string())?;
+    let mut out = Vec::new();
+    collect_singular_labels(obj, &mut out)?;
+    if let Some(labels) = obj.get("labels") {
+        collect_array_labels(labels, &mut out)?;
     }
     Ok(out)
 }
