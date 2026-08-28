@@ -266,6 +266,116 @@ fn collect_classes(c: &Dl, out: &mut BTreeSet<String>) {
 }
 
 /// Parse a DL ontology (TBox + role box + ABox) from a triple stream.
+/// `s rdfs:subClassOf ok` — apply one subclass GCI. Split out of
+/// `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn apply_subclass_of_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &str) {
+    if let (std::option::Option::Some(sub), std::option::Option::Some(sup)) =
+        (parse_dl(idx, s), parse_dl(idx, ok))
+    {
+        ont.gcis.push((sub.nnf(), sup.nnf()));
+    }
+}
+
+/// `s owl:equivalentClass ok` — apply both directions of the equivalence.
+/// Split out of `parse_dl_ontology` (extract-method, cx/wD8) — same terms,
+/// same order as before.
+fn apply_equivalent_class_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &str) {
+    if let (std::option::Option::Some(a), std::option::Option::Some(b)) =
+        (parse_dl(idx, s), parse_dl(idx, ok))
+    {
+        let (a, b) = (a.nnf(), b.nnf());
+        ont.gcis.push((a.clone(), b.clone()));
+        ont.gcis.push((b, a));
+    }
+}
+
+/// `s owl:disjointWith ok` — A disjoint B ≡ A ⊑ ¬B. Split out of
+/// `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn apply_disjoint_with_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &str) {
+    if let (std::option::Option::Some(a), std::option::Option::Some(b)) =
+        (parse_dl(idx, s), parse_dl(idx, ok))
+    {
+        // A disjoint B  ≡  A ⊑ ¬B.
+        ont.gcis.push((a.nnf(), b.negate()));
+    }
+}
+
+/// `s rdf:type o` — either a vocabulary declaration, a transitive/functional
+/// role marker, an ABox class assertion (named or anonymous class), split
+/// out of `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn apply_rdf_type_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &str, o: &Term) {
+    if let Term::NamedNode(ty) = o {
+        match ty.as_str() {
+            OWL_TRANSITIVE_PROPERTY => {
+                ont.transitive.insert(s.to_string());
+            }
+            OWL_FUNCTIONAL_PROPERTY => {
+                // A functional role is the global axiom ⊤ ⊑ ≤1 r.⊤.
+                ont.gcis
+                    .push((Dl::Top, Dl::Max(1, s.to_string(), Box::new(Dl::Top))));
+            }
+            // Vocabulary declarations carry no ABox content.
+            "http://www.w3.org/2002/07/owl#Class"
+            | "http://www.w3.org/2002/07/owl#ObjectProperty"
+            | "http://www.w3.org/2002/07/owl#DatatypeProperty"
+            | "http://www.w3.org/2002/07/owl#NamedIndividual"
+            | "http://www.w3.org/2002/07/owl#Ontology"
+            | "http://www.w3.org/2002/07/owl#Restriction"
+            | OWL_SYMMETRIC_MARKER => {}
+            // Otherwise `a rdf:type C` is an ABox class assertion.
+            _ => {
+                let class = iri(ty.as_str());
+                ont.abox_types.push((s.to_string(), named_concept(&class)));
+                ont.individuals.insert(s.to_string());
+                ont.classes.insert(class);
+            }
+        }
+    } else if let std::option::Option::Some(c) = parse_dl(idx, ok) {
+        // `a rdf:type [ complex class expr ]` — ABox assertion of an anon class.
+        ont.abox_types.push((s.to_string(), c.nnf()));
+        ont.individuals.insert(s.to_string());
+    }
+}
+
+/// `s owl:sameAs o` — register both individuals and the link. Split out of
+/// `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn apply_same_as_triple(ont: &mut DlOntology, s: &str, o: &Term) {
+    if let Term::NamedNode(b) = o {
+        let b = iri(b.as_str());
+        ont.same_as.push((s.to_string(), b.clone()));
+        ont.individuals.insert(s.to_string());
+        ont.individuals.insert(b);
+    }
+}
+
+/// `s owl:differentFrom o` — register both individuals and the link. Split
+/// out of `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn apply_different_from_triple(ont: &mut DlOntology, s: &str, o: &Term) {
+    if let Term::NamedNode(b) = o {
+        let b = iri(b.as_str());
+        ont.different_from.push((s.to_string(), b.clone()));
+        ont.individuals.insert(s.to_string());
+        ont.individuals.insert(b);
+    }
+}
+
+/// Any other `s p o` with an IRI object between two individuals — a role
+/// edge. Split out of `parse_dl_ontology` (extract-method, cx/wD8) — same
+/// terms, same order as before.
+fn apply_role_edge_triple(ont: &mut DlOntology, s: &str, p: &str, o: &Term) {
+    if let Term::NamedNode(b) = o {
+        let b = iri(b.as_str());
+        ont.abox_roles.push((s.to_string(), iri(p), b.clone()));
+        ont.individuals.insert(s.to_string());
+        ont.individuals.insert(b);
+    }
+}
+
 pub fn parse_dl_ontology(triples: &[Triple]) -> DlOntology {
     let idx = TripleIndex::build(triples);
     let mut ont = DlOntology::default();
@@ -276,95 +386,21 @@ pub fn parse_dl_ontology(triples: &[Triple]) -> DlOntology {
         let o = &t.object;
         let ok = term_key(o);
         match p {
-            RDFS_SUBCLASS_OF => {
-                if let (std::option::Option::Some(sub), std::option::Option::Some(sup)) =
-                    (parse_dl(&idx, &s), parse_dl(&idx, &ok))
-                {
-                    ont.gcis.push((sub.nnf(), sup.nnf()));
-                }
-            }
-            OWL_EQUIVALENT_CLASS => {
-                if let (std::option::Option::Some(a), std::option::Option::Some(b)) =
-                    (parse_dl(&idx, &s), parse_dl(&idx, &ok))
-                {
-                    let (a, b) = (a.nnf(), b.nnf());
-                    ont.gcis.push((a.clone(), b.clone()));
-                    ont.gcis.push((b, a));
-                }
-            }
-            OWL_DISJOINT_WITH => {
-                if let (std::option::Option::Some(a), std::option::Option::Some(b)) =
-                    (parse_dl(&idx, &s), parse_dl(&idx, &ok))
-                {
-                    // A disjoint B  ≡  A ⊑ ¬B.
-                    ont.gcis.push((a.nnf(), b.negate()));
-                }
-            }
+            RDFS_SUBCLASS_OF => apply_subclass_of_triple(&idx, &mut ont, &s, &ok),
+            OWL_EQUIVALENT_CLASS => apply_equivalent_class_triple(&idx, &mut ont, &s, &ok),
+            OWL_DISJOINT_WITH => apply_disjoint_with_triple(&idx, &mut ont, &s, &ok),
             RDFS_SUBPROPERTY_OF => {
                 if let Term::NamedNode(sup) = o {
                     ont.sub_roles.push((s.clone(), iri(sup.as_str())));
                 }
             }
-            OWL_SAME_AS => {
-                if let Term::NamedNode(b) = o {
-                    let b = iri(b.as_str());
-                    ont.same_as.push((s.clone(), b.clone()));
-                    ont.individuals.insert(s.clone());
-                    ont.individuals.insert(b);
-                }
-            }
-            OWL_DIFFERENT_FROM => {
-                if let Term::NamedNode(b) = o {
-                    let b = iri(b.as_str());
-                    ont.different_from.push((s.clone(), b.clone()));
-                    ont.individuals.insert(s.clone());
-                    ont.individuals.insert(b);
-                }
-            }
-            RDF_TYPE => {
-                if let Term::NamedNode(ty) = o {
-                    match ty.as_str() {
-                        OWL_TRANSITIVE_PROPERTY => {
-                            ont.transitive.insert(s.clone());
-                        }
-                        OWL_FUNCTIONAL_PROPERTY => {
-                            // A functional role is the global axiom ⊤ ⊑ ≤1 r.⊤.
-                            ont.gcis
-                                .push((Dl::Top, Dl::Max(1, s.clone(), Box::new(Dl::Top))));
-                        }
-                        // Vocabulary declarations carry no ABox content.
-                        "http://www.w3.org/2002/07/owl#Class"
-                        | "http://www.w3.org/2002/07/owl#ObjectProperty"
-                        | "http://www.w3.org/2002/07/owl#DatatypeProperty"
-                        | "http://www.w3.org/2002/07/owl#NamedIndividual"
-                        | "http://www.w3.org/2002/07/owl#Ontology"
-                        | "http://www.w3.org/2002/07/owl#Restriction"
-                        | OWL_SYMMETRIC_MARKER => {}
-                        // Otherwise `a rdf:type C` is an ABox class assertion.
-                        _ => {
-                            let class = iri(ty.as_str());
-                            ont.abox_types.push((s.clone(), named_concept(&class)));
-                            ont.individuals.insert(s.clone());
-                            ont.classes.insert(class);
-                        }
-                    }
-                } else if let std::option::Option::Some(c) = parse_dl(&idx, &ok) {
-                    // `a rdf:type [ complex class expr ]` — ABox assertion of an anon class.
-                    ont.abox_types.push((s.clone(), c.nnf()));
-                    ont.individuals.insert(s.clone());
-                }
-            }
+            OWL_SAME_AS => apply_same_as_triple(&mut ont, &s, o),
+            OWL_DIFFERENT_FROM => apply_different_from_triple(&mut ont, &s, o),
+            RDF_TYPE => apply_rdf_type_triple(&idx, &mut ont, &s, &ok, o),
             // Structurally-consumed predicates carry no direct axiom here.
             _ if STRUCTURAL_PREDICATES.contains(&p) => {}
             // Anything else with an IRI object between two individuals is a role edge.
-            _ => {
-                if let Term::NamedNode(b) = o {
-                    let b = iri(b.as_str());
-                    ont.abox_roles.push((s.clone(), iri(p), b.clone()));
-                    ont.individuals.insert(s.clone());
-                    ont.individuals.insert(b);
-                }
-            }
+            _ => apply_role_edge_triple(&mut ont, &s, p, o),
         }
     }
 
