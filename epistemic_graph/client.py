@@ -3659,6 +3659,48 @@ def _submit_work_item_request_shape(value: Any) -> dict[str, Any]:
     return _exact_mapping("SubmitWorkItems child", value, allowed)
 
 
+_SUBMIT_WORK_ITEM_REQUEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "context",
+        "work_item_id",
+        "idempotency_key",
+        "command_digest",
+        "kind",
+        "priority",
+        "depends_on",
+        "input_ref",
+        "policy_digest",
+        "catalog_digest",
+        "model_digest",
+        "max_attempts",
+        "deadline_unix",
+        "metadata",
+        "provenance_refs",
+        "max_tenant_in_flight",
+    }
+)
+_SUBMIT_WORK_ITEM_STRING_FIELDS = (
+    "idempotency_key",
+    "kind",
+    "input_ref",
+    "policy_digest",
+    "catalog_digest",
+    "model_digest",
+)
+
+
+def _is_finite_non_negative(value: Any) -> bool:
+    """A finite, non-negative number. The isinstance test comes FIRST so
+    ``float()`` is never reached for a non-number (De Morgan of the original
+    ``not isinstance or not isfinite or < 0`` rejection chain)."""
+    return (
+        isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and float(value) >= 0
+    )
+
+
 _SUBMIT_WORK_ITEM_COUNTERS = (
     "command_sequence",
     "dependency_count",
@@ -3799,51 +3841,11 @@ class WorkItemClient:
                 NativeWorkItemSubmissionUnavailable.code
             )
 
-    async def submit(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Admit one WorkItem through the engine-native command log.
-
-        The engine owns tenant-scoped dedupe, dependency checks, admission
-        quota, command sequencing, graph-row creation, and the transactional
-        outbox. A replay returns the original explicit result; reusing a key
-        with a different command digest is an error.
-        """
-        value = _exact_mapping(
-            "SubmitWorkItem request",
-            request,
-            frozenset(
-                {
-                    "schema_version",
-                    "context",
-                    "work_item_id",
-                    "idempotency_key",
-                    "command_digest",
-                    "kind",
-                    "priority",
-                    "depends_on",
-                    "input_ref",
-                    "policy_digest",
-                    "catalog_digest",
-                    "model_digest",
-                    "max_attempts",
-                    "deadline_unix",
-                    "metadata",
-                    "provenance_refs",
-                    "max_tenant_in_flight",
-                },
-            ),
-        )
-        if value["schema_version"] != "1":
-            raise ValueError("SubmitWorkItem schema_version must be 1")
-        if not isinstance(value["context"], dict):
-            raise TypeError("SubmitWorkItem.context must be a mapping")
-        for field in (
-            "idempotency_key",
-            "kind",
-            "input_ref",
-            "policy_digest",
-            "catalog_digest",
-            "model_digest",
-        ):
+    @staticmethod
+    def _submit_identity(value: dict[str, Any]) -> None:
+        """Identity and digest claims: the required strings, the SHA-256
+        command digest, and the optional caller-chosen WorkItem id."""
+        for field in _SUBMIT_WORK_ITEM_STRING_FIELDS:
             _string(f"SubmitWorkItem.{field}", value[field])
         digest = _string("SubmitWorkItem.command_digest", value["command_digest"])
         if len(digest) != 64 or any(
@@ -3854,6 +3856,11 @@ class WorkItemClient:
             )
         if value["work_item_id"] is not None:
             _string("SubmitWorkItem.work_item_id", value["work_item_id"])
+
+    @staticmethod
+    def _submit_scheduling(value: dict[str, Any]) -> None:
+        """Priority, the bounded dependency set, the attempt ceiling and the
+        optional deadline."""
         _integer(
             "SubmitWorkItem.priority", value["priority"], minimum=-1024, maximum=1024
         )
@@ -3863,12 +3870,14 @@ class WorkItemClient:
         for dependency in dependencies:
             _string("SubmitWorkItem.depends_on[]", dependency)
         _integer("SubmitWorkItem.max_attempts", value["max_attempts"], minimum=1)
-        if value["deadline_unix"] is not None and (
-            not isinstance(value["deadline_unix"], (int, float))
-            or not math.isfinite(float(value["deadline_unix"]))
-            or float(value["deadline_unix"]) < 0
+        if value["deadline_unix"] is not None and not _is_finite_non_negative(
+            value["deadline_unix"]
         ):
             raise ValueError("SubmitWorkItem.deadline_unix is invalid")
+
+    @staticmethod
+    def _submit_payload(value: dict[str, Any]) -> None:
+        """Bounded caller metadata, provenance references and the tenant quota."""
         if not isinstance(value["metadata"], dict):
             raise TypeError("SubmitWorkItem.metadata must be a mapping")
         if len(msgpack.packb(value["metadata"], use_bin_type=True)) > 64 * 1024:
@@ -3883,6 +3892,25 @@ class WorkItemClient:
         )
         if quota < 0 or quota > 4096:
             raise ValueError("SubmitWorkItem.max_tenant_in_flight must be 0..4096")
+
+    async def submit(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Admit one WorkItem through the engine-native command log.
+
+        The engine owns tenant-scoped dedupe, dependency checks, admission
+        quota, command sequencing, graph-row creation, and the transactional
+        outbox. A replay returns the original explicit result; reusing a key
+        with a different command digest is an error.
+        """
+        value = _exact_mapping(
+            "SubmitWorkItem request", request, _SUBMIT_WORK_ITEM_REQUEST_FIELDS
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("SubmitWorkItem schema_version must be 1")
+        if not isinstance(value["context"], dict):
+            raise TypeError("SubmitWorkItem.context must be a mapping")
+        self._submit_identity(value)
+        self._submit_scheduling(value)
+        self._submit_payload(value)
         await self._require_submit_method("SubmitWorkItem")
         result = await self._client._send("SubmitWorkItem", {"request": value})
         return _submit_work_item_result(result)
