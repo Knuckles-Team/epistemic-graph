@@ -787,6 +787,62 @@ impl Default for GraphCore {
     }
 }
 
+/// The immutable inputs of one [`GraphCore::broker_claim_delivery`] call, bundled
+/// so the validate/stamp/encode stages can be split out of a single 8-argument
+/// method without threading the same eight values through each of them.
+#[cfg(feature = "broker")]
+struct BrokerClaimRequest<'a> {
+    node_id: &'a str,
+    queue: &'a str,
+    group: &'a str,
+    consumer: &'a str,
+    expected_status: &'a str,
+    expected_lease_until: Option<u64>,
+    now_ms: u64,
+    lease_ms: u64,
+}
+
+/// The result of resolving a delivery tag through its O(1) reverse-lookup node.
+#[cfg(feature = "broker")]
+enum BrokerTagOwner {
+    /// The lookup is live, well-typed, and owned by the caller.
+    Owned {
+        lookup_id: String,
+        node_id: String,
+        queue: String,
+    },
+    /// The tag does not address a delivery this caller may fence. A stale or
+    /// wrong-typed lookup has already been retired; an owner mismatch has NOT
+    /// been (the live lookup belongs to somebody else).
+    Rejected,
+}
+
+/// How a message row stands relative to the delivery tag being fenced.
+#[cfg(feature = "broker")]
+enum BrokerClaimLiveness {
+    /// Claimed, carrying this exact tag, and owned by the caller.
+    Live,
+    /// Not claimed, or carrying a different (newer) tag — the lookup is stale.
+    Stale,
+    /// The live claim belongs to another consumer.
+    NotOwner,
+}
+
+/// Everything a validated broker claim will write, encoded up front. Built with
+/// READ-ONLY access to the transaction, so a rejected claim never mutates.
+#[cfg(feature = "broker")]
+struct BrokerClaim {
+    counter_id: String,
+    lookup_id: String,
+    /// The prior generation's reverse-lookup tag, retired before the new one lands.
+    prior_tag: Option<i64>,
+    counter_blob: Vec<u8>,
+    message_blob: Vec<u8>,
+    lookup_blob: Vec<u8>,
+    /// The stamped message row returned to the caller.
+    message_value: serde_json::Value,
+}
+
 /// Write transaction over a [`GraphCore`]: holds the topology write lock for its
 /// lifetime and borrows the property maps + ledger. All mutations run through it,
 /// so a sequence of mutations under one `txn()` is atomic w.r.t. other topology
@@ -1822,25 +1878,55 @@ impl<'a> GraphTxn<'a> {
             None => Self::derive_semantic_id(&cluster),
         };
 
-        // Bitemporal span over the children (CONCEPT:EG-KG.compute.preserved/2.250 preserved).
+        let obj = self.build_semantic_object(&cluster, &semantic_id, semantic_props);
+        if let Ok(blob) = rmp_serde::to_vec_named(&serde_json::Value::Object(obj)) {
+            self.add_node(semantic_id.clone(), blob);
+        }
+
+        // Collect EXTERNAL edges to copy onto the semantic node. Gather first (no
+        // mutation during the DashMap scan), then sort + dedup for a deterministic
+        // ledger, then apply after the iterator guard drops.
+        let to_add = self.collect_external_edges(&cluster_set, &semantic_id);
+        self.apply_redirected_edges(to_add);
+
+        // Provenance + mark episodics consolidated (localized — cluster only).
+        self.mark_cluster_consolidated(&cluster, &semantic_id);
+        semantic_id
+    }
+
+    /// Compute the consolidated node's BITEMPORAL span over `cluster`: the MIN of
+    /// the children's `tx_from` and the MAX of their `tx_to`, plus whether any
+    /// child is still open (no `tx_to`) — an open child leaves the span open
+    /// (CONCEPT:EG-KG.compute.preserved/2.250 preserved).
+    fn consolidated_tx_span(&self, cluster: &[String]) -> (Option<u64>, Option<u64>, bool) {
         let mut tx_from_min: Option<u64> = None;
         let mut tx_to_max: Option<u64> = None;
         let mut any_open = false;
-        for epi in &cluster {
-            if let Some(obj) = self.node_object(epi) {
-                if let Some(f) = obj.get("tx_from").and_then(|v| v.as_u64()) {
-                    tx_from_min = Some(tx_from_min.map_or(f, |m| m.min(f)));
-                }
-                match obj.get("tx_to").and_then(|v| v.as_u64()) {
-                    Some(t) => tx_to_max = Some(tx_to_max.map_or(t, |m| m.max(t))),
-                    None => any_open = true, // an open child ⇒ the span stays open
-                }
+        for epi in cluster {
+            let Some(obj) = self.node_object(epi) else {
+                continue;
+            };
+            if let Some(f) = obj.get("tx_from").and_then(|v| v.as_u64()) {
+                tx_from_min = Some(tx_from_min.map_or(f, |m| m.min(f)));
+            }
+            match obj.get("tx_to").and_then(|v| v.as_u64()) {
+                Some(t) => tx_to_max = Some(tx_to_max.map_or(t, |m| m.max(t))),
+                None => any_open = true, // an open child ⇒ the span stays open
             }
         }
+        (tx_from_min, tx_to_max, any_open)
+    }
 
-        // Build the semantic node object: merge onto any existing node (upsert),
-        // then caller props, then computed markers (caller values win).
-        let mut obj = self.node_object(&semantic_id).unwrap_or_default();
+    /// Build the semantic node object: merge onto any existing node (upsert),
+    /// then caller props, then the computed markers (caller values win).
+    fn build_semantic_object(
+        &self,
+        cluster: &[String],
+        semantic_id: &str,
+        semantic_props: serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let (tx_from_min, tx_to_max, any_open) = self.consolidated_tx_span(cluster);
+        let mut obj = self.node_object(semantic_id).unwrap_or_default();
         for (k, v) in semantic_props {
             if k == "id" {
                 continue;
@@ -1863,13 +1949,19 @@ impl<'a> GraphTxn<'a> {
                 obj.insert("tx_to".to_string(), serde_json::json!(t));
             }
         }
-        if let Ok(blob) = rmp_serde::to_vec_named(&serde_json::Value::Object(obj)) {
-            self.add_node(semantic_id.clone(), blob);
-        }
+        obj
+    }
 
-        // Collect EXTERNAL edges to copy onto the semantic node. Gather first (no
-        // mutation during the DashMap scan), then sort + dedup for a deterministic
-        // ledger, then apply after the iterator guard drops.
+    /// Gather the cluster's EXTERNAL edges (exactly one endpoint inside the
+    /// cluster) re-pointed onto the semantic node. Intra-cluster edges are
+    /// subsumed and fully-external edges are unrelated, so both are skipped.
+    /// Read-only: nothing is mutated while the DashMap iterator guard is alive.
+    /// Sorted + deduped for a deterministic ledger.
+    fn collect_external_edges(
+        &self,
+        cluster_set: &std::collections::HashSet<&str>,
+        semantic_id: &str,
+    ) -> Vec<(String, String, Vec<u8>)> {
         let mut to_add: Vec<(String, String, Vec<u8>)> = Vec::new();
         for entry in self.edge_properties.iter() {
             let (src, tgt) = entry.key();
@@ -1881,19 +1973,25 @@ impl<'a> GraphTxn<'a> {
             }
             for blob in entry.value() {
                 if src_in {
-                    if tgt != &semantic_id {
-                        to_add.push((semantic_id.clone(), tgt.clone(), (**blob).clone()));
+                    if tgt.as_str() != semantic_id {
+                        to_add.push((semantic_id.to_string(), tgt.clone(), (**blob).clone()));
                     }
-                } else if src != &semantic_id {
-                    to_add.push((src.clone(), semantic_id.clone(), (**blob).clone()));
+                } else if src.as_str() != semantic_id {
+                    to_add.push((src.clone(), semantic_id.to_string(), (**blob).clone()));
                 }
             }
         }
         to_add.sort();
         to_add.dedup();
+        to_add
+    }
+
+    /// Apply the redirected external edges collected by
+    /// [`GraphTxn::collect_external_edges`]. An identical-relationship edge that
+    /// already connects the endpoints is skipped, so a re-run does not stack
+    /// duplicate redirected edges.
+    fn apply_redirected_edges(&mut self, to_add: Vec<(String, String, Vec<u8>)>) {
         for (src, tgt, blob) in to_add {
-            // Skip if an identical-relationship edge already connects these (keeps a
-            // re-run from stacking duplicate redirected edges).
             let rel = decode_property_value(&blob).ok().and_then(|v| {
                 v.as_object()
                     .and_then(|o| o.get("relationship"))
@@ -1907,19 +2005,18 @@ impl<'a> GraphTxn<'a> {
             }
             let _ = self.add_edge(src, tgt, blob);
         }
+    }
 
-        // Provenance + mark episodics consolidated (localized — cluster only).
-        for epi in &cluster {
-            if epi == &semantic_id || !self.topo.node_map.contains_key(epi) {
+    /// Add the `CONSOLIDATES` provenance edge semantic → each episodic (guarded,
+    /// so it is idempotent) and mark each episodic `consolidated = true` +
+    /// `consolidated_into = <semantic_id>` WITHOUT deleting it (bitemporal
+    /// history preserved). Localized — touches the cluster only.
+    fn mark_cluster_consolidated(&mut self, cluster: &[String], semantic_id: &str) {
+        for epi in cluster {
+            if epi.as_str() == semantic_id || !self.topo.node_map.contains_key(epi) {
                 continue;
             }
-            if !self.has_relationship_edge(&semantic_id, epi, "CONSOLIDATES") {
-                if let Ok(eprops) =
-                    rmp_serde::to_vec_named(&serde_json::json!({"relationship": "CONSOLIDATES"}))
-                {
-                    let _ = self.add_edge(semantic_id.clone(), epi.clone(), eprops);
-                }
-            }
+            self.link_consolidates(semantic_id, epi);
             let mut mark = serde_json::Map::new();
             mark.insert("consolidated".to_string(), serde_json::json!(true));
             mark.insert(
@@ -1928,7 +2025,18 @@ impl<'a> GraphTxn<'a> {
             );
             self.merge_fields(epi, &mark);
         }
-        semantic_id
+    }
+
+    /// Add the guarded `CONSOLIDATES` provenance edge `semantic_id → episodic_id`.
+    fn link_consolidates(&mut self, semantic_id: &str, episodic_id: &str) {
+        if self.has_relationship_edge(semantic_id, episodic_id, "CONSOLIDATES") {
+            return;
+        }
+        if let Ok(eprops) =
+            rmp_serde::to_vec_named(&serde_json::json!({"relationship": "CONSOLIDATES"}))
+        {
+            let _ = self.add_edge(semantic_id.to_string(), episodic_id.to_string(), eprops);
+        }
     }
 
     // ── Memory maintenance — decay + reinforcement (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive) ────────────
@@ -2421,6 +2529,16 @@ impl<'a> GraphTxn<'a> {
 
 impl GraphCore {
     pub fn new() -> Self {
+        Self::empty()
+    }
+
+    /// The field-by-field construction behind [`GraphCore::new`].
+    ///
+    /// Split out of `new` deliberately: every lazy secondary index starts cold
+    /// (`None`) and `dirty` starts `true`, so this is one long literal with no
+    /// branching — keeping it in its own item leaves `new` a one-liner and keeps
+    /// the construction readable as a single list of field defaults.
+    fn empty() -> Self {
         GraphCore {
             topo: RwLock::new(Topology::default()),
             node_properties: DashMap::new(),
@@ -2619,7 +2737,7 @@ impl GraphCore {
         #[cfg(feature = "result-cache")]
         let mut footprint = crate::dep_scope::WriteFootprint::default();
         #[cfg(feature = "result-cache")]
-        if !change.added_edges.is_empty() || !change.removed_edges.is_empty() {
+        if Self::change_touches_edges(change) {
             // The node-derived caches are untouched by a pure edge change, but a traversal query
             // depends on the edge set, so the clock must learn the edge dimension moved.
             footprint.edge_changed = true;
@@ -2631,73 +2749,21 @@ impl GraphCore {
 
         // ── ADDS: file the new id into the warm postings it belongs to. ──
         for nc in &change.added_nodes {
+            let val = self.node_props_value(&nc.id, nc.properties_msgpack.as_deref());
+            self.file_added_node(nc, val.as_ref(), target_version);
             #[cfg(feature = "result-cache")]
-            {
-                footprint.node_changed = true;
-            }
-            // perf/row-visibility-index: unlike the label/property postings below,
-            // `row_visibility` tolerates an undecodable blob internally (it returns
-            // `RowVisibility::default_public()`, the SAME value `can_see_node` would
-            // have produced for that node before this index existed) — so there is
-            // no "cannot target its postings" failure mode here and no need to drop
-            // the whole index on a decode failure. File unconditionally.
-            #[cfg(feature = "security")]
-            self.visibility_index_set(&nc.id, nc.properties_msgpack.as_deref(), target_version);
-            match self.node_props_value(&nc.id, nc.properties_msgpack.as_deref()) {
-                Some(val) => {
-                    self.label_index_add(&nc.id, &val, target_version);
-                    self.property_index_add(&nc.id, &val, target_version);
-                    #[cfg(feature = "result-cache")]
-                    collect_dep_footprint(&mut footprint, &val);
-                }
-                None => {
-                    // Cannot read the added node's content ⇒ cannot target its postings; drop.
-                    *self.label_index.write() = None;
-                    *self.property_index.write() = None;
-                    #[cfg(feature = "result-cache")]
-                    {
-                        footprint.coarse_node = true;
-                    }
-                }
-            }
-            *self.path_index.write() = None;
+            Self::note_added_node(&mut footprint, val.as_ref());
         }
 
         // ── REMOVES: unfile the id from the warm postings. ──
         for id in &change.removed_nodes {
-            #[cfg(feature = "result-cache")]
-            {
-                footprint.node_changed = true;
-            }
-            // perf/row-visibility-index: a flat `id -> RowVisibility` map needs no
-            // captured value to unfile — unlike the label/property postings (which
-            // need to know WHICH postings to remove `id` from), removal here is a
-            // single O(1) delete regardless of what the node's blob contained.
-            #[cfg(feature = "security")]
-            self.visibility_index_remove(id, target_version);
             let captured = change
                 .removed_node_props
                 .get(id)
                 .and_then(|blob| decode_property_value(blob).ok());
-            match &captured {
-                Some(val) => {
-                    self.label_index_remove(id, Some(val), target_version);
-                    self.property_index_remove(id, Some(val), target_version);
-                    #[cfg(feature = "result-cache")]
-                    collect_dep_footprint(&mut footprint, val);
-                }
-                None => {
-                    // Uncaptured removal: scan the warm postings for the id (sound; no blob decode)
-                    // and coarsely floor the clock (its labels/keys are unknown).
-                    self.label_index_remove(id, None, target_version);
-                    self.property_index_remove(id, None, target_version);
-                    #[cfg(feature = "result-cache")]
-                    {
-                        footprint.coarse_node = true;
-                    }
-                }
-            }
-            *self.path_index.write() = None;
+            self.unfile_removed_node(id, captured.as_ref(), target_version);
+            #[cfg(feature = "result-cache")]
+            Self::note_removed_node(&mut footprint, captured.as_ref());
         }
 
         // ── UPDATES (CAS): re-file the id for the changed label / property fields only. ──
@@ -2708,16 +2774,7 @@ impl GraphCore {
             }
             let Some(fields) = nc.changed_fields.as_ref() else {
                 // Unknown-scope update ⇒ drop the node-derived caches (fallback) + floor.
-                *self.label_index.write() = None;
-                *self.property_index.write() = None;
-                *self.path_index.write() = None;
-                // perf/row-visibility-index: an unknown-scope CAS could have touched
-                // an RLS key just as easily as any other — same conservative
-                // whole-index drop as the other node-derived caches above.
-                #[cfg(feature = "security")]
-                {
-                    *self.visibility_index.write() = None;
-                }
+                self.drop_node_derived_caches();
                 #[cfg(feature = "result-cache")]
                 {
                     footprint.coarse_node = true;
@@ -2725,41 +2782,178 @@ impl GraphCore {
                 continue;
             };
             let current = self.node_props_value(&nc.id, None);
-            if fields
-                .iter()
-                .any(|f| matches!(f.as_str(), "type" | "node_type" | "label" | "labels"))
-            {
-                self.label_index_refile(&nc.id, current.as_ref(), target_version);
-                #[cfg(feature = "result-cache")]
-                if let Some(val) = &current {
-                    footprint.labels.extend(labels_of(val));
-                }
-            }
-            self.property_index_refile(&nc.id, fields, current.as_ref(), target_version);
+            self.refile_updated_node(nc, fields, current.as_ref(), target_version);
             #[cfg(feature = "result-cache")]
-            footprint.keys.extend(fields.iter().cloned());
-            self.path_index_invalidate_for_fields(fields, target_version);
-            // perf/row-visibility-index: re-file ONLY when a changed field is one of
-            // the RLS keys `row_visibility` actually reads (EITHER naming
-            // convention — `crate::isolation::RowVisibility`'s doc) — a CAS that
-            // left every RLS key untouched cannot have changed the node's
-            // visibility decision, so the warm entry stays valid and is left alone
-            // (unlike label/property refiling above, which always re-files on ANY
-            // known field set because it must recompute regardless).
-            #[cfg(feature = "security")]
-            if fields.iter().any(|f| {
-                f == crate::isolation::RLS_OWNER_KEY
-                    || f == crate::isolation::RLS_VISIBILITY_KEY
-                    || f == crate::isolation::RLS_GRANTS_KEY
-                    || f == crate::isolation::RLS_OWNER_ID_KEY
-                    || f == crate::isolation::RLS_SHARED_SCOPE_KEY
-            }) {
-                self.visibility_index_set(&nc.id, None, target_version);
-            }
+            Self::note_updated_node(&mut footprint, fields, current.as_ref());
         }
 
         #[cfg(feature = "result-cache")]
         self.dep_clock.note_footprint(&footprint, target_version);
+    }
+
+    /// Did this change touch the edge set at all?
+    #[cfg(feature = "result-cache")]
+    fn change_touches_edges(change: &crate::index::ChangeSet) -> bool {
+        !change.added_edges.is_empty() || !change.removed_edges.is_empty()
+    }
+
+    /// File ONE added node into the warm node-derived postings. `val` is its
+    /// decoded blob, or `None` when it could not be read — in which case the
+    /// label/property postings cannot be targeted and are dropped wholesale.
+    fn file_added_node(
+        &self,
+        nc: &crate::index::NodeChange,
+        val: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        // perf/row-visibility-index: unlike the label/property postings below,
+        // `row_visibility` tolerates an undecodable blob internally (it returns
+        // `RowVisibility::default_public()`, the SAME value `can_see_node` would
+        // have produced for that node before this index existed) — so there is
+        // no "cannot target its postings" failure mode here and no need to drop
+        // the whole index on a decode failure. File unconditionally.
+        #[cfg(feature = "security")]
+        self.visibility_index_set(&nc.id, nc.properties_msgpack.as_deref(), target_version);
+        match val {
+            Some(val) => {
+                self.label_index_add(&nc.id, val, target_version);
+                self.property_index_add(&nc.id, val, target_version);
+            }
+            None => {
+                // Cannot read the added node's content ⇒ cannot target its postings; drop.
+                *self.label_index.write() = None;
+                *self.property_index.write() = None;
+            }
+        }
+        *self.path_index.write() = None;
+    }
+
+    /// The dependency-clock footprint of ONE added node.
+    #[cfg(feature = "result-cache")]
+    fn note_added_node(
+        footprint: &mut crate::dep_scope::WriteFootprint,
+        val: Option<&serde_json::Value>,
+    ) {
+        footprint.node_changed = true;
+        match val {
+            Some(val) => collect_dep_footprint(footprint, val),
+            None => footprint.coarse_node = true,
+        }
+    }
+
+    /// Unfile ONE removed node from the warm node-derived postings. `captured` is
+    /// the blob the change carried, or `None` for an uncaptured removal — the
+    /// maintainers then scan the warm postings for the id (sound; no blob decode).
+    fn unfile_removed_node(
+        &self,
+        id: &str,
+        captured: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        // perf/row-visibility-index: a flat `id -> RowVisibility` map needs no
+        // captured value to unfile — unlike the label/property postings (which
+        // need to know WHICH postings to remove `id` from), removal here is a
+        // single O(1) delete regardless of what the node's blob contained.
+        #[cfg(feature = "security")]
+        self.visibility_index_remove(id, target_version);
+        self.label_index_remove(id, captured, target_version);
+        self.property_index_remove(id, captured, target_version);
+        *self.path_index.write() = None;
+    }
+
+    /// The dependency-clock footprint of ONE removed node. An uncaptured removal
+    /// coarsely floors the clock (its labels/keys are unknown).
+    #[cfg(feature = "result-cache")]
+    fn note_removed_node(
+        footprint: &mut crate::dep_scope::WriteFootprint,
+        captured: Option<&serde_json::Value>,
+    ) {
+        footprint.node_changed = true;
+        match captured {
+            Some(val) => collect_dep_footprint(footprint, val),
+            None => footprint.coarse_node = true,
+        }
+    }
+
+    /// Unknown-scope CAS fallback: drop every node-derived cache.
+    fn drop_node_derived_caches(&self) {
+        *self.label_index.write() = None;
+        *self.property_index.write() = None;
+        *self.path_index.write() = None;
+        // perf/row-visibility-index: an unknown-scope CAS could have touched
+        // an RLS key just as easily as any other — same conservative
+        // whole-index drop as the other node-derived caches above.
+        #[cfg(feature = "security")]
+        {
+            *self.visibility_index.write() = None;
+        }
+    }
+
+    /// Re-file ONE known-scope CAS into the warm node-derived postings.
+    fn refile_updated_node(
+        &self,
+        nc: &crate::index::NodeChange,
+        fields: &[String],
+        current: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        if Self::changes_label_fields(fields) {
+            self.label_index_refile(&nc.id, current, target_version);
+        }
+        self.property_index_refile(&nc.id, fields, current, target_version);
+        self.path_index_invalidate_for_fields(fields, target_version);
+        // perf/row-visibility-index: re-file ONLY when a changed field is one of
+        // the RLS keys `row_visibility` actually reads (EITHER naming
+        // convention — `crate::isolation::RowVisibility`'s doc) — a CAS that
+        // left every RLS key untouched cannot have changed the node's
+        // visibility decision, so the warm entry stays valid and is left alone
+        // (unlike label/property refiling above, which always re-files on ANY
+        // known field set because it must recompute regardless).
+        #[cfg(feature = "security")]
+        if Self::changes_rls_keys(fields) {
+            self.visibility_index_set(&nc.id, None, target_version);
+        }
+    }
+
+    /// The dependency-clock footprint of ONE known-scope CAS. `footprint` is a
+    /// pure accumulator consumed once at the end of the sweep, so recording it
+    /// after the index re-file (rather than interleaved with it) is equivalent.
+    #[cfg(feature = "result-cache")]
+    fn note_updated_node(
+        footprint: &mut crate::dep_scope::WriteFootprint,
+        fields: &[String],
+        current: Option<&serde_json::Value>,
+    ) {
+        if Self::changes_label_fields(fields) {
+            if let Some(val) = current {
+                footprint.labels.extend(labels_of(val));
+            }
+        }
+        footprint.keys.extend(fields.iter().cloned());
+    }
+
+    /// Does this CAS touch a field the LABEL index is derived from? Any of them
+    /// forces a label re-file (the index cannot know which naming convention the
+    /// writer used).
+    fn changes_label_fields(fields: &[String]) -> bool {
+        fields
+            .iter()
+            .any(|f| matches!(f.as_str(), "type" | "node_type" | "label" | "labels"))
+    }
+
+    /// Does this CAS touch any RLS key that `row_visibility` actually reads
+    /// (EITHER naming convention — `crate::isolation::RowVisibility`'s doc)? A CAS
+    /// that left every RLS key untouched cannot have changed the node's visibility
+    /// decision, so its warm entry stays valid.
+    #[cfg(feature = "security")]
+    fn changes_rls_keys(fields: &[String]) -> bool {
+        fields.iter().any(|f| {
+            f == crate::isolation::RLS_OWNER_KEY
+                || f == crate::isolation::RLS_VISIBILITY_KEY
+                || f == crate::isolation::RLS_GRANTS_KEY
+                || f == crate::isolation::RLS_OWNER_ID_KEY
+                || f == crate::isolation::RLS_SHARED_SCOPE_KEY
+        })
     }
 
     /// Decode a node's CURRENT property blob (present after an add/update) to JSON, falling back
@@ -3861,52 +4055,47 @@ impl GraphCore {
         if consumer.trim().is_empty() {
             return None;
         }
+        let request = BrokerClaimRequest {
+            node_id,
+            queue,
+            group,
+            consumer,
+            expected_status,
+            expected_lease_until,
+            now_ms,
+            lease_ms,
+        };
         let mut txn = self.txn();
-        let mut properties = txn.node_row_map(node_id)?;
-        if properties.get("status").and_then(serde_json::Value::as_str) != Some(expected_status) {
-            return None;
+        // Validate + build every blob BEFORE the first mutation: any rejection
+        // returns None having written nothing, exactly as the original
+        // early-`return None` / `?` chain did under the held write guard.
+        let claim = Self::prepare_broker_claim(&txn, &request)?;
+        if let Some(tag) = claim.prior_tag {
+            txn.remove_node(crate::broker::dtag_lookup_node_id(tag));
         }
-        if expected_status == "claimed" {
-            let current_lease = properties
-                .get("lease_until")
-                .and_then(serde_json::Value::as_u64);
-            if current_lease != expected_lease_until
-                || current_lease.map(|until| until > now_ms).unwrap_or(true)
-            {
-                return None;
-            }
-        } else if expected_status != "pending" {
-            return None;
-        }
+        txn.add_node(claim.counter_id, claim.counter_blob);
+        txn.add_node(node_id.to_string(), claim.message_blob);
+        txn.add_node(claim.lookup_id, claim.lookup_blob);
+        Some(claim.message_value)
+    }
 
-        let counter_id = crate::broker::dtag_seq_node_id();
-        let last_tag = match txn.node_row_map(&counter_id) {
-            None => 0,
-            Some(row)
-                if row.get("type").and_then(serde_json::Value::as_str)
-                    == Some(crate::broker::BROKER_COUNTER_TYPE) =>
-            {
-                let value = row.get("last_tag").and_then(serde_json::Value::as_i64)?;
-                if value < 0 {
-                    return None;
-                }
-                value
-            }
-            Some(_) => return None,
-        };
-        let delivery_tag = last_tag.checked_add(1)?;
-        if delivery_tag <= 0 {
+    /// Revalidate the claim under the held write guard and build every blob it
+    /// will install. PURE w.r.t. the graph: it only READS through `txn`, so a
+    /// `None` from anywhere below leaves the transaction untouched.
+    #[cfg(feature = "broker")]
+    fn prepare_broker_claim(
+        txn: &GraphTxn<'_>,
+        request: &BrokerClaimRequest<'_>,
+    ) -> Option<BrokerClaim> {
+        let mut properties = txn.node_row_map(request.node_id)?;
+        if !Self::broker_claim_precondition_ok(&properties, request) {
             return None;
         }
-        let prior_tag = match properties.get("delivery_tag") {
-            None | Some(serde_json::Value::Null) => None,
-            Some(value) => match value.as_i64() {
-                Some(tag) if tag > 0 => Some(tag),
-                _ => return None,
-            },
-        };
-        if expected_status == "claimed"
-            && (prior_tag.is_none() || prior_tag.is_some_and(|tag| tag > last_tag))
+        let counter_id = crate::broker::dtag_seq_node_id();
+        let last_tag = Self::broker_last_delivery_tag(txn, &counter_id)?;
+        let delivery_tag = last_tag.checked_add(1)?;
+        let prior_tag = Self::broker_prior_delivery_tag(&properties)?;
+        if !Self::broker_reclaim_tag_ok(request.expected_status, prior_tag, last_tag, delivery_tag)
         {
             return None;
         }
@@ -3915,9 +4104,113 @@ impl GraphCore {
             return None;
         }
         // Clear the old generation in the owned row before stamping the new one.
-        // The prior lookup is retired below before any new lookup is installed.
+        // The prior lookup is retired by the caller before any new lookup is installed.
         properties.insert("delivery_tag".into(), serde_json::Value::Null);
-        let delivery_count = match properties.get("delivery_count") {
+        let next_delivery_count = Self::broker_next_delivery_count(&properties)?;
+        let lease_until = Self::broker_lease_until(request.now_ms, request.lease_ms)?;
+        Self::broker_stamp_claim(
+            &mut properties,
+            request,
+            next_delivery_count,
+            lease_until,
+            delivery_tag,
+        );
+        Self::broker_claim_blobs(
+            request,
+            properties,
+            counter_id,
+            lookup_id,
+            prior_tag,
+            delivery_tag,
+        )
+    }
+
+    /// Does the message row still satisfy the claim's expected status (and, for a
+    /// reclaim, the exact expired lease)? Checked in the original order: status
+    /// first, then the lease.
+    #[cfg(feature = "broker")]
+    fn broker_claim_precondition_ok(
+        properties: &serde_json::Map<String, serde_json::Value>,
+        request: &BrokerClaimRequest<'_>,
+    ) -> bool {
+        if properties.get("status").and_then(serde_json::Value::as_str)
+            != Some(request.expected_status)
+        {
+            return false;
+        }
+        if request.expected_status == "claimed" {
+            let current_lease = properties
+                .get("lease_until")
+                .and_then(serde_json::Value::as_u64);
+            // A reclaim needs the EXACT lease the scan saw, and that lease must
+            // already have expired (a missing lease never expires).
+            return current_lease == request.expected_lease_until
+                && current_lease.is_some_and(|until| until <= request.now_ms);
+        }
+        request.expected_status == "pending"
+    }
+
+    /// Read the broker-wide delivery-tag counter. An absent counter reads as `0`
+    /// (the first issued tag is 1); a wrong-typed, missing, non-integer or
+    /// negative `last_tag` rejects the claim (`None`).
+    #[cfg(feature = "broker")]
+    fn broker_last_delivery_tag(txn: &GraphTxn<'_>, counter_id: &str) -> Option<i64> {
+        let Some(row) = txn.node_row_map(counter_id) else {
+            return Some(0);
+        };
+        if row.get("type").and_then(serde_json::Value::as_str)
+            != Some(crate::broker::BROKER_COUNTER_TYPE)
+        {
+            return None;
+        }
+        let value = row.get("last_tag").and_then(serde_json::Value::as_i64)?;
+        if value < 0 {
+            return None;
+        }
+        Some(value)
+    }
+
+    /// The message's PRIOR positive delivery tag, if any. `Some(None)` = never
+    /// delivered (absent/null); the outer `None` = a malformed tag, which rejects
+    /// the claim.
+    #[cfg(feature = "broker")]
+    fn broker_prior_delivery_tag(
+        properties: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<Option<i64>> {
+        match properties.get("delivery_tag") {
+            None | Some(serde_json::Value::Null) => Some(None),
+            Some(value) => match value.as_i64() {
+                Some(tag) if tag > 0 => Some(Some(tag)),
+                _ => None,
+            },
+        }
+    }
+
+    /// Is the freshly issued tag admissible? A reclaim must carry a prior tag no
+    /// newer than the counter it is fencing; a fresh claim has no such constraint.
+    #[cfg(feature = "broker")]
+    fn broker_reclaim_tag_ok(
+        expected_status: &str,
+        prior_tag: Option<i64>,
+        last_tag: i64,
+        delivery_tag: i64,
+    ) -> bool {
+        if delivery_tag <= 0 {
+            return false;
+        }
+        if expected_status != "claimed" {
+            return true;
+        }
+        prior_tag.is_some_and(|tag| tag <= last_tag)
+    }
+
+    /// The message's delivery count after this delivery. An absent count starts at
+    /// `0`; a non-integer, negative, or overflowing count rejects the claim.
+    #[cfg(feature = "broker")]
+    fn broker_next_delivery_count(
+        properties: &serde_json::Map<String, serde_json::Value>,
+    ) -> Option<i64> {
+        let count = match properties.get("delivery_count") {
             None => 0,
             Some(value) => {
                 let count = value.as_i64()?;
@@ -3927,54 +4220,80 @@ impl GraphCore {
                 count
             }
         };
-        let next_delivery_count = delivery_count.checked_add(1)?;
-        let lease_until = if lease_ms > 0 {
-            Some(now_ms.checked_add(lease_ms)?)
-        } else {
-            None
-        };
+        count.checked_add(1)
+    }
+
+    /// The claim's lease deadline: `Some(None)` for a zero-length (unbounded)
+    /// lease, the outer `None` when `now_ms + lease_ms` overflows.
+    #[cfg(feature = "broker")]
+    fn broker_lease_until(now_ms: u64, lease_ms: u64) -> Option<Option<u64>> {
+        if lease_ms == 0 {
+            return Some(None);
+        }
+        Some(Some(now_ms.checked_add(lease_ms)?))
+    }
+
+    /// Stamp the claimed generation onto the owned message row.
+    #[cfg(feature = "broker")]
+    fn broker_stamp_claim(
+        properties: &mut serde_json::Map<String, serde_json::Value>,
+        request: &BrokerClaimRequest<'_>,
+        next_delivery_count: i64,
+        lease_until: Option<u64>,
+        delivery_tag: i64,
+    ) {
         properties.insert("status".into(), serde_json::Value::String("claimed".into()));
         properties.insert(
             "owner_group".into(),
-            serde_json::Value::String(group.to_string()),
+            serde_json::Value::String(request.group.to_string()),
         );
         properties.insert(
             "owner_consumer".into(),
-            serde_json::Value::String(consumer.to_string()),
+            serde_json::Value::String(request.consumer.to_string()),
         );
         properties.insert(
             "delivery_count".into(),
             serde_json::Value::from(next_delivery_count),
         );
-        properties.insert("claimed_at".into(), serde_json::Value::from(now_ms));
+        properties.insert("claimed_at".into(), serde_json::Value::from(request.now_ms));
         properties.insert(
             "lease_until".into(),
             lease_until.map_or(serde_json::Value::Null, serde_json::Value::from),
         );
         properties.insert("delivery_tag".into(), serde_json::Value::from(delivery_tag));
+    }
 
+    /// Encode the counter, the stamped message row, and the new O(1) reverse
+    /// lookup. Any encode failure rejects the claim before a single write.
+    #[cfg(feature = "broker")]
+    fn broker_claim_blobs(
+        request: &BrokerClaimRequest<'_>,
+        properties: serde_json::Map<String, serde_json::Value>,
+        counter_id: String,
+        lookup_id: String,
+        prior_tag: Option<i64>,
+        delivery_tag: i64,
+    ) -> Option<BrokerClaim> {
         let counter = serde_json::json!({
             "type": crate::broker::BROKER_COUNTER_TYPE,
             "last_tag": delivery_tag,
         });
         let lookup = serde_json::json!({
             "type": crate::broker::DTAG_LOOKUP_TYPE,
-            "node_id": node_id,
-            "queue": queue,
-            "owner_consumer": consumer,
+            "node_id": request.node_id,
+            "queue": request.queue,
+            "owner_consumer": request.consumer,
         });
         let message_value = serde_json::Value::Object(properties);
-        let counter_blob = rmp_serde::to_vec_named(&counter).ok()?;
-        let message_blob = rmp_serde::to_vec_named(&message_value).ok()?;
-        let lookup_blob = rmp_serde::to_vec_named(&lookup).ok()?;
-
-        if let Some(tag) = prior_tag {
-            txn.remove_node(crate::broker::dtag_lookup_node_id(tag));
-        }
-        txn.add_node(counter_id, counter_blob);
-        txn.add_node(node_id.to_string(), message_blob);
-        txn.add_node(lookup_id, lookup_blob);
-        Some(message_value)
+        Some(BrokerClaim {
+            counter_id,
+            lookup_id,
+            prior_tag,
+            counter_blob: rmp_serde::to_vec_named(&counter).ok()?,
+            message_blob: rmp_serde::to_vec_named(&message_value).ok()?,
+            lookup_blob: rmp_serde::to_vec_named(&lookup).ok()?,
+            message_value,
+        })
     }
 
     /// Atomically acknowledge only the currently claimed delivery owned by
@@ -4049,66 +4368,25 @@ impl GraphCore {
         now_ms: u64,
         lease_ms: u64,
     ) -> bool {
-        if delivery_tag <= 0 || consumer.trim().is_empty() || lease_ms == 0 {
+        if !Self::broker_tag_addressable(delivery_tag, consumer) || lease_ms == 0 {
             return false;
         }
         let Some(renewed_until) = now_ms.checked_add(lease_ms) else {
             return false;
         };
-        let lookup_id = crate::broker::dtag_lookup_node_id(delivery_tag);
         let mut txn = self.txn();
-        let Some(lookup) = txn.node_row_map(&lookup_id) else {
+        let BrokerTagOwner::Owned {
+            lookup_id, node_id, ..
+        } = Self::broker_resolve_tag_owner(&mut txn, delivery_tag, consumer)
+        else {
             return false;
         };
-        if lookup.get("type").and_then(serde_json::Value::as_str)
-            != Some(crate::broker::DTAG_LOOKUP_TYPE)
-        {
-            txn.remove_node(lookup_id);
-            return false;
-        }
-        if lookup
-            .get("owner_consumer")
-            .and_then(serde_json::Value::as_str)
-            != Some(consumer)
-        {
-            return false;
-        }
-        let node_id = lookup
-            .get("node_id")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let Some(mut properties) = txn.node_row_map(&node_id) else {
-            txn.remove_node(lookup_id);
+        let Some(mut properties) =
+            Self::broker_take_live_claim(&mut txn, &lookup_id, &node_id, delivery_tag, consumer)
+        else {
             return false;
         };
-        let current = properties.get("status").and_then(serde_json::Value::as_str)
-            == Some("claimed")
-            && properties
-                .get("delivery_tag")
-                .and_then(serde_json::Value::as_i64)
-                == Some(delivery_tag);
-        if !current {
-            txn.remove_node(lookup_id);
-            return false;
-        }
-        if properties
-            .get("owner_consumer")
-            .and_then(serde_json::Value::as_str)
-            != Some(consumer)
-        {
-            return false;
-        }
-        let current_lease_until = properties
-            .get("lease_until")
-            .and_then(serde_json::Value::as_u64);
-        let Some(current_lease_until) = current_lease_until else {
-            return false;
-        };
-        if current_lease_until <= now_ms {
-            return false;
-        }
-        if renewed_until <= current_lease_until {
+        if !Self::broker_lease_extends(&properties, now_ms, renewed_until) {
             return false;
         }
         properties.insert("lease_until".into(), serde_json::Value::from(renewed_until));
@@ -4131,63 +4409,27 @@ impl GraphCore {
         consumer: &str,
         requeue: bool,
     ) -> BrokerNackTransition {
-        if delivery_tag <= 0 || consumer.trim().is_empty() {
+        if !Self::broker_tag_addressable(delivery_tag, consumer) {
             return BrokerNackTransition::Absent;
         }
-        let lookup_id = crate::broker::dtag_lookup_node_id(delivery_tag);
         let mut txn = self.txn();
-        let Some(lookup) = txn.node_row_map(&lookup_id) else {
+        let BrokerTagOwner::Owned {
+            lookup_id,
+            node_id,
+            queue,
+        } = Self::broker_resolve_tag_owner(&mut txn, delivery_tag, consumer)
+        else {
             return BrokerNackTransition::Absent;
         };
-        if lookup.get("type").and_then(serde_json::Value::as_str)
-            != Some(crate::broker::DTAG_LOOKUP_TYPE)
-        {
-            txn.remove_node(lookup_id);
-            return BrokerNackTransition::Absent;
-        }
-        if lookup
-            .get("owner_consumer")
-            .and_then(serde_json::Value::as_str)
-            != Some(consumer)
-        {
-            return BrokerNackTransition::Absent;
-        }
-        let node_id = lookup
-            .get("node_id")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let queue = lookup
-            .get("queue")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("")
-            .to_string();
         if node_id.is_empty() || queue.is_empty() {
             txn.remove_node(lookup_id);
             return BrokerNackTransition::Absent;
         }
-        let Some(mut properties) = txn.node_row_map(&node_id) else {
-            txn.remove_node(lookup_id);
+        let Some(properties) =
+            Self::broker_take_live_claim(&mut txn, &lookup_id, &node_id, delivery_tag, consumer)
+        else {
             return BrokerNackTransition::Absent;
         };
-        let current = properties.get("status").and_then(serde_json::Value::as_str)
-            == Some("claimed")
-            && properties
-                .get("delivery_tag")
-                .and_then(serde_json::Value::as_i64)
-                == Some(delivery_tag);
-        if !current {
-            txn.remove_node(lookup_id);
-            return BrokerNackTransition::Absent;
-        }
-        if properties
-            .get("owner_consumer")
-            .and_then(serde_json::Value::as_str)
-            != Some(consumer)
-        {
-            return BrokerNackTransition::Absent;
-        }
-
         let Some(delivery_count) = properties
             .get("delivery_count")
             .and_then(serde_json::Value::as_i64)
@@ -4195,30 +4437,10 @@ impl GraphCore {
         else {
             return BrokerNackTransition::Absent;
         };
-        let max_delivery_count = txn
-            .node_row_map(&crate::broker::queue_policy_node_id(&queue))
-            .and_then(|policy| {
-                policy
-                    .get("max_delivery_count")
-                    .and_then(serde_json::Value::as_u64)
-            });
-        let under_max = max_delivery_count
-            .map(|max| (delivery_count as i128) < (max as i128))
-            .unwrap_or(true);
-
-        if requeue && under_max {
-            properties.insert("status".into(), serde_json::Value::String("pending".into()));
-            properties.insert("lease_until".into(), serde_json::Value::Null);
-            properties.insert("owner_consumer".into(), serde_json::Value::Null);
-            properties.insert("owner_group".into(), serde_json::Value::Null);
-            properties.insert("delivery_tag".into(), serde_json::Value::Null);
-            let value = serde_json::Value::Object(properties);
-            let Ok(blob) = rmp_serde::to_vec_named(&value) else {
-                return BrokerNackTransition::Absent;
-            };
-            txn.remove_node(lookup_id);
-            txn.add_node(node_id, blob);
-            return BrokerNackTransition::Requeued;
+        // The policy read is a side-effect-free lookup, so skipping it when the
+        // caller is not requeueing is unobservable.
+        if requeue && Self::broker_under_max_delivery(&txn, &queue, delivery_count) {
+            return Self::broker_requeue(&mut txn, lookup_id, node_id, properties);
         }
 
         let value = serde_json::Value::Object(properties);
@@ -4229,6 +4451,169 @@ impl GraphCore {
             queue,
             properties: value,
         }
+    }
+
+    /// Is a delivery tag addressable at all? Both tag-addressed transitions reject
+    /// a non-positive tag and an empty consumer before touching the graph.
+    #[cfg(feature = "broker")]
+    fn broker_tag_addressable(delivery_tag: i64, consumer: &str) -> bool {
+        delivery_tag > 0 && !consumer.trim().is_empty()
+    }
+
+    /// Resolve `delivery_tag` through its O(1) reverse-lookup node to the message
+    /// it addresses, confirming `consumer` owns the lookup.
+    ///
+    /// A missing or wrong-typed lookup is REJECTED, and a wrong-typed one is
+    /// retired here. An owner mismatch is rejected but leaves the live lookup
+    /// intact — an unrelated consumer must never be able to delete it.
+    #[cfg(feature = "broker")]
+    fn broker_resolve_tag_owner(
+        txn: &mut GraphTxn<'_>,
+        delivery_tag: i64,
+        consumer: &str,
+    ) -> BrokerTagOwner {
+        let lookup_id = crate::broker::dtag_lookup_node_id(delivery_tag);
+        let Some(lookup) = txn.node_row_map(&lookup_id) else {
+            return BrokerTagOwner::Rejected;
+        };
+        if lookup.get("type").and_then(serde_json::Value::as_str)
+            != Some(crate::broker::DTAG_LOOKUP_TYPE)
+        {
+            txn.remove_node(lookup_id);
+            return BrokerTagOwner::Rejected;
+        }
+        if lookup
+            .get("owner_consumer")
+            .and_then(serde_json::Value::as_str)
+            != Some(consumer)
+        {
+            return BrokerTagOwner::Rejected;
+        }
+        BrokerTagOwner::Owned {
+            node_id: Self::broker_lookup_str(&lookup, "node_id"),
+            queue: Self::broker_lookup_str(&lookup, "queue"),
+            lookup_id,
+        }
+    }
+
+    /// One string field of a reverse-lookup row, defaulting to empty.
+    #[cfg(feature = "broker")]
+    fn broker_lookup_str(lookup: &serde_json::Map<String, serde_json::Value>, key: &str) -> String {
+        lookup
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    /// Load the message row a resolved tag addresses and confirm it is still the
+    /// LIVE claimed generation owned by `consumer`.
+    ///
+    /// A vanished or superseded row retires the now-stale lookup; an owner
+    /// mismatch does NOT (the live lookup stays intact).
+    #[cfg(feature = "broker")]
+    fn broker_take_live_claim(
+        txn: &mut GraphTxn<'_>,
+        lookup_id: &str,
+        node_id: &str,
+        delivery_tag: i64,
+        consumer: &str,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        let Some(properties) = txn.node_row_map(node_id) else {
+            txn.remove_node(lookup_id.to_string());
+            return None;
+        };
+        match Self::broker_claim_liveness(&properties, delivery_tag, consumer) {
+            BrokerClaimLiveness::Live => Some(properties),
+            BrokerClaimLiveness::Stale => {
+                txn.remove_node(lookup_id.to_string());
+                None
+            }
+            BrokerClaimLiveness::NotOwner => None,
+        }
+    }
+
+    /// Classify a message row against the delivery tag being fenced: the live
+    /// claimed generation, a superseded/never-claimed one, or one owned by
+    /// somebody else.
+    #[cfg(feature = "broker")]
+    fn broker_claim_liveness(
+        properties: &serde_json::Map<String, serde_json::Value>,
+        delivery_tag: i64,
+        consumer: &str,
+    ) -> BrokerClaimLiveness {
+        let current = properties.get("status").and_then(serde_json::Value::as_str)
+            == Some("claimed")
+            && properties
+                .get("delivery_tag")
+                .and_then(serde_json::Value::as_i64)
+                == Some(delivery_tag);
+        if !current {
+            return BrokerClaimLiveness::Stale;
+        }
+        if properties
+            .get("owner_consumer")
+            .and_then(serde_json::Value::as_str)
+            != Some(consumer)
+        {
+            return BrokerClaimLiveness::NotOwner;
+        }
+        BrokerClaimLiveness::Live
+    }
+
+    /// Is this delivery still under the queue policy's `max_delivery_count`?
+    /// A queue with no policy node, or a policy carrying no cap, is unbounded.
+    #[cfg(feature = "broker")]
+    fn broker_under_max_delivery(txn: &GraphTxn<'_>, queue: &str, delivery_count: i64) -> bool {
+        txn.node_row_map(&crate::broker::queue_policy_node_id(queue))
+            .and_then(|policy| {
+                policy
+                    .get("max_delivery_count")
+                    .and_then(serde_json::Value::as_u64)
+            })
+            .map(|max| (delivery_count as i128) < (max as i128))
+            .unwrap_or(true)
+    }
+
+    /// Requeue a nacked delivery in the SAME transaction: clear the claim
+    /// generation off the message row, retire its lookup, and republish it as
+    /// pending.
+    #[cfg(feature = "broker")]
+    fn broker_requeue(
+        txn: &mut GraphTxn<'_>,
+        lookup_id: String,
+        node_id: String,
+        mut properties: serde_json::Map<String, serde_json::Value>,
+    ) -> BrokerNackTransition {
+        properties.insert("status".into(), serde_json::Value::String("pending".into()));
+        properties.insert("lease_until".into(), serde_json::Value::Null);
+        properties.insert("owner_consumer".into(), serde_json::Value::Null);
+        properties.insert("owner_group".into(), serde_json::Value::Null);
+        properties.insert("delivery_tag".into(), serde_json::Value::Null);
+        let value = serde_json::Value::Object(properties);
+        let Ok(blob) = rmp_serde::to_vec_named(&value) else {
+            return BrokerNackTransition::Absent;
+        };
+        txn.remove_node(lookup_id);
+        txn.add_node(node_id, blob);
+        BrokerNackTransition::Requeued
+    }
+
+    /// Does `renewed_until` genuinely EXTEND this row's live lease? A missing
+    /// lease, an already-expired one, or a non-extending deadline all reject.
+    #[cfg(feature = "broker")]
+    fn broker_lease_extends(
+        properties: &serde_json::Map<String, serde_json::Value>,
+        now_ms: u64,
+        renewed_until: u64,
+    ) -> bool {
+        let Some(current_lease_until) = properties
+            .get("lease_until")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            return false;
+        };
+        current_lease_until > now_ms && renewed_until > current_lease_until
     }
 
     /// Return an expired delivery to pending while retiring its tag generation.
@@ -4523,28 +4908,49 @@ impl GraphCore {
             let Ok(val) = decode_property_value(entry.value().as_slice()) else {
                 continue;
             };
-            let id = entry.key();
-            for key in ["type", "node_type", "label"] {
-                if let Some(lbl) = val.get(key).and_then(|v| v.as_str()) {
-                    index.entry(lbl.to_string()).or_default().push(id.clone());
-                }
-            }
-            if let Some(arr) = val.get("labels").and_then(|v| v.as_array()) {
-                for x in arr {
-                    if let Some(lbl) = x.as_str() {
-                        index.entry(lbl.to_string()).or_default().push(id.clone());
-                    }
-                }
+            Self::file_node_labels(entry.key(), &val, &mut index);
+        }
+        Self::dedup_label_postings(&mut index);
+        index
+    }
+
+    /// File ONE node id under every label it carries: the single-valued `type`,
+    /// `node_type` and `label` fields, plus every entry of the multi-valued
+    /// `labels` array.
+    fn file_node_labels(
+        id: &str,
+        val: &serde_json::Value,
+        index: &mut HashMap<String, Vec<String>>,
+    ) {
+        for key in ["type", "node_type", "label"] {
+            if let Some(lbl) = val.get(key).and_then(|v| v.as_str()) {
+                index
+                    .entry(lbl.to_string())
+                    .or_default()
+                    .push(id.to_string());
             }
         }
-        // A node carrying the same value on two of {type,node_type,label} (or a
-        // duplicated `labels` entry) would otherwise be listed twice for that
-        // label; dedup so the returned rows match the pre-index 1-node-1-row scan.
+        let Some(arr) = val.get("labels").and_then(|v| v.as_array()) else {
+            return;
+        };
+        for x in arr {
+            if let Some(lbl) = x.as_str() {
+                index
+                    .entry(lbl.to_string())
+                    .or_default()
+                    .push(id.to_string());
+            }
+        }
+    }
+
+    /// A node carrying the same value on two of {type,node_type,label} (or a
+    /// duplicated `labels` entry) would otherwise be listed twice for that
+    /// label; dedup so the returned rows match the pre-index 1-node-1-row scan.
+    fn dedup_label_postings(index: &mut HashMap<String, Vec<String>>) {
         for ids in index.values_mut() {
             ids.sort_unstable();
             ids.dedup();
         }
-        index
     }
 
     // ── secondary property index (CONCEPT:EG-KG.query.concept-12) ──────────────────────────
@@ -4612,33 +5018,39 @@ impl GraphCore {
         sets.sort_by_key(|s| s.len());
         let mut acc = sets.remove(0);
         for s in &sets {
-            // Every property posting is already sorted + deduplicated when built.
-            // Intersect with the classic two-pointer merge instead of allocating a
-            // fresh HashSet for every predicate. This is deterministic O(a+b) time
-            // with O(1) scratch (beyond the reused result vector).
-            let mut write = 0usize;
-            let mut left = 0usize;
-            let mut right = 0usize;
-            while left < acc.len() && right < s.len() {
-                match acc[left].cmp(&s[right]) {
-                    std::cmp::Ordering::Less => left += 1,
-                    std::cmp::Ordering::Greater => right += 1,
-                    std::cmp::Ordering::Equal => {
-                        if write != left {
-                            acc.swap(write, left);
-                        }
-                        write += 1;
-                        left += 1;
-                        right += 1;
-                    }
-                }
-            }
-            acc.truncate(write);
+            Self::intersect_sorted_ids(&mut acc, s);
             if acc.is_empty() {
                 break;
             }
         }
         Some(acc)
+    }
+
+    /// Intersect `acc` IN PLACE with `other`.
+    ///
+    /// Every property posting is already sorted + deduplicated when built, so this
+    /// is the classic two-pointer merge rather than a fresh `HashSet` per
+    /// predicate: deterministic O(a+b) time with O(1) scratch (beyond the reused
+    /// result vector).
+    fn intersect_sorted_ids(acc: &mut Vec<String>, other: &[String]) {
+        let mut write = 0usize;
+        let mut left = 0usize;
+        let mut right = 0usize;
+        while left < acc.len() && right < other.len() {
+            match acc[left].cmp(&other[right]) {
+                std::cmp::Ordering::Less => left += 1,
+                std::cmp::Ordering::Greater => right += 1,
+                std::cmp::Ordering::Equal => {
+                    if write != left {
+                        acc.swap(write, left);
+                    }
+                    write += 1;
+                    left += 1;
+                    right += 1;
+                }
+            }
+        }
+        acc.truncate(write);
     }
 
     /// Ensure `key` is present in the property index, honouring the bound. Returns
@@ -5037,51 +5449,75 @@ impl GraphCore {
             let Ok(val) = decode_property_value(entry.value().as_slice()) else {
                 continue;
             };
-            let Some(ntype) = val
-                .get("type")
-                .and_then(|v| v.as_str())
-                .or_else(|| val.get("node_type").and_then(|v| v.as_str()))
-            else {
+            Self::collect_ontology_terms(&val, &mut dedup);
+        }
+        Self::compile_ontology_index(dedup)
+    }
+
+    /// Fold ONE node's capability terms into the deduped term → metadata map.
+    /// A node whose type is not in [`CAPABILITY_NODE_TYPES`] contributes nothing,
+    /// and terms shorter than 3 chars are dropped (too noise-prone for whole-word
+    /// matching). First writer of a term wins, as before.
+    fn collect_ontology_terms(val: &serde_json::Value, dedup: &mut HashMap<String, OntologyMatch>) {
+        let Some(ntype) = val
+            .get("type")
+            .and_then(|v| v.as_str())
+            .or_else(|| val.get("node_type").and_then(|v| v.as_str()))
+        else {
+            return;
+        };
+        if !CAPABILITY_NODE_TYPES.contains(&ntype) {
+            return;
+        }
+        let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        // The owning fleet server: a Tool carries `mcp_server`; an MCPServer node
+        // IS the server, so fall back to its own name.
+        let server = val
+            .get("mcp_server")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| if ntype == "MCPServer" { name } else { "" });
+        for term in Self::ontology_terms(val, name) {
+            let lc = term.to_lowercase();
+            if lc.chars().count() < 3 {
+                continue;
+            }
+            dedup.entry(lc).or_insert_with(|| OntologyMatch {
+                term: term.to_string(),
+                node_type: ntype.to_string(),
+                label: name.to_string(),
+                mcp_server: server.to_string(),
+                score: term.chars().count() as f64,
+            });
+        }
+    }
+
+    /// A node's candidate capability terms: its `name` (when non-empty) followed
+    /// by every non-empty string in its `synonyms` array.
+    fn ontology_terms<'a>(val: &'a serde_json::Value, name: &'a str) -> Vec<&'a str> {
+        let mut terms: Vec<&'a str> = Vec::new();
+        if !name.is_empty() {
+            terms.push(name);
+        }
+        let Some(arr) = val.get("synonyms").and_then(|v| v.as_array()) else {
+            return terms;
+        };
+        for s in arr {
+            let Some(ss) = s.as_str() else {
                 continue;
             };
-            if !CAPABILITY_NODE_TYPES.contains(&ntype) {
-                continue;
-            }
-            let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            // The owning fleet server: a Tool carries `mcp_server`; an MCPServer node
-            // IS the server, so fall back to its own name.
-            let server = val
-                .get("mcp_server")
-                .and_then(|v| v.as_str())
-                .unwrap_or_else(|| if ntype == "MCPServer" { name } else { "" });
-            let mut terms: Vec<&str> = Vec::new();
-            if !name.is_empty() {
-                terms.push(name);
-            }
-            if let Some(arr) = val.get("synonyms").and_then(|v| v.as_array()) {
-                for s in arr {
-                    if let Some(ss) = s.as_str() {
-                        if !ss.is_empty() {
-                            terms.push(ss);
-                        }
-                    }
-                }
-            }
-            for term in terms {
-                let lc = term.to_lowercase();
-                if lc.chars().count() < 3 {
-                    continue;
-                }
-                dedup.entry(lc).or_insert_with(|| OntologyMatch {
-                    term: term.to_string(),
-                    node_type: ntype.to_string(),
-                    label: name.to_string(),
-                    mcp_server: server.to_string(),
-                    score: term.chars().count() as f64,
-                });
+            if !ss.is_empty() {
+                terms.push(ss);
             }
         }
+        terms
+    }
 
+    /// Compile the deduped term map into the aho-corasick automaton plus the
+    /// pattern-index-aligned metadata table. A build failure degrades to an empty
+    /// automaton (matches nothing) rather than panicking.
+    fn compile_ontology_index(
+        dedup: HashMap<String, OntologyMatch>,
+    ) -> (AhoCorasick, Vec<OntologyMatch>) {
         let mut patterns: Vec<String> = Vec::with_capacity(dedup.len());
         let mut metas: Vec<OntologyMatch> = Vec::with_capacity(dedup.len());
         for (lc, meta) in dedup {
@@ -5346,27 +5782,54 @@ impl GraphCore {
         };
         let mut out: Vec<(String, String, u32, Vec<u8>)> =
             Vec::with_capacity(if limit == 0 { 0 } else { limit });
-        'outer: for (src, tgt) in keys.iter().skip(start) {
+        for (src, tgt) in keys.iter().skip(start) {
             let Some(props_list) = edge_properties.get(&(src.clone(), tgt.clone())) else {
                 continue; // removed since the key list was built; skip defensively.
             };
-            for (ordinal, props) in props_list.iter().enumerate() {
-                let ordinal = ordinal as u32;
-                if let Some((after_src, after_tgt, after_ordinal)) = after {
-                    if src.as_str() == after_src
-                        && tgt.as_str() == after_tgt
-                        && ordinal <= after_ordinal
-                    {
-                        continue;
-                    }
-                }
-                if limit != 0 && out.len() >= limit {
-                    break 'outer;
-                }
-                out.push((src.clone(), tgt.clone(), ordinal, (**props).clone()));
+            if !Self::push_edge_rows(&mut out, src, tgt, props_list.value(), after, limit) {
+                break; // page full — stop scanning keys entirely.
             }
         }
         out
+    }
+
+    /// Append ONE endpoint pair's parallel edges to `out`, honouring the exclusive
+    /// `after` cursor and `limit` (`0` = uncapped). Returns `false` once the page
+    /// is full, which is the caller's signal to stop scanning keys.
+    fn push_edge_rows(
+        out: &mut Vec<(String, String, u32, Vec<u8>)>,
+        src: &str,
+        tgt: &str,
+        props_list: &[Arc<Vec<u8>>],
+        after: Option<(&str, &str, u32)>,
+        limit: usize,
+    ) -> bool {
+        for (ordinal, props) in props_list.iter().enumerate() {
+            let ordinal = ordinal as u32;
+            if Self::edge_row_at_or_before_cursor(src, tgt, ordinal, after) {
+                continue;
+            }
+            if limit != 0 && out.len() >= limit {
+                return false;
+            }
+            out.push((src.to_string(), tgt.to_string(), ordinal, (**props).clone()));
+        }
+        true
+    }
+
+    /// Is this `(source, target, ordinal)` row at or before the EXCLUSIVE cursor?
+    /// Only rows on the cursor's own endpoint pair can be, since the key list is
+    /// sorted and the scan already started at that pair.
+    fn edge_row_at_or_before_cursor(
+        src: &str,
+        tgt: &str,
+        ordinal: u32,
+        after: Option<(&str, &str, u32)>,
+    ) -> bool {
+        let Some((after_src, after_tgt, after_ordinal)) = after else {
+            return false;
+        };
+        src == after_src && tgt == after_tgt && ordinal <= after_ordinal
     }
 
     pub fn get_edge_properties(&self, source_id: &str, target_id: &str) -> Vec<Vec<u8>> {
@@ -5971,28 +6434,47 @@ impl GraphCore {
     pub fn get_subgraph(&self, node_ids: &[String]) -> GraphView {
         let topo = self.topo.read();
         let mut view = GraphView::default();
+        // Both halves run under the SAME held topology read guard, exactly as the
+        // single-body version did — neither takes a lock of its own.
+        self.copy_subgraph_nodes(&topo, node_ids, &mut view);
+        self.copy_subgraph_edges(&topo, &mut view);
+        view
+    }
 
-        // Copy matching nodes (those that actually exist).
+    /// Copy the requested nodes (those that actually exist) into `view`, with
+    /// their properties and their point-in-time TBox membership.
+    ///
+    /// The caller holds the topology READ guard and passes it in as `topo`.
+    fn copy_subgraph_nodes(&self, topo: &Topology, node_ids: &[String], view: &mut GraphView) {
         for nid in node_ids {
-            if topo.node_map.contains_key(nid) && !view.node_map.contains_key(nid) {
-                let new_idx = view.graph.add_node(nid.clone());
-                view.node_map.insert(nid.clone(), new_idx);
-                if let Some(props) = self.node_properties.get(nid) {
-                    view.node_properties.insert(nid.clone(), props.clone());
-                }
-                // BUG A3: point-in-time TBox membership for this induced
-                // subgraph, consulted by `filter_view`.
-                if self.is_schema_node(nid) {
-                    view.schema_node_ids.insert(nid.clone());
-                }
+            if !topo.node_map.contains_key(nid) || view.node_map.contains_key(nid) {
+                continue;
+            }
+            let new_idx = view.graph.add_node(nid.clone());
+            view.node_map.insert(nid.clone(), new_idx);
+            if let Some(props) = self.node_properties.get(nid) {
+                view.node_properties.insert(nid.clone(), props.clone());
+            }
+            // BUG A3: point-in-time TBox membership for this induced
+            // subgraph, consulted by `filter_view`.
+            if self.is_schema_node(nid) {
+                view.schema_node_ids.insert(nid.clone());
             }
         }
+    }
 
-        // Walk only outgoing adjacency of selected nodes instead of scanning the
-        // complete edge-property map. Parallel topology edges share one endpoint
-        // property vector, so visit each endpoint pair once.
+    /// Copy the induced edges into `view` by walking only the OUTGOING adjacency
+    /// of the selected nodes, instead of scanning the complete edge-property map.
+    /// Parallel topology edges share one endpoint property vector, so each
+    /// endpoint pair is visited once.
+    ///
+    /// The caller holds the topology READ guard and passes it in as `topo`. The
+    /// selected ids are materialised first so the per-pair copy can take `view`
+    /// mutably.
+    fn copy_subgraph_edges(&self, topo: &Topology, view: &mut GraphView) {
         let mut seen_pairs = std::collections::HashSet::new();
-        for src in view.node_map.keys() {
+        let sources: Vec<String> = view.node_map.keys().cloned().collect();
+        for src in &sources {
             let Some(&source_index) = topo.node_map.get(src) else {
                 continue;
             };
@@ -6006,23 +6488,29 @@ impl GraphCore {
                 {
                     continue;
                 }
-                let Some(props) = self.edge_properties.get(&(src.clone(), tgt.clone())) else {
-                    continue;
-                };
-                let (Some(&s), Some(&t)) = (view.node_map.get(src), view.node_map.get(tgt)) else {
-                    continue;
-                };
-                for prop in props.iter() {
-                    view.graph.add_edge(s, t, format!("{}:{}", src, tgt));
-                    view.edge_properties
-                        .entry((src.clone(), tgt.clone()))
-                        .or_default()
-                        .push(prop.clone());
-                }
+                self.copy_subgraph_edge_pair(src, tgt, view);
             }
         }
+    }
 
-        view
+    /// Copy every parallel edge blob between one selected `(src, tgt)` pair.
+    fn copy_subgraph_edge_pair(&self, src: &str, tgt: &str, view: &mut GraphView) {
+        let Some(props) = self
+            .edge_properties
+            .get(&(src.to_string(), tgt.to_string()))
+        else {
+            return;
+        };
+        let (Some(&s), Some(&t)) = (view.node_map.get(src), view.node_map.get(tgt)) else {
+            return;
+        };
+        for prop in props.iter() {
+            view.graph.add_edge(s, t, format!("{}:{}", src, tgt));
+            view.edge_properties
+                .entry((src.to_string(), tgt.to_string()))
+                .or_default()
+                .push(prop.clone());
+        }
     }
 
     // ── Read-Only Compute Snapshots (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
@@ -6457,8 +6945,8 @@ impl GraphCore {
         prune: bool,
     ) -> crate::types::DecayStats {
         let mut stats = crate::types::DecayStats::default();
-        let mut node_prune: Vec<String> = Vec::new();
-        let mut edge_prune: Vec<(String, String)> = Vec::new();
+        let node_prune: Vec<String>;
+        let edge_prune: Vec<(String, String)>;
 
         // The property re-encode runs under the topology READ lock: it excludes
         // structural writers (add/remove go through a write txn), so a node can't
@@ -6466,62 +6954,8 @@ impl GraphCore {
         // would resurrect it). Reads/other property updates still proceed.
         {
             let _topo = self.topo.read();
-
-            // ── Nodes ──
-            let node_ids: Vec<String> = self
-                .node_properties
-                .iter()
-                .map(|e| e.key().clone())
-                .collect();
-            for nid in node_ids {
-                if let Some(bytes) = self.node_properties.get(&nid).map(|r| r.value().clone()) {
-                    if let Ok(mut val) = decode_property_value(&bytes) {
-                        if let Some(obj) = val.as_object_mut() {
-                            let (new_conf, changed) = apply_decay(obj, now, default_half_life);
-                            if changed {
-                                stats.nodes_decayed += 1;
-                                if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                                    self.node_properties.insert(nid.clone(), Arc::new(reenc));
-                                }
-                            }
-                            if prune && new_conf < floor {
-                                node_prune.push(nid.clone());
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Edges ── (edge_properties: (src,tgt) -> Vec<Vec<u8>> parallel edges)
-            let edge_keys: Vec<(String, String)> = self
-                .edge_properties
-                .iter()
-                .map(|e| e.key().clone())
-                .collect();
-            for key in edge_keys {
-                let mut min_conf = 1.0f64;
-                if let Some(mut blobs) = self.edge_properties.get_mut(&key) {
-                    for b in blobs.iter_mut() {
-                        if let Ok(mut val) = decode_property_value(b.as_slice()) {
-                            if let Some(obj) = val.as_object_mut() {
-                                let (new_conf, changed) = apply_decay(obj, now, default_half_life);
-                                if changed {
-                                    stats.edges_decayed += 1;
-                                    if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
-                                        *b = Arc::new(reenc);
-                                    }
-                                }
-                                if new_conf < min_conf {
-                                    min_conf = new_conf;
-                                }
-                            }
-                        }
-                    }
-                }
-                if prune && min_conf < floor {
-                    edge_prune.push(key);
-                }
-            }
+            node_prune = self.decay_all_nodes(now, default_half_life, floor, prune, &mut stats);
+            edge_prune = self.decay_all_edges(now, default_half_life, floor, prune, &mut stats);
         }
 
         // ── Prune below floor (each removal takes its own write txn) ──
@@ -6544,6 +6978,113 @@ impl GraphCore {
             self.mark_dirty();
         }
         stats
+    }
+
+    /// Decay every node's belief `confidence` in place, bumping `stats`.
+    ///
+    /// The caller MUST already hold the topology READ guard — this only touches
+    /// `node_properties`, never the topology, and must not take a lock itself.
+    /// Returns the ids that fell below `floor` (empty unless `prune`).
+    fn decay_all_nodes(
+        &self,
+        now: u64,
+        default_half_life: f64,
+        floor: f64,
+        prune: bool,
+        stats: &mut crate::types::DecayStats,
+    ) -> Vec<String> {
+        let mut node_prune: Vec<String> = Vec::new();
+        let node_ids: Vec<String> = self
+            .node_properties
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
+        for nid in node_ids {
+            let Some(bytes) = self.node_properties.get(&nid).map(|r| r.value().clone()) else {
+                continue;
+            };
+            let Ok(mut val) = decode_property_value(&bytes) else {
+                continue;
+            };
+            let Some(obj) = val.as_object_mut() else {
+                continue;
+            };
+            let (new_conf, changed) = apply_decay(obj, now, default_half_life);
+            if changed {
+                stats.nodes_decayed += 1;
+                if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                    self.node_properties.insert(nid.clone(), Arc::new(reenc));
+                }
+            }
+            if prune && new_conf < floor {
+                node_prune.push(nid.clone());
+            }
+        }
+        node_prune
+    }
+
+    /// Decay every parallel edge blob in place, bumping `stats`.
+    ///
+    /// The caller MUST already hold the topology READ guard (see
+    /// [`GraphCore::decay_all_nodes`]). `edge_properties` maps `(src, tgt)` to the
+    /// parallel-edge blobs. Returns the keys whose WEAKEST parallel edge fell
+    /// below `floor` (empty unless `prune`).
+    fn decay_all_edges(
+        &self,
+        now: u64,
+        default_half_life: f64,
+        floor: f64,
+        prune: bool,
+        stats: &mut crate::types::DecayStats,
+    ) -> Vec<(String, String)> {
+        let mut edge_prune: Vec<(String, String)> = Vec::new();
+        let edge_keys: Vec<(String, String)> = self
+            .edge_properties
+            .iter()
+            .map(|e| e.key().clone())
+            .collect();
+        for key in edge_keys {
+            let mut min_conf = 1.0f64;
+            if let Some(mut blobs) = self.edge_properties.get_mut(&key) {
+                for b in blobs.iter_mut() {
+                    let new_conf = Self::decay_edge_blob(b, now, default_half_life, stats);
+                    if new_conf < min_conf {
+                        min_conf = new_conf;
+                    }
+                }
+            }
+            if prune && min_conf < floor {
+                edge_prune.push(key);
+            }
+        }
+        edge_prune
+    }
+
+    /// Decay ONE edge property blob in place, bumping `stats.edges_decayed`.
+    ///
+    /// Returns the blob's confidence after decay, or `1.0` when it is undecodable
+    /// or not a property object — matching the original sweep, which left
+    /// `min_conf` untouched in exactly those cases.
+    fn decay_edge_blob(
+        blob: &mut Arc<Vec<u8>>,
+        now: u64,
+        default_half_life: f64,
+        stats: &mut crate::types::DecayStats,
+    ) -> f64 {
+        let Ok(mut val) = decode_property_value(blob.as_slice()) else {
+            return 1.0;
+        };
+        let Some(obj) = val.as_object_mut() else {
+            return 1.0;
+        };
+        let (new_conf, changed) = apply_decay(obj, now, default_half_life);
+        if changed {
+            stats.edges_decayed += 1;
+            if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
+                *blob = Arc::new(reenc);
+            }
+        }
+        new_conf
     }
 
     /// Refresh the given nodes on access (spaced-repetition reset): stamp
@@ -7222,50 +7763,67 @@ fn backtrack_match(
         return;
     }
     if pattern_node_idx == pattern_nodes.len() {
-        search.matches.push(current_mapping.clone());
-        if search.matches.len() >= search.max_results {
-            search.truncated = true;
-        }
+        record_vf2_match(current_mapping, search);
         return;
     }
 
     let p_node = &pattern_nodes[pattern_node_idx];
 
     for t_node in host.node_map.keys() {
-        if search.truncated {
-            return;
-        }
-        search.steps += 1;
-        if search.steps > search.max_steps {
-            search.truncated = true;
+        if !vf2_step_allowed(search) {
             return;
         }
         if mapped_targets.contains(t_node) {
             continue;
         }
+        if !check_match(host, p_node, t_node, current_mapping, pattern) {
+            continue;
+        }
 
-        if check_match(host, p_node, t_node, current_mapping, pattern) {
-            current_mapping.insert(p_node.clone(), t_node.clone());
-            mapped_targets.insert(t_node.clone());
+        current_mapping.insert(p_node.clone(), t_node.clone());
+        mapped_targets.insert(t_node.clone());
 
-            backtrack_match(
-                host,
-                pattern_node_idx + 1,
-                pattern_nodes,
-                current_mapping,
-                mapped_targets,
-                pattern,
-                search,
-            );
+        backtrack_match(
+            host,
+            pattern_node_idx + 1,
+            pattern_nodes,
+            current_mapping,
+            mapped_targets,
+            pattern,
+            search,
+        );
 
-            current_mapping.remove(p_node);
-            mapped_targets.remove(t_node);
+        current_mapping.remove(p_node);
+        mapped_targets.remove(t_node);
 
-            if search.truncated {
-                return;
-            }
+        if search.truncated {
+            return;
         }
     }
+}
+
+/// Record one complete pattern→host mapping, truncating the search once
+/// `max_results` mappings have been collected.
+fn record_vf2_match(current_mapping: &HashMap<String, String>, search: &mut Vf2Search) {
+    search.matches.push(current_mapping.clone());
+    if search.matches.len() >= search.max_results {
+        search.truncated = true;
+    }
+}
+
+/// Charge one VF2 candidate step against the budget. Returns `false` when the
+/// caller must stop: the search was ALREADY truncated, or this step exhausted
+/// `max_steps` (which truncates it).
+fn vf2_step_allowed(search: &mut Vf2Search) -> bool {
+    if search.truncated {
+        return false;
+    }
+    search.steps += 1;
+    if search.steps > search.max_steps {
+        search.truncated = true;
+        return false;
+    }
+    true
 }
 
 fn check_match(
@@ -7290,43 +7848,67 @@ fn check_match(
         return false;
     }
 
-    let p_idx = match pattern.node_map.get(p_node) {
-        Some(&idx) => idx,
-        None => return false,
+    let Some(&p_idx) = pattern.node_map.get(p_node) else {
+        return false;
     };
 
-    // In-edges
+    check_in_edges(host, pattern, p_idx, p_node, t_node, current_mapping)
+        && check_out_edges(host, pattern, p_idx, p_node, t_node, current_mapping)
+}
+
+/// Every ALREADY-MAPPED pattern in-edge into `p_node` must have a counterpart
+/// in-edge into `t_node` in the host, with compatible edge properties. A pattern
+/// neighbour that is not yet mapped constrains nothing at this depth.
+fn check_in_edges(
+    host: &GraphView,
+    pattern: &GraphView,
+    p_idx: NodeIndex,
+    p_node: &str,
+    t_node: &str,
+    current_mapping: &HashMap<String, String>,
+) -> bool {
     for in_edge in pattern
         .graph
         .edges_directed(p_idx, petgraph::Direction::Incoming)
     {
         let p_src = &pattern.graph[in_edge.source()];
-        if let Some(t_src) = current_mapping.get(p_src) {
-            if !host.has_edge(t_src, t_node) {
-                return false;
-            }
-            if !check_edge_props(host, pattern, p_src, p_node, t_src, t_node) {
-                return false;
-            }
+        let Some(t_src) = current_mapping.get(p_src) else {
+            continue;
+        };
+        if !host.has_edge(t_src, t_node) {
+            return false;
+        }
+        if !check_edge_props(host, pattern, p_src, p_node, t_src, t_node) {
+            return false;
         }
     }
+    true
+}
 
-    // Out-edges
+/// The out-edge counterpart of [`check_in_edges`].
+fn check_out_edges(
+    host: &GraphView,
+    pattern: &GraphView,
+    p_idx: NodeIndex,
+    p_node: &str,
+    t_node: &str,
+    current_mapping: &HashMap<String, String>,
+) -> bool {
     for out_edge in pattern
         .graph
         .edges_directed(p_idx, petgraph::Direction::Outgoing)
     {
         let p_tgt = &pattern.graph[out_edge.target()];
-        if let Some(t_tgt) = current_mapping.get(p_tgt) {
-            if !host.has_edge(t_node, t_tgt) {
-                return false;
-            }
-            if !check_edge_props(host, pattern, p_node, &p_tgt.clone(), t_node, t_tgt) {
-                return false;
-            }
+        let Some(t_tgt) = current_mapping.get(p_tgt) else {
+            continue;
+        };
+        if !host.has_edge(t_node, t_tgt) {
+            return false;
+        }
+        if !check_edge_props(host, pattern, p_node, p_tgt, t_node, t_tgt) {
+            return false;
         }
     }
-
     true
 }
 
@@ -7338,31 +7920,29 @@ fn check_edge_props(
     t_src: &str,
     t_tgt: &str,
 ) -> bool {
-    if let Some(p_props_list) = pattern
+    let Some(p_props_list) = pattern
         .edge_properties
         .get(&(p_src.to_string(), p_tgt.to_string()))
-    {
-        if let Some(t_props_list) = host
-            .edge_properties
-            .get(&(t_src.to_string(), t_tgt.to_string()))
-        {
-            for p_edge_props in p_props_list {
-                let mut matched = false;
-                for t_edge_props in t_props_list {
-                    if match_props(p_edge_props, t_edge_props) {
-                        matched = true;
-                        break;
-                    }
-                }
-                if !matched {
-                    return false;
-                }
-            }
-        } else {
-            return false;
-        }
-    }
-    true
+    else {
+        // No pattern edge between these endpoints ⇒ nothing to constrain.
+        return true;
+    };
+    let Some(t_props_list) = host
+        .edge_properties
+        .get(&(t_src.to_string(), t_tgt.to_string()))
+    else {
+        return false;
+    };
+    p_props_list
+        .iter()
+        .all(|p_edge_props| any_edge_props_match(p_edge_props, t_props_list))
+}
+
+/// Does ANY of the host's parallel edge blobs satisfy this one pattern blob?
+fn any_edge_props_match(p_edge_props: &[u8], t_props_list: &[Arc<Vec<u8>>]) -> bool {
+    t_props_list
+        .iter()
+        .any(|t_edge_props| match_props(p_edge_props, t_edge_props))
 }
 
 pub fn match_props(p_msgpack: &[u8], t_msgpack: &[u8]) -> bool {
