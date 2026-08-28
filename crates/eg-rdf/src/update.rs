@@ -33,7 +33,7 @@ use crate::guard::{GuardRejection, WriteGuard};
 use spargebra::algebra::GraphTarget;
 use spargebra::term::{
     GraphName, GraphNamePattern, GroundQuad, GroundQuadPattern, GroundTerm, GroundTermPattern,
-    NamedNodePattern, Quad, QuadPattern, TermPattern,
+    NamedNodePattern, Quad, QuadPattern, TermPattern, TriplePattern, Variable,
 };
 use spargebra::SparqlParser;
 use spargebra::{GraphUpdateOperation, Update};
@@ -129,55 +129,68 @@ pub fn insert_data_triples(update_str: &str) -> Result<Vec<Triple>, String> {
 /// CREATE/CLEAR/DROP targets, the LOAD destination, and constant insert/delete pattern
 /// graph names — the practical "write to a new named graph" cases.
 pub fn referenced_named_graphs(update: &Update) -> Vec<String> {
-    use spargebra::term::{GraphName, GraphNamePattern};
-    let mut out = std::collections::HashSet::new();
-    let push_name = |g: &GraphName, out: &mut std::collections::HashSet<String>| {
+    let mut out = HashSet::new();
+    for op in &update.operations {
+        collect_op_named_graphs(op, &mut out);
+    }
+    out.into_iter().collect()
+}
+
+/// Collect the constant named-graph IRIs one update operation references. Extracted
+/// from [`referenced_named_graphs`]'s per-operation match.
+fn collect_op_named_graphs(op: &GraphUpdateOperation, out: &mut HashSet<String>) {
+    match op {
+        GraphUpdateOperation::InsertData { data } => {
+            push_named_graph_names(data.iter().map(|q| &q.graph_name), out);
+        }
+        GraphUpdateOperation::DeleteData { data } => {
+            push_named_graph_names(data.iter().map(|q| &q.graph_name), out);
+        }
+        GraphUpdateOperation::DeleteInsert { insert, delete, .. } => {
+            push_pattern_graph_names(insert.iter().map(|qp| &qp.graph_name), out);
+            push_pattern_graph_names(delete.iter().map(|gqp| &gqp.graph_name), out);
+        }
+        GraphUpdateOperation::Create { graph, .. } => {
+            out.insert(graph.as_str().to_string());
+        }
+        GraphUpdateOperation::Clear { graph, .. } | GraphUpdateOperation::Drop { graph, .. } => {
+            push_graph_target(graph, out);
+        }
+        GraphUpdateOperation::Load { destination, .. } => {
+            push_named_graph_names(std::iter::once(destination), out);
+        }
+    }
+}
+
+/// Insert every `GraphName::NamedNode` from `names` into `out`.
+fn push_named_graph_names<'a>(
+    names: impl Iterator<Item = &'a GraphName>,
+    out: &mut HashSet<String>,
+) {
+    for g in names {
         if let GraphName::NamedNode(n) = g {
             out.insert(n.as_str().to_string());
         }
-    };
-    let push_target = |t: &GraphTarget, out: &mut std::collections::HashSet<String>| {
-        if let GraphTarget::NamedNode(n) = t {
+    }
+}
+
+/// Insert every `GraphNamePattern::NamedNode` from `names` into `out`.
+fn push_pattern_graph_names<'a>(
+    names: impl Iterator<Item = &'a GraphNamePattern>,
+    out: &mut HashSet<String>,
+) {
+    for g in names {
+        if let GraphNamePattern::NamedNode(n) = g {
             out.insert(n.as_str().to_string());
         }
-    };
-    for op in &update.operations {
-        match op {
-            GraphUpdateOperation::InsertData { data } => {
-                for q in data {
-                    push_name(&q.graph_name, &mut out);
-                }
-            }
-            GraphUpdateOperation::DeleteData { data } => {
-                for q in data {
-                    push_name(&q.graph_name, &mut out);
-                }
-            }
-            GraphUpdateOperation::DeleteInsert { insert, delete, .. } => {
-                for qp in insert {
-                    if let GraphNamePattern::NamedNode(n) = &qp.graph_name {
-                        out.insert(n.as_str().to_string());
-                    }
-                }
-                for gqp in delete {
-                    if let GraphNamePattern::NamedNode(n) = &gqp.graph_name {
-                        out.insert(n.as_str().to_string());
-                    }
-                }
-            }
-            GraphUpdateOperation::Create { graph, .. } => {
-                out.insert(graph.as_str().to_string());
-            }
-            GraphUpdateOperation::Clear { graph, .. }
-            | GraphUpdateOperation::Drop { graph, .. } => {
-                push_target(graph, &mut out);
-            }
-            GraphUpdateOperation::Load { destination, .. } => {
-                push_name(destination, &mut out);
-            }
-        }
     }
-    out.into_iter().collect()
+}
+
+/// Insert `t` into `out` when it is a `GraphTarget::NamedNode`.
+fn push_graph_target(t: &GraphTarget, out: &mut HashSet<String>) {
+    if let GraphTarget::NamedNode(n) = t {
+        out.insert(n.as_str().to_string());
+    }
 }
 
 /// Parse + execute a SPARQL 1.1 UPDATE under the mandatory write guard.
@@ -201,53 +214,74 @@ fn apply_update(
     let mut report = UpdateReport::default();
     for op in &update.operations {
         report.operations += 1;
-        match op {
-            GraphUpdateOperation::InsertData { data } => {
-                for quad in data {
-                    apply_quad(store, quad, &mut report, true)?;
-                }
-            }
-            GraphUpdateOperation::DeleteData { data } => {
-                for quad in data {
-                    apply_ground_quad(store, quad, &mut report, false)?;
-                }
-            }
-            GraphUpdateOperation::DeleteInsert {
-                delete,
-                insert,
-                using: _,
-                pattern,
-            } => {
-                exec_delete_insert(store, proj, delete, insert, pattern, &mut report)?;
-            }
-            GraphUpdateOperation::Clear { silent, graph } => {
-                clear_target(store, graph, *silent)?;
-            }
-            GraphUpdateOperation::Create { silent, graph } => {
-                let r = store.create(graph.as_str());
-                if r.is_err() && !*silent {
-                    return r.map(|_| report.clone());
-                }
-            }
-            GraphUpdateOperation::Drop { silent, graph } => {
-                drop_target(store, graph, *silent)?;
-            }
-            GraphUpdateOperation::Load {
-                silent,
-                source,
-                destination: _,
-            } => {
-                if !*silent {
-                    return Err(format!(
-                        "LOAD <{}>: remote-URL load is not supported from the engine write \
-                         path (use AddTriples / source_sync); add SILENT to ignore",
-                        source.as_str()
-                    ));
-                }
-            }
-        }
+        apply_one_operation(op, store, proj, &mut report)?;
     }
     Ok(report)
+}
+
+/// Apply one update operation against `store`, updating `report`. Extracted from
+/// [`apply_update`]'s per-operation match.
+fn apply_one_operation(
+    op: &GraphUpdateOperation,
+    store: &dyn GraphStore,
+    proj: &Projection,
+    report: &mut UpdateReport,
+) -> Result<(), String> {
+    match op {
+        GraphUpdateOperation::InsertData { data } => {
+            for quad in data {
+                apply_quad(store, quad, report, true)?;
+            }
+            Ok(())
+        }
+        GraphUpdateOperation::DeleteData { data } => {
+            for quad in data {
+                apply_ground_quad(store, quad, report, false)?;
+            }
+            Ok(())
+        }
+        GraphUpdateOperation::DeleteInsert {
+            delete,
+            insert,
+            using: _,
+            pattern,
+        } => exec_delete_insert(store, proj, delete, insert, pattern, report),
+        GraphUpdateOperation::Clear { silent, graph } => clear_target(store, graph, *silent),
+        GraphUpdateOperation::Create { silent, graph } => apply_create(store, graph, *silent),
+        GraphUpdateOperation::Drop { silent, graph } => drop_target(store, graph, *silent),
+        GraphUpdateOperation::Load {
+            silent,
+            source,
+            destination: _,
+        } => apply_load(*silent, source),
+    }
+}
+
+/// The `Create` arm of [`apply_one_operation`]'s match: create `graph`, propagating a
+/// failure unless `silent`.
+fn apply_create(
+    store: &dyn GraphStore,
+    graph: &oxrdf::NamedNode,
+    silent: bool,
+) -> Result<(), String> {
+    let r = store.create(graph.as_str());
+    if r.is_err() && !silent {
+        return r;
+    }
+    Ok(())
+}
+
+/// The `Load` arm of [`apply_one_operation`]'s match: remote-URL LOAD is not supported
+/// from the engine write path (use AddTriples / source_sync); `SILENT` swallows it.
+fn apply_load(silent: bool, source: &oxrdf::NamedNode) -> Result<(), String> {
+    if silent {
+        return Ok(());
+    }
+    Err(format!(
+        "LOAD <{}>: remote-URL load is not supported from the engine write \
+         path (use AddTriples / source_sync); add SILENT to ignore",
+        source.as_str()
+    ))
 }
 
 // ── EG-300 constraint-enforced commit (WriteGuard hook) ─────────────────────────
@@ -378,27 +412,68 @@ fn exec_delete_insert(
     pattern: &spargebra::algebra::GraphPattern,
     report: &mut UpdateReport,
 ) -> Result<(), String> {
-    // CONCEPT:EG-KG.query.sparql-add-copy-move — ADD / COPY / MOVE. spargebra performs the W3C rewriting at parse
-    // time: each desugars to a whole-graph `?s ?p ?o` copy (this `DeleteInsert`) plus a
-    // preceding DROP of the destination (COPY/MOVE) and a trailing DROP of the source
-    // (MOVE), which the `Clear`/`Drop` arms already execute via `GraphStore::clear`. So
-    // COPY/MOVE/ADD need no dedicated `execute` arm — we only recognize the canonical
-    // whole-graph-copy shape here and run it as a LOSSLESS graph→graph triple copy
-    // (reusing `export_triples` + `insert_triples`) instead of the lossy binding
-    // round-trip the generic WHERE path would use (which flattens literal datatypes).
-    if let Some((from, to)) = whole_graph_copy(delete, insert, pattern) {
-        let (Some(src), Some(dst)) = (store.core(from.as_deref()), store.core(to.as_deref()))
-        else {
-            // Missing source/destination ⇒ nothing to copy (SILENT-friendly: the DROPs
-            // that frame COPY/MOVE are `silent` and no error is raised here either).
-            return Ok(());
-        };
-        let triples = export_graph_triples(&src, from.as_deref().unwrap_or(""))?;
-        report.inserted += insert_triples(&dst, &triples)?;
+    // CONCEPT:EG-KG.query.sparql-add-copy-move — ADD / COPY / MOVE fast path; see
+    // `try_whole_graph_copy`'s docs for why.
+    if try_whole_graph_copy(store, delete, insert, pattern, report)?.is_some() {
         return Ok(());
     }
 
     // Snapshot the store's graphs and evaluate the WHERE over them (named-graph aware).
+    let (default_view, named_views) = snapshot_dataset_views(store)?;
+    let named_refs: Vec<(String, &eg_core::graph::GraphView)> =
+        named_views.iter().map(|(n, v)| (n.clone(), v)).collect();
+    let ds = Dataset::new(&default_view, named_refs);
+
+    let solutions = crate::sparql::eval_where(&ds, pattern, proj)?;
+
+    // DELETE first (SPARQL: the delete sees the pre-update graph), then INSERT.
+    apply_delete_solutions(store, delete, &solutions, report);
+    apply_insert_solutions(store, insert, &solutions, report)?;
+    Ok(())
+}
+
+/// The ADD/COPY/MOVE fast path (CONCEPT:EG-KG.query.sparql-add-copy-move): spargebra performs the W3C rewriting
+/// at parse time, so each desugars to a whole-graph `?s ?p ?o` copy (this
+/// `DeleteInsert`) plus a preceding DROP of the destination (COPY/MOVE) and a trailing
+/// DROP of the source (MOVE), which the `Clear`/`Drop` arms already execute via
+/// `GraphStore::clear`. So COPY/MOVE/ADD need no dedicated `execute` arm — this
+/// recognizes only the canonical whole-graph-copy shape and runs it as a LOSSLESS
+/// graph→graph triple copy (reusing `export_triples` + `insert_triples`) instead of the
+/// lossy binding round-trip the generic WHERE path would use (which flattens literal
+/// datatypes). Returns `Ok(Some(()))` when handled (a real copy, or a no-op because
+/// source/destination is missing — SILENT-friendly), `Ok(None)` to fall through to the
+/// generic WHERE path. Extracted from [`exec_delete_insert`].
+fn try_whole_graph_copy(
+    store: &dyn GraphStore,
+    delete: &[GroundQuadPattern],
+    insert: &[QuadPattern],
+    pattern: &spargebra::algebra::GraphPattern,
+    report: &mut UpdateReport,
+) -> Result<Option<()>, String> {
+    let Some((from, to)) = whole_graph_copy(delete, insert, pattern) else {
+        return Ok(None);
+    };
+    let (Some(src), Some(dst)) = (store.core(from.as_deref()), store.core(to.as_deref())) else {
+        // Missing source/destination ⇒ nothing to copy (SILENT-friendly: the DROPs
+        // that frame COPY/MOVE are `silent` and no error is raised here either).
+        return Ok(Some(()));
+    };
+    let triples = export_graph_triples(&src, from.as_deref().unwrap_or(""))?;
+    report.inserted += insert_triples(&dst, &triples)?;
+    Ok(Some(()))
+}
+
+/// Snapshot the default graph + every named graph as analysis views, for
+/// [`exec_delete_insert`]'s WHERE evaluation.
+fn snapshot_dataset_views(
+    store: &dyn GraphStore,
+) -> Result<
+    (
+        eg_core::graph::GraphView,
+        Vec<(String, eg_core::graph::GraphView)>,
+    ),
+    String,
+> {
     let default_core = store
         .core(None)
         .ok_or("DELETE/INSERT WHERE: no default graph")?;
@@ -408,14 +483,18 @@ fn exec_delete_insert(
         .iter()
         .map(|(n, c)| (n.clone(), c.analysis_snapshot()))
         .collect();
-    let named_refs: Vec<(String, &eg_core::graph::GraphView)> =
-        named_views.iter().map(|(n, v)| (n.clone(), v)).collect();
-    let ds = Dataset::new(&default_view, named_refs);
+    Ok((default_view, named_views))
+}
 
-    let solutions = crate::sparql::eval_where(&ds, pattern, proj)?;
-
-    // DELETE first (SPARQL: the delete sees the pre-update graph), then INSERT.
-    for sol in &solutions {
+/// The DELETE phase of [`exec_delete_insert`]'s WHERE path (SPARQL: the delete sees the
+/// pre-update graph).
+fn apply_delete_solutions(
+    store: &dyn GraphStore,
+    delete: &[GroundQuadPattern],
+    solutions: &[Solution],
+    report: &mut UpdateReport,
+) {
+    for sol in solutions {
         for gqp in delete {
             if let Some((graph, s, p, obj)) = instantiate_ground(gqp, sol) {
                 if let Some(core) = store.core(graph.as_deref()) {
@@ -426,7 +505,16 @@ fn exec_delete_insert(
             }
         }
     }
-    for sol in &solutions {
+}
+
+/// The INSERT phase of [`exec_delete_insert`]'s WHERE path.
+fn apply_insert_solutions(
+    store: &dyn GraphStore,
+    insert: &[QuadPattern],
+    solutions: &[Solution],
+    report: &mut UpdateReport,
+) -> Result<(), String> {
+    for sol in solutions {
         for qp in insert {
             if let Some((graph, s, p, obj)) = instantiate_quad(qp, sol) {
                 if let Some(core) = store.core(graph.as_deref()) {
@@ -451,11 +539,27 @@ fn whole_graph_copy(
     insert: &[QuadPattern],
     pattern: &spargebra::algebra::GraphPattern,
 ) -> Option<(Option<String>, Option<String>)> {
-    use spargebra::algebra::GraphPattern as GP;
     if !delete.is_empty() || insert.len() != 1 {
         return None;
     }
-    let qp = &insert[0];
+    let (vs, vp, vo, to) = insert_copy_shape(&insert[0])?;
+    let (from, tp) = where_copy_shape(pattern)?;
+    // The WHERE triple must be the SAME three variables the INSERT reuses.
+    let same = matches!(&tp.subject, TermPattern::Variable(s) if s == vs)
+        && matches!(&tp.predicate, NamedNodePattern::Variable(p) if p == vp)
+        && matches!(&tp.object, TermPattern::Variable(o) if o == vo);
+    if !same {
+        return None;
+    }
+    Some((from, to))
+}
+
+/// Validate + destructure the single INSERT quad-pattern's shape: the same variable
+/// reused as subject/predicate/object, and a constant (or default) destination graph.
+/// `None` when it doesn't match. Part of [`whole_graph_copy`]'s shape recognition.
+fn insert_copy_shape(
+    qp: &QuadPattern,
+) -> Option<(&Variable, &Variable, &Variable, Option<String>)> {
     let (TermPattern::Variable(vs), TermPattern::Variable(vo)) = (&qp.subject, &qp.object) else {
         return None;
     };
@@ -467,7 +571,16 @@ fn whole_graph_copy(
         GraphNamePattern::NamedNode(n) => Some(n.as_str().to_string()),
         GraphNamePattern::Variable(_) => return None,
     };
-    // WHERE = one bare BGP (source = default) or `GRAPH <src> { BGP }`.
+    Some((vs, vp, vo, to))
+}
+
+/// Validate + destructure the WHERE pattern's shape: one bare BGP (source = default
+/// graph) or `GRAPH <src> { BGP }`, itself exactly one triple pattern. `None` when it
+/// doesn't match. Part of [`whole_graph_copy`]'s shape recognition.
+fn where_copy_shape(
+    pattern: &spargebra::algebra::GraphPattern,
+) -> Option<(Option<String>, &TriplePattern)> {
+    use spargebra::algebra::GraphPattern as GP;
     let (from, bgp) = match pattern {
         GP::Bgp { patterns } => (None, patterns),
         GP::Graph { name, inner } => {
@@ -482,14 +595,7 @@ fn whole_graph_copy(
         _ => return None,
     };
     let [tp] = bgp.as_slice() else { return None };
-    // The WHERE triple must be the SAME three variables the INSERT reuses.
-    let same = matches!(&tp.subject, TermPattern::Variable(s) if s == vs)
-        && matches!(&tp.predicate, NamedNodePattern::Variable(p) if p == vp)
-        && matches!(&tp.object, TermPattern::Variable(o) if o == vo);
-    if !same {
-        return None;
-    }
-    Some((from, to))
+    Some((from, tp))
 }
 
 /// Export a graph core back to RDF triples for a whole-graph copy. Embedded
@@ -791,59 +897,71 @@ fn insert_triple(core: &GraphCore, s: &str, p: &str, obj: &ObjTerm) -> Result<bo
             ensure_node(core, s);
             Ok(merge_property(core, s, p, literal_to_cell(lit)))
         }
-        ObjTerm::Resource(o) => {
-            ensure_node(core, s);
-            ensure_node(core, o);
-            let mut changed = false;
-            // A18 (CONCEPT:EG-KG.sharding.row-level-security): does THIS
-            // triple, if genuinely new, make `s` (and/or `o`) ontology SCHEMA
-            // (TBox), exempt from row-level RLS default-deny? Decided here,
-            // applied below ONLY once we know the underlying edge was
-            // actually added (BUG A3, 2026-08-12) -- re-inserting an
-            // already-present axiom must never inflate the live schema
-            // refcount `delete_triple` decrements once per genuine removal;
-            // doing it unconditionally here would desync the two and
-            // reintroduce a variant of the same bug this fixes.
-            let mut becomes_schema_subject = false;
-            let mut becomes_schema_object = false;
-            // rdf:type folds into the node label (matches the loader) AND stays an edge.
-            if p == RDF_TYPE {
-                if let Some(iri) = o.strip_prefix('<').and_then(|x| x.strip_suffix('>')) {
-                    changed |= set_type_property(core, s, iri);
-                    // An explicit `rdf:type owl:Class`/`rdfs:Class`/...
-                    // declaration makes the SUBJECT itself schema -- see
-                    // `crate::mapping`'s module-level A18 note and
-                    // `GraphCore::schema_refs`.
-                    if TBOX_TYPE_OBJECTS.contains(&iri) {
-                        becomes_schema_subject = true;
-                    }
-                }
-            } else if TBOX_SCHEMA_PREDICATES.contains(&p) {
-                // A18: a recognized RDFS/OWL schema predicate (e.g.
-                // `rdfs:subClassOf`) names an axiom ABOUT both endpoints -- a
-                // class/property reference on each side, never a fact about an
-                // individual -- so both are schema. This is the exact SPARQL
-                // UPDATE path `wire_reason_iri_bridges_string_typed_node`
-                // exercises: an `INSERT DATA { <..Sensor> rdfs:subClassOf
-                // <..Device> }` axiom would otherwise land with two untagged,
-                // unowned class nodes that default-deny RLS hides from every
-                // non-`System` actor.
-                becomes_schema_subject = true;
-                becomes_schema_object = true;
-            }
-            let edge_added = add_edge_if_absent(core, s, o, p)?;
-            changed |= edge_added;
-            if edge_added {
-                if becomes_schema_subject {
-                    core.mark_schema_ref(s);
-                }
-                if becomes_schema_object {
-                    core.mark_schema_ref(o);
-                }
-            }
-            Ok(changed)
+        ObjTerm::Resource(o) => insert_resource_triple(core, s, p, o),
+    }
+}
+
+/// The `ObjTerm::Resource` arm of [`insert_triple`]: ensure both endpoint nodes exist,
+/// classify the triple as TBox schema (A18, CONCEPT:EG-KG.sharding.row-level-security)
+/// BEFORE inserting, then add the edge and — only if it was genuinely new (BUG A3,
+/// 2026-08-12: re-inserting an already-present axiom must never inflate the live schema
+/// refcount `delete_triple` decrements once per genuine removal) — mark whichever
+/// endpoint(s) the classification named as schema.
+fn insert_resource_triple(core: &GraphCore, s: &str, p: &str, o: &str) -> Result<bool, String> {
+    ensure_node(core, s);
+    ensure_node(core, o);
+    let mut changed = false;
+    let (becomes_schema_subject, becomes_schema_object) =
+        classify_schema_triple(core, s, p, o, &mut changed);
+    let edge_added = add_edge_if_absent(core, s, o, p)?;
+    changed |= edge_added;
+    if edge_added {
+        if becomes_schema_subject {
+            core.mark_schema_ref(s);
+        }
+        if becomes_schema_object {
+            core.mark_schema_ref(o);
         }
     }
+    Ok(changed)
+}
+
+/// Classify one resource triple as TBox schema, before the edge is inserted. Returns
+/// `(becomes_schema_subject, becomes_schema_object)`; also folds an `rdf:type` object
+/// into the subject's node-label property (matching the loader) via `changed`. Part of
+/// [`insert_resource_triple`]'s A18 schema decision.
+fn classify_schema_triple(
+    core: &GraphCore,
+    s: &str,
+    p: &str,
+    o: &str,
+    changed: &mut bool,
+) -> (bool, bool) {
+    // rdf:type folds into the node label (matches the loader) AND stays an edge.
+    if p == RDF_TYPE {
+        let mut becomes_schema_subject = false;
+        if let Some(iri) = o.strip_prefix('<').and_then(|x| x.strip_suffix('>')) {
+            *changed |= set_type_property(core, s, iri);
+            // An explicit `rdf:type owl:Class`/`rdfs:Class`/... declaration makes the
+            // SUBJECT itself schema -- see `crate::mapping`'s module-level A18 note and
+            // `GraphCore::schema_refs`.
+            if TBOX_TYPE_OBJECTS.contains(&iri) {
+                becomes_schema_subject = true;
+            }
+        }
+        return (becomes_schema_subject, false);
+    }
+    if TBOX_SCHEMA_PREDICATES.contains(&p) {
+        // A18: a recognized RDFS/OWL schema predicate (e.g. `rdfs:subClassOf`) names an
+        // axiom ABOUT both endpoints -- a class/property reference on each side, never a
+        // fact about an individual -- so both are schema. This is the exact SPARQL
+        // UPDATE path `wire_reason_iri_bridges_string_typed_node` exercises: an
+        // `INSERT DATA { <..Sensor> rdfs:subClassOf <..Device> }` axiom would otherwise
+        // land with two untagged, unowned class nodes that default-deny RLS hides from
+        // every non-`System` actor.
+        return (true, true);
+    }
+    (false, false)
 }
 
 /// Delete one triple from `core` (surgical). Returns `true` if it removed something.

@@ -156,27 +156,7 @@ impl Context {
                 if k.starts_with('@') {
                     continue;
                 }
-                match v {
-                    Value::String(iri) => {
-                        // A prefix definition (namespace ends in / or #) doubles as a term.
-                        if iri.ends_with('/') || iri.ends_with('#') {
-                            prefixes.push((k.clone(), iri.clone()));
-                        }
-                        terms.push((k.clone(), iri.clone()));
-                    }
-                    Value::Object(def) => {
-                        if let Some(id) = def.get("@id").and_then(|x| x.as_str()) {
-                            terms.push((k.clone(), id.to_string()));
-                            if id.ends_with('/') || id.ends_with('#') {
-                                prefixes.push((k.clone(), id.to_string()));
-                            }
-                        }
-                        if def.get("@type").and_then(|x| x.as_str()) == Some("@id") {
-                            id_terms.insert(k.clone());
-                        }
-                    }
-                    _ => {}
-                }
+                classify_context_term(k, v, &mut terms, &mut prefixes, &mut id_terms);
             }
         }
         Context {
@@ -189,29 +169,11 @@ impl Context {
 
     /// Compact an IRI to a term/prefixed-name/vocab-relative form, else the full IRI.
     fn compact_iri(&self, iri: &str) -> String {
-        // Exact term alias (prefer the longest matching IRI).
-        let mut best: Option<&str> = None;
-        for (term, mapped) in &self.terms {
-            if mapped == iri && best.map(|b| term.len() < b.len()).unwrap_or(true) {
-                best = Some(term);
-            }
+        if let Some(t) = self.best_term_alias(iri) {
+            return t;
         }
-        if let Some(t) = best {
-            return t.to_string();
-        }
-        // Prefixed name (longest namespace wins).
-        let mut best_pfx: Option<(&str, &str)> = None;
-        for (pfx, ns) in &self.prefixes {
-            if iri.starts_with(ns.as_str())
-                && best_pfx
-                    .map(|(_, bns)| ns.len() > bns.len())
-                    .unwrap_or(true)
-            {
-                best_pfx = Some((pfx, ns));
-            }
-        }
-        if let Some((pfx, ns)) = best_pfx {
-            return format!("{pfx}:{}", &iri[ns.len()..]);
+        if let Some((pfx, ns_len)) = self.best_prefix_match(iri) {
+            return format!("{pfx}:{}", &iri[ns_len..]);
         }
         // @vocab-relative.
         if let Some(v) = &self.vocab {
@@ -220,6 +182,65 @@ impl Context {
             }
         }
         iri.to_string()
+    }
+
+    /// Exact term alias for `iri` (prefer the longest matching IRI). Half of
+    /// [`Context::compact_iri`]'s lookup chain.
+    fn best_term_alias(&self, iri: &str) -> Option<String> {
+        let mut best: Option<&str> = None;
+        for (term, mapped) in &self.terms {
+            if mapped == iri && best.map(|b| term.len() < b.len()).unwrap_or(true) {
+                best = Some(term);
+            }
+        }
+        best.map(|t| t.to_string())
+    }
+
+    /// The longest-namespace-matching prefix for `iri`, plus that namespace's byte
+    /// length (so the caller can slice the local name). The other half of
+    /// [`Context::compact_iri`]'s lookup chain.
+    fn best_prefix_match(&self, iri: &str) -> Option<(String, usize)> {
+        let mut best: Option<(&str, &str)> = None;
+        for (pfx, ns) in &self.prefixes {
+            if iri.starts_with(ns.as_str())
+                && best.map(|(_, bns)| ns.len() > bns.len()).unwrap_or(true)
+            {
+                best = Some((pfx, ns));
+            }
+        }
+        best.map(|(p, n)| (p.to_string(), n.len()))
+    }
+}
+
+/// Classify one non-`@`-prefixed `@context` entry into `terms`/`prefixes`/`id_terms`.
+/// Extracted from [`Context::parse`]'s per-entry loop body.
+fn classify_context_term(
+    k: &str,
+    v: &Value,
+    terms: &mut Vec<(String, String)>,
+    prefixes: &mut Vec<(String, String)>,
+    id_terms: &mut std::collections::HashSet<String>,
+) {
+    match v {
+        Value::String(iri) => {
+            // A prefix definition (namespace ends in / or #) doubles as a term.
+            if iri.ends_with('/') || iri.ends_with('#') {
+                prefixes.push((k.to_string(), iri.clone()));
+            }
+            terms.push((k.to_string(), iri.clone()));
+        }
+        Value::Object(def) => {
+            if let Some(id) = def.get("@id").and_then(|x| x.as_str()) {
+                terms.push((k.to_string(), id.to_string()));
+                if id.ends_with('/') || id.ends_with('#') {
+                    prefixes.push((k.to_string(), id.to_string()));
+                }
+            }
+            if def.get("@type").and_then(|x| x.as_str()) == Some("@id") {
+                id_terms.insert(k.to_string());
+            }
+        }
+        _ => {}
     }
 }
 
@@ -425,29 +446,48 @@ fn expand_id(v: &str, ctx: &Context) -> String {
     if v.starts_with("_:") || v.starts_with("@") {
         return v.to_string();
     }
-    // Exact term alias.
+    if let Some(iri) = expand_term_alias(v, ctx) {
+        return iri;
+    }
+    if let Some(iri) = expand_prefixed_name(v, ctx) {
+        return iri;
+    }
+    expand_vocab_relative(v, ctx)
+}
+
+/// Exact term alias for `v`. First stage of [`expand_id`]'s resolution chain.
+fn expand_term_alias(v: &str, ctx: &Context) -> Option<String> {
     for (term, iri) in &ctx.terms {
         if term == v {
-            return iri.clone();
+            return Some(iri.clone());
         }
     }
-    // Prefixed name `pfx:local`.
-    if let Some((pfx, local)) = v.split_once(':') {
-        // Absolute IRI (scheme://…) passes through.
-        if local.starts_with("//") {
-            return v.to_string();
-        }
-        for (p, ns) in &ctx.prefixes {
-            if p == pfx {
-                return format!("{ns}{local}");
-            }
-        }
-        // A scheme we don't know as a prefix → treat as absolute.
-        if v.contains("://") {
-            return v.to_string();
+    None
+}
+
+/// `pfx:local` prefixed-name expansion (an absolute `scheme://…` or an unknown scheme
+/// passes through unchanged). Second stage of [`expand_id`]'s resolution chain.
+fn expand_prefixed_name(v: &str, ctx: &Context) -> Option<String> {
+    let (pfx, local) = v.split_once(':')?;
+    // Absolute IRI (scheme://…) passes through.
+    if local.starts_with("//") {
+        return Some(v.to_string());
+    }
+    for (p, ns) in &ctx.prefixes {
+        if p == pfx {
+            return Some(format!("{ns}{local}"));
         }
     }
-    // @vocab-relative bare term.
+    // A scheme we don't know as a prefix → treat as absolute.
+    if v.contains("://") {
+        return Some(v.to_string());
+    }
+    None
+}
+
+/// `@vocab`-relative bare-term expansion, else identity. Final stage of [`expand_id`]'s
+/// resolution chain.
+fn expand_vocab_relative(v: &str, ctx: &Context) -> String {
     if !v.contains(':') {
         if let Some(vocab) = &ctx.vocab {
             return format!("{vocab}{v}");
@@ -468,19 +508,7 @@ fn walk_node(
     };
     // A nested @graph inside a node = a named graph keyed by this node's @id.
     if let Some(g) = m.get("@graph") {
-        let inner = match m.get("@id").and_then(|x| x.as_str()) {
-            Some(id) => {
-                let e = ctx
-                    .map(|c| expand_id(id, c))
-                    .unwrap_or_else(|| id.to_string());
-                graph_name(&e)?
-            }
-            None => graph.clone(),
-        };
-        for item in g.as_array().cloned().unwrap_or_default() {
-            walk_node(&item, &inner, ctx, out)?;
-        }
-        return Ok(());
+        return walk_nested_graph(m, g, graph, ctx, out);
     }
 
     let subj_id = match m.get("@id").and_then(|x| x.as_str()) {
@@ -497,35 +525,81 @@ fn walk_node(
     for (k, v) in m {
         match k.as_str() {
             "@id" | "@context" => {}
-            "@type" => {
-                for ty in type_values(v) {
-                    let e = ctx.map(|c| expand_id(&ty, c)).unwrap_or(ty);
-                    let obj = Term::NamedNode(
-                        NamedNode::new(&e).map_err(|err| format!("bad @type iri {e}: {err}"))?,
-                    );
-                    out.push(Quad::new(
-                        subject.clone(),
-                        NamedNode::new(RDF_TYPE).unwrap(),
-                        obj,
-                        graph.clone(),
-                    ));
-                }
-            }
-            key => {
-                let pred_iri = ctx
-                    .map(|c| expand_id(key, c))
-                    .unwrap_or_else(|| key.to_string());
-                let coerce_id = ctx
-                    .map(|c| c.id_terms.contains(key) || c.id_terms.contains(&pred_iri))
-                    .unwrap_or(false);
-                let pred = NamedNode::new(&pred_iri)
-                    .map_err(|err| format!("bad predicate iri {pred_iri}: {err}"))?;
-                for item in value_items(v) {
-                    let obj = make_object(item, ctx, coerce_id)?;
-                    out.push(Quad::new(subject.clone(), pred.clone(), obj, graph.clone()));
-                }
-            }
+            "@type" => push_type_quads(v, ctx, &subject, graph, out)?,
+            key => push_predicate_quads(key, v, ctx, &subject, graph, out)?,
         }
+    }
+    Ok(())
+}
+
+/// The `@graph` branch of [`walk_node`]: a nested `@graph` inside a node = a named
+/// graph keyed by this node's `@id` (or the enclosing `graph` when it has none).
+fn walk_nested_graph(
+    m: &Map<String, Value>,
+    g: &Value,
+    graph: &GraphName,
+    ctx: Option<&Context>,
+    out: &mut Vec<Quad>,
+) -> Result<(), String> {
+    let inner = match m.get("@id").and_then(|x| x.as_str()) {
+        Some(id) => {
+            let e = ctx
+                .map(|c| expand_id(id, c))
+                .unwrap_or_else(|| id.to_string());
+            graph_name(&e)?
+        }
+        None => graph.clone(),
+    };
+    for item in g.as_array().cloned().unwrap_or_default() {
+        walk_node(&item, &inner, ctx, out)?;
+    }
+    Ok(())
+}
+
+/// The `@type` arm of [`walk_node`]'s key match: emit one `rdf:type` quad per type
+/// value.
+fn push_type_quads(
+    v: &Value,
+    ctx: Option<&Context>,
+    subject: &NamedOrBlankNode,
+    graph: &GraphName,
+    out: &mut Vec<Quad>,
+) -> Result<(), String> {
+    for ty in type_values(v) {
+        let e = ctx.map(|c| expand_id(&ty, c)).unwrap_or(ty);
+        let obj =
+            Term::NamedNode(NamedNode::new(&e).map_err(|err| format!("bad @type iri {e}: {err}"))?);
+        out.push(Quad::new(
+            subject.clone(),
+            NamedNode::new(RDF_TYPE).unwrap(),
+            obj,
+            graph.clone(),
+        ));
+    }
+    Ok(())
+}
+
+/// The default arm of [`walk_node`]'s key match: expand `key` to a predicate IRI, then
+/// emit one quad per value item.
+fn push_predicate_quads(
+    key: &str,
+    v: &Value,
+    ctx: Option<&Context>,
+    subject: &NamedOrBlankNode,
+    graph: &GraphName,
+    out: &mut Vec<Quad>,
+) -> Result<(), String> {
+    let pred_iri = ctx
+        .map(|c| expand_id(key, c))
+        .unwrap_or_else(|| key.to_string());
+    let coerce_id = ctx
+        .map(|c| c.id_terms.contains(key) || c.id_terms.contains(&pred_iri))
+        .unwrap_or(false);
+    let pred =
+        NamedNode::new(&pred_iri).map_err(|err| format!("bad predicate iri {pred_iri}: {err}"))?;
+    for item in value_items(v) {
+        let obj = make_object(item, ctx, coerce_id)?;
+        out.push(Quad::new(subject.clone(), pred.clone(), obj, graph.clone()));
     }
     Ok(())
 }
@@ -567,56 +641,83 @@ fn value_items(v: &Value) -> Vec<&Value> {
 /// `coerce_id` (the predicate's term declared `@type:@id`) makes a bare string an IRI.
 fn make_object(item: &Value, ctx: Option<&Context>, coerce_id: bool) -> Result<Term, String> {
     match item {
-        Value::Object(m) => {
-            if let Some(id) = m.get("@id").and_then(|x| x.as_str()) {
-                let e = ctx
-                    .map(|c| expand_id(id, c))
-                    .unwrap_or_else(|| id.to_string());
-                return make_resource(&e);
-            }
-            if let Some(val) = m.get("@value") {
-                let lex = value_lexical(val);
-                if let Some(lang) = m.get("@language").and_then(|x| x.as_str()) {
-                    return Literal::new_language_tagged_literal(lex, lang)
-                        .map(Term::Literal)
-                        .map_err(|e| format!("bad @language {lang}: {e}"));
-                }
-                if let Some(dt) = m.get("@type").and_then(|x| x.as_str()) {
-                    let e = ctx
-                        .map(|c| expand_id(dt, c))
-                        .unwrap_or_else(|| dt.to_string());
-                    let dtn = NamedNode::new(&e).map_err(|err| format!("bad @type {e}: {err}"))?;
-                    return Ok(Term::Literal(Literal::new_typed_literal(lex, dtn)));
-                }
-                return Ok(Term::Literal(Literal::new_simple_literal(lex)));
-            }
-            Err("jsonld value object has neither @id nor @value".to_string())
-        }
-        Value::String(s) => {
-            if coerce_id {
-                let e = ctx.map(|c| expand_id(s, c)).unwrap_or_else(|| s.clone());
-                make_resource(&e)
-            } else {
-                Ok(Term::Literal(Literal::new_simple_literal(s)))
-            }
-        }
+        Value::Object(m) => make_object_from_map(m, ctx),
+        Value::String(s) => make_object_from_string(s, ctx, coerce_id),
         Value::Bool(b) => Ok(Term::Literal(Literal::new_typed_literal(
             b.to_string(),
             NamedNode::new("http://www.w3.org/2001/XMLSchema#boolean").unwrap(),
         ))),
-        Value::Number(n) => {
-            let dt = if n.is_f64() {
-                "http://www.w3.org/2001/XMLSchema#double"
-            } else {
-                "http://www.w3.org/2001/XMLSchema#integer"
-            };
-            Ok(Term::Literal(Literal::new_typed_literal(
-                n.to_string(),
-                NamedNode::new(dt).unwrap(),
-            )))
-        }
+        Value::Number(n) => make_object_from_number(n),
         _ => Err("unsupported jsonld value".to_string()),
     }
+}
+
+/// The `Value::Object` arm of [`make_object`]: an `@id`-keyed resource reference, or an
+/// `@value` literal (optionally `@language`- or `@type`-tagged).
+fn make_object_from_map(m: &Map<String, Value>, ctx: Option<&Context>) -> Result<Term, String> {
+    if let Some(id) = m.get("@id").and_then(|x| x.as_str()) {
+        let e = ctx
+            .map(|c| expand_id(id, c))
+            .unwrap_or_else(|| id.to_string());
+        return make_resource(&e);
+    }
+    if let Some(val) = m.get("@value") {
+        return make_value_literal(m, val, ctx);
+    }
+    Err("jsonld value object has neither @id nor @value".to_string())
+}
+
+/// The `@value` sub-case of [`make_object_from_map`]: a plain, `@language`-tagged, or
+/// `@type`-tagged literal.
+fn make_value_literal(
+    m: &Map<String, Value>,
+    val: &Value,
+    ctx: Option<&Context>,
+) -> Result<Term, String> {
+    let lex = value_lexical(val);
+    if let Some(lang) = m.get("@language").and_then(|x| x.as_str()) {
+        return Literal::new_language_tagged_literal(lex, lang)
+            .map(Term::Literal)
+            .map_err(|e| format!("bad @language {lang}: {e}"));
+    }
+    if let Some(dt) = m.get("@type").and_then(|x| x.as_str()) {
+        let e = ctx
+            .map(|c| expand_id(dt, c))
+            .unwrap_or_else(|| dt.to_string());
+        let dtn = NamedNode::new(&e).map_err(|err| format!("bad @type {e}: {err}"))?;
+        return Ok(Term::Literal(Literal::new_typed_literal(lex, dtn)));
+    }
+    Ok(Term::Literal(Literal::new_simple_literal(lex)))
+}
+
+/// The `Value::String` arm of [`make_object`]: an id-coerced resource reference, or a
+/// plain literal.
+fn make_object_from_string(
+    s: &str,
+    ctx: Option<&Context>,
+    coerce_id: bool,
+) -> Result<Term, String> {
+    if coerce_id {
+        let e = ctx
+            .map(|c| expand_id(s, c))
+            .unwrap_or_else(|| s.to_string());
+        make_resource(&e)
+    } else {
+        Ok(Term::Literal(Literal::new_simple_literal(s)))
+    }
+}
+
+/// The `Value::Number` arm of [`make_object`]: an xsd:double or xsd:integer literal.
+fn make_object_from_number(n: &serde_json::Number) -> Result<Term, String> {
+    let dt = if n.is_f64() {
+        "http://www.w3.org/2001/XMLSchema#double"
+    } else {
+        "http://www.w3.org/2001/XMLSchema#integer"
+    };
+    Ok(Term::Literal(Literal::new_typed_literal(
+        n.to_string(),
+        NamedNode::new(dt).unwrap(),
+    )))
 }
 
 /// The lexical form of a JSON `@value` (strings verbatim; bool/number stringified).

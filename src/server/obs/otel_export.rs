@@ -63,31 +63,14 @@ fn parse_prom_exposition(text: &str) -> Vec<PromSample> {
             continue;
         }
         // Split the metric identifier (name + optional `{labels}`) from `value [ts]`.
-        let (ident, rest) = match line.find('{') {
-            Some(brace) => {
-                // name{...} rest → find the matching close brace.
-                let Some(close) = line[brace..].find('}') else {
-                    continue;
-                };
-                let close = brace + close;
-                (&line[..=close], line[close + 1..].trim())
-            }
-            None => match line.find(char::is_whitespace) {
-                Some(sp) => (&line[..sp], line[sp..].trim()),
-                None => continue,
-            },
+        let Some((ident, rest)) = split_metric_line(line) else {
+            continue;
         };
         let Some(value_tok) = rest.split_whitespace().next() else {
             continue;
         };
-        let value = match value_tok {
-            "NaN" => f64::NAN,
-            "+Inf" => f64::INFINITY,
-            "-Inf" => f64::NEG_INFINITY,
-            v => match v.parse::<f64>() {
-                Ok(n) => n,
-                Err(_) => continue,
-            },
+        let Some(value) = parse_prom_value(value_tok) else {
+            continue;
         };
         let (name, labels) = split_ident(ident);
         if name.is_empty() {
@@ -100,6 +83,36 @@ fn parse_prom_exposition(text: &str) -> Vec<PromSample> {
         });
     }
     out
+}
+
+/// Split one exposition line's metric identifier (name + optional `{labels}`) from its
+/// `value [ts]` tail. `None` for a malformed line (an unmatched open brace, or no
+/// whitespace separator when there are no labels). Extracted from
+/// [`parse_prom_exposition`].
+fn split_metric_line(line: &str) -> Option<(&str, &str)> {
+    match line.find('{') {
+        Some(brace) => {
+            // name{...} rest → find the matching close brace.
+            let close = line[brace..].find('}')?;
+            let close = brace + close;
+            Some((&line[..=close], line[close + 1..].trim()))
+        }
+        None => {
+            let sp = line.find(char::is_whitespace)?;
+            Some((&line[..sp], line[sp..].trim()))
+        }
+    }
+}
+
+/// Parse one exposition value token, including the special `NaN`/`+Inf`/`-Inf` tokens.
+/// Extracted from [`parse_prom_exposition`].
+fn parse_prom_value(value_tok: &str) -> Option<f64> {
+    match value_tok {
+        "NaN" => Some(f64::NAN),
+        "+Inf" => Some(f64::INFINITY),
+        "-Inf" => Some(f64::NEG_INFINITY),
+        v => v.parse::<f64>().ok(),
+    }
 }
 
 /// Split a `name{k="v",k2="v2"}` (or bare `name`) identifier into its name + labels.
