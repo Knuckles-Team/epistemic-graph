@@ -2692,19 +2692,18 @@ pub(crate) async fn apply_consensus_transaction_finalize(
 /// keeps the contract identical to the inline write path). Returns the
 /// cloned handles [`commit_prepared`] needs after the registry read lock
 /// (held by `s`) is released.
+type CommitPreparedAuthorized = (
+    Arc<crate::graph::GraphCore>,
+    Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    String,
+);
+
 fn commit_prepared_authorize(
     s: &ServerState,
     req_id: u64,
     caller: Option<&str>,
     txn: &GraphTxnState,
-) -> Result<
-    (
-        Arc<crate::graph::GraphCore>,
-        Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-        String,
-    ),
-    Response,
-> {
+) -> Result<CommitPreparedAuthorized, Response> {
     let entry = match s.registry.get(&txn.graph) {
         Some(e) => e,
         None => {
