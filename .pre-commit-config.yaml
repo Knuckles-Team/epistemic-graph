@@ -131,6 +131,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: complexity-staged
+    name: Complexity (cccc) - no NEW function over cyclomatic 10 / cognitive 15, none regressed
+    entry: python3 scripts/check_complexity_staged.py
+    language: system
+    pass_filenames: false
+    always_run: true
 # ─────────────────────────────────────────────────────────────────────────
 # Rust CI parity — mirrors .github/workflows/rust-ci.yml `lint-and-test` PLUS a
 # representative wheel build from release-build.yml, so `pre-commit run` catches
