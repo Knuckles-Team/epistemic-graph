@@ -6798,26 +6798,17 @@ fn resource_validate_work_item_status_and_extension<'p>(
 /// continue into the reserve-admission path. Literal relocation of the original
 /// function's fourth block (`if let Some(stored) = existing.as_ref() { .. }`).
 #[allow(clippy::too_many_arguments)]
-fn resource_commit_release_or_reclaim(
+/// Tenant / record / terminal-state prechecks of a release-or-reclaim commit.
+/// A reserve that finds a live row is itself idempotent.  `Ok(Some(..))` decides
+/// the request.
+fn resource_release_row_precheck(
     graph: &str,
     request: &ResourceReservationRequest,
-    existing: Option<&DurableResourceReservation>,
+    stored: &DurableResourceReservation,
     is_reserve: bool,
-    is_reclaim: bool,
-    work_item_fence: &ResourceWorkItemFence,
-    props: &serde_json::Map<String, serde_json::Value>,
-    hosts: &mut redb::Table<(&str, &str), &[u8]>,
-    reservations: &mut redb::Table<(&str, &str), &[u8]>,
-    fairness: &mut redb::Table<(&str, &str), &[u8]>,
-    concurrency: &mut redb::Table<(&str, &str), u64>,
-    anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
-    exclusivity: &mut redb::Table<(&str, &str), &str>,
-    disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    hosts: &redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
-    let Some(stored) = existing else {
-        return Ok(None);
-    };
     if stored.record.tenant_ref != request.tenant_ref {
         return Ok(Some(resource_result_payload(
             ResourceReservationResultDecision::Conflict,
@@ -6838,7 +6829,7 @@ fn resource_commit_release_or_reclaim(
             vec![],
         )));
     }
-    if stored.record.state != ResourceReservationRecordState::Reserved {
+    if stored.record.state != ResourceReservationRecordState::Reserved || is_reserve {
         let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)?;
         return Ok(Some(resource_result_payload(
             ResourceReservationResultDecision::Idempotent,
@@ -6849,52 +6840,43 @@ fn resource_commit_release_or_reclaim(
             vec![],
         )));
     }
-    if is_reserve {
-        let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)?;
-        return Ok(Some(resource_result_payload(
-            ResourceReservationResultDecision::Idempotent,
-            request,
-            Some(stored.record.clone()),
-            host.as_ref(),
-            stored.fairness_debt,
-            vec![],
-        )));
-    }
-    if is_reclaim {
-        if request.now_ms < stored.record.expires_at_ms {
-            return Ok(Some(resource_result_payload(
-                ResourceReservationResultDecision::Policy,
-                request,
-                Some(stored.record.clone()),
-                None,
-                stored.fairness_debt,
-                vec![],
-            )));
-        }
-        let status = property_string(props, "status");
-        let lease_expires_at_ms =
-            (property_f64(props, "lease_expires_at") * 1000.0).max(0.0) as u64;
-        if matches!(status, "leased" | "running") && lease_expires_at_ms > request.now_ms {
-            return Ok(Some(resource_result_payload(
-                ResourceReservationResultDecision::Policy,
-                request,
-                Some(stored.record.clone()),
-                None,
-                stored.fairness_debt,
-                vec![],
-            )));
-        }
-    }
-    let Some(mut host) = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)? else {
-        return Ok(Some(resource_result_payload(
+    Ok(None)
+}
+
+/// Reclaim-only policy gates: the reservation must have expired, and the linked
+/// WorkItem must not still hold a live lease.
+fn resource_reclaim_policy_precheck(
+    request: &ResourceReservationRequest,
+    stored: &DurableResourceReservation,
+    props: &serde_json::Map<String, serde_json::Value>,
+) -> Option<crate::protocol::ResultPayload> {
+    let refuse = || {
+        Some(resource_result_payload(
             ResourceReservationResultDecision::Policy,
             request,
             Some(stored.record.clone()),
             None,
             stored.fairness_debt,
             vec![],
-        )));
+        ))
     };
+    if request.now_ms < stored.record.expires_at_ms {
+        return refuse();
+    }
+    let status = property_string(props, "status");
+    let lease_expires_at_ms = (property_f64(props, "lease_expires_at") * 1000.0).max(0.0) as u64;
+    if matches!(status, "leased" | "running") && lease_expires_at_ms > request.now_ms {
+        return refuse();
+    }
+    None
+}
+
+/// Give the reservation's held capacity back to its host.  Any underflow is a
+/// corrupt-accounting error, never a silent saturation.
+fn resource_release_host_capacity(
+    host: &mut DurableResourceHost,
+    stored: &DurableResourceReservation,
+) -> Result<(), String> {
     host.held_cpu_weight = host
         .held_cpu_weight
         .checked_sub(stored.held_cpu_weight)
@@ -6911,7 +6893,21 @@ fn resource_commit_release_or_reclaim(
         .held_process_slots
         .checked_sub(stored.held_process_slots)
         .ok_or_else(|| "resource host process accounting underflow".to_string())?;
-    resource_put_host(hosts, graph, &host, crypto)?;
+    Ok(())
+}
+
+/// The tombstoned successor of a released/reclaimed reservation.
+///
+/// Fairness debt is historical service debt, not held capacity; releasing a
+/// reservation must not erase the cost already charged to this tenant/group, so
+/// the current `debt` is carried onto the tombstone.
+fn resource_build_released_record(
+    stored: &DurableResourceReservation,
+    request: &ResourceReservationRequest,
+    is_reclaim: bool,
+    work_item_fence: &ResourceWorkItemFence,
+    debt: u64,
+) -> DurableResourceReservation {
     let mut next = stored.clone();
     next.record.state = if is_reclaim {
         if work_item_fence.superseded {
@@ -6930,24 +6926,20 @@ fn resource_commit_release_or_reclaim(
     next.held_memory_mib = 0;
     next.held_disk_mib = 0;
     next.held_process_slots = 0;
-    let debt_row = resource_load_fairness(
-        fairness,
-        graph,
-        &request.tenant_ref,
-        &request.fairness_group,
-        crypto,
-    )?;
-    // Fairness debt is historical service debt, not held capacity;
-    // releasing a reservation must not erase the cost already
-    // charged to this tenant/group.
-    let debt = debt_row.debt;
     next.fairness_debt = debt;
-    resource_put_reservation(reservations, graph, &next, crypto)?;
-    let concurrency_key = resource_concurrency_scope_key(&request.concurrency_key);
-    resource_adjust_concurrency(concurrency, graph, &concurrency_key, -1)?;
-    for tag in &request.anti_affinity {
-        resource_adjust_anti_affinity(anti_affinity, graph, &request.host_ref, tag, -1)?;
-    }
+    next
+}
+
+/// Drop the exclusivity keys this reservation owned and clear its disk-policy
+/// block once the freed capacity is back under the low watermark.
+fn resource_release_exclusivity_and_disk(
+    graph: &str,
+    request: &ResourceReservationRequest,
+    host: &DurableResourceHost,
+    exclusivity: &mut redb::Table<(&str, &str), &str>,
+    disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
     for key in resource_exclusivity_keys(request) {
         let owner = exclusivity
             .get((graph, key.as_str()))
@@ -6964,25 +6956,96 @@ fn resource_commit_release_or_reclaim(
         .get((graph, disk_key.as_str()))
         .map_err(|error| error.to_string())?
         .map(|value| value.value().to_vec());
-    if let Some(policy_bytes) = existing_policy {
-        let mut policy: DurableResourceDiskPolicy = resource_decode(&policy_bytes, crypto)?;
-        if policy.low_watermark_mib == request.disk_low_watermark_mib
-            && policy.high_watermark_mib == request.disk_high_watermark_mib
-        {
-            let used = host.disk_used_mib.saturating_add(host.held_disk_mib);
-            if policy
-                .low_watermark_mib
-                .is_some_and(|watermark| used <= watermark)
-            {
-                policy.blocked = false;
-                policy.revision = policy.revision.saturating_add(1);
-                let bytes = resource_encode(&policy, crypto)?;
-                disk_policies
-                    .insert((graph, disk_key.as_str()), bytes.as_slice())
-                    .map_err(|error| error.to_string())?;
-            }
+    let Some(policy_bytes) = existing_policy else {
+        return Ok(());
+    };
+    let mut policy: DurableResourceDiskPolicy = resource_decode(&policy_bytes, crypto)?;
+    if policy.low_watermark_mib != request.disk_low_watermark_mib
+        || policy.high_watermark_mib != request.disk_high_watermark_mib
+    {
+        return Ok(());
+    }
+    let used = host.disk_used_mib.saturating_add(host.held_disk_mib);
+    if policy
+        .low_watermark_mib
+        .is_some_and(|watermark| used <= watermark)
+    {
+        policy.blocked = false;
+        policy.revision = policy.revision.saturating_add(1);
+        let bytes = resource_encode(&policy, crypto)?;
+        disk_policies
+            .insert((graph, disk_key.as_str()), bytes.as_slice())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resource_commit_release_or_reclaim(
+    graph: &str,
+    request: &ResourceReservationRequest,
+    existing: Option<&DurableResourceReservation>,
+    is_reserve: bool,
+    is_reclaim: bool,
+    work_item_fence: &ResourceWorkItemFence,
+    props: &serde_json::Map<String, serde_json::Value>,
+    hosts: &mut redb::Table<(&str, &str), &[u8]>,
+    reservations: &mut redb::Table<(&str, &str), &[u8]>,
+    fairness: &mut redb::Table<(&str, &str), &[u8]>,
+    concurrency: &mut redb::Table<(&str, &str), u64>,
+    anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
+    exclusivity: &mut redb::Table<(&str, &str), &str>,
+    disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    let Some(stored) = existing else {
+        return Ok(None);
+    };
+    if let Some(payload) =
+        resource_release_row_precheck(graph, request, stored, is_reserve, hosts, crypto)?
+    {
+        return Ok(Some(payload));
+    }
+    if is_reclaim {
+        if let Some(payload) = resource_reclaim_policy_precheck(request, stored, props) {
+            return Ok(Some(payload));
         }
     }
+    let Some(mut host) = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)? else {
+        return Ok(Some(resource_result_payload(
+            ResourceReservationResultDecision::Policy,
+            request,
+            Some(stored.record.clone()),
+            None,
+            stored.fairness_debt,
+            vec![],
+        )));
+    };
+    resource_release_host_capacity(&mut host, stored)?;
+    resource_put_host(hosts, graph, &host, crypto)?;
+    let debt_row = resource_load_fairness(
+        fairness,
+        graph,
+        &request.tenant_ref,
+        &request.fairness_group,
+        crypto,
+    )?;
+    let debt = debt_row.debt;
+    let next = resource_build_released_record(stored, request, is_reclaim, work_item_fence, debt);
+    resource_put_reservation(reservations, graph, &next, crypto)?;
+    let concurrency_key = resource_concurrency_scope_key(&request.concurrency_key);
+    resource_adjust_concurrency(concurrency, graph, &concurrency_key, -1)?;
+    for tag in &request.anti_affinity {
+        resource_adjust_anti_affinity(anti_affinity, graph, &request.host_ref, tag, -1)?;
+    }
+    resource_release_exclusivity_and_disk(
+        graph,
+        request,
+        &host,
+        exclusivity,
+        disk_policies,
+        crypto,
+    )?;
     Ok(Some(resource_result_payload(
         ResourceReservationResultDecision::Accepted,
         request,
