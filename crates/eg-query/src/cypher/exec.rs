@@ -279,6 +279,115 @@ fn row_budget(query: &CypherQuery) -> Option<usize> {
 
 // ── read-stage pipeline (CONCEPT:EG-KG.query.eg-extend-read-side) ─────────────────────────────────────
 
+/// Read-side context threaded unchanged through every [`run_stages`] arm — bundled so
+/// each per-stage helper stays under clippy's 7-parameter cap instead of re-passing
+/// `view`/`params`/`budget`/`index` individually.
+struct StageCtx<'a> {
+    view: &'a GraphView,
+    params: &'a Params,
+    budget: Option<usize>,
+    index: Option<IndexSource<'a>>,
+}
+
+/// `MATCH`/`OPTIONAL MATCH` stage: extend every incoming binding, recording the path
+/// variable on each match and — for an `OPTIONAL MATCH` that didn't extend — keeping
+/// the prior binding with the stage's new variables left unbound.
+fn apply_match_stage(
+    ctx: &StageCtx<'_>,
+    pattern: &Pattern,
+    optional: bool,
+    where_clause: &Option<WhereExpr>,
+    path_var: &Option<String>,
+    bindings: &[Binding],
+) -> Result<Vec<Binding>, String> {
+    let mut out: Vec<Binding> = Vec::new();
+    for incoming in bindings {
+        // `budget` is `Some` only for a single-MATCH pipeline (see `row_budget`), so
+        // the short-circuit cap is applied to the one and only stage here; a
+        // multi-stage query always carries `None`.
+        let mut matched = resolve_match(
+            ctx.view,
+            pattern,
+            where_clause,
+            incoming,
+            ctx.params,
+            ctx.budget,
+            ctx.index,
+        )?;
+        if let Some(pv) = path_var {
+            for b in matched.iter_mut() {
+                record_path(pattern, b, pv);
+            }
+        }
+        if matched.is_empty() && optional {
+            // OPTIONAL MATCH that didn't extend → keep the prior binding; the
+            // stage's new vars project as null.
+            out.push(incoming.clone());
+        } else {
+            out.extend(matched);
+        }
+    }
+    Ok(out)
+}
+
+/// `WITH <items> [WHERE <expr>]` stage: project each binding, dropping rows the
+/// post-filter rejects.
+fn apply_with_stage(
+    ctx: &StageCtx<'_>,
+    bindings: &[Binding],
+    items: &[WithItem],
+    where_clause: &Option<WhereExpr>,
+) -> Result<Vec<Binding>, String> {
+    let mut out: Vec<Binding> = Vec::new();
+    for b in bindings {
+        let nb = project_with(b, items);
+        if where_holds(ctx.view, &nb, ctx.params, where_clause)? {
+            out.push(nb);
+        }
+    }
+    Ok(out)
+}
+
+/// `UNWIND <list> AS <var>` stage: expand each binding into one row per list element.
+fn apply_unwind_stage(
+    bindings: &[Binding],
+    params: &Params,
+    list: &ListExpr,
+    var: &str,
+) -> Result<Vec<Binding>, String> {
+    let mut out: Vec<Binding> = Vec::new();
+    for b in bindings {
+        for elem in eval_list(b, params, list)? {
+            let mut nb = b.clone();
+            nb.insert(
+                val_key(var),
+                serde_json::to_string(&elem).unwrap_or_default(),
+            );
+            out.push(nb);
+        }
+    }
+    Ok(out)
+}
+
+/// `CALL { subquery }` stage: cartesian-join the subquery's per-row additions onto
+/// each incoming binding.
+fn apply_call_stage(
+    ctx: &StageCtx<'_>,
+    bindings: &[Binding],
+    subquery: &CypherQuery,
+) -> Result<Vec<Binding>, String> {
+    let additions = subquery_additions(ctx.view, subquery, ctx.params, ctx.index)?;
+    let mut out: Vec<Binding> = Vec::new();
+    for b in bindings {
+        for add in &additions {
+            let mut nb = b.clone();
+            nb.extend(add.clone());
+            out.push(nb);
+        }
+    }
+    Ok(out)
+}
+
 /// Run the reading-stage pipeline, threading bindings from one stage to the next.
 fn run_stages(
     view: &GraphView,
@@ -287,88 +396,32 @@ fn run_stages(
     budget: Option<usize>,
     index: Option<IndexSource<'_>>,
 ) -> Result<Vec<Binding>, String> {
+    let ctx = StageCtx {
+        view,
+        params,
+        budget,
+        index,
+    };
     // Seed with one empty binding so the first MATCH resolves from scratch.
     let mut bindings: Vec<Binding> = vec![HashMap::new()];
     for stage in stages {
-        match stage {
+        bindings = match stage {
             ReadStage::Match {
                 pattern,
                 optional,
                 where_clause,
                 path_var,
-            } => {
-                let mut out: Vec<Binding> = Vec::new();
-                for incoming in &bindings {
-                    // `budget` is `Some` only for a single-MATCH pipeline (see
-                    // `row_budget`), so the short-circuit cap is applied to the one and
-                    // only stage here; a multi-stage query always carries `None`.
-                    let mut matched = resolve_match(
-                        view,
-                        pattern,
-                        where_clause,
-                        incoming,
-                        params,
-                        budget,
-                        index,
-                    )?;
-                    if let Some(pv) = path_var {
-                        for b in matched.iter_mut() {
-                            record_path(pattern, b, pv);
-                        }
-                    }
-                    if matched.is_empty() && *optional {
-                        // OPTIONAL MATCH that didn't extend → keep the prior binding;
-                        // the stage's new vars project as null.
-                        out.push(incoming.clone());
-                    } else {
-                        out.extend(matched);
-                    }
-                }
-                bindings = out;
-            }
+            } => apply_match_stage(&ctx, pattern, *optional, where_clause, path_var, &bindings)?,
             ReadStage::With {
                 items,
                 where_clause,
-            } => {
-                let mut out: Vec<Binding> = Vec::new();
-                for b in &bindings {
-                    let nb = project_with(b, items);
-                    if where_holds(view, &nb, params, where_clause)? {
-                        out.push(nb);
-                    }
-                }
-                bindings = out;
-            }
-            ReadStage::Unwind { list, var } => {
-                let mut out: Vec<Binding> = Vec::new();
-                for b in &bindings {
-                    for elem in eval_list(b, params, list)? {
-                        let mut nb = b.clone();
-                        nb.insert(
-                            val_key(var),
-                            serde_json::to_string(&elem).unwrap_or_default(),
-                        );
-                        out.push(nb);
-                    }
-                }
-                bindings = out;
-            }
-            ReadStage::Call { subquery } => {
-                let additions = subquery_additions(view, subquery, params, index)?;
-                let mut out: Vec<Binding> = Vec::new();
-                for b in &bindings {
-                    for add in &additions {
-                        let mut nb = b.clone();
-                        nb.extend(add.clone());
-                        out.push(nb);
-                    }
-                }
-                bindings = out;
-            }
+            } => apply_with_stage(&ctx, &bindings, items, where_clause)?,
+            ReadStage::Unwind { list, var } => apply_unwind_stage(&bindings, params, list, var)?,
+            ReadStage::Call { subquery } => apply_call_stage(&ctx, &bindings, subquery)?,
             ReadStage::CallProc { name, args, yields } => {
-                bindings = run_call_proc(view, &bindings, name, args, yields, params)?;
+                run_call_proc(view, &bindings, name, args, yields, params)?
             }
-        }
+        };
     }
     Ok(bindings)
 }
