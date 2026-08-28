@@ -57,15 +57,15 @@ mod classify;
 /// psql/ORM caller never pre-embeds client-side. Fail-closed when unbound.
 mod embed_udf;
 mod exec;
+/// SQL stored-function (`CREATE FUNCTION … LANGUAGE sql`) expansion (CONCEPT:EG-KG.query.create-drop-function) —
+/// inline a scalar function body as a scalar subquery, expand a table function as a
+/// parameterized-view subquery in `FROM`; reuses the SQL exec path (no new evaluator).
+mod funcs;
 /// CA-19 (GOC-77 W01-W05, BUG-224) — the `iceberg('namespace.table'[, snapshot_id])`
 /// federated table function over the official apache/iceberg-rust REST-catalog client.
 /// Gated `iceberg-federation` (implied by `sql`, see that feature's Cargo.toml comment).
 #[cfg(feature = "iceberg-federation")]
 mod iceberg_federation;
-/// SQL stored-function (`CREATE FUNCTION … LANGUAGE sql`) expansion (CONCEPT:EG-KG.query.create-drop-function) —
-/// inline a scalar function body as a scalar subquery, expand a table function as a
-/// parameterized-view subquery in `FROM`; reuses the SQL exec path (no new evaluator).
-mod funcs;
 /// CONCEPT:EG-KG.query.surface-b-numeric-operators — Analytics-Program Surface-B numeric SQL operators (`cosine_sim`,
 /// `l2_normalize`, `zscore`, `covariance`) backed by the `eg-numeric` kernel. Feature
 /// `numeric` (out of `pi`); no pyo3 in the engine build.

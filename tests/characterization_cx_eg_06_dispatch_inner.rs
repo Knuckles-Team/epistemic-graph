@@ -21,8 +21,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::{RwLock, Semaphore};
 
-use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::acl::AgentRole;
+use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::protocol::{ChannelType, GraphType, Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::{dispatch, ServerState};
@@ -176,7 +176,11 @@ async fn t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger() {
         },
     );
     let first = Box::pin(dispatch(&state, request.clone())).await;
-    assert!(first.error.is_none(), "first CreateGraph: {:?}", first.error);
+    assert!(
+        first.error.is_none(),
+        "first CreateGraph: {:?}",
+        first.error
+    );
     let second = Box::pin(dispatch(&state, request.clone())).await;
     assert_eq!(
         second.error.as_deref(),
@@ -375,7 +379,11 @@ async fn t12_channel_lifecycle_create_join_send_list_leave() {
         },
     )
     .await;
-    assert!(members.error.is_none(), "GetChannelMembers: {:?}", members.error);
+    assert!(
+        members.error.is_none(),
+        "GetChannelMembers: {:?}",
+        members.error
+    );
 
     let list = call(&state, 6, "__commons__", Method::ListChannels).await;
     assert!(list.error.is_none(), "ListChannels: {:?}", list.error);
@@ -396,22 +404,20 @@ async fn t12_channel_lifecycle_create_join_send_list_leave() {
 #[tokio::test]
 async fn t13_send_message_wrong_sender_denied() {
     let state = state();
-    assert!(
-        call(
-            &state,
-            1,
-            "__commons__",
-            Method::CreateChannel {
-                channel_id: "cx06-chan2".to_string(),
-                channel_type: ChannelType::Group,
-                creator: common::TEST_AGENT.to_string(),
-                initial_members: vec![common::TEST_AGENT.to_string()],
-            },
-        )
-        .await
-        .error
-        .is_none()
-    );
+    assert!(call(
+        &state,
+        1,
+        "__commons__",
+        Method::CreateChannel {
+            channel_id: "cx06-chan2".to_string(),
+            channel_type: ChannelType::Group,
+            creator: common::TEST_AGENT.to_string(),
+            initial_members: vec![common::TEST_AGENT.to_string()],
+        },
+    )
+    .await
+    .error
+    .is_none());
     // OBSERVED: `sender` set to a different agent than the authenticated
     // caller is rejected with an ACCESS_DENIED-shaped error.
     let resp = call(
@@ -528,7 +534,10 @@ async fn t17_txn_begin_add_node_commit_fails_without_encryption_key() {
             .to_string(),
         other => panic!("expected a txn id payload, got {other:?}"),
     };
-    assert!(!txn_id.is_empty(), "BeginTxn must return a non-empty txn id");
+    assert!(
+        !txn_id.is_empty(),
+        "BeginTxn must return a non-empty txn id"
+    );
 
     let add_node = call(
         &state,
@@ -598,10 +607,18 @@ async fn t19_wildcard_fallthrough_add_node_and_get_edges() {
         },
     )
     .await;
-    assert!(add.error.is_none(), "AddNode via wildcard fallthrough: {:?}", add.error);
+    assert!(
+        add.error.is_none(),
+        "AddNode via wildcard fallthrough: {:?}",
+        add.error
+    );
 
     let edges = call(&state, 3, "cx06-fall1", Method::GetEdges).await;
-    assert!(edges.error.is_none(), "GetEdges via wildcard fallthrough: {:?}", edges.error);
+    assert!(
+        edges.error.is_none(),
+        "GetEdges via wildcard fallthrough: {:?}",
+        edges.error
+    );
 }
 
 // ── Auth failure (before the match is ever reached) ───────────────────────

@@ -332,7 +332,11 @@ mod tests {
             .as_any()
             .downcast_ref::<Int64Array>()
             .expect("i64");
-        assert_eq!(ids.value(0), 2, "nearest row must be the embedded text's own");
+        assert_eq!(
+            ids.value(0),
+            2,
+            "nearest row must be the embedded text's own"
+        );
     }
 
     /// Fail closed (design §2 invariant 3): with no embedder bound the call is a clean
@@ -363,7 +367,13 @@ mod tests {
         ctx.register_udf(eg_embed_udf_with(Some(hash_embed(4))));
         let sql = "SELECT eg_embed('leaky pump') = eg_embed('leaky pump') AS same, \
                    eg_embed('leaky pump') = eg_embed('dry bearing') AS other";
-        let batches = ctx.sql(sql).await.expect("plan").collect().await.expect("run");
+        let batches = ctx
+            .sql(sql)
+            .await
+            .expect("plan")
+            .collect()
+            .await
+            .expect("run");
         let same = batches[0]
             .column(0)
             .as_any()

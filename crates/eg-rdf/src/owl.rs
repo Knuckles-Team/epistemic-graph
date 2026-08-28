@@ -315,7 +315,9 @@ fn index_confidences(triples: &[Triple]) -> HashMap<String, f64> {
         if t.predicate.as_str() != EG_CONFIDENCE {
             continue;
         }
-        let Term::Literal(l) = &t.object else { continue };
+        let Term::Literal(l) = &t.object else {
+            continue;
+        };
         let Ok(c) = l.value().parse::<f64>() else {
             continue;
         };
@@ -440,7 +442,13 @@ fn push_all_values_subclass(
     }
 }
 
-fn push_union_subclass(idx: &TripleIndex, ont: &mut Ontology, disjuncts: Vec<Concept>, ok: &str, c: f64) {
+fn push_union_subclass(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    disjuncts: Vec<Concept>,
+    ok: &str,
+    c: f64,
+) {
     let Some(rhs) = parse_class_expr(idx, ok) else {
         return;
     };
@@ -478,8 +486,8 @@ fn push_equivalent_class_union(
 ) -> bool {
     let mut handled = false;
     for (named, union_node) in [(s, sk), (sk, s)] {
-        let single = parse_class_expr(idx, named)
-            .and_then(|mut v| (v.len() == 1).then(|| v.pop().unwrap()));
+        let single =
+            parse_class_expr(idx, named).and_then(|mut v| (v.len() == 1).then(|| v.pop().unwrap()));
         let (Some(Concept::Named(a)), Some(disjuncts)) = (single, parse_union(idx, union_node))
         else {
             continue;
@@ -498,12 +506,24 @@ fn push_equivalent_class_union(
     handled
 }
 
-fn push_equivalent_class_biconditional(idx: &TripleIndex, ont: &mut Ontology, s: &str, sk: &str, c: f64) {
+fn push_equivalent_class_biconditional(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    s: &str,
+    sk: &str,
+    c: f64,
+) {
     let (Some(a), Some(b)) = (parse_class_expr(idx, s), parse_class_expr(idx, sk)) else {
         return;
     };
     // A ≡ B  ⇒  A ⊑ B  AND  B ⊑ A.
-    push_subclass(ont, a.clone(), b.clone(), format!("{} ≡ {} (→⊑)", short(s), short(sk)), c);
+    push_subclass(
+        ont,
+        a.clone(),
+        b.clone(),
+        format!("{} ≡ {} (→⊑)", short(s), short(sk)),
+        c,
+    );
     push_subclass(ont, b, a, format!("{} ≡ {} (←⊑)", short(s), short(sk)), c);
 }
 
@@ -526,13 +546,20 @@ fn handle_equivalent_property(ont: &mut Ontology, s: &str, o: &Term, c: f64) {
 }
 
 fn handle_property_chain_axiom(idx: &TripleIndex, ont: &mut Ontology, s: &str, o: &Term, c: f64) {
-    let chain: Vec<String> = parse_rdf_list(idx, o).into_iter().map(|t| term_key(&t)).collect();
+    let chain: Vec<String> = parse_rdf_list(idx, o)
+        .into_iter()
+        .map(|t| term_key(&t))
+        .collect();
     if chain.is_empty() {
         return;
     }
     let label = format!(
         "{} ⊑ {}",
-        chain.iter().map(|c| short(c)).collect::<Vec<_>>().join(" ∘ "),
+        chain
+            .iter()
+            .map(|c| short(c))
+            .collect::<Vec<_>>()
+            .join(" ∘ "),
         short(s)
     );
     ont.chains.push(RoleChain {
@@ -1256,7 +1283,13 @@ impl Reasoner {
         let mut some_lhs: HashMap<(String, String), Vec<RhsAxiom>> = HashMap::new();
 
         for g in &self.ont.gcis {
-            index_one_gci(g, &mut sub_index, &mut conj_axioms, &mut some_rhs, &mut some_lhs);
+            index_one_gci(
+                g,
+                &mut sub_index,
+                &mut conj_axioms,
+                &mut some_rhs,
+                &mut some_lhs,
+            );
         }
 
         (sub_index, conj_axioms, some_rhs, some_lhs)

@@ -83,7 +83,8 @@ use iceberg_catalog_rest::RestCatalogBuilder;
 use iceberg_storage_opendal::OpenDalResolvingStorageFactory;
 
 /// REST catalog base URI (required; unset ⇒ `iceberg(...)` errors, never silently empty).
-pub const ICEBERG_FEDERATION_CATALOG_URI_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_FEDERATION_CATALOG_URI";
+pub const ICEBERG_FEDERATION_CATALOG_URI_ENV: &str =
+    "EPISTEMIC_GRAPH_ICEBERG_FEDERATION_CATALOG_URI";
 /// Optional warehouse identifier passed to the REST catalog.
 pub const ICEBERG_FEDERATION_WAREHOUSE_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_FEDERATION_WAREHOUSE";
 /// Optional `client_id:client_secret` OAuth2 client-credentials pair.
@@ -267,7 +268,12 @@ pub fn build_iceberg_provider(
             builder = builder.snapshot_id(sid);
         }
         let scan = builder.build()?;
-        let files_scanned = scan.plan_files().await?.try_collect::<Vec<_>>().await?.len() as u64;
+        let files_scanned = scan
+            .plan_files()
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?
+            .len() as u64;
         let batches: Vec<RecordBatch> = scan.to_arrow().await?.try_collect().await?;
 
         let arrow_schema =
@@ -340,7 +346,10 @@ impl IcebergTableProvider {
     /// `scan()` call's DataFusion-supplied projection, so read this AFTER running the
     /// query under test.
     pub fn pushdown_stats(&self) -> IcebergPushdownStats {
-        self.stats.read().expect("pushdown stats lock poisoned").clone()
+        self.stats
+            .read()
+            .expect("pushdown stats lock poisoned")
+            .clone()
     }
 }
 
@@ -383,9 +392,7 @@ impl TableProvider for IcebergTableProvider {
         let _ = filters; // already folded into `self.batches` at construction time (see module doc)
         {
             let mut stats = self.stats.write().expect("pushdown stats lock poisoned");
-            stats.columns_projected = projection
-                .map(|p| p.len())
-                .unwrap_or(stats.columns_total);
+            stats.columns_projected = projection.map(|p| p.len()).unwrap_or(stats.columns_total);
         }
         let mem = MemTable::try_new(self.schema.clone(), vec![self.batches.clone()])?;
         mem.scan(state, projection, &[], limit).await
@@ -440,7 +447,10 @@ mod tests {
             token: None,
         };
         let props = cfg.catalog_props();
-        assert_eq!(props.get("uri").unwrap(), "http://lakekeeper.example/catalog");
+        assert_eq!(
+            props.get("uri").unwrap(),
+            "http://lakekeeper.example/catalog"
+        );
         assert_eq!(props.get("warehouse").unwrap(), "wh");
         assert_eq!(props.get("credential").unwrap(), "id:secret");
         assert_eq!(props.get("scope").unwrap(), "lakekeeper");
@@ -466,6 +476,10 @@ mod tests {
             columns_total: 2,
             columns_projected: 2,
         };
-        assert_eq!(stats.files_skipped(), 0, "scanned > total must clamp, not panic/wrap");
+        assert_eq!(
+            stats.files_skipped(),
+            0,
+            "scanned > total must clamp, not panic/wrap"
+        );
     }
 }

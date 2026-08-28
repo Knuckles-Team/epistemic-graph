@@ -8,15 +8,15 @@
 //! characterization file -- everything else in the two-commit discipline
 //! (the actual `#[test]` bodies) lives under `tests/characterization/`.
 
-#[path = "characterization/verify_schema_migrations.rs"]
-mod verify_schema_migrations;
-#[path = "characterization/insert_on_conflict_in.rs"]
-mod insert_on_conflict_in;
-#[path = "characterization/apply_txn_op.rs"]
-mod apply_txn_op;
 #[path = "characterization/apply_schema_migration_in.rs"]
 mod apply_schema_migration_in;
+#[path = "characterization/apply_txn_op.rs"]
+mod apply_txn_op;
 #[path = "characterization/commit_txn_batch_inner.rs"]
 mod commit_txn_batch_inner;
+#[path = "characterization/insert_on_conflict_in.rs"]
+mod insert_on_conflict_in;
 #[path = "characterization/rename_table_in.rs"]
 mod rename_table_in;
+#[path = "characterization/verify_schema_migrations.rs"]
+mod verify_schema_migrations;
