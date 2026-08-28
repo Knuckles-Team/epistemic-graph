@@ -1294,6 +1294,29 @@ fn bind_target_node(
     Some(next)
 }
 
+/// One BFS depth-step of [`quantified_group_matches`]: expand every `(state,
+/// current)` pair in `frontier` by one application of the group's inner
+/// sub-pattern (CONCEPT:EG-KG.query.quantified-path-pattern).
+fn expand_group_frontier(
+    view: &GraphView,
+    group: &QuantifiedGroup,
+    frontier: &[(Binding, String)],
+    params: &Params,
+) -> Result<Vec<(Binding, String)>, String> {
+    let mut next_frontier = Vec::new();
+    for (state, current) in frontier {
+        for matched in expand_group_once(view, group, current, state, params)? {
+            next_frontier.push(matched);
+            if next_frontier.len() > MAX_ROWS {
+                return Err(format!(
+                    "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
+                ));
+            }
+        }
+    }
+    Ok(next_frontier)
+}
+
 /// Every distinct path produced by repeating `group`'s whole inner sub-pattern
 /// between `min` and `max` times. Unlike a reachability BFS, this preserves the
 /// ordered per-repetition values for every variable declared inside the group.
@@ -1319,17 +1342,7 @@ fn quantified_group_matches(
     let mut frontier = vec![(seed, src.to_string())];
 
     for depth in 1..=max {
-        let mut next_frontier = Vec::new();
-        for (state, current) in &frontier {
-            for matched in expand_group_once(view, group, current, state, params)? {
-                next_frontier.push(matched);
-                if next_frontier.len() > MAX_ROWS {
-                    return Err(format!(
-                        "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
-                    ));
-                }
-            }
-        }
+        let next_frontier = expand_group_frontier(view, group, &frontier, params)?;
         if next_frontier.is_empty() {
             break;
         }
