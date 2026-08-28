@@ -317,6 +317,39 @@ jobs:
         run: python3 scripts/check_status_page.py
       - name: Canonical structural property schema
         run: python3 scripts/check_canonical_property_schema.py
+      # ── Native build dependency for the `--all-features` clippy below.
+      #
+      # This is the ONLY job in this workflow that compiles the workspace with
+      # `--all-features`, which is the only way `eg-stream/cdc-kafka` (and so
+      # `rdkafka` -> `rdkafka-sys/sasl` -> `sasl2-sys`) is ever turned on --
+      # `full`, the published wheel feature set, deliberately excludes it, so
+      # none of the five `build` legs need this.
+      #
+      # `sasl2-sys` 0.1.22+2.1.28 links the SYSTEM Cyrus SASL: its build.rs
+      # `find_sasl()` path hard-panics with "Unable to find libsasl2 on your
+      # system" (build.rs:343, exit 101) when the development package is
+      # absent. `ubuntu-latest` does not ship it; every eg dev/build host does
+      # (`ii libsasl2-dev 2.1.28+dfsg1-9ubuntu3`), which is exactly why this
+      # failed ONLY on the runner and passed in every local pre-push run --
+      # it killed this job on EVERY push to `main` from 2026-08-18 through
+      # 33200059527 (2026-08-28), so `publish-pypi` never once ran and
+      # epistemic-graph has been stuck at 2.23.0 on PyPI.
+      #
+      # Vendoring instead (`sasl2-sys/vendored`) was measured and rejected on
+      # 2026-08-28: the bundled Cyrus SASL 2.1.28 `lib/md5.c` does not compile
+      # under a C23-default compiler (GCC >= 14; our hosts run GCC 15.2), and
+      # the only fix is a process-level `CFLAGS=-std=gnu17` that a Cargo
+      # manifest cannot express. See `crates/eg-stream/Cargo.toml`'s
+      # `cdc-kafka` feature comment and the WD10-P-EGCI lane report.
+      #
+      # ⚠ If you add another job that builds this workspace with
+      # `--all-features`, it needs this step too.
+      - name: Install libsasl2-dev (sasl2-sys links system Cyrus SASL)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsasl2-dev
+          pkg-config --exists libsasl2 && echo "libsasl2 present: $(pkg-config --modversion libsasl2)"
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable

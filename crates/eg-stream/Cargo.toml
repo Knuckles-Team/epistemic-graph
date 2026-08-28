@@ -38,11 +38,51 @@ contract = ["dep:eg-modality"]
 # THIS lane's one addition to that line, called out in the CA-11 report).
 # Pulls `rdkafka` -- the only C dependency this otherwise pure-Rust leaf crate
 # ever takes. `cmake-build` vendors + compiles librdkafka's C source locally
-# (no system `librdkafka-dev` package required, just a C toolchain + cmake,
-# both already on every eg build host); `ssl`+`sasl` link Cyrus SASL so
-# DEC-CA-03's SASL/SCRAM producer-config surface actually works at runtime
-# once armed -- the broker itself stays PLAINTEXT until CA-51, this only
-# makes the CONFIG OPTION real rather than a no-op string.
+# (no system `librdkafka-dev` package required, just a C toolchain + cmake);
+# `ssl`+`sasl` link Cyrus SASL so DEC-CA-03's SASL/SCRAM producer-config
+# surface actually works at runtime once armed -- the broker itself stays
+# PLAINTEXT until CA-51, this only makes the CONFIG OPTION real rather than a
+# no-op string.
+#
+# ⚠ BUILD-HOST REQUIREMENT -- `libsasl2-dev` (wD10 / WD10-P-EGCI, 2026-08-28)
+#
+# The paragraph above used to end "...just a C toolchain + cmake, both already
+# on every eg build host". That claim was true of OUR hosts and FALSE of the
+# GitHub `ubuntu-latest` runner, and it is precisely what made the divergence
+# invisible for weeks. It is CORRECTED here:
+#
+#   * `cmake-build` really does vendor librdkafka -- no system librdkafka.
+#   * `sasl` does NOT vendor anything. rdkafka's `sasl` -> rdkafka-sys's
+#     `gssapi` -> the `sasl2-sys` crate, whose build.rs takes its NON-vendored
+#     `find_sasl()` path by default and hard-panics
+#     ("Unable to find libsasl2 on your system",
+#     sasl2-sys-0.1.22+2.1.28/build.rs:343) when no system Cyrus SASL
+#     development package is present.
+#
+# So ANY build that turns `cdc-kafka` on needs `libsasl2-dev` (Debian/Ubuntu)
+# / `cyrus-sasl-devel` (RHEL) installed. Our dev + build hosts have it
+# (`ii libsasl2-dev 2.1.28+dfsg1-9ubuntu3`); the GitHub runner does not, so
+# EVERY `Release` run on `main` since this feature landed died in
+# `lint-and-architecture`'s `cargo clippy --workspace --all-features
+# --all-targets` -- the ONE CI job that turns this feature on. (`full` does
+# NOT include `cdc-kafka`, so the five wheel legs never compile it.)
+# `.github/workflows/release.yml` now installs the package in that job; if you
+# add another job that builds `--all-features` over this workspace, it needs
+# the same step.
+#
+# Why not just vendor Cyrus SASL too (`sasl2-sys/vendored`), which would make
+# this hermetic and delete the requirement? MEASURED and rejected, 2026-08-28:
+# sasl2-sys 0.1.22+2.1.28 is the newest published version, and the Cyrus SASL
+# 2.1.28 sources it bundles use K&R `PROTO_LIST(())` declarations in
+# `lib/md5.c` that a C23-default compiler rejects outright
+# ("error: too many arguments to function 'MD5_memcpy'; expected 0, have 3").
+# Our hosts are Ubuntu 26.04 / GCC 15.2 (`__STDC_VERSION__ 202311L`), so the
+# vendored build FAILS here and only succeeds with `CFLAGS=-std=gnu17` in the
+# process environment -- which cannot be expressed in a Cargo manifest at all
+# (sasl2-sys reads `CFLAGS` from the env), only as a repo-global setting that
+# would then be imposed on every other C build in the workspace. Vendoring
+# would therefore trade a CI-only divergence for an every-host one. See the
+# WD10-P-EGCI lane report for the full transcript.
 cdc-kafka = ["dep:rdkafka"]
 
 [dependencies]
