@@ -977,13 +977,6 @@ fn resolve_match(
     Ok(out)
 }
 
-/// Walk a fixed/variable-length/quantified-group hop chain from `partials`
-/// (binding, current-node-id pairs), applying label/prop/anchor constraints hop
-/// by hop. Factored out of [`resolve_match`] so quantified-path-pattern group
-/// expansion (CONCEPT:EG-KG.query.quantified-path-pattern) can recursively reuse the exact
-/// same hop-walking semantics for its inner sub-pattern — a group hop's `edge.group`
-/// dispatches to [`quantified_group_matches`] instead of [`neighbors`]/[`bfs_reachable`];
-/// everything downstream (label/prop/anchor checks, variable binding) is identical.
 /// The per-hop invariants [`expand_group_hop`]/[`expand_simple_hop`] need, held once
 /// per hop iteration instead of re-passed as five separate params (clippy's cap).
 struct HopCtx<'a> {
@@ -1045,6 +1038,13 @@ fn expand_simple_hop(
     Ok(())
 }
 
+/// Walk a fixed/variable-length/quantified-group hop chain from `partials`
+/// (binding, current-node-id pairs), applying label/prop/anchor constraints hop
+/// by hop. Factored out of [`resolve_match`] so quantified-path-pattern group
+/// expansion (CONCEPT:EG-KG.query.quantified-path-pattern) can recursively reuse the exact
+/// same hop-walking semantics for its inner sub-pattern — a group hop's `edge.group`
+/// dispatches to [`quantified_group_matches`] instead of [`neighbors`]/[`bfs_reachable`];
+/// everything downstream (label/prop/anchor checks, variable binding) is identical.
 fn walk_hops(
     view: &GraphView,
     hops: &[(EdgePat, NodePat)],
