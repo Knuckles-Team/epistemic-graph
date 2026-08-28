@@ -1735,7 +1735,7 @@ async fn spawn_optional_service_listeners(
     // This bounded current path is the only served startup mode.
     let persistence_for_load = { state.read().await.persistence.clone() };
     if let Some(p) = &persistence_for_load {
-        match p.load_catalog(&state).await {
+        match p.load_catalog(state).await {
             Ok(n) => info!(
                 "durable catalog recovered: {n} graph(s); material pages load on first access"
             ),
@@ -2409,7 +2409,7 @@ async fn start_raft_and_matview_reload(
     // the in-RAM index so `GetMatView` serves them immediately. A no-op when no
     // matviews were ever created / no redb backend is configured.
     #[cfg(any(feature = "compute-dist", feature = "matview"))]
-    match epistemic_graph::server::reload_matviews(&state).await {
+    match epistemic_graph::server::reload_matviews(state).await {
         Ok(0) => {}
         Ok(n) => {
             info!("Reloaded {n} materialized view(s) from redb (CONCEPT:EG-KG.storage.feature)")

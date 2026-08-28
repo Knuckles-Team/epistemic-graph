@@ -1104,10 +1104,10 @@ impl EgStore {
     ) -> Result<Method, String> {
         #[cfg(feature = "modality-serving")]
         {
-            return modality_command
+            modality_command
                 .map(super::SanitizedModalityRaftCommand::receipt_method)
                 .or_else(|| graph_method.clone())
-                .ok_or_else(|| "replicated native command has no receipt method".to_string());
+                .ok_or_else(|| "replicated native command has no receipt method".to_string())
         }
         #[cfg(not(feature = "modality-serving"))]
         graph_method
