@@ -1861,6 +1861,131 @@ fn read_current_mutation_graph_version(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// The caller-owned identity keys a replayed batch must reproduce exactly.
+fn mutation_batch_replay_identity_keys(stored: &MutationBatch, proposed: &MutationBatch) -> bool {
+    stored.batch_id == proposed.batch_id
+        && stored.context == proposed.context
+        && stored.tenant == proposed.tenant
+        && stored.graph == proposed.graph
+        && stored.idempotency_key == proposed.idempotency_key
+}
+
+/// `expected_graph_version` is an OCC observation, not a caller-owned payload.
+/// The original observation is retained in the durable record, while a replay
+/// rebuilt after an ack-loss may carry the current authoritative observation.
+/// Permit that one derived value only for cross-modal requests; every other
+/// identity component stays byte/exact and a same-key different request still
+/// conflicts.
+fn mutation_batch_replay_expected_version_matches(
+    stored: &MutationBatch,
+    proposed: &MutationBatch,
+    crossmodal_present: bool,
+    current_graph_version: u64,
+) -> bool {
+    stored.expected_graph_version == proposed.expected_graph_version
+        || (crossmodal_present && proposed.expected_graph_version == Some(current_graph_version))
+}
+
+/// Whether `proposed` is a faithful replay of the durably committed `stored`
+/// batch.
+///
+/// `created_at_ms` is deliberately excluded: a network retry may rebuild the
+/// identical batch later. Native resource retries use the dedicated typed
+/// comparator (`native_resource_placement_replay_match`), which normalizes only
+/// authority-owned `now_ms`.  Their placement epoch/fencing token may advance
+/// only monotonically after leader failover; every caller-controlled resource
+/// field, WorkItem fence, host revision, and outbox byte still must match.
+/// Other operations retain exact placement bytes.
+fn mutation_batch_replay_matches(
+    stored: &MutationBatch,
+    proposed: &MutationBatch,
+    crossmodal_present: bool,
+    current_graph_version: u64,
+) -> Result<bool, String> {
+    let operations_match =
+        mutation_operations_retry_match(&stored.operations, &proposed.operations)?;
+    let placement_matches = stored.placement_epoch == proposed.placement_epoch
+        && stored.fencing_token == proposed.fencing_token;
+    let placement_replay =
+        native_resource_placement_replay_match(stored, proposed, operations_match);
+    let outbox_match = native_retry_outbox_match(
+        &stored.operations,
+        &proposed.operations,
+        &stored.outbox,
+        &proposed.outbox,
+        operations_match,
+    )?;
+    Ok(mutation_batch_replay_identity_keys(stored, proposed)
+        && mutation_batch_replay_expected_version_matches(
+            stored,
+            proposed,
+            crossmodal_present,
+            current_graph_version,
+        )
+        && stored.authoritative_state == proposed.authoritative_state
+        && outbox_match
+        && (placement_matches || placement_replay)
+        && operations_match)
+}
+
+/// A lifecycle replay may only be acknowledged while the stored batch is still
+/// the graph's lifecycle head.
+fn check_replay_lifecycle_head(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    stored_batch_id: &str,
+    graph_name: &str,
+) -> Result<(), String> {
+    let heads = wtx
+        .open_table(MUTATION_LIFECYCLE_HEAD)
+        .map_err(|e| e.to_string())?;
+    let current = heads
+        .get(graph_fname)
+        .map_err(|e| e.to_string())?
+        .map(|v| v.value().to_string());
+    if current.as_deref() != Some(stored_batch_id) {
+        return Err(format!(
+            "STALE_FENCE: lifecycle batch '{}' is no longer current for graph '{}'",
+            stored_batch_id, graph_name
+        ));
+    }
+    Ok(())
+}
+
+/// An envelope replay must reproduce the committed envelope byte-for-byte.
+fn check_replay_envelope_matches(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    change: &ChangeEnvelope,
+    graph_name: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let envelopes = wtx
+        .open_table(CHANGE_ENVELOPES)
+        .map_err(|e| e.to_string())?;
+    let stored = envelopes
+        .get((graph_fname, change.envelope_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| {
+            format!(
+                "STALE_FENCE: committed envelope '{}' is no longer current for graph '{}'",
+                change.envelope_id, graph_name
+            )
+        })?;
+    let bytes = crypto.unseal(stored.value())?;
+    let record: ChangeEnvelopeRecord = decode_durable(&bytes)?;
+    let stored_bytes = rmp_serde::to_vec_named(&record.envelope).map_err(|e| e.to_string())?;
+    let proposed_bytes = rmp_serde::to_vec_named(change).map_err(|e| e.to_string())?;
+    if stored_bytes != proposed_bytes {
+        return Err(format!(
+            "IDEMPOTENCY_CONFLICT: envelope '{}' does not match its committed batch",
+            change.envelope_id
+        ));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn check_idempotency_replay(
     wtx: &redb::WriteTransaction,
     graph_fname: &str,
@@ -1882,112 +2007,49 @@ fn check_idempotency_replay(
         ))
         .map_err(|e| e.to_string())?
         .map(|value| value.value().to_string());
-    if let Some(existing_id) = existing_id {
-        let records = wtx
-            .open_table(MUTATION_BATCHES)
-            .map_err(|e| e.to_string())?;
-        let stored = records
-            .get(existing_id.as_str())
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| {
-                format!(
-                    "corrupt mutation idempotency index: '{}' has no batch record",
-                    existing_id
-                )
-            })?;
-        let bytes = crypto.unseal(stored.value())?;
-        let record = decode_mutation_batch_record(&bytes)?;
-        let operations_match =
-            mutation_operations_retry_match(&record.batch.operations, &batch.operations)?;
-        let placement_matches = record.batch.placement_epoch == batch.placement_epoch
-            && record.batch.fencing_token == batch.fencing_token;
-        let placement_replay =
-            native_resource_placement_replay_match(&record.batch, batch, operations_match);
-        let outbox_match = native_retry_outbox_match(
-            &record.batch.operations,
-            &batch.operations,
-            &record.batch.outbox,
-            &batch.outbox,
-            operations_match,
-        )?;
-        // `expected_graph_version` is an OCC observation, not a caller-owned
-        // payload.  The original observation is retained in the durable
-        // record, while a replay rebuilt after an ack-loss may carry the
-        // current authoritative observation.  Permit that one derived value
-        // only for cross-modal requests; every other identity component stays
-        // byte/exact and a same-key different request still conflicts.
-        let expected_graph_version_matches = record.batch.expected_graph_version
-            == batch.expected_graph_version
-            || (crossmodal_present && batch.expected_graph_version == Some(current_graph_version));
-        let same_identity = record.batch.batch_id == batch.batch_id
-            && record.batch.context == batch.context
-            && record.batch.tenant == batch.tenant
-            && record.batch.graph == batch.graph
-            && record.batch.idempotency_key == batch.idempotency_key
-            && expected_graph_version_matches
-            && record.batch.authoritative_state == batch.authoritative_state
-            && outbox_match
-            && (placement_matches || placement_replay)
-            && operations_match;
-        // created_at_ms is deliberately excluded: a network retry may rebuild
-        // the identical batch later. Native resource retries use the dedicated
-        // typed comparator above, which normalizes only authority-owned
-        // now_ms.  Their placement epoch/fencing token may advance only
-        // monotonically after leader failover; every caller-controlled
-        // resource field, WorkItem fence, host revision, and outbox byte
-        // still must match. Other operations retain exact placement bytes.
-        if !same_identity {
-            return Err(format!(
-                "IDEMPOTENCY_CONFLICT: key '{}' is already committed as batch '{}'",
-                batch.idempotency_key, record.batch.batch_id
-            ));
-        }
-        if lifecycle.is_some() {
-            let heads = wtx
-                .open_table(MUTATION_LIFECYCLE_HEAD)
-                .map_err(|e| e.to_string())?;
-            let current = heads
-                .get(graph_fname)
-                .map_err(|e| e.to_string())?
-                .map(|v| v.value().to_string());
-            if current.as_deref() != Some(record.batch.batch_id.as_str()) {
-                return Err(format!(
-                    "STALE_FENCE: lifecycle batch '{}' is no longer current for graph '{}'",
-                    record.batch.batch_id, batch.graph
-                ));
-            }
-        }
-        if let Some(change) = change {
-            let envelopes = wtx
-                .open_table(CHANGE_ENVELOPES)
-                .map_err(|e| e.to_string())?;
-            let stored = envelopes
-                .get((graph_fname, change.envelope_id.as_str()))
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| {
-                    format!(
-                        "STALE_FENCE: committed envelope '{}' is no longer current for graph '{}'",
-                        change.envelope_id, batch.graph
-                    )
-                })?;
-            let bytes = crypto.unseal(stored.value())?;
-            let record: ChangeEnvelopeRecord = decode_durable(&bytes)?;
-            let stored_bytes =
-                rmp_serde::to_vec_named(&record.envelope).map_err(|e| e.to_string())?;
-            let proposed_bytes = rmp_serde::to_vec_named(change).map_err(|e| e.to_string())?;
-            if stored_bytes != proposed_bytes {
-                return Err(format!(
-                    "IDEMPOTENCY_CONFLICT: envelope '{}' does not match its committed batch",
-                    change.envelope_id
-                ));
-            }
-        }
-        return Ok(Some(MutationBatchCommit {
-            record,
-            replayed: true,
-        }));
+    let Some(existing_id) = existing_id else {
+        return Ok(None);
+    };
+    let records = wtx
+        .open_table(MUTATION_BATCHES)
+        .map_err(|e| e.to_string())?;
+    let stored = records
+        .get(existing_id.as_str())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| {
+            format!(
+                "corrupt mutation idempotency index: '{}' has no batch record",
+                existing_id
+            )
+        })?;
+    let bytes = crypto.unseal(stored.value())?;
+    let record = decode_mutation_batch_record(&bytes)?;
+    if !mutation_batch_replay_matches(
+        &record.batch,
+        batch,
+        crossmodal_present,
+        current_graph_version,
+    )? {
+        return Err(format!(
+            "IDEMPOTENCY_CONFLICT: key '{}' is already committed as batch '{}'",
+            batch.idempotency_key, record.batch.batch_id
+        ));
     }
-    Ok(None)
+    if lifecycle.is_some() {
+        check_replay_lifecycle_head(
+            wtx,
+            graph_fname,
+            record.batch.batch_id.as_str(),
+            batch.graph.as_str(),
+        )?;
+    }
+    if let Some(change) = change {
+        check_replay_envelope_matches(wtx, graph_fname, change, batch.graph.as_str(), crypto)?;
+    }
+    Ok(Some(MutationBatchCommit {
+        record,
+        replayed: true,
+    }))
 }
 
 fn check_batch_id_uniqueness(wtx: &redb::WriteTransaction, batch_id: &str) -> Result<(), String> {
@@ -2003,6 +2065,136 @@ fn check_batch_id_uniqueness(wtx: &redb::WriteTransaction, batch_id: &str) -> Re
     Ok(())
 }
 
+/// Precondition 1: the envelope id must not already be committed for this graph.
+fn check_change_envelope_not_committed(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    change: &ChangeEnvelope,
+) -> Result<(), String> {
+    let envelopes = wtx
+        .open_table(CHANGE_ENVELOPES)
+        .map_err(|e| e.to_string())?;
+    if envelopes
+        .get((graph_fname, change.envelope_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err(format!(
+            "IDEMPOTENCY_CONFLICT: envelope_id '{}' is already committed",
+            change.envelope_id
+        ));
+    }
+    Ok(())
+}
+
+/// Precondition 2: the envelope's content version must chain off the durable
+/// one -- matching previous digest AND a strictly advancing source version --
+/// or, with no durable row, must not claim a previous digest.
+fn check_change_content_version_precondition(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    tenant: &str,
+    change: &ChangeEnvelope,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let versions = wtx
+        .open_table(CONTENT_VERSIONS)
+        .map_err(|e| e.to_string())?;
+    let version_key = (
+        graph_fname,
+        tenant,
+        change.content_version.object_id.as_str(),
+    );
+    let current = versions
+        .get(version_key)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let bytes = crypto.unseal(row.value())?;
+            decode_durable::<ContentVersion>(&bytes)
+        })
+        .transpose()?;
+    match current {
+        Some(current) => {
+            if change.content_version.previous_digest.as_deref() != Some(current.digest.as_str()) {
+                return Err(format!(
+                    "STALE_CONTENT_VERSION: object '{}' expected previous digest does not match",
+                    change.content_version.object_id
+                ));
+            }
+            if !change
+                .content_version
+                .source_version
+                .advances(&current.source_version)
+            {
+                return Err(format!(
+                    "STALE_CONTENT_VERSION: object '{}' source version did not advance",
+                    change.content_version.object_id
+                ));
+            }
+        }
+        None if change.content_version.previous_digest.is_some() => {
+            return Err(format!(
+                "STALE_CONTENT_VERSION: object '{}' has no prior version",
+                change.content_version.object_id
+            ));
+        }
+        None => {}
+    }
+    Ok(())
+}
+
+/// Precondition 3: the same chaining rule for the envelope's source cursor.
+fn check_change_cursor_precondition(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    tenant: &str,
+    cursor: &ChangeCursor,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
+    let cursor_key = (
+        graph_fname,
+        tenant,
+        cursor.source.as_str(),
+        cursor.partition.as_str(),
+    );
+    let current = cursors
+        .get(cursor_key)
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let bytes = crypto.unseal(row.value())?;
+            decode_durable::<ChangeCursor>(&bytes)
+        })
+        .transpose()?;
+    match current {
+        Some(current) => {
+            if cursor.expected_previous.as_ref() != Some(&current.position) {
+                return Err(format!(
+                    "STALE_CURSOR: source '{}' partition '{}' expected position does not match",
+                    cursor.source, cursor.partition
+                ));
+            }
+            if !cursor.position.advances(&current.position) {
+                return Err(format!(
+                    "STALE_CURSOR: source '{}' partition '{}' did not advance",
+                    cursor.source, cursor.partition
+                ));
+            }
+        }
+        None if cursor.expected_previous.is_some() => {
+            return Err(format!(
+                "STALE_CURSOR: source '{}' partition '{}' has no prior position",
+                cursor.source, cursor.partition
+            ));
+        }
+        None => {}
+    }
+    Ok(())
+}
+
+/// The three preconditions run in the original order -- envelope idempotency,
+/// then content version, then cursor -- so a change that violates more than one
+/// still reports the same first violation it did before the split.
 fn validate_change_envelope_preconditions(
     wtx: &redb::WriteTransaction,
     graph_fname: &str,
@@ -2010,107 +2202,13 @@ fn validate_change_envelope_preconditions(
     change: Option<&ChangeEnvelope>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    if let Some(change) = change {
-        let envelopes = wtx
-            .open_table(CHANGE_ENVELOPES)
-            .map_err(|e| e.to_string())?;
-        if envelopes
-            .get((graph_fname, change.envelope_id.as_str()))
-            .map_err(|e| e.to_string())?
-            .is_some()
-        {
-            return Err(format!(
-                "IDEMPOTENCY_CONFLICT: envelope_id '{}' is already committed",
-                change.envelope_id
-            ));
-        }
-
-        let versions = wtx
-            .open_table(CONTENT_VERSIONS)
-            .map_err(|e| e.to_string())?;
-        let version_key = (
-            graph_fname,
-            tenant,
-            change.content_version.object_id.as_str(),
-        );
-        let current = versions
-            .get(version_key)
-            .map_err(|e| e.to_string())?
-            .map(|row| {
-                let bytes = crypto.unseal(row.value())?;
-                decode_durable::<ContentVersion>(&bytes)
-            })
-            .transpose()?;
-        match current {
-            Some(current) => {
-                if change.content_version.previous_digest.as_deref()
-                    != Some(current.digest.as_str())
-                {
-                    return Err(format!(
-                        "STALE_CONTENT_VERSION: object '{}' expected previous digest does not match",
-                        change.content_version.object_id
-                    ));
-                }
-                if !change
-                    .content_version
-                    .source_version
-                    .advances(&current.source_version)
-                {
-                    return Err(format!(
-                        "STALE_CONTENT_VERSION: object '{}' source version did not advance",
-                        change.content_version.object_id
-                    ));
-                }
-            }
-            None if change.content_version.previous_digest.is_some() => {
-                return Err(format!(
-                    "STALE_CONTENT_VERSION: object '{}' has no prior version",
-                    change.content_version.object_id
-                ));
-            }
-            None => {}
-        }
-
-        if let Some(cursor) = &change.cursor {
-            let cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
-            let cursor_key = (
-                graph_fname,
-                tenant,
-                cursor.source.as_str(),
-                cursor.partition.as_str(),
-            );
-            let current = cursors
-                .get(cursor_key)
-                .map_err(|e| e.to_string())?
-                .map(|row| {
-                    let bytes = crypto.unseal(row.value())?;
-                    decode_durable::<ChangeCursor>(&bytes)
-                })
-                .transpose()?;
-            match current {
-                Some(current) => {
-                    if cursor.expected_previous.as_ref() != Some(&current.position) {
-                        return Err(format!(
-                            "STALE_CURSOR: source '{}' partition '{}' expected position does not match",
-                            cursor.source, cursor.partition
-                        ));
-                    }
-                    if !cursor.position.advances(&current.position) {
-                        return Err(format!(
-                            "STALE_CURSOR: source '{}' partition '{}' did not advance",
-                            cursor.source, cursor.partition
-                        ));
-                    }
-                }
-                None if cursor.expected_previous.is_some() => {
-                    return Err(format!(
-                        "STALE_CURSOR: source '{}' partition '{}' has no prior position",
-                        cursor.source, cursor.partition
-                    ));
-                }
-                None => {}
-            }
-        }
+    let Some(change) = change else {
+        return Ok(());
+    };
+    check_change_envelope_not_committed(wtx, graph_fname, change)?;
+    check_change_content_version_precondition(wtx, graph_fname, tenant, change, crypto)?;
+    if let Some(cursor) = &change.cursor {
+        check_change_cursor_precondition(wtx, graph_fname, tenant, cursor, crypto)?;
     }
     Ok(())
 }
