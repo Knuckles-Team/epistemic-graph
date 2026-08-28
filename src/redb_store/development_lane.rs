@@ -163,12 +163,13 @@ struct DurableLaneInvocation {
 /// redb transaction has no server-side wall clock in its replay key.  The
 /// current key is always retained for the duration of the commit so an
 /// uncertain acknowledgement can replay the exact result bytes.
-fn prune_invocations(
+/// Every replay key stored for exactly this graph/tenant prefix, bound-checked
+/// and capped by `MAX_INVOCATION_REPAIR_SCAN`.
+fn collect_invocation_keys(
     invocations: &mut redb::Table<(&str, &str, &str), &[u8]>,
     graph: &str,
     tenant: &str,
-    current_key: &str,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let mut keys = Vec::new();
     for row in invocations
         .range((graph, tenant, "")..)
@@ -186,21 +187,22 @@ fn prune_invocations(
             return Err("lane invocation table exceeds bounded repair capacity".to_string());
         }
     }
-    if keys.len() <= MAX_INVOCATIONS_PER_TENANT {
-        return Ok(());
-    }
-    if !keys.iter().any(|key| key == current_key) {
-        return Err("lane invocation repair could not find current key".to_string());
-    }
+    Ok(keys)
+}
 
-    // Redb orders this key range lexically.  Retain the newest lexical keys as
-    // the deterministic bounded history, then force the just-written key into
-    // the retained set even when it sorts below that window.  Remove every
-    // other key from this exact graph/tenant prefix in the same transaction.
-    let mut retained = std::collections::BTreeSet::new();
-    for key in keys.iter().rev().take(MAX_INVOCATIONS_PER_TENANT) {
-        retained.insert(key.clone());
-    }
+/// Redb orders this key range lexically.  Retain the newest lexical keys as
+/// the deterministic bounded history, then force the just-written key into the
+/// retained set even when it sorts below that window.
+fn retained_invocation_keys(
+    keys: &[String],
+    current_key: &str,
+) -> Result<std::collections::BTreeSet<String>, String> {
+    let mut retained: std::collections::BTreeSet<String> = keys
+        .iter()
+        .rev()
+        .take(MAX_INVOCATIONS_PER_TENANT)
+        .cloned()
+        .collect();
     retained.insert(current_key.to_string());
     while retained.len() > MAX_INVOCATIONS_PER_TENANT {
         let victim = retained
@@ -210,6 +212,25 @@ fn prune_invocations(
             .ok_or_else(|| "lane invocation retention cannot evict current key".to_string())?;
         retained.remove(&victim);
     }
+    Ok(retained)
+}
+
+fn prune_invocations(
+    invocations: &mut redb::Table<(&str, &str, &str), &[u8]>,
+    graph: &str,
+    tenant: &str,
+    current_key: &str,
+) -> Result<(), String> {
+    let keys = collect_invocation_keys(invocations, graph, tenant)?;
+    if keys.len() <= MAX_INVOCATIONS_PER_TENANT {
+        return Ok(());
+    }
+    if !keys.iter().any(|key| key == current_key) {
+        return Err("lane invocation repair could not find current key".to_string());
+    }
+    // Remove every key outside the retained set from this exact graph/tenant
+    // prefix, in the same transaction.
+    let retained = retained_invocation_keys(&keys, current_key)?;
     for key in keys {
         if !retained.contains(&key) {
             invocations
@@ -801,62 +822,61 @@ pub(crate) fn validate_current_lane_links_in_wtx(
     validate_lane_links_in_wtx(wtx, graph, &incoming_nodes, crypto)
 }
 
+/// The WorkItem statuses that mean the lifecycle attempt has finished.
+fn checkpoint_terminal_status(status: &str) -> bool {
+    matches!(status, "succeeded" | "failed" | "cancelled" | "dead_letter")
+}
+
+/// A live hold must still have the current lease claim and no terminal replay
+/// tuple.  Ready/pending rows are not authoritative claims.
+fn checkpoint_live_status_matches(row: &DurableLaneHold, status: &str) -> bool {
+    matches!(status, "leased" | "running")
+        && !checkpoint_terminal_status(status)
+        && row.terminal_state.is_none()
+        && row.terminal_expected_hold_revision.is_none()
+}
+
+/// Expiry can race the WorkItem terminal transition.  Both a still-live
+/// leased/running claim and an exact terminal outcome remain cleanable, but
+/// neither may carry a finish terminal replay tuple.
+fn checkpoint_expired_status_matches(row: &DurableLaneHold, status: &str) -> bool {
+    (matches!(status, "leased" | "running") || checkpoint_terminal_status(status))
+        && row.terminal_state.is_none()
+        && row.terminal_expected_hold_revision.is_none()
+        && row.hold.tombstone
+        && !row.hold.active_count_charged
+}
+
+/// Finish records the exact terminal outcome and the pre-finish hold revision.
+/// Every post-finish retained state shares these invariants; they differ only
+/// in whether the retained charge has been released yet.
+fn checkpoint_terminal_outcome_matches(row: &DurableLaneHold, status: &str) -> bool {
+    checkpoint_terminal_status(status)
+        && row
+            .terminal_state
+            .as_deref()
+            .is_some_and(|expected| expected == status)
+        && row.terminal_expected_hold_revision.is_some()
+        && row.hold.tombstone
+        && !row.hold.active_count_charged
+}
+
 fn checkpoint_lifecycle_status_matches(row: &DurableLaneHold, status: &str) -> bool {
-    let terminal = matches!(status, "succeeded" | "failed" | "cancelled" | "dead_letter");
-    let terminal_state_matches = row
-        .terminal_state
-        .as_deref()
-        .is_some_and(|expected| expected == status);
     match row.hold.state {
-        // A live hold must still have the current lease claim and no terminal
-        // replay tuple.  Ready/pending rows are not authoritative claims.
         DevelopmentLaneHoldState::Allocating
         | DevelopmentLaneHoldState::Active
-        | DevelopmentLaneHoldState::Submitted => {
-            matches!(status, "leased" | "running")
-                && !terminal
-                && row.terminal_state.is_none()
-                && row.terminal_expected_hold_revision.is_none()
-        }
-        // Finish records the exact terminal outcome and the pre-finish hold
-        // revision; cleanup can reconcile this retained charge later.
-        DevelopmentLaneHoldState::CleanupPending => {
-            terminal
-                && terminal_state_matches
-                && row.terminal_expected_hold_revision.is_some()
-                && row.hold.tombstone
-                && !row.hold.active_count_charged
-                && row.hold.retained_disk_bytes != 0
-        }
-        // Expiry can race the WorkItem terminal transition.  Both a still-live
-        // leased/running claim and an exact terminal outcome remain cleanable,
-        // but neither may carry a finish terminal replay tuple.
-        DevelopmentLaneHoldState::Expired => {
-            (matches!(status, "leased" | "running") || terminal)
-                && row.terminal_state.is_none()
-                && row.terminal_expected_hold_revision.is_none()
-                && row.hold.tombstone
-                && !row.hold.active_count_charged
-        }
+        | DevelopmentLaneHoldState::Submitted => checkpoint_live_status_matches(row, status),
         // Released is a terminal retained state in the durable vocabulary; it
-        // must carry the same exact outcome mapping as CleanupPending.
-        DevelopmentLaneHoldState::Released => {
-            terminal
-                && terminal_state_matches
-                && row.terminal_expected_hold_revision.is_some()
-                && row.hold.tombstone
-                && !row.hold.active_count_charged
-                && row.hold.retained_disk_bytes != 0
+        // carries the same exact outcome mapping as CleanupPending, and both
+        // still hold their retained charge.
+        DevelopmentLaneHoldState::CleanupPending | DevelopmentLaneHoldState::Released => {
+            checkpoint_terminal_outcome_matches(row, status) && row.hold.retained_disk_bytes != 0
         }
+        DevelopmentLaneHoldState::Expired => checkpoint_expired_status_matches(row, status),
         // Cleanup has released the retained charge, but the lifecycle terminal
         // outcome and replay revision remain bound to the tombstone.
         DevelopmentLaneHoldState::Cleaned => {
-            terminal
-                && terminal_state_matches
-                && row.terminal_expected_hold_revision.is_some()
-                && row.hold.tombstone
-                && !row.hold.active_count_charged
-                && row.hold.retained_disk_bytes == 0
+            checkpoint_terminal_outcome_matches(row, status) && row.hold.retained_disk_bytes == 0
         }
         DevelopmentLaneHoldState::Aborted | DevelopmentLaneHoldState::Absent => true,
     }
@@ -1372,51 +1392,98 @@ fn scope_key(scope: Scope, hold: &DevelopmentLaneHold) -> String {
     format!("{name}\0{}\0{value}", hold.tenant_ref)
 }
 
+/// The canonical scope order.  It is the index order of every per-scope limit
+/// table (`policy_count_limits` and friends) as well as the iteration order of
+/// `scopes`, so the two can never disagree.
+const SCOPES: [Scope; 7] = [
+    Scope::Tenant,
+    Scope::Owner,
+    Scope::Session,
+    Scope::Workspace,
+    Scope::Repository,
+    Scope::Host,
+    Scope::Global,
+];
+
+/// This must stay the position of `scope` within `SCOPES`.
+fn scope_index(scope: Scope) -> usize {
+    match scope {
+        Scope::Tenant => 0,
+        Scope::Owner => 1,
+        Scope::Session => 2,
+        Scope::Workspace => 3,
+        Scope::Repository => 4,
+        Scope::Host => 5,
+        Scope::Global => 6,
+    }
+}
+
 fn scopes(hold: &DevelopmentLaneHold) -> Vec<(Scope, String)> {
+    SCOPES
+        .into_iter()
+        .map(|scope| (scope, scope_key(scope, hold)))
+        .collect()
+}
+
+/// Every per-scope limit table below is ordered exactly like `SCOPES`, so a
+/// scope resolves to one index shared by all four metrics.  Keeping the tables
+/// in that one order is what lets `policy_limit` be an index instead of a
+/// twenty-eight arm `(scope, metric)` match.
+fn policy_count_limits(policy: &DevelopmentLaneQuotaPolicy) -> [u64; 7] {
     [
-        Scope::Tenant,
-        Scope::Owner,
-        Scope::Session,
-        Scope::Workspace,
-        Scope::Repository,
-        Scope::Host,
-        Scope::Global,
+        policy.tenant_count_limit,
+        policy.owner_count_limit,
+        policy.session_count_limit,
+        policy.workspace_count_limit,
+        policy.repository_count_limit,
+        policy.host_count_limit,
+        policy.global_count_limit,
     ]
-    .into_iter()
-    .map(|scope| (scope, scope_key(scope, hold)))
-    .collect()
+}
+
+fn policy_predicted_limits(policy: &DevelopmentLaneQuotaPolicy) -> [u64; 7] {
+    [
+        policy.tenant_predicted_disk_bytes,
+        policy.owner_predicted_disk_bytes,
+        policy.session_predicted_disk_bytes,
+        policy.workspace_predicted_disk_bytes,
+        policy.repository_predicted_disk_bytes,
+        policy.host_predicted_disk_bytes,
+        policy.global_predicted_disk_bytes,
+    ]
+}
+
+fn policy_observed_limits(policy: &DevelopmentLaneQuotaPolicy) -> [u64; 7] {
+    [
+        policy.tenant_observed_disk_bytes,
+        policy.owner_observed_disk_bytes,
+        policy.session_observed_disk_bytes,
+        policy.workspace_observed_disk_bytes,
+        policy.repository_observed_disk_bytes,
+        policy.host_observed_disk_bytes,
+        policy.global_observed_disk_bytes,
+    ]
+}
+
+fn policy_retained_limits(policy: &DevelopmentLaneQuotaPolicy) -> [u64; 7] {
+    [
+        policy.tenant_retained_disk_bytes,
+        policy.owner_retained_disk_bytes,
+        policy.session_retained_disk_bytes,
+        policy.workspace_retained_disk_bytes,
+        policy.repository_retained_disk_bytes,
+        policy.host_retained_disk_bytes,
+        policy.global_retained_disk_bytes,
+    ]
 }
 
 fn policy_limit(policy: &DevelopmentLaneQuotaPolicy, scope: Scope, metric: Metric) -> u64 {
-    match (scope, metric) {
-        (Scope::Tenant, Metric::Count) => policy.tenant_count_limit,
-        (Scope::Owner, Metric::Count) => policy.owner_count_limit,
-        (Scope::Session, Metric::Count) => policy.session_count_limit,
-        (Scope::Workspace, Metric::Count) => policy.workspace_count_limit,
-        (Scope::Repository, Metric::Count) => policy.repository_count_limit,
-        (Scope::Host, Metric::Count) => policy.host_count_limit,
-        (Scope::Global, Metric::Count) => policy.global_count_limit,
-        (Scope::Tenant, Metric::Predicted) => policy.tenant_predicted_disk_bytes,
-        (Scope::Owner, Metric::Predicted) => policy.owner_predicted_disk_bytes,
-        (Scope::Session, Metric::Predicted) => policy.session_predicted_disk_bytes,
-        (Scope::Workspace, Metric::Predicted) => policy.workspace_predicted_disk_bytes,
-        (Scope::Repository, Metric::Predicted) => policy.repository_predicted_disk_bytes,
-        (Scope::Host, Metric::Predicted) => policy.host_predicted_disk_bytes,
-        (Scope::Global, Metric::Predicted) => policy.global_predicted_disk_bytes,
-        (Scope::Tenant, Metric::Observed) => policy.tenant_observed_disk_bytes,
-        (Scope::Owner, Metric::Observed) => policy.owner_observed_disk_bytes,
-        (Scope::Session, Metric::Observed) => policy.session_observed_disk_bytes,
-        (Scope::Workspace, Metric::Observed) => policy.workspace_observed_disk_bytes,
-        (Scope::Repository, Metric::Observed) => policy.repository_observed_disk_bytes,
-        (Scope::Host, Metric::Observed) => policy.host_observed_disk_bytes,
-        (Scope::Global, Metric::Observed) => policy.global_observed_disk_bytes,
-        (Scope::Tenant, Metric::Retained) => policy.tenant_retained_disk_bytes,
-        (Scope::Owner, Metric::Retained) => policy.owner_retained_disk_bytes,
-        (Scope::Session, Metric::Retained) => policy.session_retained_disk_bytes,
-        (Scope::Workspace, Metric::Retained) => policy.workspace_retained_disk_bytes,
-        (Scope::Repository, Metric::Retained) => policy.repository_retained_disk_bytes,
-        (Scope::Host, Metric::Retained) => policy.host_retained_disk_bytes,
-        (Scope::Global, Metric::Retained) => policy.global_retained_disk_bytes,
+    let index = scope_index(scope);
+    match metric {
+        Metric::Count => policy_count_limits(policy)[index],
+        Metric::Predicted => policy_predicted_limits(policy)[index],
+        Metric::Observed => policy_observed_limits(policy)[index],
+        Metric::Retained => policy_retained_limits(policy)[index],
     }
 }
 
@@ -1957,7 +2024,11 @@ fn hold_id(intent: &DevelopmentLaneIntent) -> String {
     format!("v1:{}", hex::encode(hasher.finalize()))
 }
 
-fn hold_immutable_equal(row: &DurableLaneHold, request: &DevelopmentLaneReserveRequest) -> bool {
+/// The WorkItem fence tuple the reserve request must reproduce exactly.
+fn hold_work_item_identity_equal(
+    row: &DurableLaneHold,
+    request: &DevelopmentLaneReserveRequest,
+) -> bool {
     let hold = &row.hold;
     hold.tenant_ref == request.tenant_ref
         && hold.work_item_id == request.work_item_id
@@ -1966,18 +2037,39 @@ fn hold_immutable_equal(row: &DurableLaneHold, request: &DevelopmentLaneReserveR
         && hold.lease_epoch == request.lease_epoch
         && hold.fencing_token == request.fencing_token
         && hold.work_item_fence == request.work_item_fence
-        && hold.lane_id == request.intent.lane_id
+}
+
+/// The immutable lane/repository identity of the hold.
+fn hold_lane_identity_equal(
+    row: &DurableLaneHold,
+    request: &DevelopmentLaneReserveRequest,
+) -> bool {
+    let hold = &row.hold;
+    hold.lane_id == request.intent.lane_id
         && hold.request_id == request.intent.request_id
         && hold.repository_id == request.intent.repository_id
         && hold.base_ref == request.intent.base_ref
         && hold.base_sha == request.intent.base_sha
         && hold.branch == request.intent.branch
-        && hold.workspace_ref == request.intent.workspace_ref
+}
+
+/// Workspace/worktree/host placement, which exclusivity indexes key on.
+fn hold_placement_equal(row: &DurableLaneHold, request: &DevelopmentLaneReserveRequest) -> bool {
+    let hold = &row.hold;
+    hold.workspace_ref == request.intent.workspace_ref
         && hold.worktree_locator == request.intent.worktree_locator
         && hold.host_ref == request.intent.host_ref
         && hold.host_target_kind == hold_target_kind(request.intent.host_target_kind)
         && hold.host_target_alias == request.intent.host_target_alias
-        && row.resource_reservation_id == request.intent.resource_reservation_id
+}
+
+/// Reservation, TTL, fairness and quota inputs.
+fn hold_quota_identity_equal(
+    row: &DurableLaneHold,
+    request: &DevelopmentLaneReserveRequest,
+) -> bool {
+    let hold = &row.hold;
+    row.resource_reservation_id == request.intent.resource_reservation_id
         && row.ttl_ms == request.intent.ttl_ms
         && hold.session_id == request.intent.session_id
         && hold.fairness_group == request.intent.fairness_group
@@ -1985,6 +2077,57 @@ fn hold_immutable_equal(row: &DurableLaneHold, request: &DevelopmentLaneReserveR
         && hold.quota_policy_version == request.intent.quota_policy_version
         && hold.predicted_disk_bytes == request.intent.predicted_disk_bytes
         && hold.input_fingerprint == request.intent.input_fingerprint
+}
+
+fn hold_immutable_equal(row: &DurableLaneHold, request: &DevelopmentLaneReserveRequest) -> bool {
+    hold_work_item_identity_equal(row, request)
+        && hold_lane_identity_equal(row, request)
+        && hold_placement_equal(row, request)
+        && hold_quota_identity_equal(row, request)
+}
+
+/// Immutable lane/repository identity carried by the WorkItem intent.
+fn lane_intent_identity_matches(
+    intent: &DevelopmentLaneIntent,
+    hold: &DevelopmentLaneHold,
+) -> bool {
+    intent.tenant_ref == hold.tenant_ref
+        && intent.request_id == hold.request_id
+        && intent.lane_id == hold.lane_id
+        && intent.repository_id == hold.repository_id
+        && intent.base_ref == hold.base_ref
+        && intent.base_sha == hold.base_sha
+        && intent.branch == hold.branch
+}
+
+/// Host/workspace/worktree placement carried by the WorkItem intent.
+fn lane_intent_placement_matches(
+    intent: &DevelopmentLaneIntent,
+    hold: &DevelopmentLaneHold,
+) -> bool {
+    hold_target_kind(intent.host_target_kind) == hold.host_target_kind
+        && intent.host_target_alias == hold.host_target_alias
+        && intent.host_ref == hold.host_ref
+        && intent.workspace_ref == hold.workspace_ref
+        && intent.worktree_locator == hold.worktree_locator
+}
+
+/// Ownership, fairness, quota and reservation inputs.
+fn lane_intent_quota_matches(
+    intent: &DevelopmentLaneIntent,
+    hold: &DevelopmentLaneHold,
+    ttl_ms: u64,
+    resource_reservation_id: &str,
+) -> bool {
+    intent.owner_id == hold.owner_id
+        && intent.session_id == hold.session_id
+        && intent.fairness_group == hold.fairness_group
+        && intent.quota_policy_name == hold.quota_policy_name
+        && intent.quota_policy_version == hold.quota_policy_version
+        && intent.predicted_disk_bytes == hold.predicted_disk_bytes
+        && intent.ttl_ms == ttl_ms
+        && intent.input_fingerprint == hold.input_fingerprint
+        && intent.resource_reservation_id == resource_reservation_id
 }
 
 fn lane_intent_matches_hold(
@@ -1996,27 +2139,9 @@ fn lane_intent_matches_hold(
     let Some(intent) = intent else {
         return false;
     };
-    intent.tenant_ref == hold.tenant_ref
-        && intent.request_id == hold.request_id
-        && intent.lane_id == hold.lane_id
-        && intent.repository_id == hold.repository_id
-        && intent.base_ref == hold.base_ref
-        && intent.base_sha == hold.base_sha
-        && intent.branch == hold.branch
-        && hold_target_kind(intent.host_target_kind) == hold.host_target_kind
-        && intent.host_target_alias == hold.host_target_alias
-        && intent.host_ref == hold.host_ref
-        && intent.workspace_ref == hold.workspace_ref
-        && intent.worktree_locator == hold.worktree_locator
-        && intent.owner_id == hold.owner_id
-        && intent.session_id == hold.session_id
-        && intent.fairness_group == hold.fairness_group
-        && intent.quota_policy_name == hold.quota_policy_name
-        && intent.quota_policy_version == hold.quota_policy_version
-        && intent.predicted_disk_bytes == hold.predicted_disk_bytes
-        && intent.ttl_ms == ttl_ms
-        && intent.input_fingerprint == hold.input_fingerprint
-        && intent.resource_reservation_id == resource_reservation_id
+    lane_intent_identity_matches(intent, hold)
+        && lane_intent_placement_matches(intent, hold)
+        && lane_intent_quota_matches(intent, hold, ttl_ms, resource_reservation_id)
 }
 
 fn hold_encode(
@@ -2247,6 +2372,10 @@ fn request_digest(method: &Method) -> Result<String, String> {
     Ok(format!("v1:{}", hex::encode(Sha256::digest(bytes))))
 }
 
+/// The wire name of every decision.  Split across three functions purely to
+/// stay under the per-function complexity cap; `decision_name_lifecycle` keeps
+/// the exhaustive arm list, so adding a `LaneDecision` variant still fails to
+/// compile until it is named here.
 fn decision_name(decision: LaneDecision) -> &'static str {
     match decision {
         LaneDecision::Accepted => "accepted",
@@ -2256,6 +2385,13 @@ fn decision_name(decision: LaneDecision) -> &'static str {
         LaneDecision::InputConflict => "input_conflict",
         LaneDecision::Quota => "quota",
         LaneDecision::Policy => "policy",
+        other => decision_name_mismatch(other),
+    }
+}
+
+/// Fence/identity mismatch decisions.
+fn decision_name_mismatch(decision: LaneDecision) -> &'static str {
+    match decision {
         LaneDecision::Drained => "drained",
         LaneDecision::NotFound => "not_found",
         LaneDecision::WrongKind => "wrong_kind",
@@ -2263,12 +2399,35 @@ fn decision_name(decision: LaneDecision) -> &'static str {
         LaneDecision::WrongOwner => "wrong_owner",
         LaneDecision::WrongAttempt => "wrong_attempt",
         LaneDecision::WrongLeaseEpoch => "wrong_lease_epoch",
+        other => decision_name_lifecycle(other),
+    }
+}
+
+/// Lifecycle decisions, plus the exhaustive tail: every variant named by
+/// `decision_name`/`decision_name_mismatch` is listed so the match stays
+/// exhaustive without a wildcard arm.
+fn decision_name_lifecycle(decision: LaneDecision) -> &'static str {
+    match decision {
         LaneDecision::WrongFence => "wrong_fence",
         LaneDecision::Expired => "expired",
         LaneDecision::Terminal => "terminal",
         LaneDecision::CleanupRequired => "cleanup_required",
         LaneDecision::Exclusivity => "exclusivity",
-        LaneDecision::Invalid => "invalid",
+        LaneDecision::Invalid
+        | LaneDecision::Accepted
+        | LaneDecision::Idempotent
+        | LaneDecision::Stale
+        | LaneDecision::Conflict
+        | LaneDecision::InputConflict
+        | LaneDecision::Quota
+        | LaneDecision::Policy
+        | LaneDecision::Drained
+        | LaneDecision::NotFound
+        | LaneDecision::WrongKind
+        | LaneDecision::WrongTenant
+        | LaneDecision::WrongOwner
+        | LaneDecision::WrongAttempt
+        | LaneDecision::WrongLeaseEpoch => "invalid",
     }
 }
 
@@ -2652,78 +2811,26 @@ fn hold_target_kind(
     }
 }
 
+/// The policy's TTL window, validated apart from the per-scope limit tables.
+fn policy_ttl_bounded(policy: &DevelopmentLaneQuotaPolicy) -> bool {
+    policy.min_ttl_ms != 0
+        && policy.max_ttl_ms >= policy.min_ttl_ms
+        && policy.max_ttl_ms <= MAX_TTL_MS
+        && policy.max_observation_staleness_ms <= MAX_TTL_MS
+}
+
 fn policy_validate(policy: &DevelopmentLaneQuotaPolicy) -> Result<(), LaneDecision> {
     text(&policy.policy_name, "policy name")?;
     text(&policy.policy_version, "policy version")?;
-    if policy.min_ttl_ms == 0
-        || policy.max_ttl_ms < policy.min_ttl_ms
-        || policy.max_ttl_ms > MAX_TTL_MS
-        || policy.max_observation_staleness_ms > MAX_TTL_MS
-        || policy.tenant_count_limit == 0
-        || policy.owner_count_limit == 0
-        || policy.session_count_limit == 0
-        || policy.workspace_count_limit == 0
-        || policy.repository_count_limit == 0
-        || policy.host_count_limit == 0
-        || policy.global_count_limit == 0
-        || policy.tenant_predicted_disk_bytes == 0
-        || policy.owner_predicted_disk_bytes == 0
-        || policy.session_predicted_disk_bytes == 0
-        || policy.workspace_predicted_disk_bytes == 0
-        || policy.repository_predicted_disk_bytes == 0
-        || policy.host_predicted_disk_bytes == 0
-        || policy.global_predicted_disk_bytes == 0
-        || policy.tenant_observed_disk_bytes == 0
-        || policy.owner_observed_disk_bytes == 0
-        || policy.session_observed_disk_bytes == 0
-        || policy.workspace_observed_disk_bytes == 0
-        || policy.repository_observed_disk_bytes == 0
-        || policy.host_observed_disk_bytes == 0
-        || policy.global_observed_disk_bytes == 0
-        || policy.tenant_retained_disk_bytes == 0
-        || policy.owner_retained_disk_bytes == 0
-        || policy.session_retained_disk_bytes == 0
-        || policy.workspace_retained_disk_bytes == 0
-        || policy.repository_retained_disk_bytes == 0
-        || policy.host_retained_disk_bytes == 0
-        || policy.global_retained_disk_bytes == 0
-        || [
-            policy.tenant_count_limit,
-            policy.owner_count_limit,
-            policy.session_count_limit,
-            policy.workspace_count_limit,
-            policy.repository_count_limit,
-            policy.host_count_limit,
-            policy.global_count_limit,
-        ]
+    let counts_bounded = policy_count_limits(policy)
         .into_iter()
-        .any(|value| value > MAX_COUNT)
-        || [
-            policy.tenant_predicted_disk_bytes,
-            policy.owner_predicted_disk_bytes,
-            policy.session_predicted_disk_bytes,
-            policy.workspace_predicted_disk_bytes,
-            policy.repository_predicted_disk_bytes,
-            policy.host_predicted_disk_bytes,
-            policy.global_predicted_disk_bytes,
-            policy.tenant_observed_disk_bytes,
-            policy.owner_observed_disk_bytes,
-            policy.session_observed_disk_bytes,
-            policy.workspace_observed_disk_bytes,
-            policy.repository_observed_disk_bytes,
-            policy.host_observed_disk_bytes,
-            policy.global_observed_disk_bytes,
-            policy.tenant_retained_disk_bytes,
-            policy.owner_retained_disk_bytes,
-            policy.session_retained_disk_bytes,
-            policy.workspace_retained_disk_bytes,
-            policy.repository_retained_disk_bytes,
-            policy.host_retained_disk_bytes,
-            policy.global_retained_disk_bytes,
-        ]
+        .all(|value| (1..=MAX_COUNT).contains(&value));
+    let disk_bounded = policy_predicted_limits(policy)
         .into_iter()
-        .any(|value| value > MAX_DISK_BYTES)
-    {
+        .chain(policy_observed_limits(policy))
+        .chain(policy_retained_limits(policy))
+        .all(|value| (1..=MAX_DISK_BYTES).contains(&value));
+    if !policy_ttl_bounded(policy) || !counts_bounded || !disk_bounded {
         return Err(LaneDecision::Invalid);
     }
     Ok(())
