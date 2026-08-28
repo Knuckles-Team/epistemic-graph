@@ -7681,6 +7681,45 @@ struct GraphOpContext<'a> {
     verified_context: &'a VerifiedRequestContext,
 }
 
+/// A native durable read must run on the CURRENT placement leader and behind a
+/// read barrier, or a follower would answer from its own stale log. `stale_hint`
+/// and `barrier_failure` name the surface in the two refusals so each caller's
+/// message is unchanged.
+#[cfg(feature = "raft")]
+async fn enforce_native_read_leadership(
+    req_id: u64,
+    graph_name: &str,
+    multi_raft: Option<&std::sync::Arc<crate::raft::multi::MultiRaft>>,
+    routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
+    stale_hint: &str,
+    barrier_failure: &str,
+) -> Result<(), Response> {
+    let Some(routed) = routed_raft else {
+        return Ok(());
+    };
+    let leader = routed.handle.current_leader().await;
+    if leader != Some(routed.handle.node_id) {
+        return Err(Response::stale_route(
+            req_id,
+            graph_name,
+            routed.group_id,
+            routed.epoch,
+            leader,
+            stale_hint,
+        ));
+    }
+    let Some(multi) = multi_raft else {
+        return Ok(());
+    };
+    match multi.read_barrier_group(routed.group_id).await {
+        Ok(_) => Ok(()),
+        Err(error) => Err(Response::err(
+            req_id,
+            format!("{barrier_failure}: {error:?}"),
+        )),
+    }
+}
+
 async fn dispatch_op_resource_reservation_query(
     req_id: u64,
     graph_name: &str,
@@ -7691,58 +7730,50 @@ async fn dispatch_op_resource_reservation_query(
     method: Method,
 ) -> Response {
     #[cfg(feature = "raft")]
-    if let Some(routed) = routed_raft.as_ref() {
-        let leader = routed.handle.current_leader().await;
-        if leader != Some(routed.handle.node_id) {
-            return Response::stale_route(
-                req_id,
-                graph_name,
-                routed.group_id,
-                routed.epoch,
-                leader,
-                "native reservation reads require the current placement leader",
-            );
-        }
-        if let Some(multi) = multi_raft.as_ref() {
-            if let Err(error) = multi.read_barrier_group(routed.group_id).await {
-                return Response::err(
-                    req_id,
-                    format!("native reservation read linearizability barrier failed: {error:?}"),
-                );
-            }
-        }
+    if let Err(response) = enforce_native_read_leadership(
+        req_id,
+        graph_name,
+        multi_raft.as_ref(),
+        routed_raft.as_ref(),
+        "native reservation reads require the current placement leader",
+        "native reservation read linearizability barrier failed",
+    )
+    .await
+    {
+        return response;
     }
     let Some(backend) = persistence.as_ref() else {
         return Response::err(req_id, "native reservation persistence is unavailable");
     };
     let fname = crate::persist::sanitize(graph_name);
-    let crate::protocol::Method::QueryWorkItemReservation { request } = &method else {
-        if let crate::protocol::Method::ResourceReservationStatus { request } = &method {
-            return match backend
+    match &method {
+        crate::protocol::Method::QueryWorkItemReservation { request } => {
+            match backend.read_resource_reservation(&fname, request).await {
+                Ok(result) => Response::ok(req_id, ResultPayload::raw(&result)),
+                Err(error) => {
+                    Response::err(req_id, format!("native reservation read failed: {error}"))
+                }
+            }
+        }
+        crate::protocol::Method::ResourceReservationStatus { request } => {
+            let aggregate_reader = verified_context.allows_action("resource:read:aggregate")
+                || verified_context.allows_action("kg:admin");
+            match backend
                 .read_resource_reservation_status(&fname, request)
                 .await
             {
                 Ok(result) => Response::ok(
                     req_id,
-                    redact_resource_status_result(
-                        result,
-                        request,
-                        verified_context.allows_action("resource:read:aggregate")
-                            || verified_context.allows_action("kg:admin"),
-                    ),
+                    redact_resource_status_result(result, request, aggregate_reader),
                 ),
                 Err(error) => Response::err(
                     req_id,
                     format!("native reservation status read failed: {error}"),
                 ),
-            };
+            }
         }
-        unreachable!("resource query classifier and dispatch method diverged");
-    };
-    return match backend.read_resource_reservation(&fname, request).await {
-        Ok(result) => Response::ok(req_id, ResultPayload::raw(&result)),
-        Err(error) => Response::err(req_id, format!("native reservation read failed: {error}")),
-    };
+        _ => unreachable!("resource query classifier and dispatch method diverged"),
+    }
 }
 
 /// The authenticated, placement-resolved routing context the native durable-op
@@ -7761,6 +7792,19 @@ struct NativeOpCtx<'a> {
     routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
 }
 
+/// A capacity lease may only be taken, renewed or released by the principal
+/// that owns it; every other capacity method is owner-agnostic.
+fn capacity_owner_matches(method: &Method, verified_context: &VerifiedRequestContext) -> bool {
+    let verified_owner = verified_context.principal_persistence_id();
+    match method {
+        Method::AcquireCapacity { request } => request.owner_digest == verified_owner,
+        Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+            request.owner_digest == verified_owner
+        }
+        _ => true,
+    }
+}
+
 async fn dispatch_op_capacity_ops(
     ctx: NativeOpCtx<'_>,
     state_machine_authorized: bool,
@@ -7775,26 +7819,17 @@ async fn dispatch_op_capacity_ops(
     #[cfg(feature = "raft")]
     let routed_raft = ctx.routed_raft;
     #[cfg(feature = "raft")]
-    if let Some(routed) = routed_raft.as_ref() {
-        let leader = routed.handle.current_leader().await;
-        if leader != Some(routed.handle.node_id) {
-            return Response::stale_route(
-                req_id,
-                graph_name,
-                routed.group_id,
-                routed.epoch,
-                leader,
-                "native capacity operations require the current placement leader",
-            );
-        }
-        if let Some(multi) = multi_raft.as_ref() {
-            if let Err(error) = multi.read_barrier_group(routed.group_id).await {
-                return Response::err(
-                    req_id,
-                    format!("native capacity linearizability barrier failed: {error:?}"),
-                );
-            }
-        }
+    if let Err(response) = enforce_native_read_leadership(
+        req_id,
+        graph_name,
+        multi_raft.as_ref(),
+        routed_raft.as_ref(),
+        "native capacity operations require the current placement leader",
+        "native capacity linearizability barrier failed",
+    )
+    .await
+    {
+        return response;
     }
     let Some(backend) = persistence.as_ref() else {
         return Response::err(req_id, "native capacity persistence is unavailable");
@@ -7802,18 +7837,8 @@ async fn dispatch_op_capacity_ops(
     if !backend.supports_native_capacity_leases() {
         return Response::err(req_id, "native capacity persistence is unavailable");
     }
-    if !state_machine_authorized {
-        let verified_owner = verified_context.principal_persistence_id();
-        let owner_matches = match &method {
-            Method::AcquireCapacity { request } => request.owner_digest == verified_owner,
-            Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
-                request.owner_digest == verified_owner
-            }
-            _ => true,
-        };
-        if !owner_matches {
-            return Response::err(req_id, "ACCESS_DENIED: capacity owner digest mismatch");
-        }
+    if !state_machine_authorized && !capacity_owner_matches(&method, verified_context) {
+        return Response::err(req_id, "ACCESS_DENIED: capacity owner digest mismatch");
     }
     let fname = crate::persist::sanitize(graph_name);
     let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
