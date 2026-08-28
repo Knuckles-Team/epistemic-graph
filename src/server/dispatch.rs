@@ -796,6 +796,100 @@ pub(crate) async fn apply_replicated_job_publication_finalize(
         .await
 }
 
+/// Commands whose consensus route is a per-tenant opaque coordinator key rather
+/// than a graph. Each of these owns its own store (keyed by blob/kv/series/job/
+/// statechart/catalog id), so it is not graph-scoped; one totally-ordered
+/// consensus route per tenant is what keeps replicas applying them in step.
+///
+/// Returns `None` for every graph-scoped command — the caller decides those.
+#[cfg(feature = "raft")]
+fn native_route_opaque_key(
+    tenant_scope: &str,
+    command: &crate::raft::NativeMutationCommand,
+) -> Option<String> {
+    #[allow(unused_variables)]
+    let key = |label: &str, kind: &str| {
+        Some(crate::server::mutation_batch::opaque_coordinator_key(
+            label,
+            tenant_scope,
+            kind,
+        ))
+    };
+    match command {
+        #[cfg(feature = "blob")]
+        crate::raft::NativeMutationCommand::Blob { .. } => key("raft-native-blob", "control"),
+        #[cfg(feature = "kv")]
+        crate::raft::NativeMutationCommand::KeyValue { .. } => key("raft-native-kv", "control"),
+        #[cfg(feature = "tsdb")]
+        crate::raft::NativeMutationCommand::TimeSeries { .. } => {
+            key("raft-native-timeseries", "control")
+        }
+        #[cfg(feature = "jobs")]
+        crate::raft::NativeMutationCommand::AnalyticsJob { .. } => {
+            key("raft-native-jobs", "control")
+        }
+        #[cfg(feature = "statechart")]
+        crate::raft::NativeMutationCommand::Statechart { .. } => {
+            key("raft-native-statechart", "control")
+        }
+        #[cfg(feature = "sqlite-file")]
+        crate::raft::NativeMutationCommand::SqliteCatalog { .. } => {
+            key("raft-native-sqlite", "catalog")
+        }
+        _ => None,
+    }
+}
+
+/// Commands ordered by a single process-global route.
+///
+/// `PLACEMENT_GRAPH` totally orders cluster/transaction/session control.
+/// Identity/RBAC state is process-global authority, so every such command must
+/// share ONE Raft order; tenant-hashed groups could apply concurrent
+/// add/remove transitions in different orders on each replica. `__commons__`
+/// also preserves the exact bootstrap route asserted before proposal and
+/// revalidated by `RaftRequest::validate`.
+#[cfg(feature = "raft")]
+fn native_route_control_plane(command: &crate::raft::NativeMutationCommand) -> Option<String> {
+    use crate::raft::NativeMutationCommand;
+    match command {
+        NativeMutationCommand::ClusterAdmin { .. }
+        | NativeMutationCommand::Transaction { .. }
+        | NativeMutationCommand::SessionControl { .. } => {
+            Some(crate::raft::placement::PLACEMENT_GRAPH.to_string())
+        }
+        NativeMutationCommand::Identity { .. } => Some("__commons__".to_string()),
+        _ => None,
+    }
+}
+
+/// A graph-lifecycle command routes to the graph it names, not to the graph the
+/// request arrived on. Any other method shape falls back to the request graph.
+#[cfg(feature = "raft")]
+fn native_route_lifecycle_target(
+    method: &Method,
+    command: &crate::raft::NativeMutationCommand,
+) -> Option<String> {
+    if !matches!(
+        command,
+        crate::raft::NativeMutationCommand::GraphLifecycle { .. }
+    ) {
+        return None;
+    }
+    match method {
+        Method::CreateGraph { graph_name, .. } | Method::DeleteGraph { graph_name } => {
+            Some(graph_name.clone())
+        }
+        _ => None,
+    }
+}
+
+/// The consensus route for one native mutation command.
+///
+/// Checked in order: per-tenant opaque coordinator keys, the process-global
+/// control plane, then the graph a lifecycle command names. Everything else —
+/// graph state, multisig, change envelopes, served modality, transaction
+/// participant/decision/finalize, job publication, work items — is graph-scoped
+/// and rides the request's own graph.
 #[cfg(feature = "raft")]
 fn native_route_target(
     request_graph: &str,
@@ -803,94 +897,10 @@ fn native_route_target(
     method: &Method,
     command: &crate::raft::NativeMutationCommand,
 ) -> String {
-    use crate::raft::NativeMutationCommand;
-    match command {
-        NativeMutationCommand::GraphState { .. } | NativeMutationCommand::Multisig { .. } => {
-            request_graph.to_string()
-        }
-        NativeMutationCommand::GraphLifecycle { .. } => match method {
-            Method::CreateGraph { graph_name, .. } | Method::DeleteGraph { graph_name } => {
-                graph_name.clone()
-            }
-            _ => request_graph.to_string(),
-        },
-        NativeMutationCommand::ClusterAdmin { .. } => {
-            crate::raft::placement::PLACEMENT_GRAPH.to_string()
-        }
-        NativeMutationCommand::ChangeEnvelope { .. } => request_graph.to_string(),
-        #[cfg(feature = "modality-serving")]
-        NativeMutationCommand::ServedModality { .. } => request_graph.to_string(),
-        NativeMutationCommand::Transaction { .. } => {
-            crate::raft::placement::PLACEMENT_GRAPH.to_string()
-        }
-        NativeMutationCommand::TransactionParticipant { .. }
-        | NativeMutationCommand::TransactionDecision { .. }
-        | NativeMutationCommand::TransactionFinalize { .. } => request_graph.to_string(),
-        #[cfg(feature = "jobs")]
-        NativeMutationCommand::JobPublicationCommit { .. }
-        | NativeMutationCommand::JobPublicationFinalize { .. } => request_graph.to_string(),
-        NativeMutationCommand::WorkItem { .. } => request_graph.to_string(),
-        #[cfg(feature = "blob")]
-        NativeMutationCommand::Blob { .. } => {
-            crate::server::mutation_batch::opaque_coordinator_key(
-                "raft-native-blob",
-                tenant_scope,
-                "control",
-            )
-        }
-        #[cfg(feature = "kv")]
-        NativeMutationCommand::KeyValue { .. } => {
-            crate::server::mutation_batch::opaque_coordinator_key(
-                "raft-native-kv",
-                tenant_scope,
-                "control",
-            )
-        }
-        #[cfg(feature = "tsdb")]
-        NativeMutationCommand::TimeSeries { .. } => {
-            crate::server::mutation_batch::opaque_coordinator_key(
-                "raft-native-timeseries",
-                tenant_scope,
-                "control",
-            )
-        }
-        #[cfg(feature = "jobs")]
-        NativeMutationCommand::AnalyticsJob { .. } => {
-            crate::server::mutation_batch::opaque_coordinator_key(
-                "raft-native-jobs",
-                tenant_scope,
-                "control",
-            )
-        }
-        // Not graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) --
-        // one totally-ordered consensus route per tenant, structurally identical
-        // to `AnalyticsJob` above.
-        #[cfg(feature = "statechart")]
-        NativeMutationCommand::Statechart { .. } => {
-            crate::server::mutation_batch::opaque_coordinator_key(
-                "raft-native-statechart",
-                tenant_scope,
-                "control",
-            )
-        }
-        #[cfg(feature = "sqlite-file")]
-        NativeMutationCommand::SqliteCatalog { .. } => {
-            crate::server::mutation_batch::opaque_coordinator_key(
-                "raft-native-sqlite",
-                tenant_scope,
-                "catalog",
-            )
-        }
-        NativeMutationCommand::SessionControl { .. } => {
-            crate::raft::placement::PLACEMENT_GRAPH.to_string()
-        }
-        // Identity/RBAC state is process-global authority. Every such command must
-        // therefore share one Raft order; tenant-hashed groups could apply
-        // concurrent add/remove transitions in different orders on each replica.
-        // `__commons__` also preserves the exact bootstrap route asserted before
-        // proposal and revalidated by `RaftRequest::validate`.
-        NativeMutationCommand::Identity { .. } => "__commons__".to_string(),
-    }
+    native_route_opaque_key(tenant_scope, command)
+        .or_else(|| native_route_control_plane(command))
+        .or_else(|| native_route_lifecycle_target(method, command))
+        .unwrap_or_else(|| request_graph.to_string())
 }
 
 #[cfg(all(test, feature = "raft"))]
@@ -2006,25 +2016,37 @@ fn validate_submit_context(
     if context.graph != graph {
         return Err("SubmitWorkItem context graph does not match request graph".to_string());
     }
-    if context.tenant_id != verified_context.tenant()
-        || context.agent_id != verified_context.agent_id()
-        || context.audience != verified_context.claims().audience
-        || context.policy_version != verified_context.claims().policy_version
-    {
+    if !submit_context_matches_authority(context, verified_context) {
         return Err("SubmitWorkItem context does not match verified request authority".to_string());
     }
-    if context.request_id.trim().is_empty()
-        || context.subject_id.trim().is_empty()
-        || context.trace_id.trim().is_empty()
-        || context
-            .scopes
-            .iter()
-            .any(|scope| scope.trim().is_empty() || !verified_context.allows_action(scope))
-        || context.expires_at_ms < context.issued_at_ms
-    {
+    if !submit_context_within_carrier_bounds(context, verified_context) {
         return Err("SubmitWorkItem context violates the verified carrier bounds".to_string());
     }
     Ok(())
+}
+
+fn submit_context_matches_authority(
+    context: &crate::epistemic_operations::RequestContext,
+    verified_context: &VerifiedRequestContext,
+) -> bool {
+    context.tenant_id == verified_context.tenant()
+        && context.agent_id == verified_context.agent_id()
+        && context.audience == verified_context.claims().audience
+        && context.policy_version == verified_context.claims().policy_version
+}
+
+fn submit_context_within_carrier_bounds(
+    context: &crate::epistemic_operations::RequestContext,
+    verified_context: &VerifiedRequestContext,
+) -> bool {
+    !context.request_id.trim().is_empty()
+        && !context.subject_id.trim().is_empty()
+        && !context.trace_id.trim().is_empty()
+        && !context
+            .scopes
+            .iter()
+            .any(|scope| scope.trim().is_empty() || !verified_context.allows_action(scope))
+        && context.expires_at_ms >= context.issued_at_ms
 }
 
 /// Validate every MessagePack-typed binary field reachable from a request before
@@ -2637,7 +2659,6 @@ async fn dispatch_resource_stats(
     }
 }
 
-
 /// Explicitly erases a dispatch-arm future's concrete (often enormous,
 /// datafusion/cypher/sql-plan-carrying) type to `dyn Future + Send` at the
 /// match-arm boundary, once, here -- rather than letting `dispatch_inner`'s
@@ -2671,10 +2692,7 @@ async fn dispatch_case_02_health(
             ) = {
                 let state = timed_read(state).await;
                 let manifests = state.registry.materialization_manifests();
-                let complete = manifests
-                    .iter()
-                    .filter(|manifest| manifest.valid)
-                    .count();
+                let complete = manifests.iter().filter(|manifest| manifest.valid).count();
                 let partial = manifests
                     .iter()
                     .filter(|manifest| {
@@ -2696,15 +2714,18 @@ async fn dispatch_case_02_health(
                         "failed_graphs": failed,
                         "all_resident_materializations_valid": partial == 0 && failed == 0,
                     }),
-                    state.persistence.as_ref().is_some_and(|backend| {
-                        backend.supports_native_resource_reservations()
-                    }),
-                    state.persistence.as_ref().is_some_and(|backend| {
-                        backend.supports_native_capacity_leases()
-                    }),
-                    state.persistence.as_ref().is_some_and(|backend| {
-                        backend.supports_native_work_item_submission()
-                    }),
+                    state
+                        .persistence
+                        .as_ref()
+                        .is_some_and(|backend| backend.supports_native_resource_reservations()),
+                    state
+                        .persistence
+                        .as_ref()
+                        .is_some_and(|backend| backend.supports_native_capacity_leases()),
+                    state
+                        .persistence
+                        .as_ref()
+                        .is_some_and(|backend| backend.supports_native_work_item_submission()),
                 )
             };
             let uptime_s = 0; // you can capture start time in ServerState
@@ -2751,25 +2772,22 @@ async fn dispatch_case_02_health(
     }
 }
 
-async fn dispatch_case_04_parse_file(
-    req_id: u64,
-    method: Method,
-) -> Response {
+async fn dispatch_case_04_parse_file(req_id: u64, method: Method) -> Response {
     match method {
         Method::ParseFile { file_path, source } => {
             #[cfg(feature = "ast")]
             let input_check = validate_ast_logical_path(&file_path).and_then(|()| {
                 let limits = ast_input_limits();
-                if source.len() > limits.max_source_bytes
-                    || source.len() > limits.max_total_bytes
-                {
+                if source.len() > limits.max_source_bytes || source.len() > limits.max_total_bytes {
                     Err("AST_INPUT_LIMIT: source content exceeds the configured limit".to_string())
                 } else {
                     Ok(())
                 }
             });
             #[cfg(feature = "ast")]
-            match input_check.and_then(|()| crate::parser::tree_sitter::parse_file(&file_path, &source)) {
+            match input_check
+                .and_then(|()| crate::parser::tree_sitter::parse_file(&file_path, &source))
+            {
                 Ok(result) => match serde_json::to_value(&result) {
                     Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
@@ -2786,10 +2804,7 @@ async fn dispatch_case_04_parse_file(
     }
 }
 
-async fn dispatch_case_05_parse_files(
-    req_id: u64,
-    method: Method,
-) -> Response {
+async fn dispatch_case_05_parse_files(req_id: u64, method: Method) -> Response {
     match method {
         Method::ParseFiles { files_msgpack } => {
             #[cfg(feature = "ast")]
@@ -2825,10 +2840,7 @@ async fn dispatch_case_05_parse_files(
     }
 }
 
-async fn dispatch_case_06_index_repository(
-    req_id: u64,
-    method: Method,
-) -> Response {
+async fn dispatch_case_06_index_repository(req_id: u64, method: Method) -> Response {
     match method {
         Method::IndexRepository { files_msgpack } => {
             #[cfg(feature = "ast")]
@@ -2864,10 +2876,7 @@ async fn dispatch_case_06_index_repository(
     }
 }
 
-async fn dispatch_case_07_observe_screen(
-    req_id: u64,
-    method: Method,
-) -> Response {
+async fn dispatch_case_07_observe_screen(req_id: u64, method: Method) -> Response {
     match method {
         Method::ObserveScreen { obs_msgpack } => {
             // MessagePack map → a captured desktop frame. png rides as a bin field;
@@ -2888,10 +2897,7 @@ async fn dispatch_case_07_observe_screen(
     }
 }
 
-async fn dispatch_case_08_shutdown(
-    req_id: u64,
-    method: Method,
-) -> Response {
+async fn dispatch_case_08_shutdown(req_id: u64, method: Method) -> Response {
     match method {
         Method::Shutdown => {
             info!("Shutdown requested via protocol");
@@ -2965,8 +2971,7 @@ async fn dispatch_case_11_create_graph(
             // Lifecycle shares the same per-graph serialization lane as ordinary
             // MutationBatch/txn writes.  The durable identity must land before the
             // registry publishes this incarnation.
-            let _mutation_guard =
-                crate::server::mutation_batch::lock_graph(&graph_name).await;
+            let _mutation_guard = crate::server::mutation_batch::lock_graph(&graph_name).await;
             let (backend, already_exists) = {
                 let s = timed_read(state).await;
                 (s.persistence.clone(), s.registry.exists(&graph_name))
@@ -2977,11 +2982,8 @@ async fn dispatch_case_11_create_graph(
             let created_result = ResultPayload::Json(serde_json::json!({
                 "created": graph_name.clone()
             }));
-            let incarnation_id = crate::server::mutation_batch::lifecycle_batch_id(
-                "create",
-                &graph_name,
-                req_id,
-            );
+            let incarnation_id =
+                crate::server::mutation_batch::lifecycle_batch_id("create", &graph_name, req_id);
             if already_exists {
                 match crate::server::mutation_batch::lifecycle_was_committed(
                     &backend,
@@ -3016,16 +3018,10 @@ async fn dispatch_case_11_create_graph(
             )
             .await
             {
-                return Response::err(
-                    req_id,
-                    format!("durable graph registration failed: {e}"),
-                );
+                return Response::err(req_id, format!("durable graph registration failed: {e}"));
             }
             let graph_fname = crate::persist::sanitize(&graph_name);
-            let committed_version = match backend
-                .read_mutation_graph_version(&graph_fname)
-                .await
-            {
+            let committed_version = match backend.read_mutation_graph_version(&graph_fname).await {
                 Ok(Some(version)) if version > 0 => version,
                 Ok(Some(_)) => {
                     return Response::err(
@@ -3064,16 +3060,13 @@ async fn dispatch_case_11_create_graph(
             }
             // The creator (when identified) becomes the graph owner, which is
             // what peer-deny / manager-access checks resolve against.
-            match s
-                .registry
-                .create_graph_with_incarnation(
-                    &graph_name,
-                    graph_type,
-                    req_agent_id.clone(),
-                    incarnation_id,
-                    committed_version,
-                )
-            {
+            match s.registry.create_graph_with_incarnation(
+                &graph_name,
+                graph_type,
+                req_agent_id.clone(),
+                incarnation_id,
+                committed_version,
+            ) {
                 Ok(()) => {
                     crate::metrics::set_graph_size(&graph_name, 0, 0);
                     // Close the CreateGraph RBAC-provisioning gap (P0 tenant-graph
@@ -3129,17 +3122,17 @@ async fn dispatch_case_12_delete_graph(
                 let record = s.registry.catalog_record(graph_name);
                 if !state_machine_authorized {
                     if let Some(record) = record.as_ref() {
-                    if let Err(denied) = check_graph_access(
-                        &s.isolation,
-                        req_agent_id.as_deref(),
-                        graph_name,
-                        record.graph_type,
-                        record.owner.as_deref(),
-                        AccessLevel::Write,
-                    ) {
-                        return Response::err(req_id, denied);
+                        if let Err(denied) = check_graph_access(
+                            &s.isolation,
+                            req_agent_id.as_deref(),
+                            graph_name,
+                            record.graph_type,
+                            record.owner.as_deref(),
+                            AccessLevel::Write,
+                        ) {
+                            return Response::err(req_id, denied);
+                        }
                     }
-                }
                 }
                 (s.persistence.clone(), record.is_some())
             };
@@ -3151,10 +3144,7 @@ async fn dispatch_case_12_delete_graph(
             }));
             if !exists {
                 match crate::server::mutation_batch::lifecycle_was_committed(
-                    &backend,
-                    "delete",
-                    graph_name,
-                    req_id,
+                    &backend, "delete", graph_name, req_id,
                 )
                 .await
                 {
@@ -3274,13 +3264,11 @@ async fn dispatch_case_13_list_graphs(
     match method {
         Method::ListGraphs => {
             let s = timed_read(state).await;
-            let read_authority = match GraphReadAuthority::from_verified(
-                verified_context,
-                &s.isolation,
-            ) {
-                Ok(authority) => authority,
-                Err(denied) => return Response::err(req_id, denied),
-            };
+            let read_authority =
+                match GraphReadAuthority::from_verified(verified_context, &s.isolation) {
+                    Ok(authority) => authority,
+                    Err(denied) => return Response::err(req_id, denied),
+                };
             let graphs: Vec<serde_json::Value> = s
                 .registry
                 .list()
@@ -3443,14 +3431,7 @@ async fn dispatch_case_17_cluster_members(
 ) -> Response {
     match method {
         Method::ClusterMembers | Method::NodeInfoUpsert { .. } => {
-            match handlers::topology::try_handle(
-                state,
-                req_id,
-                method,
-                verified_context,
-            )
-            .await
-            {
+            match handlers::topology::try_handle(state, req_id, method, verified_context).await {
                 Ok(resp) => resp,
                 // Unreachable: both variants matched above are topology methods.
                 Err(_) => Response::err(req_id, "cluster topology dispatch routing error"),
@@ -3511,16 +3492,13 @@ async fn dispatch_case_19_create_channel(
                 return Response::err(req_id, "ACCESS_DENIED: channel creator must be caller");
             }
             let mut s = timed_write(state).await;
-            match s
-                .channels
-                .create_channel_scoped(
-                    &channel_id,
-                    carrier.tenant_scope(),
-                    channel_type,
-                    carrier.agent_id(),
-                    initial_members,
-                )
-            {
+            match s.channels.create_channel_scoped(
+                &channel_id,
+                carrier.tenant_scope(),
+                channel_type,
+                carrier.agent_id(),
+                initial_members,
+            ) {
                 Ok(()) => Response::ok(
                     req_id,
                     ResultPayload::Json(serde_json::json!({"channel": channel_id})),
@@ -3585,11 +3563,10 @@ async fn dispatch_case_21_leave_channel(
                 return Response::err(req_id, "ACCESS_DENIED: channel leave actor must be caller");
             }
             let mut s = timed_write(state).await;
-            if let Err(error) = s.channels.authorize_member(
-                &channel_id,
-                carrier.tenant_scope(),
-                carrier.agent_id(),
-            ) {
+            if let Err(error) =
+                s.channels
+                    .authorize_member(&channel_id, carrier.tenant_scope(), carrier.agent_id())
+            {
                 return Response::err(req_id, error);
             }
             match s.channels.leave_channel(&channel_id, carrier.agent_id()) {
@@ -3673,11 +3650,10 @@ async fn dispatch_case_23_send_message(
                 return Response::err(req_id, "ACCESS_DENIED: channel sender must be caller");
             }
             let mut s = timed_write(state).await;
-            if let Err(error) = s.channels.authorize_member(
-                &channel_id,
-                carrier.tenant_scope(),
-                carrier.agent_id(),
-            ) {
+            if let Err(error) =
+                s.channels
+                    .authorize_member(&channel_id, carrier.tenant_scope(), carrier.agent_id())
+            {
                 return Response::err(req_id, error);
             }
             match s
@@ -3705,11 +3681,10 @@ async fn dispatch_case_24_get_channel_messages(
                 Err(denied) => return Response::err(req_id, denied),
             };
             let s = timed_read(state).await;
-            if let Err(error) = s.channels.authorize_member(
-                &channel_id,
-                carrier.tenant_scope(),
-                carrier.agent_id(),
-            ) {
+            if let Err(error) =
+                s.channels
+                    .authorize_member(&channel_id, carrier.tenant_scope(), carrier.agent_id())
+            {
                 return Response::err(req_id, error);
             }
             match s.channels.get_messages(&channel_id, limit) {
@@ -3764,11 +3739,10 @@ async fn dispatch_case_26_get_channel_members(
                 Err(denied) => return Response::err(req_id, denied),
             };
             let s = timed_read(state).await;
-            if let Err(error) = s.channels.authorize_member(
-                &channel_id,
-                carrier.tenant_scope(),
-                carrier.agent_id(),
-            ) {
+            if let Err(error) =
+                s.channels
+                    .authorize_member(&channel_id, carrier.tenant_scope(), carrier.agent_id())
+            {
                 return Response::err(req_id, error);
             }
             match s.channels.get_members(&channel_id) {
@@ -3921,42 +3895,29 @@ async fn dispatch_case_30_rbac_admin(
             use crate::acl::RbacAdminOp;
             let mut s = timed_write(state).await;
             match op {
-                RbacAdminOp::AddRole(role) => {
-                    match s.isolation.try_add_role(role) {
-                        Ok(()) => Response::ok(
-                            req_id,
-                            ResultPayload::String("role_added".to_string()),
-                        ),
-                        Err(message) => Response::err(req_id, message),
+                RbacAdminOp::AddRole(role) => match s.isolation.try_add_role(role) {
+                    Ok(()) => Response::ok(req_id, ResultPayload::String("role_added".to_string())),
+                    Err(message) => Response::err(req_id, message),
+                },
+                RbacAdminOp::RemoveRole(name) => match s.isolation.try_remove_role(&name) {
+                    Ok(()) => {
+                        Response::ok(req_id, ResultPayload::String("role_removed".to_string()))
                     }
-                }
-                RbacAdminOp::RemoveRole(name) => {
-                    match s.isolation.try_remove_role(&name) {
-                        Ok(()) => Response::ok(
-                            req_id,
-                            ResultPayload::String("role_removed".to_string()),
-                        ),
-                        Err(message) => Response::err(req_id, message),
+                    Err(message) => Response::err(req_id, message),
+                },
+                RbacAdminOp::AddGrant(grant) => match s.isolation.try_add_grant(grant) {
+                    Ok(()) => {
+                        Response::ok(req_id, ResultPayload::String("grant_added".to_string()))
                     }
-                }
-                RbacAdminOp::AddGrant(grant) => {
-                    match s.isolation.try_add_grant(grant) {
-                        Ok(()) => Response::ok(
-                            req_id,
-                            ResultPayload::String("grant_added".to_string()),
-                        ),
-                        Err(message) => Response::err(req_id, message),
-                    }
-                }
-                RbacAdminOp::RemoveGrant(grant) => {
-                    match s.isolation.try_remove_grant(&grant) {
-                        Ok(removed) => Response::ok(
-                            req_id,
-                            ResultPayload::Json(serde_json::json!({ "removed": removed })),
-                        ),
-                        Err(message) => Response::err(req_id, message),
-                    }
-                }
+                    Err(message) => Response::err(req_id, message),
+                },
+                RbacAdminOp::RemoveGrant(grant) => match s.isolation.try_remove_grant(&grant) {
+                    Ok(removed) => Response::ok(
+                        req_id,
+                        ResultPayload::Json(serde_json::json!({ "removed": removed })),
+                    ),
+                    Err(message) => Response::err(req_id, message),
+                },
                 RbacAdminOp::List => {
                     let policy = s.isolation.rbac();
                     let roles: Vec<_> = policy.roles().cloned().collect();
@@ -4156,7 +4117,7 @@ async fn dispatch_case_38_txn_add_measurement(
                 verified_context,
                 method,
             )
-                .await
+            .await
             {
                 Ok(resp) => resp,
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
@@ -4182,7 +4143,7 @@ async fn dispatch_case_39_txn_axiom(
                 verified_context,
                 method,
             )
-                .await
+            .await
             {
                 Ok(resp) => resp,
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
@@ -4208,7 +4169,7 @@ async fn dispatch_case_40_txn_construct(
                 verified_context,
                 method,
             )
-                .await
+            .await
             {
                 Ok(resp) => resp,
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
@@ -4234,7 +4195,7 @@ async fn dispatch_case_41_txn_plan_writeback(
                 verified_context,
                 method,
             )
-                .await
+            .await
             {
                 Ok(resp) => resp,
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
@@ -4260,7 +4221,7 @@ async fn dispatch_case_42_txn_materialize_belief(
                 verified_context,
                 method,
             )
-                .await
+            .await
             {
                 Ok(resp) => resp,
                 Err(_) => Response::err(req_id, "txn dispatch routing error"),
@@ -4291,14 +4252,7 @@ async fn dispatch_case_43_blob_begin(
                 Ok(authority) => authority,
                 Err(denied) => return Response::err(req_id, denied),
             };
-            match handlers::blob::try_handle(
-                state,
-                req_id,
-                &carrier,
-                method,
-            )
-            .await
-            {
+            match handlers::blob::try_handle(state, req_id, &carrier, method).await {
                 Ok(resp) => resp,
                 // Unreachable: every variant matched above is a blob method.
                 Err(_) => Response::err(req_id, "blob dispatch routing error"),
@@ -4325,14 +4279,7 @@ async fn dispatch_case_44_kv_get(
                 Ok(authority) => authority,
                 Err(denied) => return Response::err(req_id, denied),
             };
-            match crate::server::kv::try_handle(
-                state,
-                req_id,
-                &carrier,
-                method,
-            )
-            .await
-            {
+            match crate::server::kv::try_handle(state, req_id, &carrier, method).await {
                 Ok(resp) => resp,
                 // Unreachable: every variant matched above is a kv method.
                 Err(_) => Response::err(req_id, "kv dispatch routing error"),
@@ -4355,14 +4302,7 @@ async fn dispatch_case_45_import_sqlite_file(
                 Ok(authority) => authority,
                 Err(denied) => return Response::err(req_id, denied),
             };
-            match handlers::sqlite_file::try_handle(
-                state,
-                req_id,
-                &carrier,
-                method,
-            )
-            .await
-            {
+            match handlers::sqlite_file::try_handle(state, req_id, &carrier, method).await {
                 Ok(resp) => resp,
                 // Unreachable: both variants matched above are sqlite-file methods.
                 Err(_) => Response::err(req_id, "sqlite-file dispatch routing error"),
@@ -4400,14 +4340,8 @@ async fn dispatch_case_46_cdc_read(
                     Err(denied) => return Response::err(req_id, denied),
                 }
             };
-            match handlers::streaming::try_handle(
-                state,
-                req_id,
-                &carrier,
-                &read_authority,
-                method,
-            )
-            .await
+            match handlers::streaming::try_handle(state, req_id, &carrier, &read_authority, method)
+                .await
             {
                 Ok(resp) => resp,
                 // Unreachable: every variant matched above is a streaming method.
@@ -4457,13 +4391,8 @@ async fn dispatch_case_48_owl_reason_distributed(
                     Err(denied) => return Response::err(req_id, denied),
                 }
             };
-            match handlers::rdf::try_handle_distributed(
-                state,
-                req_id,
-                &read_authority,
-                method,
-            )
-            .await
+            match handlers::rdf::try_handle_distributed(state, req_id, &read_authority, method)
+                .await
             {
                 Ok(resp) => resp,
                 // Unreachable: the only variant routed here is OwlReasonDistributed.
@@ -4581,13 +4510,14 @@ async fn dispatch_case_52_knowledge_stream(
     match method {
         Method::KnowledgeStream { request } => {
             let auth_secret = timed_read(state).await.auth_secret.clone();
-            let authority = match handlers::knowledge_stream::KnowledgeStreamAuthority::from_verified(
-                &auth_secret,
-                verified_context.claims(),
-            ) {
-                Ok(authority) => authority,
-                Err(error) => return Response::err(req_id, error),
-            };
+            let authority =
+                match handlers::knowledge_stream::KnowledgeStreamAuthority::from_verified(
+                    &auth_secret,
+                    verified_context.claims(),
+                ) {
+                    Ok(authority) => authority,
+                    Err(error) => return Response::err(req_id, error),
+                };
             dispatch_knowledge_stream(
                 state,
                 &req_graph,
@@ -4758,52 +4688,69 @@ async fn dispatch_case_57_multi_graph_batch_update(
     }
 }
 
-fn check_resource_and_capacity_controller_scope(
-    req: &Request,
-    verified_context: &VerifiedRequestContext,
-) -> Result<(), Response> {
-    let required_resource_scope = match &req.method {
+fn required_resource_controller_scope(method: &Method) -> Option<&'static str> {
+    match method {
         Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. } => Some("resource:reserve"),
         Method::UpdateResourceHost { .. } => Some("resource:host"),
         _ => None,
-    };
-    if let Some(required_scope) = required_resource_scope {
-        let controller_authorized = verified_context.allows_action(required_scope)
-            || verified_context.allows_action("kg:admin");
-        if !controller_authorized {
-            crate::metrics::access_denied();
-            return Err(Response::err(
-                req.id,
-                format!(
-                    "ACCESS_DENIED: resource authority requires controller scope '{required_scope}'"
-                ),
-            ));
-        }
     }
-    let required_capacity_scope = match &req.method {
+}
+
+fn required_capacity_controller_scope(method: &Method) -> Option<&'static str> {
+    match method {
         Method::AcquireCapacity { .. }
         | Method::RenewCapacity { .. }
         | Method::ReleaseCapacity { .. }
         | Method::ReclaimExpiredCapacity { .. } => Some("capacity:lease"),
         Method::UpdateCapacityCell { .. } => Some("capacity:admin"),
         _ => None,
-    };
-    if let Some(required_scope) = required_capacity_scope {
-        let authorized = verified_context.allows_action(required_scope)
-            || verified_context.allows_action("kg:admin");
-        if !authorized {
-            crate::metrics::access_denied();
-            return Err(Response::err(
-                req.id,
-                format!(
-                    "ACCESS_DENIED: capacity authority requires controller scope '{required_scope}'"
-                ),
-            ));
-        }
     }
-    Ok(())
+}
+
+/// One controller-scope gate. `authority` names the surface in the refusal text
+/// so the caller's message is byte-identical to the inline checks this replaced.
+fn enforce_controller_scope(
+    req: &Request,
+    verified_context: &VerifiedRequestContext,
+    required_scope: Option<&str>,
+    authority: &str,
+) -> Result<(), Response> {
+    let Some(required_scope) = required_scope else {
+        return Ok(());
+    };
+    if verified_context.allows_action(required_scope) || verified_context.allows_action("kg:admin")
+    {
+        return Ok(());
+    }
+    crate::metrics::access_denied();
+    Err(Response::err(
+        req.id,
+        format!(
+            "ACCESS_DENIED: {authority} authority requires controller scope '{required_scope}'"
+        ),
+    ))
+}
+
+fn check_resource_and_capacity_controller_scope(
+    req: &Request,
+    verified_context: &VerifiedRequestContext,
+) -> Result<(), Response> {
+    // Resource authority is checked BEFORE capacity authority; a request that
+    // violates both must keep reporting the resource refusal.
+    enforce_controller_scope(
+        req,
+        verified_context,
+        required_resource_controller_scope(&req.method),
+        "resource",
+    )?;
+    enforce_controller_scope(
+        req,
+        verified_context,
+        required_capacity_controller_scope(&req.method),
+        "capacity",
+    )
 }
 
 async fn check_resource_and_capacity_scope(
@@ -5115,7 +5062,8 @@ async fn dispatch_preamble_checks(
 ) -> Result<(Request, bool), Response> {
     let method_policy = eg_capabilities::policy(&req.method);
     let action = method_policy.authz_action;
-    let identity_bootstrap = compute_identity_bootstrap(state, &req, verified_context, state_machine_authorized).await;
+    let identity_bootstrap =
+        compute_identity_bootstrap(state, &req, verified_context, state_machine_authorized).await;
     // Resource reservation authority is deliberately narrower than the coarse
     // `kg:write` aggregate.  The resolved-profile assertion and host telemetry
     // are controller inputs; an ordinary graph writer must not be able to forge
@@ -5162,7 +5110,12 @@ async fn dispatch_preamble_checks(
         ));
     }
 
-    check_submit_work_item_context(&req, verified_context, state_machine_authorized, identity_bootstrap)?;
+    check_submit_work_item_context(
+        &req,
+        verified_context,
+        state_machine_authorized,
+        identity_bootstrap,
+    )?;
 
     // Cluster writes cross consensus at the authenticated request boundary. The
     // complete mutation inventory is partitioned between graph commands and typed
@@ -5172,7 +5125,8 @@ async fn dispatch_preamble_checks(
     check_cluster_placement_before_consensus(state, &req).await?;
 
     #[cfg(feature = "raft")]
-    let req = route_consensus_before_gateway(state, req, verified_context, identity_bootstrap).await?;
+    let req =
+        route_consensus_before_gateway(state, req, verified_context, identity_bootstrap).await?;
 
     Ok((req, identity_bootstrap))
 }
@@ -5216,17 +5170,13 @@ async fn dispatch_inner(
     // every current AND future admin-tier method is covered without a dispatch.rs
     // edit. Runs only when the `server` feature (which pulls in `eg-capabilities`)
     // is active -- always true for this binary.
-    let (req, identity_bootstrap) = match dispatch_preamble_checks(
-        state,
-        req,
-        &verified_context,
-        state_machine_authorized,
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
+    let (req, identity_bootstrap) =
+        match dispatch_preamble_checks(state, req, &verified_context, state_machine_authorized)
+            .await
+        {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
     let session_control =
         match begin_session_control_saga(state, req.id, req.agent_id.as_deref(), &req.method).await
         {
@@ -7643,69 +7593,64 @@ async fn dispatch_op_resource_reservation_query(
     graph_name: &str,
     verified_context: &VerifiedRequestContext,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    #[cfg(feature = "raft")]
-    multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
-    #[cfg(feature = "raft")]
-    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+    #[cfg(feature = "raft")] multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
+    #[cfg(feature = "raft")] routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
     method: Method,
-) -> Response
-{
-        #[cfg(feature = "raft")]
-        if let Some(routed) = routed_raft.as_ref() {
-            let leader = routed.handle.current_leader().await;
-            if leader != Some(routed.handle.node_id) {
-                return Response::stale_route(
+) -> Response {
+    #[cfg(feature = "raft")]
+    if let Some(routed) = routed_raft.as_ref() {
+        let leader = routed.handle.current_leader().await;
+        if leader != Some(routed.handle.node_id) {
+            return Response::stale_route(
+                req_id,
+                graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                "native reservation reads require the current placement leader",
+            );
+        }
+        if let Some(multi) = multi_raft.as_ref() {
+            if let Err(error) = multi.read_barrier_group(routed.group_id).await {
+                return Response::err(
                     req_id,
-                    graph_name,
-                    routed.group_id,
-                    routed.epoch,
-                    leader,
-                    "native reservation reads require the current placement leader",
+                    format!("native reservation read linearizability barrier failed: {error:?}"),
                 );
             }
-            if let Some(multi) = multi_raft.as_ref() {
-                if let Err(error) = multi.read_barrier_group(routed.group_id).await {
-                    return Response::err(
-                        req_id,
-                        format!(
-                            "native reservation read linearizability barrier failed: {error:?}"
-                        ),
-                    );
-                }
-            }
         }
-        let Some(backend) = persistence.as_ref() else {
-            return Response::err(req_id, "native reservation persistence is unavailable");
-        };
-        let fname = crate::persist::sanitize(graph_name);
-        let crate::protocol::Method::QueryWorkItemReservation { request } = &method else {
-            if let crate::protocol::Method::ResourceReservationStatus { request } = &method {
-                return match backend
-                    .read_resource_reservation_status(&fname, request)
-                    .await
-                {
-                    Ok(result) => Response::ok(
-                        req_id,
-                        redact_resource_status_result(
-                            result,
-                            request,
-                            verified_context.allows_action("resource:read:aggregate")
-                                || verified_context.allows_action("kg:admin"),
-                        ),
-                    ),
-                    Err(error) => Response::err(
-                        req_id,
-                        format!("native reservation status read failed: {error}"),
-                    ),
-                };
-            }
-            unreachable!("resource query classifier and dispatch method diverged");
-        };
-        return match backend.read_resource_reservation(&fname, request).await {
-            Ok(result) => Response::ok(req_id, ResultPayload::raw(&result)),
-            Err(error) => Response::err(req_id, format!("native reservation read failed: {error}")),
-        };
     }
+    let Some(backend) = persistence.as_ref() else {
+        return Response::err(req_id, "native reservation persistence is unavailable");
+    };
+    let fname = crate::persist::sanitize(graph_name);
+    let crate::protocol::Method::QueryWorkItemReservation { request } = &method else {
+        if let crate::protocol::Method::ResourceReservationStatus { request } = &method {
+            return match backend
+                .read_resource_reservation_status(&fname, request)
+                .await
+            {
+                Ok(result) => Response::ok(
+                    req_id,
+                    redact_resource_status_result(
+                        result,
+                        request,
+                        verified_context.allows_action("resource:read:aggregate")
+                            || verified_context.allows_action("kg:admin"),
+                    ),
+                ),
+                Err(error) => Response::err(
+                    req_id,
+                    format!("native reservation status read failed: {error}"),
+                ),
+            };
+        }
+        unreachable!("resource query classifier and dispatch method diverged");
+    };
+    return match backend.read_resource_reservation(&fname, request).await {
+        Ok(result) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Err(error) => Response::err(req_id, format!("native reservation read failed: {error}")),
+    };
+}
 
 /// The authenticated, placement-resolved routing context the native durable-op
 /// dispatchers below share (capacity leases, WorkItem claim capability). These
@@ -7727,262 +7672,254 @@ async fn dispatch_op_capacity_ops(
     ctx: NativeOpCtx<'_>,
     state_machine_authorized: bool,
     method: Method,
-) -> Response
-{
-        let req_id = ctx.req_id;
-        let graph_name = ctx.graph_name;
-        let verified_context = ctx.verified_context;
-        let persistence = ctx.persistence;
-        #[cfg(feature = "raft")]
-        let multi_raft = ctx.multi_raft;
-        #[cfg(feature = "raft")]
-        let routed_raft = ctx.routed_raft;
-        #[cfg(feature = "raft")]
-        if let Some(routed) = routed_raft.as_ref() {
-            let leader = routed.handle.current_leader().await;
-            if leader != Some(routed.handle.node_id) {
-                return Response::stale_route(
-                    req_id,
-                    graph_name,
-                    routed.group_id,
-                    routed.epoch,
-                    leader,
-                    "native capacity operations require the current placement leader",
-                );
-            }
-            if let Some(multi) = multi_raft.as_ref() {
-                if let Err(error) = multi.read_barrier_group(routed.group_id).await {
-                    return Response::err(
-                        req_id,
-                        format!("native capacity linearizability barrier failed: {error:?}"),
-                    );
-                }
-            }
-        }
-        let Some(backend) = persistence.as_ref() else {
-            return Response::err(req_id, "native capacity persistence is unavailable");
-        };
-        if !backend.supports_native_capacity_leases() {
-            return Response::err(req_id, "native capacity persistence is unavailable");
-        }
-        if !state_machine_authorized {
-            let verified_owner = verified_context.principal_persistence_id();
-            let owner_matches = match &method {
-                Method::AcquireCapacity { request } => request.owner_digest == verified_owner,
-                Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
-                    request.owner_digest == verified_owner
-                }
-                _ => true,
-            };
-            if !owner_matches {
-                return Response::err(req_id, "ACCESS_DENIED: capacity owner digest mismatch");
-            }
-        }
-        let fname = crate::persist::sanitize(graph_name);
-        let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-        match method {
-            Method::CapacityStatus { ref request } | Method::ReconcileCapacity { ref request } => {
-                backend
-                    .read_capacity_status(&fname, request)
-                    .await
-                    .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
-                    .unwrap_or_else(|error| {
-                        Response::err(
-                            req_id,
-                            format!("native capacity status read failed: {error}"),
-                        )
-                    })
-            }
-            method @ (Method::AcquireCapacity { .. }
-            | Method::RenewCapacity { .. }
-            | Method::ReleaseCapacity { .. }
-            | Method::ReclaimExpiredCapacity { .. }
-            | Method::UpdateCapacityCell { .. }) => backend
-                .commit_capacity_lease(&fname, method)
-                .await
-                .map(|bytes| Response::ok(req_id, ResultPayload::Raw(bytes)))
-                .unwrap_or_else(|error| {
-                    Response::err(req_id, format!("native capacity commit failed: {error}"))
-                }),
-            _ => unreachable!("capacity classifier and dispatch diverged"),
-        }
-    }
-
-async fn dispatch_op_workitem_claim_capability(
-    ctx: NativeOpCtx<'_>,
-    #[cfg(feature = "redb")]
-    graph_incarnation_id: String,
-    method: Method,
-) -> Response
-{
-        let req_id = ctx.req_id;
-        let graph_name = ctx.graph_name;
-        let verified_context = ctx.verified_context;
-        let persistence = ctx.persistence;
-        #[cfg(feature = "raft")]
-        let multi_raft = ctx.multi_raft;
-        #[cfg(feature = "raft")]
-        let routed_raft = ctx.routed_raft;
-        #[cfg(feature = "raft")]
-        if is_replicated_apply() {
-            // A replicated apply has only the bounded Raft routing context;
-            // capability authority requires the original cryptographically
-            // verified principal and session envelope.
-            return Response::err(
+) -> Response {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let verified_context = ctx.verified_context;
+    let persistence = ctx.persistence;
+    #[cfg(feature = "raft")]
+    let multi_raft = ctx.multi_raft;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    #[cfg(feature = "raft")]
+    if let Some(routed) = routed_raft.as_ref() {
+        let leader = routed.handle.current_leader().await;
+        if leader != Some(routed.handle.node_id) {
+            return Response::stale_route(
                 req_id,
-                crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+                graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                "native capacity operations require the current placement leader",
             );
         }
-        #[cfg(feature = "raft")]
-        if let Some(routed) = routed_raft.as_ref() {
-            let leader = routed.handle.current_leader().await;
-            if leader != Some(routed.handle.node_id) {
-                return Response::stale_route(
-                    req_id,
-                    graph_name,
-                    routed.group_id,
-                    routed.epoch,
-                    leader,
-                    "WorkItem claim capabilities require the current placement leader",
-                );
-            }
-            if let Some(multi) = multi_raft.as_ref() {
-                if let Err(error) = multi.read_barrier_group(routed.group_id).await {
-                    return Response::err(
-                        req_id,
-                        format!(
-                            "WorkItem claim capability linearizability barrier failed: {error:?}"
-                        ),
-                    );
-                }
-            }
-        }
-        let Some(backend) = persistence.as_ref() else {
-            return Response::err(
-                req_id,
-                "native WorkItem claim capability persistence is unavailable",
-            );
-        };
-        #[cfg(feature = "redb")]
-        {
-            let Some(redb) = backend.as_redb() else {
+        if let Some(multi) = multi_raft.as_ref() {
+            if let Err(error) = multi.read_barrier_group(routed.group_id).await {
                 return Response::err(
                     req_id,
-                    "native WorkItem claim capability persistence is unavailable",
+                    format!("native capacity linearizability barrier failed: {error:?}"),
                 );
-            };
-            let authority = crate::redb_store::work_item_capability::AuthenticatedAuthority {
-                tenant: verified_context.tenant().to_string(),
-                audience: verified_context.claims().audience.clone(),
-                principal: verified_context.principal_persistence_id(),
-                agent_id: verified_context.agent_id().to_string(),
-                session: verified_context.idempotency_key().to_string(),
-                authority_epoch: work_item_capability_authority_epoch(&graph_incarnation_id),
-                incarnation_id: graph_incarnation_id.clone(),
-                now_ms: authoritative_now_ms(),
-            };
-            let fname = crate::persist::sanitize(graph_name);
-            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-            match method {
-                Method::MintWorkItemClaimCapability { request } => redb
-                    .mint_work_item_claim_capability(&fname, request, authority)
-                    .await
-                    .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
-                    .unwrap_or_else(|error| {
-                        Response::err(
-                            req_id,
-                            format!("WorkItem claim capability mint failed: {error}"),
-                        )
-                    }),
-                Method::VerifyWorkItemClaimCapability { request } => redb
-                    .verify_work_item_claim_capability(&fname, request, authority)
-                    .await
-                    .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
-                    .unwrap_or_else(|error| {
-                        Response::err(
-                            req_id,
-                            format!("WorkItem claim capability verify failed: {error}"),
-                        )
-                    }),
-                _ => unreachable!("capability classifier and dispatch diverged"),
             }
-        }
-        #[cfg(not(feature = "redb"))]
-        {
-            let _ = backend;
-            return Response::err(
-                req_id,
-                "native WorkItem claim capability requires redb persistence",
-            );
         }
     }
-
-async fn dispatch_op_development_lane(
-    req_id: u64,
-    graph_name: &str,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    #[cfg(feature = "raft")]
-    multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
-    #[cfg(feature = "raft")]
-    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
-    method: Method,
-) -> Response
-{
-        #[cfg(feature = "raft")]
-        if let Some(routed) = routed_raft.as_ref() {
-            let leader = routed.handle.current_leader().await;
-            if leader != Some(routed.handle.node_id) {
-                return Response::stale_route(
-                    req_id,
-                    graph_name,
-                    routed.group_id,
-                    routed.epoch,
-                    leader,
-                    "development-lane operations require the current placement leader",
-                );
+    let Some(backend) = persistence.as_ref() else {
+        return Response::err(req_id, "native capacity persistence is unavailable");
+    };
+    if !backend.supports_native_capacity_leases() {
+        return Response::err(req_id, "native capacity persistence is unavailable");
+    }
+    if !state_machine_authorized {
+        let verified_owner = verified_context.principal_persistence_id();
+        let owner_matches = match &method {
+            Method::AcquireCapacity { request } => request.owner_digest == verified_owner,
+            Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+                request.owner_digest == verified_owner
             }
-            if let Some(multi) = multi_raft.as_ref() {
-                if let Err(error) = multi.read_barrier_group(routed.group_id).await {
-                    return Response::err(
-                        req_id,
-                        format!("development-lane linearizability barrier failed: {error:?}"),
-                    );
-                }
-            }
-        }
-        let Some(backend) = persistence.as_ref() else {
-            return Response::err(req_id, "native development-lane persistence is unavailable");
+            _ => true,
         };
-        let fname = crate::persist::sanitize(graph_name);
-        let now_ms = authoritative_now_ms();
-        let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-        match method {
-            Method::QueryDevelopmentLane { ref request } => backend
-                .read_development_lane(&fname, request, now_ms)
-                .await
-                .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
-                .unwrap_or_else(|error| {
-                    Response::err(req_id, format!("development-lane query failed: {error}"))
-                }),
-            Method::DevelopmentLaneStatus { ref request } => backend
-                .read_development_lane_status(&fname, request, now_ms)
+        if !owner_matches {
+            return Response::err(req_id, "ACCESS_DENIED: capacity owner digest mismatch");
+        }
+    }
+    let fname = crate::persist::sanitize(graph_name);
+    let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+    match method {
+        Method::CapacityStatus { ref request } | Method::ReconcileCapacity { ref request } => {
+            backend
+                .read_capacity_status(&fname, request)
                 .await
                 .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
                 .unwrap_or_else(|error| {
                     Response::err(
                         req_id,
-                        format!("development-lane status read failed: {error}"),
+                        format!("native capacity status read failed: {error}"),
                     )
-                }),
-            _ => backend
-                .commit_development_lane(&fname, method, now_ms)
-                .await
-                .map(|bytes| Response::ok(req_id, ResultPayload::Raw(bytes)))
-                .unwrap_or_else(|error| {
-                    Response::err(req_id, format!("development-lane commit failed: {error}"))
-                }),
+                })
+        }
+        method @ (Method::AcquireCapacity { .. }
+        | Method::RenewCapacity { .. }
+        | Method::ReleaseCapacity { .. }
+        | Method::ReclaimExpiredCapacity { .. }
+        | Method::UpdateCapacityCell { .. }) => backend
+            .commit_capacity_lease(&fname, method)
+            .await
+            .map(|bytes| Response::ok(req_id, ResultPayload::Raw(bytes)))
+            .unwrap_or_else(|error| {
+                Response::err(req_id, format!("native capacity commit failed: {error}"))
+            }),
+        _ => unreachable!("capacity classifier and dispatch diverged"),
+    }
+}
+
+async fn dispatch_op_workitem_claim_capability(
+    ctx: NativeOpCtx<'_>,
+    #[cfg(feature = "redb")] graph_incarnation_id: String,
+    method: Method,
+) -> Response {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let verified_context = ctx.verified_context;
+    let persistence = ctx.persistence;
+    #[cfg(feature = "raft")]
+    let multi_raft = ctx.multi_raft;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    #[cfg(feature = "raft")]
+    if is_replicated_apply() {
+        // A replicated apply has only the bounded Raft routing context;
+        // capability authority requires the original cryptographically
+        // verified principal and session envelope.
+        return Response::err(
+            req_id,
+            crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE,
+        );
+    }
+    #[cfg(feature = "raft")]
+    if let Some(routed) = routed_raft.as_ref() {
+        let leader = routed.handle.current_leader().await;
+        if leader != Some(routed.handle.node_id) {
+            return Response::stale_route(
+                req_id,
+                graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                "WorkItem claim capabilities require the current placement leader",
+            );
+        }
+        if let Some(multi) = multi_raft.as_ref() {
+            if let Err(error) = multi.read_barrier_group(routed.group_id).await {
+                return Response::err(
+                    req_id,
+                    format!("WorkItem claim capability linearizability barrier failed: {error:?}"),
+                );
+            }
         }
     }
+    let Some(backend) = persistence.as_ref() else {
+        return Response::err(
+            req_id,
+            "native WorkItem claim capability persistence is unavailable",
+        );
+    };
+    #[cfg(feature = "redb")]
+    {
+        let Some(redb) = backend.as_redb() else {
+            return Response::err(
+                req_id,
+                "native WorkItem claim capability persistence is unavailable",
+            );
+        };
+        let authority = crate::redb_store::work_item_capability::AuthenticatedAuthority {
+            tenant: verified_context.tenant().to_string(),
+            audience: verified_context.claims().audience.clone(),
+            principal: verified_context.principal_persistence_id(),
+            agent_id: verified_context.agent_id().to_string(),
+            session: verified_context.idempotency_key().to_string(),
+            authority_epoch: work_item_capability_authority_epoch(&graph_incarnation_id),
+            incarnation_id: graph_incarnation_id.clone(),
+            now_ms: authoritative_now_ms(),
+        };
+        let fname = crate::persist::sanitize(graph_name);
+        let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+        match method {
+            Method::MintWorkItemClaimCapability { request } => redb
+                .mint_work_item_claim_capability(&fname, request, authority)
+                .await
+                .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                .unwrap_or_else(|error| {
+                    Response::err(
+                        req_id,
+                        format!("WorkItem claim capability mint failed: {error}"),
+                    )
+                }),
+            Method::VerifyWorkItemClaimCapability { request } => redb
+                .verify_work_item_claim_capability(&fname, request, authority)
+                .await
+                .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                .unwrap_or_else(|error| {
+                    Response::err(
+                        req_id,
+                        format!("WorkItem claim capability verify failed: {error}"),
+                    )
+                }),
+            _ => unreachable!("capability classifier and dispatch diverged"),
+        }
+    }
+    #[cfg(not(feature = "redb"))]
+    {
+        let _ = backend;
+        return Response::err(
+            req_id,
+            "native WorkItem claim capability requires redb persistence",
+        );
+    }
+}
+
+async fn dispatch_op_development_lane(
+    req_id: u64,
+    graph_name: &str,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    #[cfg(feature = "raft")] multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
+    #[cfg(feature = "raft")] routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+    method: Method,
+) -> Response {
+    #[cfg(feature = "raft")]
+    if let Some(routed) = routed_raft.as_ref() {
+        let leader = routed.handle.current_leader().await;
+        if leader != Some(routed.handle.node_id) {
+            return Response::stale_route(
+                req_id,
+                graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                "development-lane operations require the current placement leader",
+            );
+        }
+        if let Some(multi) = multi_raft.as_ref() {
+            if let Err(error) = multi.read_barrier_group(routed.group_id).await {
+                return Response::err(
+                    req_id,
+                    format!("development-lane linearizability barrier failed: {error:?}"),
+                );
+            }
+        }
+    }
+    let Some(backend) = persistence.as_ref() else {
+        return Response::err(req_id, "native development-lane persistence is unavailable");
+    };
+    let fname = crate::persist::sanitize(graph_name);
+    let now_ms = authoritative_now_ms();
+    let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+    match method {
+        Method::QueryDevelopmentLane { ref request } => backend
+            .read_development_lane(&fname, request, now_ms)
+            .await
+            .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+            .unwrap_or_else(|error| {
+                Response::err(req_id, format!("development-lane query failed: {error}"))
+            }),
+        Method::DevelopmentLaneStatus { ref request } => backend
+            .read_development_lane_status(&fname, request, now_ms)
+            .await
+            .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+            .unwrap_or_else(|error| {
+                Response::err(
+                    req_id,
+                    format!("development-lane status read failed: {error}"),
+                )
+            }),
+        _ => backend
+            .commit_development_lane(&fname, method, now_ms)
+            .await
+            .map(|bytes| Response::ok(req_id, ResultPayload::Raw(bytes)))
+            .unwrap_or_else(|error| {
+                Response::err(req_id, format!("development-lane commit failed: {error}"))
+            }),
+    }
+}
 
 async fn dispatch_op_workitem_mutation(
     req_id: u64,
@@ -7990,47 +7927,45 @@ async fn dispatch_op_workitem_mutation(
     caller: Option<&str>,
     core: Arc<crate::graph::GraphCore>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    #[cfg(feature = "raft")]
-    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+    #[cfg(feature = "raft")] routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
     method: Method,
-) -> Response
-{
-        #[cfg(feature = "raft")]
-        let (placement_epoch, placement_fence) = if let Some(routed) = routed_raft.as_ref() {
-            let leader = routed.handle.current_leader().await;
-            if leader != Some(routed.handle.node_id) {
-                return Response::stale_route(
-                    req_id,
-                    graph_name,
-                    routed.group_id,
-                    routed.epoch,
-                    leader,
-                    "WorkItem transitions require the current placement leader",
-                );
-            }
-            (routed.epoch, Some(routed.group_id))
-        } else {
-            (0, None)
-        };
-        #[cfg(not(feature = "raft"))]
-        let (placement_epoch, placement_fence) = (0, None);
+) -> Response {
+    #[cfg(feature = "raft")]
+    let (placement_epoch, placement_fence) = if let Some(routed) = routed_raft.as_ref() {
+        let leader = routed.handle.current_leader().await;
+        if leader != Some(routed.handle.node_id) {
+            return Response::stale_route(
+                req_id,
+                graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                "WorkItem transitions require the current placement leader",
+            );
+        }
+        (routed.epoch, Some(routed.group_id))
+    } else {
+        (0, None)
+    };
+    #[cfg(not(feature = "raft"))]
+    let (placement_epoch, placement_fence) = (0, None);
 
-        return match crate::server::mutation_batch::commit_work_item(
-            persistence.as_ref(),
-            &core,
-            req_id,
-            caller,
-            graph_name,
-            placement_epoch,
-            placement_fence,
-            method,
-        )
-        .await
-        {
-            Ok(result) => Response::ok(req_id, result),
-            Err(error) => Response::err(req_id, format!("WorkItem mutation failed: {error}")),
-        };
-    }
+    return match crate::server::mutation_batch::commit_work_item(
+        persistence.as_ref(),
+        &core,
+        req_id,
+        caller,
+        graph_name,
+        placement_epoch,
+        placement_fence,
+        method,
+    )
+    .await
+    {
+        Ok(result) => Response::ok(req_id, result),
+        Err(error) => Response::err(req_id, format!("WorkItem mutation failed: {error}")),
+    };
+}
 
 /// Fence a `series.redb` WRITE to the current placement leader.
 ///
@@ -8087,62 +8022,61 @@ struct KnowledgeStreamCtx<'a> {
 }
 
 #[cfg(feature = "knowledge-batch")]
-async fn dispatch_op_knowledge_stream(ctx: KnowledgeStreamCtx<'_>, method: Method) -> Response
-{
-        let state = ctx.state;
-        let req_id = ctx.req_id;
-        let graph_name = ctx.graph_name;
-        let verified_context = ctx.verified_context;
-        let read_authority = ctx.read_authority;
-        let verified_actor = ctx.verified_actor;
-        let core = ctx.core;
-        #[cfg(feature = "security")]
-        let rls = ctx.rls;
-        #[cfg(feature = "raft")]
-        let routed_raft = ctx.routed_raft;
-        let knowledge_stream_authority = ctx.knowledge_stream_authority;
-        let Some(authority) = knowledge_stream_authority.as_ref() else {
-            return Response::err(
-                req_id,
-                "KnowledgeStream authority was not derived from verified context",
-            );
-        };
-        let carrier = match CarrierAuthority::from_verified(verified_context) {
-            Ok(authority) => authority,
-            Err(denied) => return Response::err(req_id, denied),
-        };
-        #[cfg(feature = "raft")]
-        let (stream_placement_epoch, stream_fencing_token) =
-            if let Some(routed) = routed_raft.as_ref() {
-                (routed.epoch, Some(routed.group_id))
-            } else {
-                (0, None)
-            };
-        #[cfg(not(feature = "raft"))]
-        let (stream_placement_epoch, stream_fencing_token) = (0, None);
-        return match handlers::knowledge_stream::try_handle(
-            state,
+async fn dispatch_op_knowledge_stream(ctx: KnowledgeStreamCtx<'_>, method: Method) -> Response {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let verified_context = ctx.verified_context;
+    let read_authority = ctx.read_authority;
+    let verified_actor = ctx.verified_actor;
+    let core = ctx.core;
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    let knowledge_stream_authority = ctx.knowledge_stream_authority;
+    let Some(authority) = knowledge_stream_authority.as_ref() else {
+        return Response::err(
             req_id,
-            graph_name,
-            core.clone(),
-            method,
-            verified_actor,
-            &carrier,
-            authority,
-            stream_placement_epoch,
-            stream_fencing_token,
-            read_authority
-                .as_ref()
-                .expect("KnowledgeStream is classified as a graph read"),
-            #[cfg(feature = "security")]
-            &rls,
-        )
-        .await
-        {
-            Ok(response) => response,
-            Err(_) => Response::err(req_id, "KnowledgeStream dispatch routing error"),
-        };
-    }
+            "KnowledgeStream authority was not derived from verified context",
+        );
+    };
+    let carrier = match CarrierAuthority::from_verified(verified_context) {
+        Ok(authority) => authority,
+        Err(denied) => return Response::err(req_id, denied),
+    };
+    #[cfg(feature = "raft")]
+    let (stream_placement_epoch, stream_fencing_token) = if let Some(routed) = routed_raft.as_ref()
+    {
+        (routed.epoch, Some(routed.group_id))
+    } else {
+        (0, None)
+    };
+    #[cfg(not(feature = "raft"))]
+    let (stream_placement_epoch, stream_fencing_token) = (0, None);
+    return match handlers::knowledge_stream::try_handle(
+        state,
+        req_id,
+        graph_name,
+        core.clone(),
+        method,
+        verified_actor,
+        &carrier,
+        authority,
+        stream_placement_epoch,
+        stream_fencing_token,
+        read_authority
+            .as_ref()
+            .expect("KnowledgeStream is classified as a graph read"),
+        #[cfg(feature = "security")]
+        &rls,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => Response::err(req_id, "KnowledgeStream dispatch routing error"),
+    };
+}
 
 #[cfg(feature = "tsdb")]
 async fn dispatch_op_tsdb_ops(
@@ -8153,48 +8087,45 @@ async fn dispatch_op_tsdb_ops(
     ts_placement_epoch: u64,
     ts_fencing_token: Option<u64>,
     method: Method,
-) -> Response
-{
-        let carrier = match CarrierAuthority::from_verified(verified_context) {
-            Ok(authority) => authority,
-            Err(denied) => return Response::err(req_id, denied),
-        };
-        return match handlers::timeseries::try_handle(
-            state,
-            req_id,
-            &carrier,
-            graph_name,
-            ts_placement_epoch,
-            ts_fencing_token,
-            method,
-        )
-        .await
-        {
-            Ok(resp) => resp,
-            Err(_) => Response::err(req_id, "timeseries dispatch routing error"),
-        };
-    }
+) -> Response {
+    let carrier = match CarrierAuthority::from_verified(verified_context) {
+        Ok(authority) => authority,
+        Err(denied) => return Response::err(req_id, denied),
+    };
+    return match handlers::timeseries::try_handle(
+        state,
+        req_id,
+        &carrier,
+        graph_name,
+        ts_placement_epoch,
+        ts_fencing_token,
+        method,
+    )
+    .await
+    {
+        Ok(resp) => resp,
+        Err(_) => Response::err(req_id, "timeseries dispatch routing error"),
+    };
+}
 
 #[cfg(feature = "security")]
 async fn dispatch_op_audit_verify(
     req_id: u64,
     graph_name: &str,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-) -> Response
-{
-        let fname = crate::persist::sanitize(graph_name);
-        match persistence.as_ref().and_then(|p| p.as_redb()) {
-            Some(redb) => match redb.audit_verify_blocking(&fname) {
-                Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
-                Err(e) => Response::err(req_id, format!("AuditVerify error: {e}")),
-            },
-            None => Response::err(
-                req_id,
-                "AuditVerify requires a durable redb backend (no persist dir configured)"
-                    .to_string(),
-            ),
-        }
+) -> Response {
+    let fname = crate::persist::sanitize(graph_name);
+    match persistence.as_ref().and_then(|p| p.as_redb()) {
+        Some(redb) => match redb.audit_verify_blocking(&fname) {
+            Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
+            Err(e) => Response::err(req_id, format!("AuditVerify error: {e}")),
+        },
+        None => Response::err(
+            req_id,
+            "AuditVerify requires a durable redb backend (no persist dir configured)".to_string(),
+        ),
     }
+}
 
 #[cfg(feature = "security")]
 async fn dispatch_op_audit_prove_inclusion(
@@ -8202,25 +8133,27 @@ async fn dispatch_op_audit_prove_inclusion(
     graph_name: &str,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     method: Method,
-) -> Response
-{
+) -> Response {
     let Method::AuditProveInclusion {
         node_id,
         anchor_seq,
-    } = &method else { unreachable!("dispatch_op_audit_prove_inclusion: classifier/handler diverged") };
-        let fname = crate::persist::sanitize(graph_name);
-        match persistence.as_ref().and_then(|p| p.as_redb()) {
-            Some(redb) => match redb.audit_prove_inclusion_blocking(&fname, node_id, *anchor_seq) {
-                Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
-                Err(e) => Response::err(req_id, format!("AuditProveInclusion error: {e}")),
-            },
-            None => Response::err(
-                req_id,
-                "AuditProveInclusion requires a durable redb backend (no persist dir configured)"
-                    .to_string(),
-            ),
-        }
+    } = &method
+    else {
+        unreachable!("dispatch_op_audit_prove_inclusion: classifier/handler diverged")
+    };
+    let fname = crate::persist::sanitize(graph_name);
+    match persistence.as_ref().and_then(|p| p.as_redb()) {
+        Some(redb) => match redb.audit_prove_inclusion_blocking(&fname, node_id, *anchor_seq) {
+            Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
+            Err(e) => Response::err(req_id, format!("AuditProveInclusion error: {e}")),
+        },
+        None => Response::err(
+            req_id,
+            "AuditProveInclusion requires a durable redb backend (no persist dir configured)"
+                .to_string(),
+        ),
     }
+}
 
 /// Everything [`dispatch_op_served_modality`] needs beyond the method: the
 /// resolved request identity, the gateway authz capture, the graph core and its
@@ -8248,8 +8181,7 @@ struct ServedModalityCtx<'a> {
 }
 
 #[cfg(feature = "modality-serving")]
-async fn dispatch_op_served_modality(ctx: ServedModalityCtx<'_>, method: Method) -> Response
-{
+async fn dispatch_op_served_modality(ctx: ServedModalityCtx<'_>, method: Method) -> Response {
     let state = ctx.state;
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
@@ -8265,77 +8197,79 @@ async fn dispatch_op_served_modality(ctx: ServedModalityCtx<'_>, method: Method)
     #[cfg(feature = "raft")]
     let routed_raft = ctx.routed_raft;
     let modality_authority = ctx.modality_authority;
-    let Method::ServedModality { op } = &method else { unreachable!("dispatch_op_served_modality: classifier/handler diverged") };
-        if op.mutates() && persistence.is_none() {
+    let Method::ServedModality { op } = &method else {
+        unreachable!("dispatch_op_served_modality: classifier/handler diverged")
+    };
+    if op.mutates() && persistence.is_none() {
+        return Response::err(
+            req_id,
+            "served modality operations require authoritative redb persistence",
+        );
+    }
+    let authority = match modality_authority.as_ref() {
+        Some(authority) => authority.clone(),
+        None => {
             return Response::err(
                 req_id,
-                "served modality operations require authoritative redb persistence",
-            );
+                "served modality authority was not derived from verified context",
+            )
         }
-        let authority = match modality_authority.as_ref() {
-            Some(authority) => authority.clone(),
-            None => {
-                return Response::err(
-                    req_id,
-                    "served modality authority was not derived from verified context",
-                )
-            }
-        };
-        let (isolation, graph_type, owner) = gateway_authz_ctx
+    };
+    let (isolation, graph_type, owner) = gateway_authz_ctx
+        .as_ref()
+        .expect("ServedModality must be registered in the mutation gateway");
+    #[cfg(feature = "raft")]
+    if op.mutates() {
+        let backend = persistence
             .as_ref()
-            .expect("ServedModality must be registered in the mutation gateway");
-        #[cfg(feature = "raft")]
-        if op.mutates() {
-            let backend = persistence
-                .as_ref()
-                .expect("mutating ServedModality requires persistence");
-            let principal_fingerprint = verified_context.principal_persistence_id();
-            if let Some(routed) = routed_raft.as_ref() {
-                return replicate_served_modality(
-                    state,
-                    routed.handle.clone(),
-                    routed.group_id,
-                    routed.epoch,
-                    Some(routed.group_id),
-                    graph_name,
-                    *graph_type,
-                    req_id,
-                    tenant_scope,
-                    &principal_fingerprint,
-                    &core,
-                    backend,
-                    method,
-                    &authority,
-                )
-                .await;
-            }
+            .expect("mutating ServedModality requires persistence");
+        let principal_fingerprint = verified_context.principal_persistence_id();
+        if let Some(routed) = routed_raft.as_ref() {
+            return replicate_served_modality(
+                state,
+                routed.handle.clone(),
+                routed.group_id,
+                routed.epoch,
+                Some(routed.group_id),
+                graph_name,
+                *graph_type,
+                req_id,
+                tenant_scope,
+                &principal_fingerprint,
+                &core,
+                backend,
+                method,
+                &authority,
+            )
+            .await;
         }
-        let plan = crate::server::mutation::MutationPlan::for_method(&method);
-        let ctx = crate::server::mutation::MutationCtx {
-            req_id,
-            caller,
-            tenant_scope,
-            graph_name,
-            graph_type: *graph_type,
-            owner: owner.as_deref(),
-            isolation,
-            core: &core,
-            persistence: persistence.as_ref(),
-            #[cfg(feature = "streaming")]
-            cdc: cdc.as_ref(),
-            materialization_manifest: materialization_manifest.as_ref(),
-            write_coalescer: None,
-        };
-        let op_apply = op.clone();
-        return crate::server::mutation::commit_conditional_mutation(
-            &ctx,
-            &plan,
-            &method,
-            op.mutates(),
-            move |staged_core| handlers::modality::handle(staged_core, &authority, op_apply),
-        )
-        .await;
     }
+    let plan = crate::server::mutation::MutationPlan::for_method(&method);
+    let ctx = crate::server::mutation::MutationCtx {
+        req_id,
+        caller,
+        tenant_scope,
+        graph_name,
+        graph_type: *graph_type,
+        owner: owner.as_deref(),
+        isolation,
+        core: &core,
+        persistence: persistence.as_ref(),
+        #[cfg(feature = "streaming")]
+        cdc: cdc.as_ref(),
+        materialization_manifest: materialization_manifest.as_ref(),
+        write_coalescer: None,
+    };
+    let op_apply = op.clone();
+    return crate::server::mutation::commit_conditional_mutation(
+        &ctx,
+        &plan,
+        &method,
+        op.mutates(),
+        move |staged_core| handlers::modality::handle(staged_core, &authority, op_apply),
+    )
+    .await;
+}
 
 /// The resolved request identity the Raft write-routing barrier replays into
 /// the consensus entry. Bundled to keep the barrier at the documented parameter
@@ -8364,81 +8298,71 @@ async fn dispatch_op_raft_write_routing_barrier(
     routed: crate::raft::multi::RoutedRaftHandle,
     method: Method,
 ) -> Response {
-        let RaftWriteBarrierCtx {
-            state,
-            req_id,
-            graph_name,
-            verified_context,
-            tenant_scope,
-            graph_type,
-        } = ctx;
-        let created_at_ms = authoritative_now_ms();
-        let batch_id = crate::server::mutation_batch::opaque_request_key(
-            "raft-rpc", graph_name, req_id, &method,
-        );
-        let mutation = match crate::raft::RaftMutationContext::from_verified_request(
-            batch_id,
-            req_id,
-            tenant_scope,
-            verified_context.principal_persistence_id(),
-            false,
-            routed.epoch,
-            Some(routed.group_id),
-            created_at_ms,
-        ) {
-            Ok(context) => context,
-            Err(error) => return Response::err(req_id, error),
-        };
-        let server_secret = timed_read(state).await.auth_secret.clone();
-        let command = match crate::raft::ReplicatedMutation::graph(method, &server_secret) {
-            Ok(command) => command,
-            Err(error) => return Response::err(req_id, error),
-        };
-        let req = crate::raft::RaftRequest {
-            graph_fname: crate::persist::sanitize(graph_name),
-            graph_name: graph_name.to_string(),
-            graph_type,
-            committed_at_ms: created_at_ms,
-            mutation,
-            command,
-        };
-        match routed.handle.client_write(req).await {
-            Ok(response) => {
-                if let Some(error) = response.native_error {
-                    Response::err(req_id, error)
-                } else {
-                    Response::ok(
-                        req_id,
-                        ResultPayload::Json(serde_json::json!({
-                            "replicated": true,
-                            "group": routed.group_id,
-                            "epoch": routed.epoch,
-                            "fencing_token": routed.fencing_token(),
-                        })),
-                    )
-                }
-            }
-            Err(e) => {
-                let leader = routed.handle.current_leader().await;
-                Response::stale_route(
+    let RaftWriteBarrierCtx {
+        state,
+        req_id,
+        graph_name,
+        verified_context,
+        tenant_scope,
+        graph_type,
+    } = ctx;
+    let created_at_ms = authoritative_now_ms();
+    let batch_id =
+        crate::server::mutation_batch::opaque_request_key("raft-rpc", graph_name, req_id, &method);
+    let mutation = match crate::raft::RaftMutationContext::from_verified_request(
+        batch_id,
+        req_id,
+        tenant_scope,
+        verified_context.principal_persistence_id(),
+        false,
+        routed.epoch,
+        Some(routed.group_id),
+        created_at_ms,
+    ) {
+        Ok(context) => context,
+        Err(error) => return Response::err(req_id, error),
+    };
+    let server_secret = timed_read(state).await.auth_secret.clone();
+    let command = match crate::raft::ReplicatedMutation::graph(method, &server_secret) {
+        Ok(command) => command,
+        Err(error) => return Response::err(req_id, error),
+    };
+    let req = crate::raft::RaftRequest {
+        graph_fname: crate::persist::sanitize(graph_name),
+        graph_name: graph_name.to_string(),
+        graph_type,
+        committed_at_ms: created_at_ms,
+        mutation,
+        command,
+    };
+    match routed.handle.client_write(req).await {
+        Ok(response) => {
+            if let Some(error) = response.native_error {
+                Response::err(req_id, error)
+            } else {
+                Response::ok(
                     req_id,
-                    graph_name,
-                    routed.group_id,
-                    routed.epoch,
-                    leader,
-                    e,
+                    ResultPayload::Json(serde_json::json!({
+                        "replicated": true,
+                        "group": routed.group_id,
+                        "epoch": routed.epoch,
+                        "fencing_token": routed.fencing_token(),
+                    })),
                 )
             }
         }
+        Err(e) => {
+            let leader = routed.handle.current_leader().await;
+            Response::stale_route(req_id, graph_name, routed.group_id, routed.epoch, leader, e)
+        }
+    }
 }
-
 
 async fn check_change_envelope_placement_fence(
     req_id: u64,
     graph_name: &str,
     envelope: &eg_types::change_envelope::ChangeEnvelope,
-    #[cfg(feature = "raft")]
-    routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
+    #[cfg(feature = "raft")] routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
 ) -> Result<(), Response> {
     #[cfg(feature = "raft")]
     if let Some(routed) = routed_raft {
@@ -8533,11 +8457,10 @@ async fn try_replicate_change_envelope(
         Err(error) => return Some(Response::err(req_id, error)),
     };
     let server_secret = timed_read(state).await.auth_secret.clone();
-    let command =
-        match crate::raft::ReplicatedMutation::change_envelope(envelope, &server_secret) {
-            Ok(command) => command,
-            Err(error) => return Some(Response::err(req_id, error)),
-        };
+    let command = match crate::raft::ReplicatedMutation::change_envelope(envelope, &server_secret) {
+        Ok(command) => command,
+        Err(error) => return Some(Response::err(req_id, error)),
+    };
     let request = crate::raft::RaftRequest {
         graph_fname: fname.to_string(),
         graph_name: graph_name.to_string(),
@@ -8561,7 +8484,10 @@ async fn try_replicate_change_envelope(
                 }
                 Response::ok(req_id, ResultPayload::Json(result))
             }
-            None => Response::err(req_id, "replicated ChangeEnvelope returned no commit receipt"),
+            None => Response::err(
+                req_id,
+                "replicated ChangeEnvelope returned no commit receipt",
+            ),
         },
         Err(error) => {
             let leader = routed.handle.current_leader().await;
@@ -8759,8 +8685,7 @@ async fn dispatch_change_env_apply_change_envelopes(
     graph_name: &str,
     core: Arc<crate::graph::GraphCore>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    #[cfg(feature = "raft")]
-    routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+    #[cfg(feature = "raft")] routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
     method: Method,
 ) -> Response {
     match method {
@@ -8810,7 +8735,9 @@ async fn dispatch_change_env_apply_change_envelopes(
                 ResultPayload::Json(serde_json::json!({ "results": results })),
             )
         }
-        _ => unreachable!("dispatch_change_env_apply_change_envelopes: classifier/handler diverged"),
+        _ => {
+            unreachable!("dispatch_change_env_apply_change_envelopes: classifier/handler diverged")
+        }
     }
 }
 
@@ -8929,32 +8856,42 @@ async fn resolve_routed_raft(
     }
 }
 
+fn stamp_resource_reservation_timestamp(method: &mut Method) {
+    if !crate::server::mutation_batch::is_resource_reservation_method(method) {
+        return;
+    }
+    let now_ms = authoritative_now_ms();
+    match method {
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => request.now_ms = now_ms,
+        Method::QueryWorkItemReservation { request }
+        | Method::ResourceReservationStatus { request } => request.now_ms = now_ms,
+        Method::UpdateResourceHost { request } => request.now_ms = now_ms,
+        _ => unreachable!("resource method classifier and timestamp binding diverged"),
+    }
+}
+
+fn stamp_capacity_timestamp(method: &mut Method) {
+    if !crate::server::mutation_batch::is_capacity_method(method) {
+        return;
+    }
+    let now_ms = authoritative_now_ms();
+    match method {
+        Method::AcquireCapacity { request } => request.now_ms = now_ms,
+        Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+            request.now_ms = now_ms
+        }
+        Method::ReclaimExpiredCapacity { request } => request.now_ms = now_ms,
+        Method::UpdateCapacityCell { request } => request.now_ms = now_ms,
+        Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => {}
+        _ => unreachable!("capacity method classifier and timestamp binding diverged"),
+    }
+}
+
 fn stamp_resource_and_capacity_timestamps(method: &mut Method) {
-    if crate::server::mutation_batch::is_resource_reservation_method(method) {
-        let now_ms = authoritative_now_ms();
-        match method {
-            Method::ReserveWorkItemResources { request }
-            | Method::ReleaseWorkItemResources { request }
-            | Method::ReclaimWorkItemResources { request } => request.now_ms = now_ms,
-            Method::QueryWorkItemReservation { request }
-            | Method::ResourceReservationStatus { request } => request.now_ms = now_ms,
-            Method::UpdateResourceHost { request } => request.now_ms = now_ms,
-            _ => unreachable!("resource method classifier and timestamp binding diverged"),
-        }
-    }
-    if crate::server::mutation_batch::is_capacity_method(method) {
-        let now_ms = authoritative_now_ms();
-        match method {
-            Method::AcquireCapacity { request } => request.now_ms = now_ms,
-            Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
-                request.now_ms = now_ms
-            }
-            Method::ReclaimExpiredCapacity { request } => request.now_ms = now_ms,
-            Method::UpdateCapacityCell { request } => request.now_ms = now_ms,
-            Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => {}
-            _ => unreachable!("capacity method classifier and timestamp binding diverged"),
-        }
-    }
+    stamp_resource_reservation_timestamp(method);
+    stamp_capacity_timestamp(method);
 }
 
 async fn dispatch_graph_op_inner(
@@ -9024,7 +8961,14 @@ async fn dispatch_graph_op_inner(
     // pass ACL for any graph whether the target graph exists (see
     // `access::check_caller_is_known`'s doc). A registered caller always falls
     // through unchanged to the real, graph-type/owner-aware decision below.
-    if let Err(resp) = check_known_caller(&s.isolation, req_id, caller, graph_name, access, state_machine_authorized) {
+    if let Err(resp) = check_known_caller(
+        &s.isolation,
+        req_id,
+        caller,
+        graph_name,
+        access,
+        state_machine_authorized,
+    ) {
         return resp;
     }
 
@@ -9192,7 +9136,7 @@ async fn dispatch_graph_op_inner(
     // direct graph calls. It executes only after graph ACL and placement
     // resolution, and before generic replicated mutation paths can decompose it.
     let method = match method {
-                method @ Method::ApplyChangeEnvelope { .. } => {
+        method @ Method::ApplyChangeEnvelope { .. } => {
             return dispatch_change_env_apply_change_envelope(
                 ApplyChangeEnvelopeCtx {
                     state,
@@ -9216,19 +9160,19 @@ async fn dispatch_graph_op_inner(
         // graph-batch. A single failing envelope aborts the whole group and every
         // envelope in it reports the batch outcome honestly. Per-envelope results are
         // returned in group order under `{"results": [...]}`.
-                method @ Method::ApplyChangeEnvelopes { .. } => {
+        method @ Method::ApplyChangeEnvelopes { .. } => {
             return dispatch_change_env_apply_change_envelopes(
                 req_id,
                 graph_name,
                 core.clone(),
                 persistence.clone(),
                 #[cfg(feature = "raft")]
-            routed_raft.clone(),
+                routed_raft.clone(),
                 method,
             )
             .await
         }
-                method @ Method::GetChangeEnvelope { .. } => {
+        method @ Method::GetChangeEnvelope { .. } => {
             return dispatch_change_env_get_change_envelope(
                 req_id,
                 graph_name,
@@ -9237,7 +9181,7 @@ async fn dispatch_graph_op_inner(
             )
             .await
         }
-                method @ Method::GetContentVersion { .. } => {
+        method @ Method::GetContentVersion { .. } => {
             return dispatch_change_env_get_content_version(
                 req_id,
                 graph_name,
@@ -9246,7 +9190,7 @@ async fn dispatch_graph_op_inner(
             )
             .await
         }
-                method @ Method::GetChangeCursor { .. } => {
+        method @ Method::GetChangeCursor { .. } => {
             return dispatch_change_env_get_change_cursor(
                 req_id,
                 graph_name,
@@ -9510,7 +9454,8 @@ async fn dispatch_graph_op_inner(
     // retries against the leader. This branch is the ONLY behavioral difference vs
     // single-node, and it is taken only for durable mutations with Raft active.
     #[cfg(feature = "raft")]
-    if let Some(routed) = routed_raft.filter(|_| crate::mutation_apply::is_durable_mutation(&method))
+    if let Some(routed) =
+        routed_raft.filter(|_| crate::mutation_apply::is_durable_mutation(&method))
     {
         return dispatch_op_raft_write_routing_barrier(
             RaftWriteBarrierCtx {
@@ -9528,7 +9473,6 @@ async fn dispatch_graph_op_inner(
     }
 
     crate::metrics::graph_op(graph_name);
-
 
     let response = run_dispatch_pipeline(
         DispatchPipelineCtx {
@@ -9642,7 +9586,6 @@ fn check_materialization_valid(
     Ok(())
 }
 
-
 /// Everything the runtime-conditional query/RDF gateways need from the resolved
 /// request, bundled so each router stays at the documented parameter cap. The
 /// borrowed/owned split matches how `run_dispatch_pipeline` already held these
@@ -9675,10 +9618,7 @@ struct GatewayRouteCtx<'a> {
 }
 
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-async fn route_query_gateway(
-    ctx: GatewayRouteCtx<'_>,
-    method: Method,
-) -> Result<Response, Method> {
+async fn route_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Result<Response, Method> {
     let GatewayRouteCtx {
         state,
         req_id,
@@ -9780,10 +9720,7 @@ async fn route_query_gateway(
 }
 
 #[cfg(feature = "rdf")]
-async fn route_rdf_gateway(
-    ctx: GatewayRouteCtx<'_>,
-    method: Method,
-) -> Result<Response, Method> {
+async fn route_rdf_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Result<Response, Method> {
     let GatewayRouteCtx {
         state,
         req_id,
@@ -9930,7 +9867,7 @@ async fn run_dispatch_pipeline(ctx: DispatchPipelineCtx<'_>, method: Method) -> 
         #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
         tsdb_store,
     } = ctx;
-'dispatch: {
+    'dispatch: {
         // Mutation-gateway routing (CONCEPT:EG-P0-2): the primary CRUD + agent-
         // memory writes (`mutation::GATEWAY_ROUTED`) are routed through the
         // single `commit_mutation` gateway — policy-driven authz, durability,
@@ -10185,7 +10122,6 @@ async fn run_dispatch_pipeline(ctx: DispatchPipelineCtx<'_>, method: Method) -> 
     }
 }
 
-
 /// Route the five high-frequency single-op writes through the per-graph write
 /// coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer). On success returns the same `Response` the inline
 /// handler would have produced (so the dispatch shell's dirty/durability/gauge logic runs
@@ -10193,6 +10129,89 @@ async fn run_dispatch_pipeline(ctx: DispatchPipelineCtx<'_>, method: Method) -> 
 /// untouched — for any method that isn't coalescable, or when the coalescer is
 /// disabled. A saturated bounded queue returns an explicit `BUSY` response; it
 /// never falls through to an unordered inline write.
+/// Map one `Method` onto the coalescer's `WriteOp`, consuming its args.
+///
+/// For `CompareAndSetNodeFields` the two msgpack blobs are decoded FIRST: a
+/// decode failure is a CAS failure (`Bool(false)`) that does NOT touch the graph
+/// — exactly the inline handler's contract — so it short-circuits without
+/// enqueuing (the shell then durably commits the method, matching inline).
+/// Non-coalescable methods are handed straight back.
+///
+/// The `Err` payload is the caller's own return value, already shaped:
+/// `Ok(response)` for a short-circuit, `Err(method)` for a passthrough.
+#[allow(clippy::result_large_err)]
+fn coalesce_write_op(
+    req_id: u64,
+    method: Method,
+    reply: tokio::sync::oneshot::Sender<crate::write_coalescer::WriteOutcome>,
+) -> Result<crate::write_coalescer::WriteOp, Result<Response, Method>> {
+    use crate::write_coalescer::WriteOp;
+    match method {
+        Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } => Ok(WriteOp::AddNode {
+            node_id,
+            properties_msgpack,
+            reply,
+        }),
+        Method::RemoveNode { node_id } => Ok(WriteOp::RemoveNode { node_id, reply }),
+        Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        } => Ok(WriteOp::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+            reply,
+        }),
+        Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => Ok(WriteOp::RemoveEdge {
+            source_id,
+            target_id,
+            reply,
+        }),
+        Method::CompareAndSetNodeFields {
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        } => coalesce_compare_and_set_op(
+            req_id,
+            node_id,
+            &conditions_msgpack,
+            &updates_msgpack,
+            reply,
+        ),
+        other => Err(Err(other)),
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn coalesce_compare_and_set_op(
+    req_id: u64,
+    node_id: String,
+    conditions_msgpack: &[u8],
+    updates_msgpack: &[u8],
+    reply: tokio::sync::oneshot::Sender<crate::write_coalescer::WriteOutcome>,
+) -> Result<crate::write_coalescer::WriteOp, Result<Response, Method>> {
+    let cas_miss = || Err(Ok(Response::ok(req_id, ResultPayload::Bool(false))));
+    let Ok(conditions) = eg_types::msgpack::decode_property_object(conditions_msgpack) else {
+        return cas_miss();
+    };
+    let Ok(updates) = eg_types::msgpack::decode_property_object(updates_msgpack) else {
+        return cas_miss();
+    };
+    Ok(crate::write_coalescer::WriteOp::CompareAndSet {
+        node_id,
+        conditions,
+        updates,
+        reply,
+    })
+}
+
 async fn try_coalesce_write(
     req_id: u64,
     coalescer: &crate::write_coalescer::WriteCoalescerRegistry,
@@ -10200,67 +10219,19 @@ async fn try_coalesce_write(
     core: &Arc<crate::graph::GraphCore>,
     method: Method,
 ) -> Result<Response, Method> {
-    use crate::write_coalescer::{WriteOp, WriteOutcome};
+    use crate::write_coalescer::WriteOutcome;
     use tokio::sync::oneshot;
 
     // Build this op's reply channel; the op carries the sender and the ordered
     // worker replies once its ticket reaches the drain.
     let (reply, reply_rx) = oneshot::channel::<WriteOutcome>();
 
-    // Map the method → a WriteOp (consuming its args). For CompareAndSetNodeFields,
-    // decode the two msgpack blobs FIRST: a decode failure is a CAS failure
-    // (Bool(false)) that does NOT touch the graph — exactly the inline handler's
-    // contract — so short-circuit without enqueuing (the shell then durably commits the
-    // method, matching inline). Non-coalescable methods are handed straight back.
-    let op = match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => WriteOp::AddNode {
-            node_id,
-            properties_msgpack,
-            reply,
-        },
-        Method::RemoveNode { node_id } => WriteOp::RemoveNode { node_id, reply },
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => WriteOp::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-            reply,
-        },
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => WriteOp::RemoveEdge {
-            source_id,
-            target_id,
-            reply,
-        },
-        Method::CompareAndSetNodeFields {
-            node_id,
-            conditions_msgpack,
-            updates_msgpack,
-        } => {
-            let conditions = match eg_types::msgpack::decode_property_object(&conditions_msgpack) {
-                Ok(m) => m,
-                Err(_) => return Ok(Response::ok(req_id, ResultPayload::Bool(false))),
-            };
-            let updates = match eg_types::msgpack::decode_property_object(&updates_msgpack) {
-                Ok(m) => m,
-                Err(_) => return Ok(Response::ok(req_id, ResultPayload::Bool(false))),
-            };
-            WriteOp::CompareAndSet {
-                node_id,
-                conditions,
-                updates,
-                reply,
-            }
-        }
-        other => return Err(other),
+    // Map the method → a WriteOp (consuming its args). A `Err(done)` from the
+    // mapper is already this function's return value: either the CAS
+    // short-circuit response or the non-coalescable method handed straight back.
+    let op = match coalesce_write_op(req_id, method, reply) {
+        Ok(op) => op,
+        Err(done) => return done,
     };
 
     // Lazily get/create this graph's writer (automatic per new graph/connector).
