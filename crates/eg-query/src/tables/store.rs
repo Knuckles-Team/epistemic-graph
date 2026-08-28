@@ -2639,17 +2639,29 @@ fn same_batch_identity(
     // other request-identity field remains exact.
     let expected_version_matches = stored.expected_graph_version == proposed.expected_graph_version
         || proposed.expected_graph_version == Some(current_version);
-    Ok(stored.batch_id == proposed.batch_id
+    Ok(same_batch_request_identity(stored, proposed)
+        && expected_version_matches
+        && same_batch_commit_identity(stored, proposed)
+        && stored_ops == proposed_ops)
+}
+
+/// The addressing half of a mutation batch's request identity — who/where the
+/// batch targets. Every field must match exactly for a retry to be the same call.
+fn same_batch_request_identity(stored: &MutationBatch, proposed: &MutationBatch) -> bool {
+    stored.batch_id == proposed.batch_id
         && stored.context == proposed.context
         && stored.tenant == proposed.tenant
         && stored.graph == proposed.graph
         && stored.placement_epoch == proposed.placement_epoch
         && stored.idempotency_key == proposed.idempotency_key
-        && expected_version_matches
-        && stored.fencing_token == proposed.fencing_token
+}
+
+/// The commit-control half of a mutation batch's request identity — fencing,
+/// authoritative state, and outbox intent.
+fn same_batch_commit_identity(stored: &MutationBatch, proposed: &MutationBatch) -> bool {
+    stored.fencing_token == proposed.fencing_token
         && stored.authoritative_state == proposed.authoritative_state
         && stored.outbox == proposed.outbox
-        && stored_ops == proposed_ops)
 }
 
 fn insert_sql_outbox(
@@ -3678,12 +3690,28 @@ fn create_secondary_index_in(
         .map_err(map_err)?;
     drop(indexes);
 
-    // Initial directory construction is intentionally bounded and atomic. A
-    // large table asks its owner to build/partition it explicitly rather than
-    // leaving a silently partial index behind.
+    let Some(row_items) = secondary_index_build_rows_in(wtx, spec)? else {
+        return Ok(true);
+    };
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    for (rowid, cells) in row_items {
+        let entry = secondary_entry_key(spec, &schema, &cells, rowid)?;
+        entries.insert(entry.as_str(), &[][..]).map_err(map_err)?;
+    }
+    Ok(true)
+}
+
+/// Every stored row of `spec.table`, for the initial directory construction.
+/// Intentionally bounded and atomic: a large table asks its owner to
+/// build/partition it explicitly rather than leaving a silently partial index
+/// behind. `Ok(None)` means the rows table is absent, so there is nothing to build.
+fn secondary_index_build_rows_in(
+    wtx: &WriteTransaction,
+    spec: &SecondaryIndexSpec,
+) -> Result<Option<Vec<(u64, Vec<Cell>)>>, String> {
     let rows = match wtx.open_table(ROWS) {
         Ok(table) => table,
-        Err(_) => return Ok(true),
+        Err(_) => return Ok(None),
     };
     let mut row_items = Vec::new();
     let mut row_count = 0usize;
@@ -3706,13 +3734,7 @@ fn create_secondary_index_in(
             decode_stored::<Vec<Cell>>(value.value(), "row")?,
         ));
     }
-    drop(rows);
-    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
-    for (rowid, cells) in row_items {
-        let entry = secondary_entry_key(spec, &schema, &cells, rowid)?;
-        entries.insert(entry.as_str(), &[][..]).map_err(map_err)?;
-    }
-    Ok(true)
+    Ok(Some(row_items))
 }
 
 fn drop_secondary_index_in(
@@ -3926,15 +3948,37 @@ fn secondary_index_ordered_rows_in(
     if validate_secondary_spec(&spec, &schema).is_err() {
         return Ok(None);
     }
+    // Probed up front so a missing ROWS table falls back BEFORE the entry scan,
+    // exactly as when both handles were opened together.
+    if rtx.open_table(ROWS).is_err() {
+        return Ok(None);
+    }
+    let Some(mut rowids) = secondary_index_candidate_rowids_in(rtx, &spec)? else {
+        return Ok(None);
+    };
+    if matches!(order, SecondaryIndexOrder::Desc) {
+        rowids.reverse();
+    }
+    let start = offset.min(rowids.len());
+    let end = limit
+        .and_then(|count| start.checked_add(count))
+        .unwrap_or(rowids.len())
+        .min(rowids.len());
+    secondary_index_materialize_rows_in(rtx, table, schema.columns().len(), &rowids[start..end])
+}
+
+/// The candidate row ids `spec`'s entry range points at, in index order.
+/// `Ok(None)` means the caller must fall back to the scan path: the entry table is
+/// absent, an entry key does not parse, or the candidate bound was exceeded.
+fn secondary_index_candidate_rowids_in(
+    rtx: &ReadTransaction,
+    spec: &SecondaryIndexSpec,
+) -> Result<Option<Vec<u64>>, String> {
     let entries = match rtx.open_table(SECONDARY_INDEX_ENTRIES) {
         Ok(table) => table,
         Err(_) => return Ok(None),
     };
-    let rows = match rtx.open_table(ROWS) {
-        Ok(table) => table,
-        Err(_) => return Ok(None),
-    };
-    let prefix = secondary_entry_prefix(&spec);
+    let prefix = secondary_entry_prefix(spec);
     let high = format!("{prefix}\u{10ffff}");
     let mut rowids = Vec::new();
     for item in entries
@@ -3950,19 +3994,26 @@ fn secondary_index_ordered_rows_in(
         }
         rowids.push(rowid);
     }
-    if matches!(order, SecondaryIndexOrder::Desc) {
-        rowids.reverse();
-    }
-    let start = offset.min(rowids.len());
-    let end = limit
-        .and_then(|count| start.checked_add(count))
-        .unwrap_or(rowids.len())
-        .min(rowids.len());
-    let width = schema.columns().len();
-    let mut out = Vec::with_capacity(end.saturating_sub(start));
+    Ok(Some(rowids))
+}
+
+/// Materialize `rowids` into full, width-padded rows. `Ok(None)` means the caller
+/// must fall back to the scan path: the rows table is absent, a row id dangles, or
+/// the bounded-collection budget tripped.
+fn secondary_index_materialize_rows_in(
+    rtx: &ReadTransaction,
+    table: &str,
+    width: usize,
+    rowids: &[u64],
+) -> Result<Option<Vec<Vec<Cell>>>, String> {
+    let rows = match rtx.open_table(ROWS) {
+        Ok(table) => table,
+        Err(_) => return Ok(None),
+    };
+    let mut out = Vec::with_capacity(rowids.len());
     let mut row_count = 0usize;
     let mut row_bytes = 0usize;
-    for rowid in &rowids[start..end] {
+    for rowid in rowids {
         let Some(value) = rows.get((table, *rowid)).map_err(map_err)? else {
             return Ok(None);
         };
@@ -4859,27 +4910,7 @@ fn drop_in(
         }
         return Err(format!("table `{name}` does not exist"));
     }
-    // Keep the catalog graph closed: dropping a referenced parent while a child
-    // FK remains would leave a durable constraint that can no longer be checked.
-    // The check is schema-only (no tenant row values are surfaced) and runs in
-    // this same write transaction, so a failure cannot partially remove metadata.
-    for child_table in list_tables_in(wtx)? {
-        if child_table == name {
-            continue;
-        }
-        if let Some(child_schema) = get_schema_in(wtx, &child_table)? {
-            for constraint in child_schema.constraints() {
-                if let TableConstraint::ForeignKey { ref_table, .. } = constraint {
-                    if ref_table == name {
-                        let cname = TableSchema::constraint_display_name(&child_table, constraint);
-                        return Err(format!(
-                            "cannot drop table `{name}` because foreign key `{cname}` on table `{child_table}` references it"
-                        ));
-                    }
-                }
-            }
-        }
-    }
+    ensure_no_child_fk_references_in(wtx, name)?;
     {
         let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
         cat.remove(name).map_err(map_err)?;
@@ -4888,29 +4919,71 @@ fn drop_in(
         let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
         seq.remove(name).map_err(map_err)?;
     }
-    {
-        let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
-        let mut scanned_rows = 0usize;
-        let mut scanned_bytes = 0usize;
-        let keys: Vec<u64> = rows
-            .range((name, 0u64)..=(name, u64::MAX))
-            .map_err(map_err)?
-            .map(|r| {
-                let (k, v) = r.map_err(map_err)?;
-                account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
-                Ok::<u64, String>(k.value().1)
-            })
-            .collect::<Result<_, _>>()?;
-        for rowid in keys {
-            rows.remove((name, rowid)).map_err(map_err)?;
-        }
-    }
+    delete_all_rows_of_table_in(wtx, name)?;
     drop_secondary_indexes_for_table_in(wtx, tenant_scope, name)?;
     {
         let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
         hypertables.remove(name).map_err(map_err)?;
     }
     Ok(true)
+}
+
+/// One child table's `FOREIGN KEY` constraints must not reference `name`.
+fn ensure_child_table_does_not_reference(
+    child_table: &str,
+    child_schema: &TableSchema,
+    name: &str,
+) -> Result<(), String> {
+    for constraint in child_schema.constraints() {
+        let TableConstraint::ForeignKey { ref_table, .. } = constraint else {
+            continue;
+        };
+        if ref_table == name {
+            let cname = TableSchema::constraint_display_name(child_table, constraint);
+            return Err(format!(
+                "cannot drop table `{name}` because foreign key `{cname}` on table `{child_table}` references it"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Keep the catalog graph closed: dropping a referenced parent while a child FK
+/// remains would leave a durable constraint that can no longer be checked. The
+/// check is schema-only (no tenant row values are surfaced) and runs in the same
+/// write transaction, so a failure cannot partially remove metadata.
+fn ensure_no_child_fk_references_in(wtx: &WriteTransaction, name: &str) -> Result<(), String> {
+    for child_table in list_tables_in(wtx)? {
+        if child_table == name {
+            continue;
+        }
+        let Some(child_schema) = get_schema_in(wtx, &child_table)? else {
+            continue;
+        };
+        ensure_child_table_does_not_reference(&child_table, &child_schema, name)?;
+    }
+    Ok(())
+}
+
+/// Remove every stored row of `table` inside the open write txn. Row ids are
+/// collected first so the range borrow ends before the removals begin.
+fn delete_all_rows_of_table_in(wtx: &WriteTransaction, table: &str) -> Result<(), String> {
+    let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
+    let mut scanned_rows = 0usize;
+    let mut scanned_bytes = 0usize;
+    let keys: Vec<u64> = rows
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+        .map(|r| {
+            let (k, v) = r.map_err(map_err)?;
+            account_collection(&mut scanned_rows, &mut scanned_bytes, v.value().len())?;
+            Ok::<u64, String>(k.value().1)
+        })
+        .collect::<Result<_, _>>()?;
+    for rowid in keys {
+        rows.remove((table, rowid)).map_err(map_err)?;
+    }
+    Ok(())
 }
 
 fn add_column_in(
@@ -5498,34 +5571,13 @@ fn drop_constraint_in(
 ) -> Result<(), String> {
     let mut schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
-    let mut matched = false;
     // CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — a table-level constraint (composite PK/UNIQUE/FK/CHECK)
     // is tried FIRST so an explicit `CONSTRAINT <name>` always takes precedence over
-    // a same-named synthesized column-flag match.
-    if schema.remove_constraint_named(constraint) {
-        matched = true;
-    }
-    if !matched && constraint == format!("{table}_pkey") {
-        for c in schema.columns_mut() {
-            if c.primary_key {
-                c.primary_key = false;
-                c.unique = false;
-                matched = true;
-            }
-        }
-    }
-    if !matched {
-        for c in schema.columns_mut() {
-            if constraint == format!("{table}_{}_key", c.name) && c.is_unique() {
-                c.unique = false;
-                c.primary_key = false;
-                matched = true;
-            } else if constraint == format!("{table}_{}_check", c.name) && c.check.is_some() {
-                c.check = None;
-                matched = true;
-            }
-        }
-    }
+    // a same-named synthesized column-flag match. `||` short-circuits, so a later
+    // rule only runs when no earlier one matched.
+    let matched = schema.remove_constraint_named(constraint)
+        || drop_synthesized_pkey_flags(&mut schema, table, constraint)
+        || drop_synthesized_column_flags(&mut schema, table, constraint);
     if !matched {
         if if_exists {
             return Ok(());
@@ -5535,6 +5587,41 @@ fn drop_constraint_in(
         ));
     }
     put_schema_in(wtx, tenant_scope, &schema)
+}
+
+/// Clear the per-column PRIMARY KEY flags addressed by Postgres's synthesized
+/// `<table>_pkey` name. Returns whether anything matched.
+fn drop_synthesized_pkey_flags(schema: &mut TableSchema, table: &str, constraint: &str) -> bool {
+    if constraint != format!("{table}_pkey") {
+        return false;
+    }
+    let mut matched = false;
+    for c in schema.columns_mut() {
+        if c.primary_key {
+            c.primary_key = false;
+            c.unique = false;
+            matched = true;
+        }
+    }
+    matched
+}
+
+/// Clear the per-column UNIQUE / CHECK flags addressed by Postgres's synthesized
+/// `<table>_<col>_key` / `<table>_<col>_check` names. Returns whether anything
+/// matched.
+fn drop_synthesized_column_flags(schema: &mut TableSchema, table: &str, constraint: &str) -> bool {
+    let mut matched = false;
+    for c in schema.columns_mut() {
+        if constraint == format!("{table}_{}_key", c.name) && c.is_unique() {
+            c.unique = false;
+            c.primary_key = false;
+            matched = true;
+        } else if constraint == format!("{table}_{}_check", c.name) && c.check.is_some() {
+            c.check = None;
+            matched = true;
+        }
+    }
+    matched
 }
 
 /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `ALTER TABLE … ADD CONSTRAINT`: validate `constraint`
@@ -5637,43 +5724,12 @@ fn cell_matches_type(cell: &Cell, ty: ColumnType) -> bool {
 /// map to 0/1, etc. Anything that cannot be represented falls back to the cell's plain
 /// JSON form, so the downstream [`Cell::coerce`] produces a precise rejection error.
 fn coercion_value(old: &Cell, ty: ColumnType) -> Value {
-    let json_f64 = |f: f64| {
-        serde_json::Number::from_f64(f)
-            .map(Value::Number)
-            .unwrap_or(Value::Null)
-    };
     match ty {
-        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => match old {
-            Cell::Int(i) | Cell::Timestamp(i) => Value::Number((*i).into()),
-            Cell::Float(f) if f.fract() == 0.0 && f.is_finite() => {
-                Value::Number((*f as i64).into())
-            }
-            Cell::Bool(b) => Value::Number((*b as i64).into()),
-            Cell::Text(s) => s
-                .trim()
-                .parse::<i64>()
-                .map(|n| Value::Number(n.into()))
-                .unwrap_or_else(|_| Value::String(s.clone())),
-            other => other.to_json(),
-        },
-        ColumnType::Float | ColumnType::Double => match old {
-            Cell::Int(i) | Cell::Timestamp(i) => json_f64(*i as f64),
-            Cell::Float(f) => json_f64(*f),
-            Cell::Text(s) => s
-                .trim()
-                .parse::<f64>()
-                .map(json_f64)
-                .unwrap_or_else(|_| Value::String(s.clone())),
-            other => other.to_json(),
-        },
-        ColumnType::Bool => match old {
-            Cell::Bool(b) => Value::Bool(*b),
-            Cell::Int(i) => Value::Bool(*i != 0),
-            Cell::Text(s) => parse_bool_text(s)
-                .map(Value::Bool)
-                .unwrap_or_else(|| Value::String(s.clone())),
-            other => other.to_json(),
-        },
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => {
+            coercion_value_integral(old)
+        }
+        ColumnType::Float | ColumnType::Double => coercion_value_float(old),
+        ColumnType::Bool => coercion_value_bool(old),
         ColumnType::Uuid
         | ColumnType::Numeric(_)
         | ColumnType::TimestampTz
@@ -5681,6 +5737,55 @@ fn coercion_value(old: &Cell, ty: ColumnType) -> Value {
         // Text / Json / Bytes / Vector reuse the cell's plain JSON form; `Cell::coerce`
         // renders a scalar into text, parses a string into bytes, etc.
         _ => old.to_json(),
+    }
+}
+
+/// A JSON number for `f`, or `Null` when the value is one JSON cannot represent
+/// (NaN / infinity) — the downstream `Cell::coerce` then rejects it precisely.
+fn coercion_json_f64(f: f64) -> Value {
+    serde_json::Number::from_f64(f)
+        .map(Value::Number)
+        .unwrap_or(Value::Null)
+}
+
+/// [`coercion_value`] for an integral target (`Int` / `BigInt` / `Timestamp`).
+fn coercion_value_integral(old: &Cell) -> Value {
+    match old {
+        Cell::Int(i) | Cell::Timestamp(i) => Value::Number((*i).into()),
+        Cell::Float(f) if f.fract() == 0.0 && f.is_finite() => Value::Number((*f as i64).into()),
+        Cell::Bool(b) => Value::Number((*b as i64).into()),
+        Cell::Text(s) => s
+            .trim()
+            .parse::<i64>()
+            .map(|n| Value::Number(n.into()))
+            .unwrap_or_else(|_| Value::String(s.clone())),
+        other => other.to_json(),
+    }
+}
+
+/// [`coercion_value`] for a floating-point target (`Float` / `Double`).
+fn coercion_value_float(old: &Cell) -> Value {
+    match old {
+        Cell::Int(i) | Cell::Timestamp(i) => coercion_json_f64(*i as f64),
+        Cell::Float(f) => coercion_json_f64(*f),
+        Cell::Text(s) => s
+            .trim()
+            .parse::<f64>()
+            .map(coercion_json_f64)
+            .unwrap_or_else(|_| Value::String(s.clone())),
+        other => other.to_json(),
+    }
+}
+
+/// [`coercion_value`] for a `Bool` target.
+fn coercion_value_bool(old: &Cell) -> Value {
+    match old {
+        Cell::Bool(b) => Value::Bool(*b),
+        Cell::Int(i) => Value::Bool(*i != 0),
+        Cell::Text(s) => parse_bool_text(s)
+            .map(Value::Bool)
+            .unwrap_or_else(|| Value::String(s.clone())),
+        other => other.to_json(),
     }
 }
 
@@ -5830,6 +5935,20 @@ fn build_insert_cells(
         cells[idx] = Cell::coerce(val, col.ty, col.nullable)?;
         supplied[idx] = true;
     }
+    fill_omitted_insert_cells(schema, &mut cells, &supplied, rowid)?;
+    validate_column_checks_in(schema, &cells)?;
+    Ok(cells)
+}
+
+/// Fill every column an INSERT omitted: SERIAL takes the allocated `rowid + 1`,
+/// else the column DEFAULT, else NULL — and a NOT NULL column with neither is
+/// rejected.
+fn fill_omitted_insert_cells(
+    schema: &TableSchema,
+    cells: &mut [Cell],
+    supplied: &[bool],
+    rowid: u64,
+) -> Result<(), String> {
     for (ci, col) in schema.columns().iter().enumerate() {
         if supplied[ci] {
             continue;
@@ -5846,17 +5965,7 @@ fn build_insert_cells(
             ));
         }
     }
-    for (ci, col) in schema.columns().iter().enumerate() {
-        if let Some(check) = &col.check {
-            if !check.holds(&cells[ci].to_typed_json(col.ty)) {
-                return Err(format!(
-                    "new row violates CHECK constraint on column `{}`",
-                    col.name
-                ));
-            }
-        }
-    }
-    Ok(cells)
+    Ok(())
 }
 
 /// `INSERT … ON CONFLICT (…) DO NOTHING|DO UPDATE` (CONCEPT:EG-KG.query.delete-returning-sees-row). For each row: if a
