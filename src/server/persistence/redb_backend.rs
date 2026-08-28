@@ -5157,6 +5157,358 @@ mod tests {
         rmp_serde::to_vec_named(&v).unwrap()
     }
 
+    /// Row count of ONE table in a shard file opened fresh, offline (WD5-BUG-04 —
+    /// mirrors `shard_migrate.rs`'s own test helper of the same name).
+    fn table_row_count<K, V>(path: &std::path::Path, def: redb::TableDefinition<K, V>) -> usize
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        let db = Database::open(path).expect("open shard for inspection");
+        let rtx = db.begin_read().expect("begin read");
+        match rtx.open_table(def) {
+            Ok(t) => t.iter().expect("iterate table").count(),
+            Err(_) => 0,
+        }
+    }
+
+    /// Insert one raw `(graph, second_key) -> blob` row directly into `table` for a
+    /// shard file, bypassing every request/validation path (WD5-BUG-04: the
+    /// RESOURCE_*/development_lane_*/capacity_lease_* subsystems require heavy
+    /// native-operation preconditions — a registered host, a matching WorkItem node,
+    /// a pre-existing reservation — that a raw seed sidesteps, same technique
+    /// `shard_migrate.rs`'s own coverage test uses).
+    fn seed_raw_two_str_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<(&str, &str), &[u8]>,
+        graph: &str,
+        second_key: &str,
+        value: &[u8],
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert((graph, second_key), value)
+                .expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
+    }
+
+    /// Insert one raw `(graph, seq) -> blob` row (e.g. `PROVENANCE_ANCHOR_MEMBERS`).
+    #[cfg(feature = "security")]
+    fn seed_raw_graph_u64_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<(&str, u64), &[u8]>,
+        graph: &str,
+        seq: u64,
+        value: &[u8],
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert((graph, seq), value).expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
+    }
+
+    /// Insert one raw `graph -> u64` row (`WORK_ITEM_COMMAND_SEQUENCE` — a single
+    /// scalar value per graph, unlike every other table in this lane's scope).
+    fn seed_raw_scalar_u64_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<&str, u64>,
+        key: &str,
+        value: u64,
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert(key, value).expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
+    }
+
+    /// Seed ONE valid, purge-safe `RESOURCE_RESERVATIONS` row (plus its matching
+    /// `RESOURCE_RESERVATION_TENANT_INDEX` entry).
+    ///
+    /// WD5-BUG-05: unlike backup/restore and `migrate_shards` (pure byte copies),
+    /// online reshard's PurgeGraph step (`purge_graph_rows` -> `clear_resource_rows`
+    /// -> `check_resource_reservations_active`/`check_resource_tenant_index_consistency`)
+    /// is PRE-EXISTING lifecycle-authority validation, unrelated to this lane's
+    /// routing fix, that decodes every reservation row as a real
+    /// `DurableResourceReservation` and requires a matching tenant-index entry
+    /// before it will clear the source. A raw junk blob (`seed_raw_two_str_row`)
+    /// fails that decode with "durable value is invalid" — not a fix defect, a
+    /// seed-strategy mismatch. This builds a real, terminal/zero-held record (so
+    /// `resource_reservation_row_is_active` is false) that the purge accepts.
+    fn seed_valid_resource_reservation(
+        shard_path: &std::path::Path,
+        graph: &str,
+        reservation_id: &str,
+        tenant: &str,
+    ) {
+        use crate::epistemic_operations::{
+            ResourceCapacitySnapshot, ResourceRequirement, ResourceReservationRecord,
+            ResourceReservationRecordState, ResourceReservationRecordTargetKind,
+            ResourceTargetSnapshot, ResourceTargetSnapshotKind,
+        };
+
+        // Field-for-field mirror of the private `redb_store::DurableResourceReservation`
+        // wrapper (msgpack is structural, not nominal, so a same-shaped local type
+        // encodes bytes the real type decodes) — see that struct's doc comment.
+        #[derive(serde::Serialize)]
+        struct DurableResourceReservationShadow {
+            record: ResourceReservationRecord,
+            held_cpu_weight: u64,
+            held_memory_mib: u64,
+            held_disk_mib: u64,
+            held_process_slots: u64,
+            fairness_debt: u64,
+        }
+
+        let record = ResourceReservationRecord {
+            reservation_id: reservation_id.to_string(),
+            tenant_ref: tenant.to_string(),
+            owner_id: "owner:cx054".into(),
+            work_item_id: "work:cx054".into(),
+            fence: "fence:cx054".into(),
+            attempt: 1,
+            lease_epoch: 1,
+            fencing_token: 1,
+            input_fingerprint: "fingerprint:cx054".into(),
+            host_ref: "host:cx054".into(),
+            profile_name: "default".into(),
+            profile_version: "1".into(),
+            requirement: ResourceRequirement {
+                cpu_weight: 0,
+                memory_mib: 0,
+                disk_mib: 0,
+                process_slots: 0,
+            },
+            capacity_snapshot: ResourceCapacitySnapshot {
+                cpu_weight: 0,
+                memory_mib: 0,
+                disk_mib: 0,
+                process_slots: 0,
+                host_revision: 0,
+            },
+            selected_target: ResourceTargetSnapshot {
+                kind: ResourceTargetSnapshotKind::Local,
+                alias: None,
+                capability_labels: Vec::new(),
+            },
+            target_kind: ResourceReservationRecordTargetKind::Local,
+            target_alias: None,
+            repository_id: "repository:cx054".into(),
+            branch: "branch:cx054".into(),
+            concurrency_key: "concurrency:cx054".into(),
+            concurrency_limit: None,
+            repository_exclusive: false,
+            branch_exclusive: false,
+            required_labels: Vec::new(),
+            anti_affinity: Vec::new(),
+            fairness_group: "fairness:cx054".into(),
+            fairness_cost: 0,
+            disk_low_watermark_mib: None,
+            disk_high_watermark_mib: None,
+            disk_policy_key: "policy:cx054".into(),
+            reserved_at_ms: 0,
+            expires_at_ms: 0,
+            expected_host_revision: None,
+            expected_lifecycle_revision: None,
+            // Terminal + zero held resources: `resource_reservation_row_is_active`
+            // requires exactly this to let PurgeGraph clear the row.
+            state: ResourceReservationRecordState::Released,
+            revision: 1,
+            lifecycle_revision: 1,
+            tombstone: true,
+        };
+        let durable = DurableResourceReservationShadow {
+            record,
+            held_cpu_weight: 0,
+            held_memory_mib: 0,
+            held_disk_mib: 0,
+            held_process_slots: 0,
+            fairness_debt: 0,
+        };
+        let bytes = rmp_serde::to_vec_named(&durable).expect("encode reservation");
+
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut reservations = wtx
+                .open_table(crate::redb_store::RESOURCE_RESERVATIONS)
+                .expect("open reservations table for raw seed");
+            reservations
+                .insert((graph, reservation_id), bytes.as_slice())
+                .expect("insert reservation row");
+            let mut tenant_index = wtx
+                .open_table(crate::redb_store::RESOURCE_RESERVATION_TENANT_INDEX)
+                .expect("open tenant index table for raw seed");
+            tenant_index
+                .insert((graph, tenant, reservation_id), reservation_id)
+                .expect("insert tenant index row");
+        }
+        wtx.commit().expect("commit reservation seed");
+    }
+
+    /// Seed ONE valid, purge-safe `development_lane::HOLDS` row.
+    ///
+    /// WD5-BUG-05: `purge_graph_rows` -> `development_lane::clear_native_graph_rows_in_wtx`
+    /// -> `drain_lane_holds` is the SAME pre-existing (not this lane's) lifecycle
+    /// guard as the reservation case above: it decodes every hold as a real
+    /// `DurableLaneHold` and fails closed unless the hold is drained (terminal
+    /// state, no active charge, zero retained bytes). Field values below are the
+    /// exact known-good shape `development_lane.rs`'s own `mod tests::hold()`
+    /// helper uses (same `hold_id`/`input_fingerprint`/`base_sha` formats), just
+    /// with `state`/`active_count_charged`/`retained_disk_bytes` set drained.
+    fn seed_valid_development_lane_hold(
+        shard_path: &std::path::Path,
+        graph: &str,
+        hold_id: &str,
+        tenant: &str,
+    ) {
+        use crate::epistemic_operations::{
+            DevelopmentLaneHold, DevelopmentLaneHoldHostTargetKind, DevelopmentLaneHoldSchemaVersion,
+            DevelopmentLaneHoldState, DevelopmentLaneQuotaCharge,
+            DevelopmentLaneQuotaChargeSchemaVersion,
+        };
+
+        // Field-for-field mirror of the private `development_lane::DurableLaneHold`
+        // wrapper — see `seed_valid_resource_reservation`'s doc comment for why a
+        // same-shaped local type is sufficient (msgpack is structural).
+        #[derive(serde::Serialize)]
+        struct DurableLaneHoldShadow {
+            hold: DevelopmentLaneHold,
+            observation_revision: u64,
+            last_observed_at_ms: Option<u64>,
+            terminal_state: Option<String>,
+            terminal_expected_hold_revision: Option<u64>,
+            cleanup_removal_proof_ref: Option<String>,
+            cleanup_expected_hold_revision: Option<u64>,
+            terminal_source_attempt: Option<u64>,
+            terminal_source_lease_epoch: Option<u64>,
+            terminal_source_fencing_token: Option<u64>,
+            terminal_source_work_item_fence: Option<String>,
+            resource_reservation_id: String,
+            ttl_ms: u64,
+        }
+
+        let charge = DevelopmentLaneQuotaCharge {
+            schema_version: DevelopmentLaneQuotaChargeSchemaVersion::V1,
+            tenant_count: 0,
+            owner_count: 0,
+            session_count: 0,
+            workspace_count: 0,
+            repository_count: 0,
+            host_count: 0,
+            global_count: 0,
+            tenant_predicted_disk_bytes: 0,
+            owner_predicted_disk_bytes: 0,
+            session_predicted_disk_bytes: 0,
+            workspace_predicted_disk_bytes: 0,
+            repository_predicted_disk_bytes: 0,
+            host_predicted_disk_bytes: 0,
+            global_predicted_disk_bytes: 0,
+            tenant_observed_disk_bytes: 0,
+            owner_observed_disk_bytes: 0,
+            session_observed_disk_bytes: 0,
+            workspace_observed_disk_bytes: 0,
+            repository_observed_disk_bytes: 0,
+            host_observed_disk_bytes: 0,
+            global_observed_disk_bytes: 0,
+            tenant_retained_disk_bytes: 0,
+            owner_retained_disk_bytes: 0,
+            session_retained_disk_bytes: 0,
+            workspace_retained_disk_bytes: 0,
+            repository_retained_disk_bytes: 0,
+            host_retained_disk_bytes: 0,
+            global_retained_disk_bytes: 0,
+            revision: 0,
+            policy_revision: 1,
+        };
+
+        let hold = DevelopmentLaneHold {
+            schema_version: DevelopmentLaneHoldSchemaVersion::V1,
+            hold_id: format!("v1:{}", "a".repeat(64)),
+            lane_id: "lane:cx054".into(),
+            tenant_ref: tenant.to_string(),
+            request_id: "request:cx054".into(),
+            work_item_id: "work:cx054".into(),
+            owner_id: "owner:cx054".into(),
+            session_id: "session:cx054".into(),
+            fairness_group: "fairness:cx054".into(),
+            workspace_ref: "workspace:cx054".into(),
+            repository_id: "repository:cx054".into(),
+            base_ref: "refs/heads/main".into(),
+            base_sha: "a".repeat(40),
+            branch: "branch:cx054".into(),
+            worktree_locator: "lanes/cx054".into(),
+            host_target_kind: DevelopmentLaneHoldHostTargetKind::Local,
+            host_target_alias: None,
+            host_ref: "host:cx054".into(),
+            quota_policy_name: "default".into(),
+            quota_policy_version: "1".into(),
+            input_fingerprint: format!("v1:{}", "b".repeat(64)),
+            predicted_disk_bytes: 0,
+            observed_disk_bytes: 0,
+            // Drained: zero retained bytes, no active charge, a terminal state
+            // outside `drain_lane_holds`'s blocking set — exactly what lets
+            // PurgeGraph clear the row.
+            retained_disk_bytes: 0,
+            active_count_charged: false,
+            quota_charge: charge,
+            state: DevelopmentLaneHoldState::Aborted,
+            attempt: 1,
+            lease_epoch: 1,
+            fencing_token: 1,
+            work_item_fence: "fence:cx054".into(),
+            hold_revision: 1,
+            lifecycle_revision: 1,
+            allocation_revision: 1,
+            cleanup_revision: 0,
+            expires_at_ms: 10_000,
+            last_renewed_at_ms: 1_000,
+            cleanup_work_item_id: None,
+            cleanup_work_item_fence: None,
+            cleanup_attempt: None,
+            cleanup_lease_epoch: None,
+            cleanup_fencing_token: None,
+            tombstone: true,
+        };
+
+        let durable = DurableLaneHoldShadow {
+            hold,
+            observation_revision: 0,
+            last_observed_at_ms: None,
+            terminal_state: None,
+            terminal_expected_hold_revision: None,
+            cleanup_removal_proof_ref: None,
+            cleanup_expected_hold_revision: None,
+            terminal_source_attempt: None,
+            terminal_source_lease_epoch: None,
+            terminal_source_fencing_token: None,
+            terminal_source_work_item_fence: None,
+            resource_reservation_id: "reservation:cx054".into(),
+            ttl_ms: 1_000,
+        };
+        let bytes = rmp_serde::to_vec_named(&durable).expect("encode lane hold");
+
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut holds = wtx
+                .open_table(crate::redb_store::development_lane::HOLDS)
+                .expect("open holds table for raw seed");
+            holds
+                .insert((graph, hold_id), bytes.as_slice())
+                .expect("insert hold row");
+        }
+        wtx.commit().expect("commit hold seed");
+    }
+
     /// A minimal `ServerState` (no persistence backend stored on it — the test
     /// drives the backend directly) with a persist dir set.
     fn new_state(persist_dir: Option<String>) -> Arc<RwLock<ServerState>> {
@@ -9209,6 +9561,169 @@ mod tests {
             );
         }
         backend.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// WD5-BUG-04 (online-reshard half of the SAME defect class WD3-BUG-01 fixed
+    /// offline in `shard_migrate.rs::migrate_shards`, see its commit's coverage
+    /// matrix): a representative row from RESOURCE_*, development_lane_*,
+    /// capacity_lease_*, and (under `security`) PROVENANCE_ANCHOR_MEMBERS, plus a
+    /// WORK_ITEM_COMMAND_SEQUENCE row, is seeded directly (raw redb — these
+    /// subsystems require heavy native-operation preconditions a raw seed
+    /// sidesteps) into the graph's SOURCE shard; the graph is then resharded onto a
+    /// different shard via the public `reshard_graph` API, and every row is
+    /// confirmed present on the DESTINATION shard afterward — and (except
+    /// `PROVENANCE_ANCHOR_MEMBERS`; see below) absent from the source, proving a
+    /// MOVE, not a copy. Deliberately does NOT seed `PLAN_MATVIEWS`/
+    /// `MATVIEW_OPERATOR_STATE` (GLOBAL, no graph key — moving them per-graph would
+    /// be its own corruption) or the `work_item_capability` trio (deliberately
+    /// purged-not-copied by this module's own design). Confirmed FAILING before
+    /// this fix — every `table_row_count(&dst_path, ...)` below was 0 against the
+    /// unmodified `export_graph_raw`/`import_graph_raw`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn online_reshard_preserves_resource_lane_capacity_and_provenance_tables() {
+        // WD5-BUG-05: unlike the sibling reshard tests, this one raw-seeds
+        // RESOURCE_RESERVATIONS/development_lane::HOLDS with PLAINTEXT msgpack
+        // (`seed_valid_resource_reservation`/`seed_valid_development_lane_hold`
+        // below) and later reads them back through the backend's OWN decode path
+        // (PurgeGraph's pre-existing lifecycle-authority validation — see those
+        // helpers' doc comments). `cm_dir` (used by the crossmodal txn tests
+        // above) provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY` PROCESS-GLOBALLY via
+        // a `std::sync::Once` and, by its own documented design, NEVER unsets it.
+        // A plain READ lock does not protect against that already-set ambient
+        // state left behind by an earlier test in the same binary (confirmed:
+        // this test fails with "encrypted durable value is missing sealed
+        // framing" when run after `crossmodal_txn_commits_all_modalities_atomically`
+        // / `crossmodal_measurement_visible_via_public_tsrange_post_commit_and_restart`,
+        // but passes standalone). Take the WRITE lock and force encryption OFF for
+        // this test's whole body instead, so the seeded plaintext always
+        // round-trips regardless of test execution order/composition.
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        #[cfg(feature = "security")]
+        let _enc_guard = EncryptionRequiredEnvGuard::set(None, "off");
+        use crate::redb_store::{capacity_lease, development_lane};
+        #[cfg(feature = "security")]
+        use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+        use crate::redb_store::{RESOURCE_RESERVATIONS, WORK_ITEM_COMMAND_SEQUENCE};
+        use crate::server::persistence::tenant_catalog::TenantCatalog;
+        const K: usize = 4;
+        let dir = std::env::temp_dir().join(format!("eg-reshard-cx054-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
+
+        let g = "cx054-graph";
+        // Register the graph THROUGH a live backend so GRAPH_META exists, then shut
+        // it down to raw-seed the WD5-BUG-04 tables — the same "open, register,
+        // shutdown, raw-seed" sequence `shard_migrate.rs`'s own coverage test uses.
+        {
+            let backend =
+                RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
+                    .expect("open")
+                    .with_catalog(catalog.clone());
+            backend
+                .register_graph(g, g, GraphType::Global)
+                .await
+                .unwrap();
+            backend.shutdown();
+        }
+
+        let src_idx = catalog.resolve_shard(g, K);
+        let dst_idx = (src_idx + 1) % K;
+        let src_path = dir.join(shard_filename(src_idx));
+
+        // RESOURCE_RESERVATIONS and development_lane::HOLDS must be VALID, purge-safe
+        // records (not raw junk bytes): unlike backup/restore, online reshard's
+        // PurgeGraph step decodes+validates these two tables as a pre-existing
+        // lifecycle-authority guard (see the two helpers' doc comments).
+        seed_valid_resource_reservation(&src_path, g, "r1", "cx054-tenant");
+        seed_valid_development_lane_hold(&src_path, g, "h1", "cx054-tenant");
+        seed_raw_two_str_row(&src_path, capacity_lease::CELLS, g, "c1", b"cell");
+        seed_raw_scalar_u64_row(&src_path, WORK_ITEM_COMMAND_SEQUENCE, g, 7);
+        #[cfg(feature = "security")]
+        seed_raw_graph_u64_row(&src_path, PROVENANCE_ANCHOR_MEMBERS, g, 1, b"anchor-member");
+
+        // Sanity: every seeded row landed in the source before the reshard.
+        assert_eq!(table_row_count(&src_path, RESOURCE_RESERVATIONS), 1);
+        assert_eq!(table_row_count(&src_path, development_lane::HOLDS), 1);
+        assert_eq!(table_row_count(&src_path, capacity_lease::CELLS), 1);
+        assert_eq!(table_row_count(&src_path, WORK_ITEM_COMMAND_SEQUENCE), 1);
+        #[cfg(feature = "security")]
+        assert_eq!(table_row_count(&src_path, PROVENANCE_ANCHOR_MEMBERS), 1);
+
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
+            .expect("reopen")
+            .with_catalog(catalog.clone());
+        let report = backend
+            .reshard_graph(g, dst_idx as u32)
+            .await
+            .expect("reshard");
+        assert!(!report.no_op);
+        assert!(
+            report.capability_and_resource >= 4,
+            "WD5-BUG-04 tables counted in the reshard report ({})",
+            report.capability_and_resource
+        );
+        backend.shutdown();
+
+        let dst_path = dir.join(shard_filename(dst_idx));
+        assert_eq!(
+            table_row_count(&dst_path, RESOURCE_RESERVATIONS),
+            1,
+            "resource_reservations survives the online reshard (WD5-BUG-04)"
+        );
+        assert_eq!(
+            table_row_count(&dst_path, development_lane::HOLDS),
+            1,
+            "development_lane_holds survives the online reshard (WD5-BUG-04)"
+        );
+        assert_eq!(
+            table_row_count(&dst_path, capacity_lease::CELLS),
+            1,
+            "capacity_cells survives the online reshard (WD5-BUG-04)"
+        );
+        assert_eq!(
+            table_row_count(&dst_path, WORK_ITEM_COMMAND_SEQUENCE),
+            1,
+            "work_item_command_sequence survives the online reshard (WD5-BUG-04)"
+        );
+        #[cfg(feature = "security")]
+        assert_eq!(
+            table_row_count(&dst_path, PROVENANCE_ANCHOR_MEMBERS),
+            1,
+            "provenance_anchor_members survives the online reshard (WD5-BUG-04)"
+        );
+
+        // The move, not a copy: `Cmd::PurgeGraph`'s `purge_graph_rows` (step 4 of
+        // `delta_flip_purge`) already unconditionally clears RESOURCE_*/
+        // development_lane_*/capacity_lease_*/WORK_ITEM_COMMAND_SEQUENCE for the
+        // graph at the source — that call was ALREADY correct before this fix and is
+        // exactly why the pre-fix bug was true data loss (drop from source, no copy
+        // to destination), not a leak. `PROVENANCE_ANCHOR_MEMBERS` is the one
+        // exception: `purge_graph_rows` does not clear it (a pre-existing gap in
+        // `redb_store.rs`, outside this lane's two-file scope — see the lane
+        // report), so its source-side row is orphaned rather than purged.
+        assert_eq!(
+            table_row_count(&src_path, RESOURCE_RESERVATIONS),
+            0,
+            "resource_reservations purged from the source after the move"
+        );
+        assert_eq!(
+            table_row_count(&src_path, development_lane::HOLDS),
+            0,
+            "development_lane_holds purged from the source after the move"
+        );
+        assert_eq!(
+            table_row_count(&src_path, capacity_lease::CELLS),
+            0,
+            "capacity_cells purged from the source after the move"
+        );
+        assert_eq!(
+            table_row_count(&src_path, WORK_ITEM_COMMAND_SEQUENCE),
+            0,
+            "work_item_command_sequence purged from the source after the move"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
