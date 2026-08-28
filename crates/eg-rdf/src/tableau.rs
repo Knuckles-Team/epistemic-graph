@@ -948,7 +948,11 @@ impl Completion {
     /// Apply the ∀-rule's known `(role, filler)` pairs across `edges`
     /// (+ transitive-role folding). Split out of `step_all_rule`
     /// (extract-method, cx/wD8) — same terms, same order as before.
-    fn apply_all_rule_to_edges(&mut self, alls: &[(String, Dl)], edges: &[(String, usize)]) -> bool {
+    fn apply_all_rule_to_edges(
+        &mut self,
+        alls: &[(String, Dl)],
+        edges: &[(String, usize)],
+    ) -> bool {
         let mut changed = false;
         for (role, filler) in alls {
             for (e, t) in edges {
@@ -1115,10 +1119,10 @@ impl Completion {
         changed3 || changed4
     }
 
-    /// Find the first non-deterministic choice point and return its alternatives, or
-    /// `None` when the graph is complete (no rule applies): `⊔`, then `choose`, then `≤`.
-    fn next_nondet(&self) -> Option<Vec<Branch>> {
-        // ⊔-rule.
+    /// The ⊔-rule: find a node with an un-satisfied `Or` concept. Split out
+    /// of `next_nondet` (extract-method, cx/wD8) — same terms, same order
+    /// as before.
+    fn find_or_rule_branch(&self) -> Option<Vec<Branch>> {
         for i in self.reps() {
             for c in &self.nodes[i].label {
                 if let Dl::Or(ds) = c {
@@ -1132,7 +1136,13 @@ impl Completion {
                 }
             }
         }
-        // choose-rule (qualified number restrictions): a witness must commit to C / ¬C.
+        None
+    }
+
+    /// The choose-rule (qualified number restrictions): a witness must
+    /// commit to C / ¬C. Split out of `next_nondet` (extract-method,
+    /// cx/wD8) — same terms, same order as before.
+    fn find_choose_rule_branch(&self) -> Option<Vec<Branch>> {
         for i in self.reps() {
             let restr: Vec<(String, Dl)> = self.nodes[i]
                 .label
@@ -1158,7 +1168,60 @@ impl Completion {
                 }
             }
         }
-        // ≤-rule: too many witnesses ⇒ merge a mergeable (not-yet-≠) pair.
+        None
+    }
+
+    /// Find a mergeable (not-yet-≠) witness pair for one `≤n r.f` restriction
+    /// with too many qualifying witnesses at node `i`. Split out of
+    /// `find_max_rule_branch` (extract-method, cx/wD8) — same terms, same
+    /// order as before.
+    /// Every not-yet-≠ pair among `ws`, as merge branches. Split out of
+    /// `find_max_rule_merge_at_node` (extract-method, cx/wD8) — same terms,
+    /// same order as before.
+    fn find_mergeable_witness_pairs(&self, ws: &[usize]) -> Vec<Branch> {
+        let mut branches = Vec::new();
+        for a in 0..ws.len() {
+            for b in (a + 1)..ws.len() {
+                if !self.distinct(ws[a], ws[b]) {
+                    branches.push(Branch::Merge(ws[a], ws[b]));
+                }
+            }
+        }
+        branches
+    }
+
+    fn find_max_rule_merge_at_node(&self, i: usize, n: usize, filler: &Dl) -> Option<Vec<Branch>> {
+        // gather qualifying witnesses per the same role via re-scan
+        let roles_here: Vec<String> = self.nodes[i]
+            .label
+            .iter()
+            .filter_map(|c| match c {
+                Dl::Max(m, r, f) if *m == n && **f == *filler => {
+                    std::option::Option::Some(r.clone())
+                }
+                _ => std::option::Option::None,
+            })
+            .collect();
+        for role in roles_here {
+            let ws: Vec<usize> = self
+                .role_neighbors(i, &role)
+                .into_iter()
+                .filter(|&y| self.qualifies(y, filler))
+                .collect();
+            if ws.len() > n {
+                let branches = self.find_mergeable_witness_pairs(&ws);
+                if !branches.is_empty() {
+                    return Some(branches);
+                }
+            }
+        }
+        None
+    }
+
+    /// The ≤-rule: too many witnesses ⇒ merge a mergeable (not-yet-≠) pair.
+    /// Split out of `next_nondet` (extract-method, cx/wD8) — same terms,
+    /// same order as before.
+    fn find_max_rule_branch(&self) -> Option<Vec<Branch>> {
         for i in self.reps() {
             let maxes: Vec<(usize, Dl)> = self.nodes[i]
                 .label
@@ -1169,40 +1232,20 @@ impl Completion {
                 })
                 .collect();
             for (n, filler) in maxes {
-                // gather qualifying witnesses per the same role via re-scan
-                let roles_here: Vec<String> = self.nodes[i]
-                    .label
-                    .iter()
-                    .filter_map(|c| match c {
-                        Dl::Max(m, r, f) if *m == n && **f == filler => {
-                            std::option::Option::Some(r.clone())
-                        }
-                        _ => std::option::Option::None,
-                    })
-                    .collect();
-                for role in roles_here {
-                    let ws: Vec<usize> = self
-                        .role_neighbors(i, &role)
-                        .into_iter()
-                        .filter(|&y| self.qualifies(y, &filler))
-                        .collect();
-                    if ws.len() > n {
-                        let mut branches = Vec::new();
-                        for a in 0..ws.len() {
-                            for b in (a + 1)..ws.len() {
-                                if !self.distinct(ws[a], ws[b]) {
-                                    branches.push(Branch::Merge(ws[a], ws[b]));
-                                }
-                            }
-                        }
-                        if !branches.is_empty() {
-                            return Some(branches);
-                        }
-                    }
+                if let Some(branches) = self.find_max_rule_merge_at_node(i, n, &filler) {
+                    return Some(branches);
                 }
             }
         }
         None
+    }
+
+    /// Find the first non-deterministic choice point and return its alternatives, or
+    /// `None` when the graph is complete (no rule applies): `⊔`, then `choose`, then `≤`.
+    fn next_nondet(&self) -> Option<Vec<Branch>> {
+        self.find_or_rule_branch()
+            .or_else(|| self.find_choose_rule_branch())
+            .or_else(|| self.find_max_rule_branch())
     }
 
     fn apply_branch(&mut self, b: Branch) {
