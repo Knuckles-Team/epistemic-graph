@@ -857,40 +857,7 @@ impl<'a> Parser<'a> {
             .start;
         let full = self.src[start..end].to_string();
         let result = if let Some(into_idx) = into_at {
-            // Variable list: idents after INTO until a clause keyword / `;`.
-            let mut vars = Vec::new();
-            let mut j = into_idx + 1;
-            let into_start = self.toks[into_idx].start;
-            let mut into_end = self.toks[into_idx].end;
-            let clause_kw = [
-                "from", "where", "group", "order", "limit", "having", "union",
-            ];
-            while j < self.pos {
-                let tk = &self.toks[j];
-                if tk.text == ";" || clause_kw.iter().any(|k| tk.is(k)) {
-                    break;
-                }
-                if tk.text == "," {
-                    into_end = tk.end;
-                    j += 1;
-                    continue;
-                }
-                if tk
-                    .text
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                {
-                    vars.push(tk.text.clone());
-                    into_end = tk.end;
-                    j += 1;
-                } else {
-                    break;
-                }
-            }
-            if vars.is_empty() {
-                return Err("SELECT … INTO requires at least one target variable".to_string());
-            }
+            let (vars, into_start, into_end) = self.parse_select_into_vars(into_idx)?;
             // Rebuild the SELECT with the `INTO vars` span cut out.
             let mut select_sql = String::new();
             select_sql.push_str(self.src[start..into_start].trim_end());
@@ -905,6 +872,48 @@ impl<'a> Parser<'a> {
         };
         self.expect_kw(";")?;
         Ok(result)
+    }
+
+    /// Parse the `INTO var, var, ...` target-variable list starting right
+    /// after the `INTO` token at `into_idx`. Split out of `parse_select_stmt`
+    /// (extract-method, cx/wD8) — same terms, same order as before. Returns
+    /// (vars, into_start, into_end) — the byte span of `INTO vars` to cut
+    /// out of the reconstructed SELECT text.
+    fn parse_select_into_vars(&self, into_idx: usize) -> Result<(Vec<String>, usize, usize), String> {
+        let mut vars = Vec::new();
+        let mut j = into_idx + 1;
+        let into_start = self.toks[into_idx].start;
+        let mut into_end = self.toks[into_idx].end;
+        let clause_kw = [
+            "from", "where", "group", "order", "limit", "having", "union",
+        ];
+        while j < self.pos {
+            let tk = &self.toks[j];
+            if tk.text == ";" || clause_kw.iter().any(|k| tk.is(k)) {
+                break;
+            }
+            if tk.text == "," {
+                into_end = tk.end;
+                j += 1;
+                continue;
+            }
+            if tk
+                .text
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            {
+                vars.push(tk.text.clone());
+                into_end = tk.end;
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        if vars.is_empty() {
+            return Err("SELECT … INTO requires at least one target variable".to_string());
+        }
+        Ok((vars, into_start, into_end))
     }
 
     /// Capture the raw source slice of the tokens from the cursor up to (but not
@@ -1290,6 +1299,25 @@ fn strip_word<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
 
 /// Read a balanced `(…)` whose `(` is at the start of `s`. Returns the inner text and the
 /// remainder after the matching `)`. Skips `'…'` string literals.
+/// Advance past a `'...'` string literal starting at `b[start] == '\''`
+/// (Postgres `''` escape). Split out of `read_parens` (extract-method,
+/// cx/wD8) — same terms, same order as before. Returns the index just past
+/// the closing quote (or `b.len()` if unterminated).
+fn skip_plpgsql_string_literal(b: &[u8], start: usize) -> usize {
+    let mut i = start + 1;
+    while i < b.len() {
+        if b[i] == b'\'' {
+            if b.get(i + 1) == Some(&b'\'') {
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
 fn read_parens(s: &str) -> Option<(&str, &str)> {
     let b = s.as_bytes();
     if b.first() != Some(&b'(') {
@@ -1297,22 +1325,13 @@ fn read_parens(s: &str) -> Option<(&str, &str)> {
     }
     let mut depth = 0usize;
     let mut i = 0usize;
-    let mut in_str = false;
     while i < b.len() {
         let c = b[i];
-        if in_str {
-            if c == b'\'' {
-                if b.get(i + 1) == Some(&b'\'') {
-                    i += 2;
-                    continue;
-                }
-                in_str = false;
-            }
-            i += 1;
+        if c == b'\'' {
+            i = skip_plpgsql_string_literal(b, i);
             continue;
         }
         match c {
-            b'\'' => in_str = true,
             b'(' => depth += 1,
             b')' => {
                 depth -= 1;
