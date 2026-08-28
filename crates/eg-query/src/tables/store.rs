@@ -3182,6 +3182,132 @@ fn verify_migration_record(
     Ok(())
 }
 
+/// A migration may not touch a column that THIS table's own `FOREIGN KEY`
+/// constraints depend on, on either side of the reference.
+fn validate_migration_local_fks(
+    current: &TableSchema,
+    migration: &SchemaMigration,
+    affected: &HashSet<&str>,
+) -> Result<(), String> {
+    for constraint in current.constraints() {
+        let TableConstraint::ForeignKey {
+            columns,
+            ref_table,
+            ref_columns,
+            ..
+        } = constraint
+        else {
+            continue;
+        };
+        if columns
+            .iter()
+            .any(|column| affected.contains(column.as_str()))
+        {
+            return Err(format!(
+                "schema migration `{}` affects local FOREIGN KEY columns; drop/rebind the FK explicitly first",
+                migration.migration_id
+            ));
+        }
+        if ref_table == &current.name
+            && ref_columns
+                .iter()
+                .any(|column| affected.contains(column.as_str()))
+        {
+            return Err(format!(
+                "schema migration `{}` affects referenced FOREIGN KEY columns; child constraints must be rebound explicitly first",
+                migration.migration_id
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// One child table's `FOREIGN KEY` constraints must not reference a column the
+/// migration affects.
+fn validate_migration_child_table_fks(
+    current: &TableSchema,
+    migration: &SchemaMigration,
+    affected: &HashSet<&str>,
+    child_table: &str,
+    child_schema: &TableSchema,
+) -> Result<(), String> {
+    for constraint in child_schema.constraints() {
+        let TableConstraint::ForeignKey {
+            ref_table,
+            ref_columns,
+            ..
+        } = constraint
+        else {
+            continue;
+        };
+        if ref_table == &current.name
+            && ref_columns
+                .iter()
+                .any(|column| affected.contains(column.as_str()))
+        {
+            return Err(format!(
+                "schema migration `{}` affects `{}` columns referenced by child table `{child_table}`",
+                migration.migration_id, current.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The same conservative rule as [`validate_migration_local_fks`], applied to
+/// every OTHER table that references `current`.
+fn validate_migration_child_fks_in(
+    wtx: &WriteTransaction,
+    current: &TableSchema,
+    migration: &SchemaMigration,
+    affected: &HashSet<&str>,
+) -> Result<(), String> {
+    for child_table in list_tables_in(wtx)? {
+        let Some(child_schema) = get_schema_in(wtx, &child_table)? else {
+            continue;
+        };
+        validate_migration_child_table_fks(
+            current,
+            migration,
+            affected,
+            &child_table,
+            &child_schema,
+        )?;
+    }
+    Ok(())
+}
+
+/// The current branch's built-in dependent catalog is pgvector ANN.  The same
+/// conservative rule is used for scalar secondary indexes when that catalog is
+/// present: a caller may acknowledge a coordinated rebuild, but this transaction
+/// never silently drops or leaves a stale index behind.
+fn validate_migration_ann_indexes_in(
+    wtx: &WriteTransaction,
+    current: &TableSchema,
+    migration: &SchemaMigration,
+    affected: &HashSet<&str>,
+) -> Result<(), String> {
+    let indexes = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+    for row in indexes.iter().map_err(map_err)? {
+        let (_, value) = row.map_err(map_err)?;
+        let index: AnnIndexPlan = decode_stored(value.value(), "ANN index")?;
+        if index.table != current.name || !affected.contains(index.column.as_str()) {
+            continue;
+        }
+        return Err(match migration.policy.secondary_indexes {
+            SecondaryIndexPolicy::RejectAffected => format!(
+                "schema migration `{}` affects indexed column `{}`; secondary index must be explicitly rebuilt",
+                migration.migration_id, index.column
+            ),
+            SecondaryIndexPolicy::RebuildByCaller => format!(
+                "schema migration `{}` acknowledged index rebuild, but the rebuild is not part of this atomic plan",
+                migration.migration_id
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Check relationships and known local indexes before any row/catalog helper
 /// mutates the write transaction.  The check is deliberately conservative:
 /// changing a column participating in an FK is rejected because this bounded
@@ -3198,86 +3324,10 @@ fn validate_migration_dependencies_in(
         .flat_map(SchemaMigrationOperation::affected_columns)
         .collect();
     if !affected.is_empty() {
-        for constraint in current.constraints() {
-            if let TableConstraint::ForeignKey {
-                columns,
-                ref_table,
-                ref_columns,
-                ..
-            } = constraint
-            {
-                if columns
-                    .iter()
-                    .any(|column| affected.contains(column.as_str()))
-                {
-                    return Err(format!(
-                        "schema migration `{}` affects local FOREIGN KEY columns; drop/rebind the FK explicitly first",
-                        migration.migration_id
-                    ));
-                }
-                if ref_table == &current.name
-                    && ref_columns
-                        .iter()
-                        .any(|column| affected.contains(column.as_str()))
-                {
-                    return Err(format!(
-                        "schema migration `{}` affects referenced FOREIGN KEY columns; child constraints must be rebound explicitly first",
-                        migration.migration_id
-                    ));
-                }
-            }
-        }
-        for child_table in list_tables_in(wtx)? {
-            let Some(child_schema) = get_schema_in(wtx, &child_table)? else {
-                continue;
-            };
-            for constraint in child_schema.constraints() {
-                if let TableConstraint::ForeignKey {
-                    ref_table,
-                    ref_columns,
-                    ..
-                } = constraint
-                {
-                    if ref_table == &current.name
-                        && ref_columns
-                            .iter()
-                            .any(|column| affected.contains(column.as_str()))
-                    {
-                        return Err(format!(
-                            "schema migration `{}` affects `{}` columns referenced by child table `{child_table}`",
-                            migration.migration_id, current.name
-                        ));
-                    }
-                }
-            }
-        }
+        validate_migration_local_fks(current, migration, &affected)?;
+        validate_migration_child_fks_in(wtx, current, migration, &affected)?;
     }
-
-    // The current branch's built-in dependent catalog is pgvector ANN.  The
-    // same conservative rule is used for scalar secondary indexes when that
-    // catalog is present: a caller may acknowledge a coordinated rebuild, but
-    // this transaction never silently drops or leaves a stale index behind.
-    let indexes = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
-    for row in indexes.iter().map_err(map_err)? {
-        let (_, value) = row.map_err(map_err)?;
-        let index: AnnIndexPlan = decode_stored(value.value(), "ANN index")?;
-        if index.table == current.name && affected.contains(index.column.as_str()) {
-            match migration.policy.secondary_indexes {
-                SecondaryIndexPolicy::RejectAffected => {
-                    return Err(format!(
-                        "schema migration `{}` affects indexed column `{}`; secondary index must be explicitly rebuilt",
-                        migration.migration_id, index.column
-                    ));
-                }
-                SecondaryIndexPolicy::RebuildByCaller => {
-                    return Err(format!(
-                        "schema migration `{}` acknowledged index rebuild, but the rebuild is not part of this atomic plan",
-                        migration.migration_id
-                    ));
-                }
-            }
-        }
-    }
+    validate_migration_ann_indexes_in(wtx, current, migration, &affected)?;
     if migration.policy.require_rls_revalidation && migration.policy.rls_binding_digest.is_none() {
         return Err(format!(
             "schema migration `{}` requires an RLS binding digest",
@@ -4936,6 +4986,98 @@ fn migrate_rows_in(
     Ok(())
 }
 
+/// A hypertable's time column is structural — `DROP COLUMN` may never remove it.
+fn ensure_not_hypertable_time_column_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    column: &str,
+) -> Result<(), String> {
+    let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+    let Some(value) = hypertables.get(table).map_err(map_err)? else {
+        return Ok(());
+    };
+    let plan = decode_stored::<HypertablePlan>(value.value(), "hypertable")?;
+    if plan.time_column == column {
+        return Err(format!(
+            "cannot drop hypertable time column `{table}.{column}`"
+        ));
+    }
+    Ok(())
+}
+
+/// `column` must not participate in any of `schema`'s OWN `FOREIGN KEY`
+/// constraints, on either side of a self-reference.
+fn ensure_column_free_of_local_fks(
+    schema: &TableSchema,
+    table: &str,
+    column: &str,
+) -> Result<(), String> {
+    for constraint in schema.constraints() {
+        let TableConstraint::ForeignKey {
+            columns,
+            ref_table,
+            ref_columns,
+            ..
+        } = constraint
+        else {
+            continue;
+        };
+        if columns.iter().any(|name| name == column)
+            || (ref_table == table && ref_columns.iter().any(|name| name == column))
+        {
+            return Err(format!(
+                "cannot drop column `{table}.{column}` while foreign key `{}` uses it",
+                TableSchema::constraint_display_name(table, constraint)
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// One child table's `FOREIGN KEY` constraints must not reference `table.column`.
+fn ensure_child_table_fks_free_of_column(
+    child_table: &str,
+    child_schema: &TableSchema,
+    table: &str,
+    column: &str,
+) -> Result<(), String> {
+    for constraint in child_schema.constraints() {
+        let TableConstraint::ForeignKey {
+            ref_table,
+            ref_columns,
+            ..
+        } = constraint
+        else {
+            continue;
+        };
+        if ref_table == table && ref_columns.iter().any(|name| name == column) {
+            return Err(format!(
+                "cannot drop column `{table}.{column}` because foreign key `{}` on table `{child_table}` references it",
+                TableSchema::constraint_display_name(child_table, constraint)
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// No OTHER table may reference `table.column` through a `FOREIGN KEY`.
+fn ensure_column_free_of_child_fks_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    column: &str,
+) -> Result<(), String> {
+    for child_table in list_tables_in(wtx)? {
+        if child_table == table {
+            continue;
+        }
+        let Some(child_schema) = get_schema_in(wtx, &child_table)? else {
+            continue;
+        };
+        ensure_child_table_fks_free_of_column(&child_table, &child_schema, table, column)?;
+    }
+    Ok(())
+}
+
 /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP COLUMN`: remove `column` from the schema and drop its cell
 /// from every stored row (positional splice at the column's index). Refuses to drop the
 /// only column of a table. `if_exists` turns an absent-column error into a no-op.
@@ -4948,73 +5090,22 @@ fn drop_column_in(
 ) -> Result<(), String> {
     let mut schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
-    {
-        let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
-        if let Some(value) = hypertables.get(table).map_err(map_err)? {
-            let plan = decode_stored::<HypertablePlan>(value.value(), "hypertable")?;
-            if plan.time_column == column {
-                return Err(format!(
-                    "cannot drop hypertable time column `{table}.{column}`"
-                ));
-            }
-        };
-    }
-    let idx = match schema.column_index(column) {
-        Some(i) => i,
-        None => {
-            if if_exists {
-                return Ok(());
-            }
-            return Err(format!(
-                "column `{column}` does not exist in table `{table}`"
-            ));
+    ensure_not_hypertable_time_column_in(wtx, table, column)?;
+    let Some(idx) = schema.column_index(column) else {
+        if if_exists {
+            return Ok(());
         }
+        return Err(format!(
+            "column `{column}` does not exist in table `{table}`"
+        ));
     };
     if schema.columns().len() == 1 {
         return Err(format!(
             "cannot drop the only column `{column}` of table `{table}`"
         ));
     }
-    for constraint in schema.constraints() {
-        if let TableConstraint::ForeignKey {
-            columns,
-            ref_table,
-            ref_columns,
-            ..
-        } = constraint
-        {
-            if columns.iter().any(|name| name == column)
-                || (ref_table == table && ref_columns.iter().any(|name| name == column))
-            {
-                return Err(format!(
-                    "cannot drop column `{table}.{column}` while foreign key `{}` uses it",
-                    TableSchema::constraint_display_name(table, constraint)
-                ));
-            }
-        }
-    }
-    for child_table in list_tables_in(wtx)? {
-        if child_table == table {
-            continue;
-        }
-        if let Some(child_schema) = get_schema_in(wtx, &child_table)? {
-            for constraint in child_schema.constraints() {
-                if let TableConstraint::ForeignKey {
-                    ref_table,
-                    ref_columns,
-                    ..
-                } = constraint
-                {
-                    if ref_table == table && ref_columns.iter().any(|name| name == column) {
-                        return Err(format!(
-                            "cannot drop column `{table}.{column}` because foreign key `{}` on table `{child_table}` references it",
-                            TableSchema::constraint_display_name(&child_table, constraint)
-                        ));
-                    }
-                }
-            }
-        }
-    }
+    ensure_column_free_of_local_fks(&schema, table, column)?;
+    ensure_column_free_of_child_fks_in(wtx, table, column)?;
     schema.columns_mut().remove(idx);
     put_schema_in(wtx, tenant_scope, &schema)?;
     // Splice the dropped cell out of each stored row (rows may be short if written before
@@ -5027,23 +5118,46 @@ fn drop_column_in(
     })
 }
 
-/// CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME COLUMN a TO b`: rename in the schema only (rows are
-/// positional). Errors if `from` is absent or `to` already exists.
-fn rename_column_in(
+/// Rewrite every `FOREIGN KEY` reference in `child_schema` that points at
+/// `table.from` so it points at `table.to`. Returns `true` when anything changed.
+fn rebind_child_fk_ref_columns(
+    child_schema: &mut TableSchema,
+    table: &str,
+    from: &str,
+    to: &str,
+) -> bool {
+    let mut changed = false;
+    for constraint in child_schema.constraints_mut() {
+        let TableConstraint::ForeignKey {
+            ref_table,
+            ref_columns,
+            ..
+        } = constraint
+        else {
+            continue;
+        };
+        if ref_table != table {
+            continue;
+        }
+        for column in ref_columns {
+            if column == from {
+                *column = to.to_string();
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// Rebind and persist every OTHER table whose `FOREIGN KEY` referenced the column
+/// being renamed. Collected first, written second, exactly as before.
+fn rename_column_in_child_fks_in(
     wtx: &WriteTransaction,
     tenant_scope: &str,
     table: &str,
     from: &str,
     to: &str,
 ) -> Result<(), String> {
-    let mut schema =
-        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
-    if from != to && schema.column(to).is_some() {
-        return Err(format!("column `{to}` already exists in table `{table}`"));
-    }
-    let idx = schema
-        .column_index(from)
-        .ok_or_else(|| format!("column `{from}` does not exist in table `{table}`"))?;
     let mut dependents = Vec::new();
     for child_table in list_tables_in(wtx)? {
         if child_table == table {
@@ -5052,31 +5166,20 @@ fn rename_column_in(
         let Some(mut child_schema) = get_schema_in(wtx, &child_table)? else {
             continue;
         };
-        let mut changed = false;
-        for constraint in child_schema.constraints_mut() {
-            if let TableConstraint::ForeignKey {
-                ref_table,
-                ref_columns,
-                ..
-            } = constraint
-            {
-                if ref_table == table {
-                    for column in ref_columns {
-                        if column == from {
-                            *column = to.to_string();
-                            changed = true;
-                        }
-                    }
-                }
-            }
-        }
-        if changed {
+        if rebind_child_fk_ref_columns(&mut child_schema, table, from, to) {
             dependents.push(child_schema);
         }
     }
     for child_schema in &dependents {
         put_schema_in(wtx, tenant_scope, child_schema)?;
     }
+    Ok(())
+}
+
+/// Rewrite the renamed column's name inside `schema`'s OWN table-level
+/// constraints (PK/UNIQUE column lists, FK local and self-referencing lists, and
+/// CHECK expressions).
+fn rename_column_in_constraints(schema: &mut TableSchema, table: &str, from: &str, to: &str) {
     for constraint in schema.constraints_mut() {
         match constraint {
             TableConstraint::PrimaryKey { columns, .. }
@@ -5097,8 +5200,16 @@ fn rename_column_in(
             TableConstraint::Check { expr, .. } => rename_check_column(expr, from, to),
         }
     }
-    schema.columns_mut()[idx].name = to.to_string();
-    put_schema_in(wtx, tenant_scope, &schema)?;
+}
+
+/// Follow the rename into the hypertable catalog when the renamed column WAS the
+/// hypertable's time column.
+fn rename_hypertable_time_column_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
     let replacement = {
         let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
         let plan = hypertables
@@ -5119,6 +5230,30 @@ fn rename_column_in(
             .map_err(map_err)?;
     }
     Ok(())
+}
+
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME COLUMN a TO b`: rename in the schema only (rows are
+/// positional). Errors if `from` is absent or `to` already exists.
+fn rename_column_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    table: &str,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    let mut schema =
+        get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    if from != to && schema.column(to).is_some() {
+        return Err(format!("column `{to}` already exists in table `{table}`"));
+    }
+    let idx = schema
+        .column_index(from)
+        .ok_or_else(|| format!("column `{from}` does not exist in table `{table}`"))?;
+    rename_column_in_child_fks_in(wtx, tenant_scope, table, from, to)?;
+    rename_column_in_constraints(&mut schema, table, from, to);
+    schema.columns_mut()[idx].name = to.to_string();
+    put_schema_in(wtx, tenant_scope, &schema)?;
+    rename_hypertable_time_column_in(wtx, table, from, to)
 }
 
 fn rename_constraint_column_list(columns: &mut [String], from: &str, to: &str) {
