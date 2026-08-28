@@ -24,9 +24,15 @@ name: Release
 # jobs' `if:` conditions.
 #
 # Stages, in `needs:` order: gates -> lint-and-architecture -> build ->
-# docker-image -> publish-pypi/publish-image, plus the non-gating
-# feature-matrix/benchmarks/pages jobs that carry no `needs:` and therefore
-# cannot block that chain structurally, on top of not being wired to.
+# {docker-image, publish-pypi} (each also needs: feature-matrix + benchmarks,
+# added 2026-08-28/wD9-CIGATE after those two were found to share
+# docker-image/publish-pypi's own tag/dispatch trigger without being wired
+# into their `needs:` -- meaning a failing feature-build combo or perf/
+# recall regression could not stop a publish that ran in PARALLEL with it)
+# -> publish-image (transitively protected via `needs: [docker-image]`).
+# `pages` alone carries no `needs:` and is not needed BY anything, so it
+# structurally cannot block the publish chain -- see its own comment for why
+# that is fine (a deploy concern, not a gate).
 #
 # eg's wheel-digest-mismatch reproducibility bug is being fixed by a
 # different, separate track of work. Nothing in this redesign touches wheel
@@ -683,15 +689,15 @@ jobs:
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
   #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip.
-  #    Tag-gated: only builds on a `v*` tag. Also needs feature-matrix and
-  #    benchmarks (wD9-CIGATE, 2026-08-28): both are tag-gated to run on
-  #    exactly this same trigger, and without this a failing feature-build
-  #    combo or perf/recall regression could not stop this image from
-  #    shipping -- the same "continue-on-error hides debt from the publish
-  #    path" property this whole redesign exists to remove, just without
-  #    the keyword. `if:` below has no always()/failure()/cancelled(), so
-  #    GitHub's implicit success()-of-all-needs still applies with no
-  #    further change needed.
+  #    Tag-gated: only builds on a `v*` tag. Also `needs:` feature-matrix and
+  #    benchmarks (wD9-CIGATE, 2026-08-28) -- same caveat as publish-pypi's
+  #    own comment below: this `needs:` edge is necessary but, on its own,
+  #    NOT YET sufficient, because both jobs still carry
+  #    `continue-on-error: true` (unmeasured this session) and GitHub
+  #    reports a `continue-on-error: true` job as succeeded to its
+  #    dependents regardless of its own step outcomes. See publish-pypi's
+  #    comment for the full explanation and the `build.matrix.optional`
+  #    precedent this relies on.
   docker-image:
     needs: [build, feature-matrix, benchmarks]
     runs-on: ubuntu-latest
@@ -734,15 +740,30 @@ jobs:
   # PUBLISH — GATED to a `v*` tag only; skipped entirely on a normal branch
   # push or PR. Needs: build, feature-matrix, benchmarks, so publishing is
   # unreachable if `gates`, `lint-and-architecture` (transitively, via
-  # `build`), `build`, `feature-matrix`, or `benchmarks` failed. The latter
-  # two were added 2026-08-28 (wD9-CIGATE): both already run on this exact
-  # tag trigger (see their own `if:`), but were not wired into this `needs:`
-  # list, so a failing feature-build combo or perf/recall regression could
-  # not stop a publish that ran in parallel with it -- the property this
-  # whole redesign exists to remove, just without the `continue-on-error`
-  # keyword. `if:` below has no always()/failure()/cancelled(), so GitHub's
-  # implicit success()-of-all-needs applies to the full `needs:` list
-  # automatically; no separate `needs.*.result` check is required.
+  # `build`), or `build` failed -- `if:` below has no always()/failure()/
+  # cancelled(), so GitHub's implicit success()-of-all-needs applies to the
+  # full `needs:` list with no further change needed FOR THOSE THREE.
+  #
+  # `feature-matrix`/`benchmarks` are also `needs:` here (added 2026-08-28,
+  # wD9-CIGATE) -- necessary, but on their own NOT YET sufficient. Both run
+  # on this exact tag trigger already (see their own `if:`) but previously
+  # were not wired into this `needs:` at all, so a failing feature-build
+  # combo or perf/recall regression could not stop a publish that ran in
+  # PARALLEL with it. This `needs:` edge alone does not close that gap:
+  # both jobs still carry `continue-on-error: true` (2026-08-28 measurement
+  # never reached them -- 13 cargo builds plus a bench run, deferred; see
+  # the wD9-CIGATE report), and a job with `continue-on-error: true` is
+  # reported SUCCEEDED to anything that `needs:` it regardless of whether
+  # its own steps failed -- exactly the mechanism the `build` job's own
+  # `matrix.optional` leg above relies on to keep an optional macOS failure
+  # from blocking this same `needs: build` chain. So today this `needs:`
+  # edge is a correct, necessary prerequisite that does nothing on its own;
+  # it only starts BLOCKING once `continue-on-error` is removed from
+  # feature-matrix/benchmarks, which requires actually measuring them
+  # green first (the sequencing rule this whole redesign follows: never
+  # flip an unmeasured/known-red check to blocking). Until then, the
+  # publish path still ships on a red feature-matrix/benchmarks leg --
+  # narrowed from "any push" to "a tag push", but not yet closed.
   # ─────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish wheels to PyPI (release only)
