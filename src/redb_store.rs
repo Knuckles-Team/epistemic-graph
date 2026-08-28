@@ -4326,7 +4326,9 @@ fn resource_fingerprint(value: &str, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn resource_validate_request(request: &ResourceReservationRequest) -> Result<(), String> {
+/// Phase 1 of `resource_validate_request`: the identity text fields and the
+/// canonical-integer `profile_version`.
+fn resource_validate_request_identity(request: &ResourceReservationRequest) -> Result<(), String> {
     resource_text(&request.tenant_ref, "resource tenant_ref")?;
     resource_text(&request.work_item_id, "resource work_item_id")?;
     resource_text(&request.owner_id, "resource owner_id")?;
@@ -4341,6 +4343,12 @@ fn resource_validate_request(request: &ResourceReservationRequest) -> Result<(),
     if parsed_profile_version.to_string() != request.profile_version {
         return Err("resource profile_version must be a canonical integer".to_string());
     }
+    Ok(())
+}
+
+/// Phase 2 of `resource_validate_request`: host/target selector, the remaining
+/// bounded text fields, the input fingerprint and the label sets.
+fn resource_validate_request_selectors(request: &ResourceReservationRequest) -> Result<(), String> {
     resource_text(&request.host_ref, "resource host_ref")?;
     let target_kind = resource_request_target_kind(request.target_kind);
     resource_text(target_kind, "resource target_kind")?;
@@ -4359,18 +4367,31 @@ fn resource_validate_request(request: &ResourceReservationRequest) -> Result<(),
     resource_fingerprint(&request.input_fingerprint, "resource input_fingerprint")?;
     resource_labels(&request.required_labels, "resource required_labels")?;
     resource_labels(&request.anti_affinity, "resource anti_affinity")?;
+    Ok(())
+}
+
+/// The requirement vector is rejected when any dimension is zero or above
+/// `MAX_RESOURCE_DIMENSION`.  Verbatim lift of the original disjunction.
+fn resource_requirement_dimensions_invalid(requirement: &ResourceRequirement) -> bool {
+    requirement.cpu_weight == 0
+        || requirement.memory_mib == 0
+        || requirement.disk_mib == 0
+        || requirement.process_slots == 0
+        || requirement.cpu_weight > MAX_RESOURCE_DIMENSION
+        || requirement.memory_mib > MAX_RESOURCE_DIMENSION
+        || requirement.disk_mib > MAX_RESOURCE_DIMENSION
+        || requirement.process_slots > MAX_RESOURCE_DIMENSION
+}
+
+/// Phase 3 of `resource_validate_request`: attempt, requirement dimensions,
+/// concurrency limit and fairness cost.
+fn resource_validate_request_requirement(
+    request: &ResourceReservationRequest,
+) -> Result<(), String> {
     if request.attempt == 0 {
         return Err("resource attempt must be positive".to_string());
     }
-    if request.requirement.cpu_weight == 0
-        || request.requirement.memory_mib == 0
-        || request.requirement.disk_mib == 0
-        || request.requirement.process_slots == 0
-        || request.requirement.cpu_weight > MAX_RESOURCE_DIMENSION
-        || request.requirement.memory_mib > MAX_RESOURCE_DIMENSION
-        || request.requirement.disk_mib > MAX_RESOURCE_DIMENSION
-        || request.requirement.process_slots > MAX_RESOURCE_DIMENSION
-    {
+    if resource_requirement_dimensions_invalid(&request.requirement) {
         return Err("resource requirement dimensions must be positive".to_string());
     }
     if request.concurrency_limit.is_some_and(|limit| limit == 0) {
@@ -4382,6 +4403,12 @@ fn resource_validate_request(request: &ResourceReservationRequest) -> Result<(),
     if request.fairness_cost > MAX_RESOURCE_DIMENSION {
         return Err("resource fairness_cost exceeds the native bound".to_string());
     }
+    Ok(())
+}
+
+/// Phase 4 of `resource_validate_request`: disk watermark ordering and the
+/// reservation window/TTL bound.
+fn resource_validate_request_window(request: &ResourceReservationRequest) -> Result<(), String> {
     if request
         .disk_low_watermark_mib
         .zip(request.disk_high_watermark_mib)
@@ -4395,6 +4422,16 @@ fn resource_validate_request(request: &ResourceReservationRequest) -> Result<(),
     if request.expires_at_ms.saturating_sub(request.reserved_at_ms) > MAX_RESOURCE_TTL_MS {
         return Err("resource TTL exceeds the native bound".to_string());
     }
+    Ok(())
+}
+
+/// The four phases run in the original statement order, so a doubly-invalid
+/// request still reports the first field that was wrong before the split.
+fn resource_validate_request(request: &ResourceReservationRequest) -> Result<(), String> {
+    resource_validate_request_identity(request)?;
+    resource_validate_request_selectors(request)?;
+    resource_validate_request_requirement(request)?;
+    resource_validate_request_window(request)?;
     Ok(())
 }
 
@@ -5238,6 +5275,33 @@ fn resource_extension_matches(
     )
 }
 
+/// Tail of `resource_validate_work_item`, run after the fence checks and in the
+/// same order: the lease-owner match (skipped for a superseded row, exactly as
+/// before) followed by the repository/extension projection comparison.
+fn resource_validate_work_item_owner_and_extension(
+    props: &serde_json::Map<String, serde_json::Value>,
+    request: &ResourceReservationRequest,
+    superseded: bool,
+) -> Result<(), ResourceReservationResultDecision> {
+    let status = property_string(props, "status");
+    let owner = if matches!(status, "leased" | "running") {
+        property_string(props, "lease_owner")
+    } else {
+        property_string(props, "last_lease_owner")
+    };
+    if !superseded && owner != request.owner_id {
+        return Err(ResourceReservationResultDecision::Stale);
+    }
+    let (repository, extension) =
+        resource_metadata_maps(props).map_err(|_| ResourceReservationResultDecision::Policy)?;
+    let matches = resource_extension_matches(repository, extension, request)
+        .map_err(|_| ResourceReservationResultDecision::Policy)?;
+    if !matches {
+        return Err(ResourceReservationResultDecision::InputConflict);
+    }
+    Ok(())
+}
+
 fn resource_validate_work_item(
     props: &serde_json::Map<String, serde_json::Value>,
     request: &ResourceReservationRequest,
@@ -5260,22 +5324,7 @@ fn resource_validate_work_item(
     if request.fence != resource_expected_fence(request.fencing_token) {
         return Err(ResourceReservationResultDecision::Stale);
     }
-    let status = property_string(props, "status");
-    let owner = if matches!(status, "leased" | "running") {
-        property_string(props, "lease_owner")
-    } else {
-        property_string(props, "last_lease_owner")
-    };
-    if !superseded && owner != request.owner_id {
-        return Err(ResourceReservationResultDecision::Stale);
-    }
-    let (repository, extension) =
-        resource_metadata_maps(props).map_err(|_| ResourceReservationResultDecision::Policy)?;
-    let matches = resource_extension_matches(repository, extension, request)
-        .map_err(|_| ResourceReservationResultDecision::Policy)?;
-    if !matches {
-        return Err(ResourceReservationResultDecision::InputConflict);
-    }
+    resource_validate_work_item_owner_and_extension(props, request, superseded)?;
     Ok(ResourceWorkItemFence {
         attempt: current_attempt,
         lease_epoch,
@@ -7291,11 +7340,11 @@ fn resource_no_reservation_query_result(
     })
 }
 
-fn resource_validate_query_request(
+/// Bounded-text validation of a status query's optional selectors, in the
+/// original field order so the first offending field is still the one reported.
+fn resource_validate_query_selectors(
     request: &ResourceReservationStatusRequest,
-    require_limit: bool,
 ) -> Result<(), String> {
-    resource_text(&request.tenant_ref, "resource query tenant_ref")?;
     if let Some(value) = request.work_item_id.as_deref() {
         resource_text(value, "resource query work_item_id")?;
     }
@@ -7308,6 +7357,14 @@ fn resource_validate_query_request(
     if let Some(value) = request.owner_id.as_deref() {
         resource_text(value, "resource query owner_id")?;
     }
+    Ok(())
+}
+
+/// Continuation of `resource_validate_query_selectors`: fence, fingerprint,
+/// fairness group and cursor.
+fn resource_validate_query_correlations(
+    request: &ResourceReservationStatusRequest,
+) -> Result<(), String> {
     if let Some(value) = request.fence.as_deref() {
         resource_text(value, "resource query fence")?;
     }
@@ -7320,6 +7377,16 @@ fn resource_validate_query_request(
     if let Some(value) = request.cursor.as_deref() {
         resource_text(value, "resource query cursor")?;
     }
+    Ok(())
+}
+
+fn resource_validate_query_request(
+    request: &ResourceReservationStatusRequest,
+    require_limit: bool,
+) -> Result<(), String> {
+    resource_text(&request.tenant_ref, "resource query tenant_ref")?;
+    resource_validate_query_selectors(request)?;
+    resource_validate_query_correlations(request)?;
     if request.attempt.is_some_and(|attempt| attempt == 0) {
         return Err("resource query attempt must be positive".into());
     }
