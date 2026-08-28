@@ -131,6 +131,14 @@ def main() -> None:
     capabilities = read("crates/eg-capabilities/src/lib.rs")
     mutation_runtime = read("src/server/mutation.rs")
     mutation_apply = read("src/mutation_apply.rs")
+    # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
+    # single-writer guard into eg-core"): the base graph-mutation set and the
+    # `broker` family (CreateNodeIfAbsent, BrokerAckTag/NackTag/RenewTag among
+    # them) moved out of src/mutation_apply.rs's `apply` into
+    # eg_core::durable_apply::apply, which src/mutation_apply.rs now delegates to
+    # via its `_` arm. A check that reads only src/mutation_apply.rs therefore
+    # measures a partial universe post-hoist (BUG-CX-112) -- union both.
+    mutation_apply += "\n" + read("crates/eg-core/src/durable_apply.rs")
     graph_handler = read("src/server/handlers/graph_ops.rs")
     access = read("src/server/access.rs")
     broker = read("crates/eg-core/src/broker.rs")
@@ -420,16 +428,41 @@ def main() -> None:
         "    pub fn broker_renew_delivery_tag(",
         "\n    /// Atomically fence and end a tag-addressed delivery.",
     )
+    # `broker_lease_extends` is an extracted helper `broker_renew_delivery_tag`
+    # calls rather than inlining the "does not shorten the live lease"
+    # comparison itself -- follow that one hop so the check keeps seeing the
+    # real comparison instead of reporting it missing.
+    lease_extension_guard = renewal
+    if "broker_lease_extends(" in renewal:
+        lease_extension_guard += "\n" + delimited_body(
+            graph,
+            "    fn broker_lease_extends(",
+            "\n    /// Return an expired delivery to pending",
+        )
     require(
         "now_ms.checked_add(lease_ms)" in renewal
-        and "renewed_until <= current_lease_until" in renewal,
+        and (
+            "renewed_until <= current_lease_until" in renewal
+            or "renewed_until > current_lease_until" in lease_extension_guard
+        ),
         "lease renewal can overflow or shorten the current live deadline",
     )
-    lease_verdict = delimited_body(
-        renewal,
-        "let Some(current_lease_until) = current_lease_until else {",
-        'properties.insert("lease_until"',
-    )
+    # The current/renewed-lease verdict now lives behind the extracted
+    # `broker_lease_extends` early-return guard (`if !Self::broker_lease_extends(
+    # ...) { return false; }`) rather than an inline `let Some(...) else` branch;
+    # same "does a failed verdict destroy state" question, current text shape.
+    if "broker_lease_extends(" in renewal:
+        lease_verdict = delimited_body(
+            renewal,
+            "if !Self::broker_lease_extends(",
+            'properties.insert("lease_until"',
+        )
+    else:
+        lease_verdict = delimited_body(
+            renewal,
+            "let Some(current_lease_until) = current_lease_until else {",
+            'properties.insert("lease_until"',
+        )
     require(
         "remove_node(lookup_id)" not in lease_verdict,
         "a failed current-generation renewal destroys the ack/nack lookup",

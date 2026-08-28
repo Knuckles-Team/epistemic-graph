@@ -210,6 +210,50 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # CX wD10 WD10-R-EGGATES (BUG-CX-112): these four were wired to neither
+  # pre-commit nor CI. Two (persisted-mutation-contract, current-only-
+  # architecture) had also gone stale following the 2026-08-25 durable_apply
+  # hoist (3810eb00) -- neither followed eg_core::durable_apply, so both
+  # measured a partial universe and reported ~50 methods "missing" that are
+  # actually present, permanently red and teaching everyone to ignore them.
+  # Fixed to follow the hoist, fixed several further false-negatives the fix
+  # then exposed (dispatch/sparql_http decomposition the checks' literal-text
+  # anchors hadn't kept up with), verified each genuinely catches a planted
+  # violation, and reprofiled persisted-mutation-contract from ~4.7s to
+  # ~0.5-0.8s (an O(candidates x file-size) helper was re-searching all of
+  # dispatch.rs per candidate). Pure stdlib, no cargo/build, safe for the
+  # commit stage. `check_mounted_kernel.py` and `check_exact_fault_restart_
+  # harness.py`'s sibling `certify_exact_fault_restart.py` release-gate path
+  # are deliberately NOT wired here -- see scripts/check_mounted_kernel.py's
+  # own module docstring for the former (deploy-time artifact, not a commit-
+  # time property; wiring it to pre-commit would red every commit on a
+  # checkout that hasn't run build_numeric_kernel.py, and this repo's own CI
+  # never builds the editable-mount kernel either) and the lane report for
+  # what wiring either would require.
+  - id: persisted-mutation-contract
+    name: Persisted mutation/projection contract (current-only durability) gate
+    entry: python3 scripts/check_persisted_mutation_contract.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: current-only-architecture
+    name: Current-only mutation/projection persistence architecture gate
+    entry: python3 scripts/check_current_only_architecture.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: exact-fault-restart-harness-architecture
+    name: Exact-binary fault/restart certification harness architecture gate
+    entry: python3 scripts/check_exact_fault_restart_harness.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: scale-documentation
+    name: Bounded, source-anchored scaling documentation register
+    entry: python3 scripts/check_scale_documentation.py
+    language: system
+    pass_filenames: false
+    always_run: true
   # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
   # pure YAML parse, no cargo/build, <1s, so it runs on EVERY commit rather
   # than waiting for a push to discover a workflow grew a job
