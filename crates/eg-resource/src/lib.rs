@@ -524,22 +524,32 @@ fn join_cgroup_paths(
     }
     let relative_components = &member_components[root_components.len()..];
     let mount_prefix = mount_point.trim_end_matches('/');
-    let mut paths = Vec::with_capacity(relative_components.len() + 1);
-    for depth in 0..=relative_components.len() {
-        let mut path = if mount_prefix.is_empty() {
-            "/".to_string()
-        } else {
-            mount_prefix.to_string()
-        };
-        for component in &relative_components[..depth] {
-            path.push('/');
-            path.push_str(component);
-        }
-        path.push('/');
-        path.push_str(filename);
-        paths.push(path);
-    }
+    let paths = (0..=relative_components.len())
+        .map(|depth| cgroup_path_at_depth(mount_prefix, relative_components, depth, filename))
+        .collect();
     Some(paths)
+}
+
+/// One candidate cgroup path at `depth` levels into `relative_components`:
+/// `mount_prefix` + the first `depth` relative components + `filename`.
+fn cgroup_path_at_depth(
+    mount_prefix: &str,
+    relative_components: &[&str],
+    depth: usize,
+    filename: &str,
+) -> String {
+    let mut path = if mount_prefix.is_empty() {
+        "/".to_string()
+    } else {
+        mount_prefix.to_string()
+    };
+    for component in &relative_components[..depth] {
+        path.push('/');
+        path.push_str(component);
+    }
+    path.push('/');
+    path.push_str(filename);
+    path
 }
 
 fn cgroup_components(path: &str) -> Option<Vec<&str>> {
