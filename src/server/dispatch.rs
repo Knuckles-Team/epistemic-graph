@@ -9979,6 +9979,109 @@ fn stamp_resource_and_capacity_timestamps(method: &mut Method) {
     stamp_capacity_timestamp(method);
 }
 
+/// Cold-path lazy open (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3).
+/// Only a registry MISS escalates to a write lock. The graph may be
+/// catalog-known but not yet materialized (a lazy-startup boot scan, or a graph
+/// the bounded hot-context cache evicted back to catalog-only); `lazy_open` is a
+/// no-op for a genuinely unknown name, so the caller's "not found" error is
+/// unchanged for that case.
+#[cfg(feature = "redb")]
+async fn lazy_open_graph(state: &Arc<RwLock<ServerState>>, graph_name: &str) {
+    let cap = crate::server::persistence::cold_offload::max_resident_graphs();
+    let page_size = crate::server::persistence::cold_offload::lazy_open_page_size();
+    crate::server::persistence::cold_offload::lazy_open(state, graph_name, cap, page_size).await;
+}
+
+/// Universal served-data authority (CONCEPT:EG-P0-4): derive the row actor from
+/// the cryptographically verified RequestContext while the authoritative
+/// IsolationLayer is under the registry lock. Every graph read either consumes
+/// this authority's detached projection or an existing handler that receives the
+/// same IsolationLayer. Mutation documents can contain read phases (GraphQL
+/// staged CONSTRUCT/UQL), so write requests carry the same verified tenant/actor
+/// projection rather than gaining access to the raw committed core.
+fn resolve_graph_read_authority(
+    req_id: u64,
+    verified_context: &VerifiedRequestContext,
+    isolation: &crate::isolation::IsolationLayer,
+) -> Result<(GraphReadAuthority, String), Response> {
+    let authority = match GraphReadAuthority::from_verified(verified_context, isolation) {
+        Ok(authority) => authority,
+        Err(denied) => return Err(Response::err(req_id, denied)),
+    };
+    let tenant_scope = authority
+        .carrier()
+        .expect("GraphReadAuthority always carries verified tenant authority")
+        .tenant_scope()
+        .to_string();
+    Ok((authority, tenant_scope))
+}
+
+/// Mutation-gateway authz context (CONCEPT:EG-P0-2): for a
+/// `mutation::GATEWAY_ROUTED` method, `commit_mutation` re-derives its OWN authz
+/// decision from `(isolation, graph_type, owner)` rather than trusting the graph
+/// ACL check — captured before the registry lock drops, ONLY for the routed set
+/// (an `IsolationLayer` clone is not free, so this is skipped entirely for the
+/// other ~330 methods).
+fn graph_op_gateway_authz_ctx(
+    s: &ServerState,
+    method: &Method,
+    entry: &GraphEntryFacts,
+) -> Option<crate::server::mutation::GatewayAuthzCtx> {
+    if !crate::server::mutation::is_gateway_routed(method) {
+        return None;
+    }
+    Some((s.isolation.clone(), entry.graph_type, entry.owner.clone()))
+}
+
+/// Everything resolved while the registry read lock is still held.
+struct GraphOpGate {
+    entry: GraphEntryFacts,
+    read_authority: GraphReadAuthority,
+    tenant_scope: String,
+    verified_actor: String,
+    gateway_authz_ctx: Option<crate::server::mutation::GatewayAuthzCtx>,
+}
+
+/// Gate and resolve one graph operation under the registry lock, in the ORIGINAL
+/// order: caller / existence / materialization / graph ACL first, then the
+/// verified read authority, then the gateway authz context.
+fn gate_graph_op_under_lock(
+    s: &ServerState,
+    ctx: GraphOpContext<'_>,
+    method: &Method,
+    access: AccessLevel,
+    state_machine_authorized: bool,
+) -> Result<GraphOpGate, Response> {
+    let GraphOpContext {
+        graph_name,
+        req_id,
+        caller,
+        verified_context,
+    } = ctx;
+    let entry = check_graph_op_access(
+        s,
+        req_id,
+        caller,
+        graph_name,
+        access,
+        state_machine_authorized,
+    )?;
+    let (read_authority, tenant_scope) =
+        resolve_graph_read_authority(req_id, verified_context, &s.isolation)?;
+    let verified_actor = match read_authority.verified_actor() {
+        Ok(actor) => actor.to_string(),
+        Err(denied) => return Err(Response::err(req_id, denied)),
+    };
+    let gateway_authz_ctx = graph_op_gateway_authz_ctx(s, method, &entry);
+    Ok(GraphOpGate {
+        entry,
+        read_authority,
+        tenant_scope,
+        verified_actor,
+        gateway_authz_ctx,
+    })
+}
+
 async fn dispatch_graph_op_inner(
     state: &Arc<RwLock<ServerState>>,
     ctx: GraphOpContext<'_>,
@@ -10013,113 +10116,43 @@ async fn dispatch_graph_op_inner(
     #[cfg(feature = "redb")]
     if s.registry.get(graph_name).is_none() {
         drop(s);
-        let cap = crate::server::persistence::cold_offload::max_resident_graphs();
-        let page_size = crate::server::persistence::cold_offload::lazy_open_page_size();
-        crate::server::persistence::cold_offload::lazy_open(state, graph_name, cap, page_size)
-            .await;
+        lazy_open_graph(state, graph_name).await;
         s = timed_read(state).await;
     }
 
-    // TsAppend used to self-route before this boundary, which accidentally classified
-    // it as neither a graph read nor write. It is now graph-scoped and requires the
-    // same Write ACL as every other mutation; so do the other two `series.redb`
-    // mutations, TsEvict/TsDeleteSeries (retention) -- a Read-only caller must not be
-    // able to evict points or delete a whole series any more than they could append
-    // to one. All other Ts methods (including the read-only TsListSeries enumeration)
-    // require only Read.
-    let access = if requires_write(&method)
-        || matches!(
-            &method,
-            Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. }
-        ) {
-        AccessLevel::Write
-    } else {
-        AccessLevel::Read
-    };
+    let access = graph_op_access_level(&method);
     #[cfg(feature = "raft")]
     let state_machine_authorized = is_replicated_apply();
     #[cfg(not(feature = "raft"))]
     let state_machine_authorized = false;
 
-    // Deny an unregistered/unauthenticated caller BEFORE existence is resolved —
-    // never let "Graph not found" vs "ACCESS_DENIED" tell a caller who could never
-    // pass ACL for any graph whether the target graph exists (see
-    // `access::check_caller_is_known`'s doc). A registered caller always falls
-    // through unchanged to the real, graph-type/owner-aware decision below.
-    if let Err(resp) = check_known_caller(
-        &s.isolation,
-        req_id,
-        caller,
-        graph_name,
+    let gate = match gate_graph_op_under_lock(
+        &s,
+        GraphOpContext {
+            graph_name,
+            req_id,
+            caller,
+            verified_context,
+        },
+        &method,
         access,
         state_machine_authorized,
     ) {
-        return resp;
-    }
-
-    let entry = match s.registry.get(graph_name) {
-        Some(e) => e,
-        None => return Response::err(req_id, format!("Graph '{}' not found", graph_name)),
+        Ok(gate) => gate,
+        Err(resp) => return resp,
     };
-    if let Err(resp) = check_materialization_valid(&s.registry, req_id, graph_name) {
-        return resp;
-    }
-
-    if !state_machine_authorized {
-        if let Err(denied) = check_graph_access(
-            &s.isolation,
-            caller,
-            graph_name,
-            entry.graph_type,
-            entry.owner.as_deref(),
-            access,
-        ) {
-            return Response::err(req_id, denied);
-        }
-    }
-
-    // Universal served-data authority (CONCEPT:EG-P0-4): derive the row actor
-    // from the cryptographically verified RequestContext while the authoritative
-    // IsolationLayer is under the registry lock. Every graph read below either
-    // consumes this authority's detached projection or an existing handler that
-    // receives the same IsolationLayer. Mutation documents can contain read phases
-    // (GraphQL staged CONSTRUCT/UQL), so write requests carry the same verified
-    // tenant/actor projection rather than gaining access to the raw committed core.
-    let read_authority = match GraphReadAuthority::from_verified(verified_context, &s.isolation) {
-        Ok(authority) => Some(authority),
-        Err(denied) => return Response::err(req_id, denied),
-    };
-    let verified_actor = match read_authority
-        .as_ref()
-        .expect("GraphReadAuthority is constructed above")
-        .verified_actor()
-    {
-        Ok(actor) => actor,
-        Err(denied) => return Response::err(req_id, denied),
-    };
-    // Consumed only by the query/cypher/graphql/rdf/knowledge-stream gateway arms
-    // below (each independently feature-gated); a slim build with none of them
-    // enabled still needs this binding to compile.
-    let _ = verified_actor;
-    let tenant_scope = read_authority
-        .as_ref()
-        .and_then(GraphReadAuthority::carrier)
-        .expect("GraphReadAuthority always carries verified tenant authority")
-        .tenant_scope()
-        .to_string();
-
-    // Mutation-gateway authz context (CONCEPT:EG-P0-2): for a `mutation::
-    // GATEWAY_ROUTED` method, `commit_mutation` re-derives its OWN authz decision
-    // from `(isolation, graph_type, owner)` rather than trusting the check just
-    // above — captured here, before `s`/`entry` drop below, ONLY for the routed
-    // set (an `IsolationLayer` clone is not free, so this is skipped entirely for
-    // the other ~330 methods).
-    let gateway_authz_ctx: Option<crate::server::mutation::GatewayAuthzCtx> =
-        if crate::server::mutation::is_gateway_routed(&method) {
-            Some((s.isolation.clone(), entry.graph_type, entry.owner.clone()))
-        } else {
-            None
-        };
+    let GraphOpGate {
+        entry,
+        read_authority,
+        tenant_scope,
+        verified_actor,
+        gateway_authz_ctx,
+    } = gate;
+    let read_authority = Some(read_authority);
+    // `verified_actor` is consumed only by the query/cypher/graphql/rdf/
+    // knowledge-stream gateway arms below (each independently feature-gated); a
+    // slim build with none of them enabled still needs this binding to compile.
+    let verified_actor: &str = &verified_actor;
 
     let core = entry.core.clone();
     #[cfg(feature = "redb")]
@@ -10150,16 +10183,7 @@ async fn dispatch_graph_op_inner(
     #[cfg(feature = "raft")]
     let placement_authority = s.placement_authority();
     #[cfg(feature = "raft")]
-    let multi_raft = if is_replicated_apply() {
-        None
-    } else if matches!(
-        placement_authority,
-        crate::server::state::PlacementAuthorityKind::MultiRaft
-    ) {
-        s.multi_raft.clone()
-    } else {
-        None
-    };
+    let multi_raft = resolve_multi_raft(&s, &placement_authority);
     #[cfg(feature = "raft")]
     let graph_type = entry.graph_type;
     // Cold-tenant access tracking (CONCEPT:EG-KG.backend.r6-feature, R6): clone the tracker under the same
@@ -10217,345 +10241,41 @@ async fn dispatch_graph_op_inner(
     // carried by the committed Raft scope through `authoritative_now_ms()`.
     stamp_resource_and_capacity_timestamps(&mut method);
 
-    // ChangeEnvelope is a first-class persistence operation, not a sequence of
-    // direct graph calls. It executes only after graph ACL and placement
-    // resolution, and before generic replicated mutation paths can decompose it.
-    let method = match method {
-        method @ Method::ApplyChangeEnvelope { .. } => {
-            return dispatch_change_env_apply_change_envelope(
-                ApplyChangeEnvelopeCtx {
-                    state,
-                    req_id,
-                    graph_name,
-                    core: core.clone(),
-                    persistence: persistence.clone(),
-                    #[cfg(feature = "raft")]
-                    routed_raft: routed_raft.clone(),
-                    #[cfg(feature = "raft")]
-                    graph_type,
-                    tenant_scope: &tenant_scope,
-                },
-                method,
-            )
-            .await
-        }
-        // Batch envelope commit for ONE graph (the top-level `dispatch_change_envelopes`
-        // groups by graph and routes each group here). Every envelope targets
-        // `graph_name`; they land in ONE coalesced redb transaction — the atomic
-        // graph-batch. A single failing envelope aborts the whole group and every
-        // envelope in it reports the batch outcome honestly. Per-envelope results are
-        // returned in group order under `{"results": [...]}`.
-        method @ Method::ApplyChangeEnvelopes { .. } => {
-            return dispatch_change_env_apply_change_envelopes(
-                req_id,
-                graph_name,
-                core.clone(),
-                persistence.clone(),
-                #[cfg(feature = "raft")]
-                routed_raft.clone(),
-                method,
-            )
-            .await
-        }
-        method @ Method::GetChangeEnvelope { .. } => {
-            return dispatch_change_env_get_change_envelope(
-                req_id,
-                graph_name,
-                persistence.clone(),
-                method,
-            )
-            .await
-        }
-        method @ Method::GetContentVersion { .. } => {
-            return dispatch_change_env_get_content_version(
-                req_id,
-                graph_name,
-                persistence.clone(),
-                method,
-            )
-            .await
-        }
-        method @ Method::GetChangeCursor { .. } => {
-            return dispatch_change_env_get_change_cursor(
-                req_id,
-                graph_name,
-                persistence.clone(),
-                method,
-            )
-            .await
-        }
-        other => other,
+    let routing = GraphOpRouting {
+        state,
+        req_id,
+        graph_name,
+        caller,
+        verified_context,
+        state_machine_authorized,
+        read_authority: &read_authority,
+        verified_actor,
+        tenant_scope: &tenant_scope,
+        gateway_authz_ctx: &gateway_authz_ctx,
+        core: &core,
+        materialization_manifest: &materialization_manifest,
+        persistence: &persistence,
+        #[cfg(feature = "streaming")]
+        cdc: &cdc,
+        #[cfg(feature = "security")]
+        rls: &rls,
+        #[cfg(feature = "raft")]
+        routed_raft: &routed_raft,
+        #[cfg(feature = "raft")]
+        graph_type,
+        #[cfg(feature = "raft")]
+        multi_raft: &multi_raft,
+        #[cfg(feature = "redb")]
+        graph_incarnation_id: &graph_incarnation_id,
+        #[cfg(feature = "modality-serving")]
+        modality_authority: &modality_authority,
+        #[cfg(feature = "knowledge-batch")]
+        knowledge_stream_authority: &knowledge_stream_authority,
     };
-
-    // Reservation reads are authority reads, not GraphCore snapshots.  Under
-    // placement they are served only by the current group leader; followers
-    // fail closed with the normal redirect instead of returning stale holds.
-    if crate::server::mutation_batch::is_resource_reservation_query_method(&method) {
-        return dispatch_op_resource_reservation_query(
-            req_id,
-            graph_name,
-            verified_context,
-            persistence.clone(),
-            #[cfg(feature = "raft")]
-            multi_raft.clone(),
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
-            method,
-        )
-        .await;
-    }
-
-    // Capacity leases are a separate native authority from repository/resource
-    // reservations.  They still share the same authenticated graph/tenant
-    // boundary, current-placement leader check, and writer backpressure.  No
-    // caller can renew/release on behalf of another owner: the opaque owner
-    // digest is compared to the verified principal before redb sees the row.
-    if crate::server::mutation_batch::is_capacity_method(&method) {
-        return dispatch_op_capacity_ops(
-            NativeOpCtx {
-                req_id,
-                graph_name,
-                verified_context,
-                persistence: persistence.clone(),
-                #[cfg(feature = "raft")]
-                multi_raft: multi_raft.clone(),
-                #[cfg(feature = "raft")]
-                routed_raft: routed_raft.clone(),
-            },
-            state_machine_authorized,
-            method,
-        )
-        .await;
-    }
-
-    // Native WorkItem claim capabilities use a dedicated private ledger and
-    // never enter MutationBatch/result/outbox/CDC projections.  The verified
-    // request context supplies all authority fields; the public method carries
-    // only an item id (mint) or opaque bytes (verify).
-    if matches!(
-        &method,
-        Method::MintWorkItemClaimCapability { .. } | Method::VerifyWorkItemClaimCapability { .. }
-    ) {
-        return dispatch_op_workitem_claim_capability(
-            NativeOpCtx {
-                req_id,
-                graph_name,
-                verified_context,
-                persistence: persistence.clone(),
-                #[cfg(feature = "raft")]
-                multi_raft: multi_raft.clone(),
-                #[cfg(feature = "raft")]
-                routed_raft: routed_raft.clone(),
-            },
-            #[cfg(feature = "redb")]
-            graph_incarnation_id.clone(),
-            method,
-        )
-        .await;
-    }
-
-    // ── Native development-lane hold/quota authority (RMDD-28) ──────────────────
-    // `redb_store::development_lane` deliberately stops at the redb transaction
-    // boundary -- no MutationBatch/result/outbox/CDC projection -- exactly the
-    // WorkItem claim-capability posture above. The 6 write methods
-    // (Reserve/Renew/Observe/Finish/Cleanup/UpdateQuota) commit through the
-    // writer-thread `Cmd` channel (the kernel's own self-contained
-    // begin_write()/commit()); the exact-query/status reads are MVCC snapshot
-    // reads, same posture as the native reservation-ledger reads above. Every
-    // request carries its own tenant/owner/fencing authority (CAS'd against the
-    // live WorkItem row inside the kernel), not a server-derived
-    // AuthenticatedAuthority, so — unlike claim capability — there is no
-    // verified-context authority struct to build here.
-    if crate::server::mutation_batch::is_development_lane_method(&method) {
-        return dispatch_op_development_lane(
-            req_id,
-            graph_name,
-            persistence.clone(),
-            #[cfg(feature = "raft")]
-            multi_raft.clone(),
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
-            method,
-        )
-        .await;
-    }
-
-    // Engine-native WorkItem transitions are result-producing durable CAS
-    // operations. They must execute at the current placement leader (a generic
-    // Raft acknowledgement cannot carry the selected work-item result), and their
-    // redb MutationBatch atomically persists the transition/result/outbox before
-    // the in-memory graph projection is refreshed.
-    if crate::server::mutation_batch::is_work_item_mutation_method(&method) {
-        return dispatch_op_workitem_mutation(
-            req_id,
-            graph_name,
-            caller,
-            core.clone(),
-            persistence.clone(),
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
-            method,
-        )
-        .await;
-    }
-
-    // `TsAppend`/`TsEvict`/`TsDeleteSeries` are not yet Raft state-machine commands, so none
-    // can rely on the durable-mutation barrier below. Still fence every `series.redb` WRITE
-    // to the current placement leader: accepting a follower-local append, retention evict, or
-    // whole-series delete would create a divergent `series.redb` projection and acknowledge a
-    // write on the wrong replica. (`TsListSeries` is a read and is intentionally excluded.)
-    #[cfg(all(feature = "raft", feature = "tsdb"))]
-    if let Some(stale) =
-        dispatch_op_tsdb_write_fence(req_id, graph_name, routed_raft.as_ref(), &method).await
-    {
-        return stale;
-    }
-
-    #[cfg(all(feature = "raft", feature = "tsdb"))]
-    let (ts_placement_epoch, ts_fencing_token) = if let Some(routed) = routed_raft.as_ref() {
-        (routed.epoch, Some(routed.group_id))
-    } else {
-        (0, None)
+    let method = match route_graph_op_method(routing, method).await {
+        Ok(response) => return response,
+        Err(method) => method,
     };
-    #[cfg(all(not(feature = "raft"), feature = "tsdb"))]
-    let (ts_placement_epoch, ts_fencing_token) = (0, None);
-
-    // One native KnowledgeBatch pull surface for every query family. This point is
-    // deliberately after graph ACL, lazy-materialization and placement resolution,
-    // and before any family-specific direct handler, so a cursor cannot bypass the
-    // same RequestContext/RLS/placement boundary as its underlying query.
-    #[cfg(feature = "knowledge-batch")]
-    if matches!(&method, Method::KnowledgeStream { .. }) {
-        return dispatch_op_knowledge_stream(
-            KnowledgeStreamCtx {
-                state,
-                req_id,
-                graph_name,
-                verified_context,
-                read_authority: &read_authority,
-                verified_actor,
-                core: core.clone(),
-                #[cfg(feature = "security")]
-                rls: rls.clone(),
-                #[cfg(feature = "raft")]
-                routed_raft: routed_raft.clone(),
-                knowledge_stream_authority: knowledge_stream_authority.clone(),
-            },
-            method,
-        )
-        .await;
-    }
-
-    // Time-series operations now run only after graph ACL + placement policy. The
-    // handler derives the canonical `(tenant, graph, series)` storage key from this
-    // already-authorized graph context.
-    #[cfg(feature = "tsdb")]
-    if matches!(
-        &method,
-        Method::TsAppend { .. }
-            | Method::TsRange { .. }
-            | Method::TsAsofJoin { .. }
-            | Method::TsWindow { .. }
-            | Method::TsGapFill { .. }
-            | Method::TsEvict { .. }
-            | Method::TsDeleteSeries { .. }
-            | Method::TsListSeries
-    ) {
-        return dispatch_op_tsdb_ops(
-            state,
-            req_id,
-            graph_name,
-            verified_context,
-            ts_placement_epoch,
-            ts_fencing_token,
-            method,
-        )
-        .await;
-    }
-
-    // Tamper-evident audit verification (CONCEPT:EG-KG.sharding.row-level-security): a read-only walk of the
-    // target graph's durable hash-chained audit log. Routed to the redb backend's
-    // owner thread (which flushes pending first). Handled here — AFTER the registry
-    // lock is released — so blocking on the writer-thread reply never holds the lock.
-    #[cfg(feature = "security")]
-    if matches!(method, Method::AuditVerify) {
-        return dispatch_op_audit_verify(req_id, graph_name, persistence.clone()).await;
-    }
-
-    // Provenance-anchor inclusion proof (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring): the
-    // `AuditVerify` extension that reaches an anchored NODE's content, not just
-    // mutation ordering. Same routing shape as `AuditVerify` immediately above —
-    // the redb backend's owner thread (flushes pending first), handled after the
-    // registry lock is released.
-    #[cfg(feature = "security")]
-    if matches!(&method, Method::AuditProveInclusion { .. }) {
-        return dispatch_op_audit_prove_inclusion(
-            req_id,
-            graph_name,
-            persistence.clone(),
-            method.clone(),
-        )
-        .await;
-    }
-
-    // Concrete governed modality service. This is deliberately after graph ACL,
-    // lazy materialization, placement resolution and verified-context authority
-    // derivation, but before the generic replicated-mutation branch: the mutation gateway
-    // stages a complete graph image and commits the encrypted runtime snapshot
-    // through the authoritative MutationBatch boundary before publishing RAM.
-    #[cfg(feature = "modality-serving")]
-    if matches!(&method, Method::ServedModality { .. }) {
-        return dispatch_op_served_modality(
-            ServedModalityCtx {
-                state,
-                req_id,
-                graph_name,
-                caller,
-                verified_context,
-                tenant_scope: &tenant_scope,
-                gateway_authz_ctx: &gateway_authz_ctx,
-                core: core.clone(),
-                materialization_manifest: materialization_manifest.clone(),
-                persistence: persistence.clone(),
-                #[cfg(feature = "streaming")]
-                cdc: cdc.clone(),
-                #[cfg(feature = "raft")]
-                routed_raft: routed_raft.clone(),
-                modality_authority: modality_authority.clone(),
-            },
-            method.clone(),
-        )
-        .await;
-    }
-
-    // ── Raft write-routing barrier (CONCEPT:AU-KG.ingest.source-sync-canonical) ──────────────────────
-    // When a cluster is active, a durable mutation goes through Raft consensus
-    // (the leader's `client_write`) BEFORE it is applied+acked: the entry is
-    // replicated to a quorum and then APPLIED on every node by the Raft state
-    // machine. So we replace the local gateway call with `client_write` and return
-    // its outcome — deterministic staging, the state-backed MutationBatch commit,
-    // and RAM publication happen inside the Raft state machine, not here. A
-    // follower returns a ForwardToLeader error which we surface so the client
-    // retries against the leader. This branch is the ONLY behavioral difference vs
-    // single-node, and it is taken only for durable mutations with Raft active.
-    #[cfg(feature = "raft")]
-    if let Some(routed) =
-        routed_raft.filter(|_| crate::mutation_apply::is_durable_mutation(&method))
-    {
-        return dispatch_op_raft_write_routing_barrier(
-            RaftWriteBarrierCtx {
-                state,
-                req_id,
-                graph_name,
-                verified_context,
-                tenant_scope: &tenant_scope,
-                graph_type,
-            },
-            routed,
-            method,
-        )
-        .await;
-    }
 
     crate::metrics::graph_op(graph_name);
 
@@ -10585,6 +10305,616 @@ async fn dispatch_graph_op_inner(
     )
     .await;
 
+    finalize_graph_op_response(
+        state,
+        graph_name,
+        &core,
+        access,
+        gateway_authz_ctx.is_some(),
+        response,
+    )
+    .await
+}
+
+/// Everything the post-lock routers below need, snapshotted out of the registry
+/// lock by `dispatch_graph_op_inner`. Every field is a shared reference or a
+/// `Copy` scalar, so this is `Copy` and each router call is free. `read_authority`
+/// and `verified_actor` are separate borrows of the CALLER's locals — the actor
+/// string borrows from the authority, so the two cannot live in one owned struct.
+#[derive(Clone, Copy)]
+struct GraphOpRouting<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &'a str,
+    caller: Option<&'a str>,
+    verified_context: &'a VerifiedRequestContext,
+    state_machine_authorized: bool,
+    read_authority: &'a Option<GraphReadAuthority>,
+    verified_actor: &'a str,
+    tenant_scope: &'a str,
+    gateway_authz_ctx: &'a Option<crate::server::mutation::GatewayAuthzCtx>,
+    core: &'a Arc<crate::graph::GraphCore>,
+    materialization_manifest:
+        &'a Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
+    persistence: &'a Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    #[cfg(feature = "streaming")]
+    cdc: &'a Option<Arc<crate::server::cdc::CdcHub>>,
+    #[cfg(feature = "security")]
+    rls: &'a std::sync::Arc<crate::isolation::IsolationLayer>,
+    #[cfg(feature = "raft")]
+    routed_raft: &'a Option<crate::raft::multi::RoutedRaftHandle>,
+    #[cfg(feature = "raft")]
+    graph_type: crate::protocol::GraphType,
+    #[cfg(feature = "raft")]
+    multi_raft: &'a Option<Arc<crate::raft::multi::MultiRaft>>,
+    #[cfg(feature = "redb")]
+    graph_incarnation_id: &'a String,
+    #[cfg(feature = "modality-serving")]
+    modality_authority: &'a Option<handlers::modality::ModalityAuthority>,
+    #[cfg(feature = "knowledge-batch")]
+    knowledge_stream_authority: &'a Option<handlers::knowledge_stream::KnowledgeStreamAuthority>,
+}
+
+/// ChangeEnvelope is a first-class persistence operation, not a sequence of
+/// direct graph calls. It executes only after graph ACL and placement
+/// resolution, and before generic replicated mutation paths can decompose it.
+///
+/// Returns `Err(method)` for a method this router does not own, so
+/// `route_graph_op_method` can offer it to the next one.
+#[allow(unused_variables)]
+async fn route_change_envelope_ops(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let tenant_scope = ctx.tenant_scope;
+    let core = ctx.core;
+    let persistence = ctx.persistence;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    #[cfg(feature = "raft")]
+    let graph_type = ctx.graph_type;
+    // ChangeEnvelope is a first-class persistence operation, not a sequence of
+    // direct graph calls. It executes only after graph ACL and placement
+    // resolution, and before generic replicated mutation paths can decompose it.
+    match method {
+        method @ Method::ApplyChangeEnvelope { .. } => {
+            return Ok(dispatch_change_env_apply_change_envelope(
+                ApplyChangeEnvelopeCtx {
+                    state,
+                    req_id,
+                    graph_name,
+                    core: core.clone(),
+                    persistence: persistence.clone(),
+                    #[cfg(feature = "raft")]
+                    routed_raft: routed_raft.clone(),
+                    #[cfg(feature = "raft")]
+                    graph_type,
+                    tenant_scope,
+                },
+                method,
+            )
+            .await)
+        }
+        // Batch envelope commit for ONE graph (the top-level `dispatch_change_envelopes`
+        // groups by graph and routes each group here). Every envelope targets
+        // `graph_name`; they land in ONE coalesced redb transaction — the atomic
+        // graph-batch. A single failing envelope aborts the whole group and every
+        // envelope in it reports the batch outcome honestly. Per-envelope results are
+        // returned in group order under `{"results": [...]}`.
+        method @ Method::ApplyChangeEnvelopes { .. } => {
+            return Ok(dispatch_change_env_apply_change_envelopes(
+                req_id,
+                graph_name,
+                core.clone(),
+                persistence.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft.clone(),
+                method,
+            )
+            .await)
+        }
+        method @ Method::GetChangeEnvelope { .. } => {
+            return Ok(dispatch_change_env_get_change_envelope(
+                req_id,
+                graph_name,
+                persistence.clone(),
+                method,
+            )
+            .await)
+        }
+        method @ Method::GetContentVersion { .. } => {
+            return Ok(dispatch_change_env_get_content_version(
+                req_id,
+                graph_name,
+                persistence.clone(),
+                method,
+            )
+            .await)
+        }
+        method @ Method::GetChangeCursor { .. } => {
+            return Ok(dispatch_change_env_get_change_cursor(
+                req_id,
+                graph_name,
+                persistence.clone(),
+                method,
+            )
+            .await)
+        }
+        other => Err(other),
+    }
+}
+
+/// The native durable authorities that own their own store and MutationBatch
+/// kernel: resource reservations, capacity leases, WorkItem claim capability,
+/// the development lane, and WorkItem transitions.
+///
+/// Returns `Err(method)` for a method this router does not own, so
+/// `route_graph_op_method` can offer it to the next one.
+#[allow(unused_variables)]
+async fn route_native_store_ops(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let caller = ctx.caller;
+    let verified_context = ctx.verified_context;
+    let state_machine_authorized = ctx.state_machine_authorized;
+    let core = ctx.core;
+    let persistence = ctx.persistence;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    #[cfg(feature = "raft")]
+    let multi_raft = ctx.multi_raft;
+    #[cfg(feature = "redb")]
+    let graph_incarnation_id = ctx.graph_incarnation_id;
+    // Reservation reads are authority reads, not GraphCore snapshots.  Under
+    // placement they are served only by the current group leader; followers
+    // fail closed with the normal redirect instead of returning stale holds.
+    if crate::server::mutation_batch::is_resource_reservation_query_method(&method) {
+        return Ok(dispatch_op_resource_reservation_query(
+            req_id,
+            graph_name,
+            verified_context,
+            persistence.clone(),
+            #[cfg(feature = "raft")]
+            multi_raft.clone(),
+            #[cfg(feature = "raft")]
+            routed_raft.clone(),
+            method,
+        )
+        .await);
+    }
+
+    // Capacity leases are a separate native authority from repository/resource
+    // reservations.  They still share the same authenticated graph/tenant
+    // boundary, current-placement leader check, and writer backpressure.  No
+    // caller can renew/release on behalf of another owner: the opaque owner
+    // digest is compared to the verified principal before redb sees the row.
+    if crate::server::mutation_batch::is_capacity_method(&method) {
+        return Ok(dispatch_op_capacity_ops(
+            NativeOpCtx {
+                req_id,
+                graph_name,
+                verified_context,
+                persistence: persistence.clone(),
+                #[cfg(feature = "raft")]
+                multi_raft: multi_raft.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft: routed_raft.clone(),
+            },
+            state_machine_authorized,
+            method,
+        )
+        .await);
+    }
+
+    // Native WorkItem claim capabilities use a dedicated private ledger and
+    // never enter MutationBatch/result/outbox/CDC projections.  The verified
+    // request context supplies all authority fields; the public method carries
+    // only an item id (mint) or opaque bytes (verify).
+    if matches!(
+        &method,
+        Method::MintWorkItemClaimCapability { .. } | Method::VerifyWorkItemClaimCapability { .. }
+    ) {
+        return Ok(dispatch_op_workitem_claim_capability(
+            NativeOpCtx {
+                req_id,
+                graph_name,
+                verified_context,
+                persistence: persistence.clone(),
+                #[cfg(feature = "raft")]
+                multi_raft: multi_raft.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft: routed_raft.clone(),
+            },
+            #[cfg(feature = "redb")]
+            graph_incarnation_id.clone(),
+            method,
+        )
+        .await);
+    }
+
+    // ── Native development-lane hold/quota authority (RMDD-28) ──────────────────
+    // `redb_store::development_lane` deliberately stops at the redb transaction
+    // boundary -- no MutationBatch/result/outbox/CDC projection -- exactly the
+    // WorkItem claim-capability posture above. The 6 write methods
+    // (Reserve/Renew/Observe/Finish/Cleanup/UpdateQuota) commit through the
+    // writer-thread `Cmd` channel (the kernel's own self-contained
+    // begin_write()/commit()); the exact-query/status reads are MVCC snapshot
+    // reads, same posture as the native reservation-ledger reads above. Every
+    // request carries its own tenant/owner/fencing authority (CAS'd against the
+    // live WorkItem row inside the kernel), not a server-derived
+    // AuthenticatedAuthority, so — unlike claim capability — there is no
+    // verified-context authority struct to build here.
+    if crate::server::mutation_batch::is_development_lane_method(&method) {
+        return Ok(dispatch_op_development_lane(
+            req_id,
+            graph_name,
+            persistence.clone(),
+            #[cfg(feature = "raft")]
+            multi_raft.clone(),
+            #[cfg(feature = "raft")]
+            routed_raft.clone(),
+            method,
+        )
+        .await);
+    }
+
+    // Engine-native WorkItem transitions are result-producing durable CAS
+    // operations. They must execute at the current placement leader (a generic
+    // Raft acknowledgement cannot carry the selected work-item result), and their
+    // redb MutationBatch atomically persists the transition/result/outbox before
+    // the in-memory graph projection is refreshed.
+    if crate::server::mutation_batch::is_work_item_mutation_method(&method) {
+        return Ok(dispatch_op_workitem_mutation(
+            req_id,
+            graph_name,
+            caller,
+            core.clone(),
+            persistence.clone(),
+            #[cfg(feature = "raft")]
+            routed_raft.clone(),
+            method,
+        )
+        .await);
+    }
+    Err(method)
+}
+
+/// The remaining authority-bearing surfaces, all resolved AFTER graph ACL,
+/// lazy materialization and placement: the series-write fence, the knowledge
+/// stream, time series, audit verification/inclusion, served modality, and the
+/// Raft write-routing barrier.
+///
+/// Returns `Err(method)` for a method this router does not own, so
+/// `route_graph_op_method` can offer it to the next one.
+#[allow(unused_variables)]
+async fn route_graph_authority_surfaces(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let caller = ctx.caller;
+    let verified_context = ctx.verified_context;
+    let read_authority = ctx.read_authority;
+    let verified_actor = ctx.verified_actor;
+    let tenant_scope = ctx.tenant_scope;
+    let gateway_authz_ctx = ctx.gateway_authz_ctx;
+    let core = ctx.core;
+    let materialization_manifest = ctx.materialization_manifest;
+    let persistence = ctx.persistence;
+    #[cfg(feature = "streaming")]
+    let cdc = ctx.cdc;
+    #[cfg(feature = "security")]
+    let rls = ctx.rls;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    #[cfg(feature = "raft")]
+    let graph_type = ctx.graph_type;
+    #[cfg(feature = "modality-serving")]
+    let modality_authority = ctx.modality_authority;
+    #[cfg(feature = "knowledge-batch")]
+    let knowledge_stream_authority = ctx.knowledge_stream_authority;
+    // `TsAppend`/`TsEvict`/`TsDeleteSeries` are not yet Raft state-machine commands, so none
+    // can rely on the durable-mutation barrier below. Still fence every `series.redb` WRITE
+    // to the current placement leader: accepting a follower-local append, retention evict, or
+    // whole-series delete would create a divergent `series.redb` projection and acknowledge a
+    // write on the wrong replica. (`TsListSeries` is a read and is intentionally excluded.)
+    #[cfg(all(feature = "raft", feature = "tsdb"))]
+    if let Some(stale) =
+        dispatch_op_tsdb_write_fence(req_id, graph_name, routed_raft.as_ref(), &method).await
+    {
+        return Ok(stale);
+    }
+
+    #[cfg(all(feature = "raft", feature = "tsdb"))]
+    let (ts_placement_epoch, ts_fencing_token) = ts_placement_fence(routed_raft.as_ref());
+    #[cfg(all(not(feature = "raft"), feature = "tsdb"))]
+    let (ts_placement_epoch, ts_fencing_token) = (0, None);
+
+    // One native KnowledgeBatch pull surface for every query family. This point is
+    // deliberately after graph ACL, lazy-materialization and placement resolution,
+    // and before any family-specific direct handler, so a cursor cannot bypass the
+    // same RequestContext/RLS/placement boundary as its underlying query.
+    #[cfg(feature = "knowledge-batch")]
+    if matches!(&method, Method::KnowledgeStream { .. }) {
+        return Ok(dispatch_op_knowledge_stream(
+            KnowledgeStreamCtx {
+                state,
+                req_id,
+                graph_name,
+                verified_context,
+                read_authority,
+                verified_actor,
+                core: core.clone(),
+                #[cfg(feature = "security")]
+                rls: rls.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft: routed_raft.clone(),
+                knowledge_stream_authority: knowledge_stream_authority.clone(),
+            },
+            method,
+        )
+        .await);
+    }
+
+    // Time-series operations now run only after graph ACL + placement policy. The
+    // handler derives the canonical `(tenant, graph, series)` storage key from this
+    // already-authorized graph context.
+    #[cfg(feature = "tsdb")]
+    if matches!(
+        &method,
+        Method::TsAppend { .. }
+            | Method::TsRange { .. }
+            | Method::TsAsofJoin { .. }
+            | Method::TsWindow { .. }
+            | Method::TsGapFill { .. }
+            | Method::TsEvict { .. }
+            | Method::TsDeleteSeries { .. }
+            | Method::TsListSeries
+    ) {
+        return Ok(dispatch_op_tsdb_ops(
+            state,
+            req_id,
+            graph_name,
+            verified_context,
+            ts_placement_epoch,
+            ts_fencing_token,
+            method,
+        )
+        .await);
+    }
+
+    // Tamper-evident audit verification (CONCEPT:EG-KG.sharding.row-level-security): a read-only walk of the
+    // target graph's durable hash-chained audit log. Routed to the redb backend's
+    // owner thread (which flushes pending first). Handled here — AFTER the registry
+    // lock is released — so blocking on the writer-thread reply never holds the lock.
+    #[cfg(feature = "security")]
+    if matches!(method, Method::AuditVerify) {
+        return Ok(dispatch_op_audit_verify(req_id, graph_name, persistence.clone()).await);
+    }
+
+    // Provenance-anchor inclusion proof (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring): the
+    // `AuditVerify` extension that reaches an anchored NODE's content, not just
+    // mutation ordering. Same routing shape as `AuditVerify` immediately above —
+    // the redb backend's owner thread (flushes pending first), handled after the
+    // registry lock is released.
+    #[cfg(feature = "security")]
+    if matches!(&method, Method::AuditProveInclusion { .. }) {
+        return Ok(dispatch_op_audit_prove_inclusion(
+            req_id,
+            graph_name,
+            persistence.clone(),
+            method.clone(),
+        )
+        .await);
+    }
+
+    // Concrete governed modality service. This is deliberately after graph ACL,
+    // lazy materialization, placement resolution and verified-context authority
+    // derivation, but before the generic replicated-mutation branch: the mutation gateway
+    // stages a complete graph image and commits the encrypted runtime snapshot
+    // through the authoritative MutationBatch boundary before publishing RAM.
+    #[cfg(feature = "modality-serving")]
+    if matches!(&method, Method::ServedModality { .. }) {
+        return Ok(dispatch_op_served_modality(
+            ServedModalityCtx {
+                state,
+                req_id,
+                graph_name,
+                caller,
+                verified_context,
+                tenant_scope,
+                gateway_authz_ctx,
+                core: core.clone(),
+                materialization_manifest: materialization_manifest.clone(),
+                persistence: persistence.clone(),
+                #[cfg(feature = "streaming")]
+                cdc: cdc.clone(),
+                #[cfg(feature = "raft")]
+                routed_raft: routed_raft.clone(),
+                modality_authority: modality_authority.clone(),
+            },
+            method.clone(),
+        )
+        .await);
+    }
+
+    // ── Raft write-routing barrier (CONCEPT:AU-KG.ingest.source-sync-canonical) ──────────────────────
+    // When a cluster is active, a durable mutation goes through Raft consensus
+    // (the leader's `client_write`) BEFORE it is applied+acked: the entry is
+    // replicated to a quorum and then APPLIED on every node by the Raft state
+    // machine. So we replace the local gateway call with `client_write` and return
+    // its outcome — deterministic staging, the state-backed MutationBatch commit,
+    // and RAM publication happen inside the Raft state machine, not here. A
+    // follower returns a ForwardToLeader error which we surface so the client
+    // retries against the leader. This branch is the ONLY behavioral difference vs
+    // single-node, and it is taken only for durable mutations with Raft active.
+    #[cfg(feature = "raft")]
+    if let Some(routed) = routed_raft
+        .clone()
+        .filter(|_| crate::mutation_apply::is_durable_mutation(&method))
+    {
+        return Ok(dispatch_op_raft_write_routing_barrier(
+            RaftWriteBarrierCtx {
+                state,
+                req_id,
+                graph_name,
+                verified_context,
+                tenant_scope,
+                graph_type,
+            },
+            routed,
+            method,
+        )
+        .await);
+    }
+    Err(method)
+}
+
+/// Try each post-lock router in the ORIGINAL order — change envelopes, then the
+/// native stores, then the authority surfaces. A method none of them owns falls
+/// through to the ordinary dispatch pipeline.
+async fn route_graph_op_method(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let method = match route_change_envelope_ops(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    let method = match route_native_store_ops(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    route_graph_authority_surfaces(ctx, method).await
+}
+
+fn graph_op_access_level(method: &Method) -> AccessLevel {
+    // TsAppend used to self-route before this boundary, which accidentally classified
+    // it as neither a graph read nor write. It is now graph-scoped and requires the
+    // same Write ACL as every other mutation; so do the other two `series.redb`
+    // mutations, TsEvict/TsDeleteSeries (retention) -- a Read-only caller must not be
+    // able to evict points or delete a whole series any more than they could append
+    // to one. All other Ts methods (including the read-only TsListSeries enumeration)
+    // require only Read.
+    if requires_write(method)
+        || matches!(
+            method,
+            Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. }
+        )
+    {
+        AccessLevel::Write
+    } else {
+        AccessLevel::Read
+    }
+}
+
+/// The registry facts a graph operation needs after the registry lock is
+/// released. Copied out under the lock rather than held by reference.
+struct GraphEntryFacts {
+    graph_type: crate::protocol::GraphType,
+    owner: Option<String>,
+    core: Arc<crate::graph::GraphCore>,
+    #[cfg(feature = "redb")]
+    incarnation_id: String,
+}
+
+/// Gate one graph operation, in the ORIGINAL order: an unregistered or
+/// unauthenticated caller is denied BEFORE existence is resolved -- never let
+/// "Graph not found" vs "ACCESS_DENIED" tell a caller who could never pass ACL
+/// for any graph whether the target graph exists (see
+/// `access::check_caller_is_known`'s doc). A registered caller falls through to
+/// existence, materialization validity, and then the real graph-type/owner-aware
+/// decision.
+fn check_graph_op_access(
+    s: &ServerState,
+    req_id: u64,
+    caller: Option<&str>,
+    graph_name: &str,
+    access: AccessLevel,
+    state_machine_authorized: bool,
+) -> Result<GraphEntryFacts, Response> {
+    check_known_caller(
+        &s.isolation,
+        req_id,
+        caller,
+        graph_name,
+        access,
+        state_machine_authorized,
+    )?;
+    let Some(entry) = s.registry.get(graph_name) else {
+        return Err(Response::err(
+            req_id,
+            format!("Graph '{graph_name}' not found"),
+        ));
+    };
+    check_materialization_valid(&s.registry, req_id, graph_name)?;
+    if !state_machine_authorized {
+        if let Err(denied) = check_graph_access(
+            &s.isolation,
+            caller,
+            graph_name,
+            entry.graph_type,
+            entry.owner.as_deref(),
+            access,
+        ) {
+            return Err(Response::err(req_id, denied));
+        }
+    }
+    Ok(GraphEntryFacts {
+        graph_type: entry.graph_type,
+        owner: entry.owner.clone(),
+        core: entry.core.clone(),
+        #[cfg(feature = "redb")]
+        incarnation_id: entry.incarnation_id.clone(),
+    })
+}
+
+/// MultiRaft is the sole clustered authority: a replicated apply proposes
+/// nothing, and a node without MultiRaft placement has no write routing.
+#[cfg(feature = "raft")]
+fn resolve_multi_raft(
+    s: &ServerState,
+    placement_authority: &crate::server::state::PlacementAuthorityKind,
+) -> Option<Arc<crate::raft::multi::MultiRaft>> {
+    if is_replicated_apply() {
+        return None;
+    }
+    if !matches!(
+        placement_authority,
+        crate::server::state::PlacementAuthorityKind::MultiRaft
+    ) {
+        return None;
+    }
+    s.multi_raft.clone()
+}
+
+#[cfg(all(feature = "raft", feature = "tsdb"))]
+fn ts_placement_fence(routed: Option<&crate::raft::multi::RoutedRaftHandle>) -> (u64, Option<u64>) {
+    match routed {
+        Some(routed) => (routed.epoch, Some(routed.group_id)),
+        None => (0, None),
+    }
+}
+
+/// The dispatch shell's write tail: size gauges, the single projection
+/// publication non-gateway writes rely on, and the semantic-ANN warm hook.
+#[allow(unused_variables)]
+async fn finalize_graph_op_response(
+    state: &Arc<RwLock<ServerState>>,
+    graph_name: &str,
+    core: &Arc<crate::graph::GraphCore>,
+    access: AccessLevel,
+    gateway_routed: bool,
+    response: Response,
+) -> Response {
     // Refresh the per-graph size gauges after mutations — both petgraph
     // counts are O(1), so this adds no meaningful write-path cost.
     #[cfg(feature = "metrics")]
@@ -10601,10 +10931,7 @@ async fn dispatch_graph_op_inner(
     // projection publication. Gateway writes already publish exactly once in
     // `commit_finalize`; marking them here as well would advance the resident OCC
     // version past the authoritative MutationBatch version.
-    if matches!(access, AccessLevel::Write)
-        && response.error.is_none()
-        && gateway_authz_ctx.is_none()
-    {
+    if matches!(access, AccessLevel::Write) && response.error.is_none() && !gateway_routed {
         core.mark_dirty();
     }
 
@@ -10617,7 +10944,7 @@ async fn dispatch_graph_op_inner(
     // all. Cheap no-op below the threshold or once already warm/warming.
     #[cfg(feature = "ann")]
     if matches!(access, AccessLevel::Write) && response.error.is_none() {
-        crate::server::ann_warm::maybe_warm_after_write(state, graph_name, &core).await;
+        crate::server::ann_warm::maybe_warm_after_write(state, graph_name, core).await;
     }
 
     response
@@ -11310,13 +11637,6 @@ async fn run_dispatch_pipeline(ctx: DispatchPipelineCtx<'_>, method: Method) -> 
     .await
 }
 
-/// Route the five high-frequency single-op writes through the per-graph write
-/// coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer). On success returns the same `Response` the inline
-/// handler would have produced (so the dispatch shell's dirty/durability/gauge logic runs
-/// identically against it). Returns `Err(method)` — handing the method back
-/// untouched — for any method that isn't coalescable, or when the coalescer is
-/// disabled. A saturated bounded queue returns an explicit `BUSY` response; it
-/// never falls through to an unordered inline write.
 /// Map one `Method` onto the coalescer's `WriteOp`, consuming its args.
 ///
 /// For `CompareAndSetNodeFields` the two msgpack blobs are decoded FIRST: a
@@ -11400,6 +11720,13 @@ fn coalesce_compare_and_set_op(
     })
 }
 
+/// Route the five high-frequency single-op writes through the per-graph write
+/// coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer). On success returns the same `Response` the inline
+/// handler would have produced (so the dispatch shell's dirty/durability/gauge logic runs
+/// identically against it). Returns `Err(method)` — handing the method back
+/// untouched — for any method that isn't coalescable, or when the coalescer is
+/// disabled. A saturated bounded queue returns an explicit `BUSY` response; it
+/// never falls through to an unordered inline write.
 async fn try_coalesce_write(
     req_id: u64,
     coalescer: &crate::write_coalescer::WriteCoalescerRegistry,
