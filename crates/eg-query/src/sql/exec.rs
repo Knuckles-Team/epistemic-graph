@@ -12,17 +12,19 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use arrow::array::Array;
-use arrow::datatypes::SchemaRef;
+use arrow::datatypes::{DataType, Field, SchemaRef};
 use datafusion::catalog::TableProvider;
 use datafusion::datasource::MemTable;
 use datafusion::execution::context::SessionContext;
+use datafusion::logical_expr::{ColumnarValue, ScalarFunctionArgs, ScalarUDF};
 use datafusion::prelude::SessionConfig;
+use datafusion::scalar::ScalarValue;
 use eg_core::graph::GraphView;
 // The wire DTO lives at the bottom of the DAG (eg-types); the algorithm stays here.
 pub use eg_types::protocol::QueryResult;
 
 use super::catalog::register_system_catalogs;
-use super::pgfamily::{plan_ann_search, AnnIndexPlan};
+use super::pgfamily::{plan_ann_search, AnnIndexPlan, AnnMethod, AnnSearchPlan};
 use super::providers::{infer_nodes, EdgesTableProvider, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, GenerateSeriesFunc, PagerankFunc};
 use super::udfs::{
@@ -415,6 +417,16 @@ pub fn exec_sql_over_tables(
         ctx.register_udf(json_get_udf());
         ctx.register_udf(json_get_f64_udf());
         ctx.register_udf(json_get_i64_udf());
+        // CONCEPT:EG-KG.query.view-pgvector-operators — the pgvector distance functions the
+        // `<->`/`<=>`/`<#>` operators the `desugar_vector_ops` call above ALREADY rewrites
+        // resolve to. Without them this path desugars an operator to a function it never
+        // registered, so a vector `ORDER BY` over an obs/Arrow table failed to plan at all.
+        ctx.register_udf(vector_l2_udf());
+        ctx.register_udf(vector_cosine_udf());
+        ctx.register_udf(vector_ip_udf());
+        // Design §9 phase 2 — `eg_embed(text)` on the obs/tables path too, so the SAME
+        // `col <=> eg_embed('…')` shape works over both entry points (see `build_ctx`).
+        ctx.register_udf(super::embed_udf::eg_embed_udf());
         // CONCEPT:EG-KG.query.continuous-aggregate-lowering/EG-119 — time_bucket + BM25 UDFs so the obs log-search SQL leg
         // can time-bucket and lexically filter too.
         ctx.register_udf(time_bucket_udf());
@@ -965,9 +977,85 @@ fn with_thread_runtime<T>(f: impl FnOnce(&tokio::runtime::Runtime) -> T) -> Resu
 /// just falls back to the slower uncached path for nothing — never a correctness
 /// bug. `false` is the one case this predicate must get exactly right.
 fn ann_pushdown_may_apply(sql: &str, ann_indexes: &[AnnIndexPlan]) -> bool {
-    !ann_indexes.is_empty()
-        && plan_ann_search(sql, ann_indexes).is_some()
-        && !super::ann::sql_has_where(sql)
+    ann_pushdown_may_apply_with(sql, ann_indexes, &super::embed_udf::eg_embed_udf())
+}
+
+/// [`ann_pushdown_may_apply`] over an EXPLICIT `eg_embed` registration — the seam a test
+/// uses to fold with its own embedder without claiming the one-shot process binding.
+fn ann_pushdown_may_apply_with(sql: &str, ann_indexes: &[AnnIndexPlan], udf: &ScalarUDF) -> bool {
+    if ann_indexes.is_empty() {
+        return false;
+    }
+    // Probe the CONST-FOLDED SQL, exactly as `apply_ann_pushdown` does — otherwise an
+    // `ORDER BY col <=> eg_embed('…')` query whose top-k slice IS per-query would be
+    // judged cacheable, which is the one answer this predicate must get right.
+    let folded = ann_probe_sql_with(sql, udf);
+    let probe = folded.as_deref().unwrap_or(sql);
+    plan_ann_search(probe, ann_indexes).is_some() && !super::ann::sql_has_where(probe)
+}
+
+/// The SQL the ANN pushdown probes ([`plan_ann_search`] + `sql_has_where`) see: `sql`
+/// with a const `eg_embed('literal')` query operand folded to its pgvector literal
+/// (design §9 phase 2). `None` — the overwhelmingly common case — means "nothing folded;
+/// probe `sql` itself".
+///
+/// Folding is PROBE-ONLY: the statement that actually executes is never rewritten, so
+/// this can neither change what runs nor lose anything to a `Display` round-trip. The
+/// executed `eg_embed` call yields the same vector by its `Volatility::Immutable`
+/// contract; the cost is one extra embedding call on a query that takes the ANN path,
+/// paid to replace an O(N) exact scan with an HNSW/IVF top-k.
+///
+/// `udf` is the `eg_embed` registration to fold through — the process-wide one
+/// (`embed_udf::eg_embed_udf`) in production; an explicitly-bound one in a test, which
+/// must not claim the one-shot process binding.
+fn ann_probe_sql_with(sql: &str, udf: &ScalarUDF) -> Option<String> {
+    if !contains_ignore_ascii_case(sql, super::embed_udf::EG_EMBED_FN) {
+        return None;
+    }
+    super::pgfamily::fold_const_embed_order_key(sql, &|text| embed_const_text(udf, text))
+}
+
+/// Case-insensitive substring test, allocation-free — the cheap prefilter that keeps the
+/// fold's extra parse off every ordinary query.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let (h, n) = (haystack.as_bytes(), needle.as_bytes());
+    n.len() <= h.len() && h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
+}
+
+/// Resolve one literal query text to its vector by INVOKING the registered `eg_embed`
+/// once, at plan time. Going through the UDF (rather than reaching for the embedder
+/// binding directly) means the fold and the executed call are by construction the same
+/// function, and it keeps the embedder seam private to `embed_udf`. Any failure — no
+/// embedder bound, an embedder error, an unexpected return shape — is `None`, i.e. "do
+/// not fold", which degrades to the brute-force path and never to a wrong vector.
+fn embed_const_text(udf: &ScalarUDF, text: &str) -> Option<Vec<f32>> {
+    let return_type = udf.return_type(&[DataType::Utf8]).ok()?;
+    let out = udf
+        .invoke_with_args(ScalarFunctionArgs {
+            args: vec![ColumnarValue::Scalar(ScalarValue::Utf8(Some(
+                text.to_string(),
+            )))],
+            arg_fields: vec![Arc::new(Field::new("text", DataType::Utf8, true))],
+            number_rows: 1,
+            return_field: Arc::new(Field::new("vector", return_type, true)),
+            config_options: Arc::new(datafusion::config::ConfigOptions::default()),
+        })
+        .ok()?;
+    first_row_vector(&out)
+}
+
+/// The first row of a `List<Float32>` columnar value as a dense vector.
+fn first_row_vector(value: &ColumnarValue) -> Option<Vec<f32>> {
+    let array = value.to_array(1).ok()?;
+    let list = array.as_any().downcast_ref::<arrow::array::ListArray>()?;
+    if list.is_empty() || list.is_null(0) {
+        return None;
+    }
+    let elements = list.value(0);
+    let floats = elements
+        .as_any()
+        .downcast_ref::<arrow::array::Float32Array>()?;
+    Some(floats.values().to_vec())
 }
 
 /// As [`exec_sql_typed_with_tables_cancellable`], but amortizing the WHOLE
@@ -1146,6 +1234,13 @@ fn build_ctx(
     ctx.register_udf(vector_l2_udf());
     ctx.register_udf(vector_cosine_udf());
     ctx.register_udf(vector_ip_udf());
+    // Design §9 phase 2 — `eg_embed(text)`, the SERVER-side text→vector function the
+    // pgvector operators compose with (`col <=> eg_embed('leaky pump')`), so a psql/ORM
+    // caller never pre-embeds client-side. Registered with the PROCESS-wide embedder
+    // source, resolved at CALL time (`embed_udf`), so registration here does not depend
+    // on the facade having bound a model yet; unbound, a call is a typed error, never a
+    // zero vector.
+    ctx.register_udf(super::embed_udf::eg_embed_udf());
     // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB `time_bucket`. CONCEPT:EG-KG.query.paradedb-bm25 — ParadeDB BM25
     // `col @@@ 'q'` / `paradedb.score()`/`snippet()` desugar targets.
     ctx.register_udf(time_bucket_udf());
@@ -1205,43 +1300,95 @@ fn apply_ann_pushdown(
     nodes: &mut (SchemaRef, arrow::record_batch::RecordBatch),
     user_tables: &mut [UserTable],
 ) {
-    if ann_indexes.is_empty() {
-        return;
-    }
-    let Some(plan) = plan_ann_search(sql, ann_indexes) else {
+    let Some(pushdown) = ann_pushdown_decision(sql, ann_indexes) else {
         return;
     };
-    if super::ann::sql_has_where(sql) {
-        return;
-    }
-    let Some(qvec) = super::ann::parse_query_vector(&plan.query) else {
-        return;
-    };
-    // The index method (hnsw/ivfflat) comes from the covering registration; the metric
-    // is the query operator's metric (already matched by `plan_ann_search`).
-    let Some(ix) = ann_indexes.iter().find(|ix| {
-        ix.table.eq_ignore_ascii_case(&plan.table)
-            && ix.column.eq_ignore_ascii_case(&plan.column)
-            && ix.metric == plan.metric
-    }) else {
-        return;
-    };
-    let method = ix.method;
-
-    if plan.table.eq_ignore_ascii_case("nodes") {
-        if let Some(sliced) = super::ann::topk_slice(
-            &nodes.0,
-            &nodes.1,
-            &plan.column,
-            method,
-            plan.metric,
-            &qvec,
-            plan.k,
-        ) {
+    if pushdown.plan.table.eq_ignore_ascii_case("nodes") {
+        if let Some(sliced) = pushdown.topk_slice(&nodes.0, &nodes.1) {
             nodes.1 = sliced;
         }
         return;
     }
+    slice_user_table(&pushdown, user_tables);
+}
+
+/// The DECISION [`apply_ann_pushdown`] acts on: the recognized nearest-neighbour plan,
+/// its RESOLVED query vector, and the method of the index that covers it. `Some` is
+/// exactly "this query takes the ANN index path"; `None` is "keep the EG-115
+/// brute-force exact scan" — the two outcomes return identical ROWS, so this decision,
+/// not the result set, is what distinguishes them.
+struct AnnPushdown {
+    plan: AnnSearchPlan,
+    query_vector: Vec<f32>,
+    method: AnnMethod,
+}
+
+impl AnnPushdown {
+    /// Narrow `batch` to the true nearest-`k` rows via the covering ANN index, or
+    /// `None` when the column is not a usable materialized vector column.
+    fn topk_slice(
+        &self,
+        schema: &SchemaRef,
+        batch: &arrow::record_batch::RecordBatch,
+    ) -> Option<arrow::record_batch::RecordBatch> {
+        super::ann::topk_slice(
+            schema,
+            batch,
+            &self.plan.column,
+            self.method,
+            self.plan.metric,
+            &self.query_vector,
+            self.plan.k,
+        )
+    }
+}
+
+/// Decide whether `sql` takes the ANN index path against `ann_indexes` — see
+/// [`AnnPushdown`]. Probes the CONST-FOLDED SQL ([`ann_probe_sql_with`]), so an
+/// `ORDER BY col <=> eg_embed('literal')` query reaches the real HNSW/IVF index instead
+/// of silently falling back to the brute-force scan; a non-const argument
+/// (`eg_embed($1)`, `eg_embed(other_col)`) does not fold and correctly keeps that
+/// fallback.
+fn ann_pushdown_decision(sql: &str, ann_indexes: &[AnnIndexPlan]) -> Option<AnnPushdown> {
+    ann_pushdown_decision_with(sql, ann_indexes, &super::embed_udf::eg_embed_udf())
+}
+
+/// [`ann_pushdown_decision`] over an EXPLICIT `eg_embed` registration — the seam a test
+/// uses to fold with its own embedder without claiming the one-shot process binding.
+fn ann_pushdown_decision_with(
+    sql: &str,
+    ann_indexes: &[AnnIndexPlan],
+    udf: &ScalarUDF,
+) -> Option<AnnPushdown> {
+    if ann_indexes.is_empty() {
+        return None;
+    }
+    let folded = ann_probe_sql_with(sql, udf);
+    let probe = folded.as_deref().unwrap_or(sql);
+    let plan = plan_ann_search(probe, ann_indexes)?;
+    if super::ann::sql_has_where(probe) {
+        return None;
+    }
+    let query_vector = super::ann::parse_query_vector(&plan.query)?;
+    // The index method (hnsw/ivfflat) comes from the covering registration; the metric
+    // is the query operator's metric (already matched by `plan_ann_search`).
+    let method = ann_indexes
+        .iter()
+        .find(|ix| {
+            ix.table.eq_ignore_ascii_case(&plan.table)
+                && ix.column.eq_ignore_ascii_case(&plan.column)
+                && ix.metric == plan.metric
+        })?
+        .method;
+    Some(AnnPushdown {
+        plan,
+        query_vector,
+        method,
+    })
+}
+
+/// Apply `pushdown`'s top-k slice to the user table it names, in place.
+fn slice_user_table(pushdown: &AnnPushdown, user_tables: &mut [UserTable]) {
     for entry in user_tables.iter_mut() {
         // A `Lazy` table is, by `materialize_user_tables`'s construction, never one
         // an ANN index covers (that's exactly the condition it uses to pick
@@ -1251,16 +1398,8 @@ fn apply_ann_pushdown(
         let UserTable::Eager(name, schema, batch) = entry else {
             continue;
         };
-        if name.eq_ignore_ascii_case(&plan.table) {
-            if let Some(sliced) = super::ann::topk_slice(
-                schema,
-                batch,
-                &plan.column,
-                method,
-                plan.metric,
-                &qvec,
-                plan.k,
-            ) {
+        if name.eq_ignore_ascii_case(&pushdown.plan.table) {
+            if let Some(sliced) = pushdown.topk_slice(schema, batch) {
                 *batch = sliced;
             }
             return;
@@ -2017,5 +2156,297 @@ mod sql_context_cache_unit_tests {
             !ann_pushdown_may_apply("SELECT id FROM nodes", &indexes),
             "an ordinary query with no vector ORDER BY at all must never flag"
         );
+    }
+}
+
+// ── `eg_embed` registration + ANN-pushdown const-fold (design §9 phase 2) ─────────
+//
+// Two things are proved here, in the order they matter:
+//
+//   1. `eg_embed` is REACHED from the PRODUCTION `SessionContext` — the one `build_ctx`
+//      builds and `exec_sql_typed` drives, not a hand-assembled context. Registration
+//      was the whole gap: the UDF landed tested-but-never-invoked because every
+//      `register_udf` site lives in this file.
+//   2. `ORDER BY col <=> eg_embed('literal')` now takes the ANN INDEX path. The
+//      assertions are on the pushdown DECISION (`ann_pushdown_decision_with`), never on
+//      the returned rows: the ANN path and the EG-115 brute-force fallback return the
+//      SAME rows by construction (the pushdown narrows the batch to the true nearest-k,
+//      then the identical `ORDER BY` runs over it), so a row assertion cannot tell the
+//      two apart — and telling them apart is the entire point.
+//
+// The tests fold through an EXPLICITLY bound `eg_embed_udf_with(Some(..))` rather than
+// `bind_text_embedder`, because `embed_udf::PROCESS_EMBEDDER` is a one-shot `OnceLock`
+// shared with `embed_udf`'s own `process_wide_binding_is_resolved_at_call_time` test
+// (same test binary): whichever test bound it first would win, so binding here would
+// red that one and make both order-dependent.
+#[cfg(test)]
+mod eg_embed_ann_pushdown_tests {
+    use super::*;
+    use crate::sql::embed_udf::{eg_embed_udf_with, EmbedFn};
+    use crate::sql::pgfamily::{AnnMethod, VectorMetric};
+    use arrow::array::{Float32Builder, Int64Array, ListBuilder, RecordBatch, StringArray};
+    use arrow::datatypes::Schema;
+
+    /// A deterministic, dependency-free stand-in for a real model, mirroring the one in
+    /// `embed_udf`'s tests (and `eg_plan::HashEmbedder`, which this crate cannot name —
+    /// see `embed_udf`'s package-cycle note). Carries NO semantic meaning.
+    fn hash_embed(dim: usize) -> EmbedFn {
+        Arc::new(move |text: &str| {
+            use std::hash::{Hash, Hasher};
+            let mut v: Vec<f32> = (0..dim)
+                .map(|d| {
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    (d as u64).hash(&mut h);
+                    text.hash(&mut h);
+                    (h.finish() as f64 / u64::MAX as f64) as f32 * 2.0 - 1.0
+                })
+                .collect();
+            let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                for x in &mut v {
+                    *x /= norm;
+                }
+            }
+            Ok(v)
+        })
+    }
+
+    /// A registered `hnsw` cosine index over `items(emb)` — the covering registration
+    /// that makes the query below eligible to "choose ANN" at all.
+    fn items_index() -> AnnIndexPlan {
+        AnnIndexPlan {
+            name: None,
+            table: "items".to_string(),
+            column: "emb".to_string(),
+            method: AnnMethod::Hnsw,
+            metric: VectorMetric::Cosine,
+            if_not_exists: false,
+        }
+    }
+
+    /// The pgvector text literal a client that embedded CLIENT-side would have sent —
+    /// the control the `eg_embed` form must now become indistinguishable from.
+    fn literal_of(embed: &EmbedFn, text: &str) -> String {
+        let v = embed(text).expect("embed");
+        let parts: Vec<String> = v.iter().map(|x| x.to_string()).collect();
+        format!("'[{}]'", parts.join(","))
+    }
+
+    /// (1) The PRODUCTION `SessionContext` — the one `build_ctx` assembles for every
+    /// graph SQL read — resolves `eg_embed`. This is the gap this lane closes: before
+    /// registration the statement failed at PLAN time with DataFusion's
+    /// "Invalid function" / "not found" error; after it, the call reaches the UDF and
+    /// (with no embedder bound — the default) fails CLOSED at EXECUTION time with the
+    /// typed message, which is also acceptance criterion 4: a named error, never a panic
+    /// and never a zero vector (cosine-distance 1.0 from everything, i.e. a plausible
+    /// arbitrary top-k).
+    ///
+    /// Tolerant of the one-shot process binding in either state — if `embed_udf`'s own
+    /// binding test ran first the call also EXECUTES — because both outcomes prove the
+    /// same thing and only an unregistered function can fail at plan time.
+    #[test]
+    fn eg_embed_resolves_in_the_production_graph_session_context() {
+        let view = GraphView::default();
+        match exec_sql_typed(&view, "SELECT eg_embed('leaky pump') AS v") {
+            Err(e) => {
+                assert!(
+                    e.contains("no server-side text embedder is bound"),
+                    "eg_embed must resolve in the production context and fail closed at \
+                     EXECUTION, not fail to plan: {e}"
+                );
+            }
+            Ok(r) => assert_eq!(r.rows.len(), 1, "a bound embedder must return one row"),
+        }
+    }
+
+    /// (1, obs leg) The same for `exec_sql_over_tables`, the production entry point the
+    /// observability log-search surface drives over Arrow batches.
+    #[test]
+    fn eg_embed_resolves_in_the_production_tables_session_context() {
+        match exec_sql_over_tables(Vec::new(), "SELECT eg_embed('leaky pump') AS v") {
+            Err(e) => {
+                assert!(
+                    e.contains("no server-side text embedder is bound"),
+                    "eg_embed must resolve on the obs/tables path too: {e}"
+                );
+            }
+            Ok(r) => assert_eq!(r.rows.len(), 1, "a bound embedder must return one row"),
+        }
+    }
+
+    /// (2) THE ONE THAT MATTERS. `ORDER BY emb <=> eg_embed('leaky pump') LIMIT 3` takes
+    /// the ANN INDEX path, not the brute-force fallback — asserted on the DECISION, and
+    /// asserted to be the SAME decision the hand-embedded literal form yields, down to
+    /// the query vector. Before the const-fold this decision was `None`: `eg_embed(...)`
+    /// is a function CALL, `vector_order_key` recognises only a literal, so the pushdown
+    /// declined and the query silently paid an O(N) exact scan.
+    #[test]
+    fn ann_pushdown_fires_through_a_const_folded_eg_embed() {
+        let embed = hash_embed(8);
+        let udf = eg_embed_udf_with(Some(embed.clone()));
+        let indexes = vec![items_index()];
+
+        let embed_sql = "SELECT id FROM items ORDER BY emb <=> eg_embed('leaky pump') LIMIT 3";
+        let decided = ann_pushdown_decision_with(embed_sql, &indexes, &udf)
+            .expect("eg_embed('literal') must take the ANN index path, not brute force");
+        assert_eq!(decided.plan.table, "items");
+        assert_eq!(decided.plan.column, "emb");
+        assert_eq!(decided.plan.k, 3);
+        assert_eq!(decided.plan.metric, VectorMetric::Cosine);
+        assert_eq!(decided.method, AnnMethod::Hnsw);
+        assert_eq!(
+            decided.query_vector,
+            embed("leaky pump").expect("embed"),
+            "the folded query vector must be the bound embedder's own"
+        );
+
+        // Indistinguishable from the client-side-embedded form it replaces.
+        let literal_sql = format!(
+            "SELECT id FROM items ORDER BY emb <=> {} LIMIT 3",
+            literal_of(&embed, "leaky pump")
+        );
+        let control = ann_pushdown_decision_with(&literal_sql, &indexes, &udf)
+            .expect("the literal control must push down");
+        assert_eq!(decided.query_vector, control.query_vector);
+        assert_eq!(decided.plan.k, control.plan.k);
+
+        // The served-context cache must ALSO see it, or a per-query top-k slice would be
+        // cached and replayed for a differently-shaped later query.
+        assert!(
+            ann_pushdown_may_apply_with(embed_sql, &indexes, &udf),
+            "a folded eg_embed query is per-QUERY, so it must bypass the context cache"
+        );
+    }
+
+    /// (3a) A NON-const argument is not foldable and must keep the brute-force path: a
+    /// bind placeholder is unresolved at plan time, and a column argument is a different
+    /// vector per row — neither is a constant, and neither may be pushed down. The
+    /// literal control in the same test proves the `None`s are about foldability, not a
+    /// mis-built index or an unrecognised query shape.
+    #[test]
+    fn ann_pushdown_declines_for_a_non_const_eg_embed_argument() {
+        let embed = hash_embed(8);
+        let udf = eg_embed_udf_with(Some(embed.clone()));
+        let indexes = vec![items_index()];
+        for sql in [
+            "SELECT id FROM items ORDER BY emb <=> eg_embed($1) LIMIT 3",
+            "SELECT id FROM items ORDER BY emb <=> eg_embed(txt) LIMIT 3",
+            "SELECT id FROM items ORDER BY emb <=> eg_embed(lower('Leaky Pump')) LIMIT 3",
+        ] {
+            assert!(
+                ann_pushdown_decision_with(sql, &indexes, &udf).is_none(),
+                "a non-const eg_embed argument must keep the brute-force path: {sql}"
+            );
+            // `ann_pushdown_may_apply` is DELIBERATELY an over-approximation (see its
+            // doc): it checks only the cheap side-effect-free prefix, so an unresolved
+            // query operand still flags and merely costs an uncached run. An unfoldable
+            // `eg_embed(...)` is therefore treated exactly like the bare `$1` placeholder
+            // the predicate has always flagged — no behaviour change, and `false` (the
+            // one answer it must get right) is never newly returned.
+            assert_eq!(
+                ann_pushdown_may_apply_with(sql, &indexes, &udf),
+                ann_pushdown_may_apply_with(
+                    "SELECT id FROM items ORDER BY emb <=> $1 LIMIT 3",
+                    &indexes,
+                    &udf,
+                ),
+                "an unfoldable eg_embed must be judged exactly like a bare placeholder: \
+                 {sql}"
+            );
+        }
+        let control = format!(
+            "SELECT id FROM items ORDER BY emb <=> {} LIMIT 3",
+            literal_of(&embed, "leaky pump")
+        );
+        assert!(
+            ann_pushdown_decision_with(&control, &indexes, &udf).is_some(),
+            "control: the same query shape with a literal DOES push down"
+        );
+    }
+
+    /// (4) With NO embedder bound, the fold resolves nothing, so the pushdown declines
+    /// and the query keeps the brute-force path — where `eg_embed` itself raises its
+    /// typed error. The const-fold must never invent a vector to push down with: a zero
+    /// vector is cosine-distance 1.0 from every row and would return a plausible,
+    /// arbitrary top-k.
+    #[test]
+    fn ann_pushdown_declines_and_never_folds_a_vector_with_no_embedder_bound() {
+        let unbound = eg_embed_udf_with(None);
+        let indexes = vec![items_index()];
+        let sql = "SELECT id FROM items ORDER BY emb <=> eg_embed('leaky pump') LIMIT 3";
+        assert!(
+            ann_probe_sql_with(sql, &unbound).is_none(),
+            "no embedder ⇒ nothing to fold — never a substituted zero vector"
+        );
+        assert!(ann_pushdown_decision_with(sql, &indexes, &unbound).is_none());
+    }
+
+    /// (3b) The declined path still answers CORRECTLY. Driven through the same two
+    /// production stages an `exec_sql*` entry applies — `desugar_vector_ops`, then
+    /// `SessionContext::sql` — with a per-ROW `eg_embed(txt)` argument: row 2's stored
+    /// vector IS the embedding of its own `txt`, so the brute-force cosine ranking must
+    /// put it first even though nothing was pushed down.
+    #[tokio::test]
+    async fn a_non_foldable_argument_still_ranks_correctly_via_brute_force() {
+        let embed = hash_embed(8);
+        let indexes = vec![items_index()];
+        let sql = "SELECT id FROM items ORDER BY emb <=> eg_embed(txt) LIMIT 1";
+        assert!(
+            ann_pushdown_decision_with(sql, &indexes, &eg_embed_udf_with(Some(embed.clone())))
+                .is_none(),
+            "precondition: these rows come from the brute-force path, not the index"
+        );
+
+        let ctx = SessionContext::new();
+        ctx.register_table("items", items_table(&embed))
+            .expect("register");
+        ctx.register_udf(vector_cosine_udf());
+        ctx.register_udf(eg_embed_udf_with(Some(embed)));
+        let planned = crate::sql::classify::desugar_vector_ops(sql);
+        let batches = ctx
+            .sql(&planned)
+            .await
+            .expect("plan")
+            .collect()
+            .await
+            .expect("execute");
+        let ids = batches[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("i64");
+        assert_eq!(
+            ids.value(0),
+            2,
+            "row 2's vector IS the embedding of its own text ⇒ distance 0"
+        );
+    }
+
+    /// `items(id, emb vector(8), txt)`: row 1's vector is NOT its text's embedding,
+    /// row 2's IS — so `emb <=> eg_embed(txt)` is 0 for row 2 and ≈1 for row 1.
+    fn items_table(embed: &EmbedFn) -> Arc<MemTable> {
+        let mut b = ListBuilder::new(Float32Builder::new()).with_field(Arc::new(
+            arrow::datatypes::Field::new_list_field(DataType::Float32, true),
+        ));
+        for text in ["alpha", "leaky pump"] {
+            b.values().append_slice(&embed(text).expect("embed"));
+            b.append(true);
+        }
+        let emb = b.finish();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("emb", emb.data_type().clone(), true),
+            Field::new("txt", DataType::Utf8, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int64Array::from(vec![1_i64, 2])),
+                Arc::new(emb),
+                Arc::new(StringArray::from(vec!["beta", "leaky pump"])),
+            ],
+        )
+        .expect("batch");
+        Arc::new(MemTable::try_new(schema, vec![vec![batch]]).expect("memtable"))
     }
 }
