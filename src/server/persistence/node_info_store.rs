@@ -485,6 +485,39 @@ impl NodeInfoStore {
     }
 }
 
+/// Bundle the durable cluster-topology store (CONCEPT:EG-KG.sharding.cluster-topology) into
+/// an online backup.
+///
+/// `node_info.redb` was omitted from every bundle before this: the backup path holds
+/// the store (it is a `RedbBackend` field) but never copied it, so a restored engine
+/// answered `Method::ClusterMembers` from an EMPTY topology and every peer had to
+/// re-self-report before routing worked again.
+impl super::durable_stores::BundledStoreSource for NodeInfoStore {
+    fn file_name(&self) -> &'static str {
+        "node_info.redb"
+    }
+
+    fn copy_into(&self, destination: &std::path::Path) -> Result<u64, String> {
+        let Some(source) = self.db.as_ref() else {
+            return Err("node info store is not durable; nothing to bundle".to_string());
+        };
+        let rtx = source.begin_read().map_err(|e| e.to_string())?;
+        let target = super::durable_stores::create_bundle_file(destination)?;
+        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
+        wtx.set_durability(redb::Durability::Immediate)
+            .map_err(|e| e.to_string())?;
+        let mut rows = 0u64;
+        crate::copy_bundled_table!(rtx, wtx, rows, NODE_INFO);
+        crate::copy_bundled_table!(rtx, wtx, rows, NODE_INFO_META);
+        wtx.commit().map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
+    fn is_durable(&self) -> bool {
+        self.db.is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -648,38 +681,5 @@ mod tests {
         let ordered = store.ordered_members(&[2, 1], &[], None);
         let ids: Vec<u64> = ordered.iter().map(|i| i.node_id).collect();
         assert_eq!(ids, vec![1, 2]);
-    }
-}
-
-/// Bundle the durable cluster-topology store (CONCEPT:EG-KG.sharding.cluster-topology) into
-/// an online backup.
-///
-/// `node_info.redb` was omitted from every bundle before this: the backup path holds
-/// the store (it is a `RedbBackend` field) but never copied it, so a restored engine
-/// answered `Method::ClusterMembers` from an EMPTY topology and every peer had to
-/// re-self-report before routing worked again.
-impl super::durable_stores::BundledStoreSource for NodeInfoStore {
-    fn file_name(&self) -> &'static str {
-        "node_info.redb"
-    }
-
-    fn copy_into(&self, destination: &std::path::Path) -> Result<u64, String> {
-        let Some(source) = self.db.as_ref() else {
-            return Err("node info store is not durable; nothing to bundle".to_string());
-        };
-        let rtx = source.begin_read().map_err(|e| e.to_string())?;
-        let target = super::durable_stores::create_bundle_file(destination)?;
-        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        let mut rows = 0u64;
-        crate::copy_bundled_table!(rtx, wtx, rows, NODE_INFO);
-        crate::copy_bundled_table!(rtx, wtx, rows, NODE_INFO_META);
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(rows)
-    }
-
-    fn is_durable(&self) -> bool {
-        self.db.is_some()
     }
 }

@@ -639,7 +639,7 @@ mod hierarchy_tests {
         intra_degree: usize,
         seed: u64,
     ) -> (AdjacencyGraph<usize>, usize) {
-        let num_clusters = (n + cluster_size - 1) / cluster_size;
+        let num_clusters = n.div_ceil(cluster_size);
         let mut rng = SplitMix64::new(seed);
         let mut adjacency: Vec<(usize, Vec<(usize, f64)>)> =
             (0..n).map(|i| (i, Vec::new())).collect();
