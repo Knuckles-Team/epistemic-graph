@@ -479,6 +479,26 @@ fn outcode(p: &Point, b: &Bbox) -> u8 {
     c
 }
 
+/// Where segment `a→b` crosses the `bounds` edge indicated by outcode bit `out`
+/// (exactly one of the 4 Cohen–Sutherland region bits).
+fn clip_boundary_crossing(a: &Point, b: &Point, bx: &Bbox, out: u8) -> Point {
+    let (x, y);
+    if out & 8 != 0 {
+        x = a.x + (b.x - a.x) * (bx.maxy - a.y) / (b.y - a.y);
+        y = bx.maxy;
+    } else if out & 4 != 0 {
+        x = a.x + (b.x - a.x) * (bx.miny - a.y) / (b.y - a.y);
+        y = bx.miny;
+    } else if out & 2 != 0 {
+        y = a.y + (b.y - a.y) * (bx.maxx - a.x) / (b.x - a.x);
+        x = bx.maxx;
+    } else {
+        y = a.y + (b.y - a.y) * (bx.minx - a.x) / (b.x - a.x);
+        x = bx.minx;
+    }
+    Point::new(x, y)
+}
+
 /// Clip one segment `a→b` to `bounds` (Cohen–Sutherland). `None` if fully outside.
 fn clip_segment(mut a: Point, mut b: Point, bx: &Bbox) -> Option<(Point, Point)> {
     let mut ca = outcode(&a, bx);
@@ -491,25 +511,11 @@ fn clip_segment(mut a: Point, mut b: Point, bx: &Bbox) -> Option<(Point, Point)>
             return None; // both share an outside region
         }
         let out = if ca != 0 { ca } else { cb };
-        let (x, y);
-        if out & 8 != 0 {
-            x = a.x + (b.x - a.x) * (bx.maxy - a.y) / (b.y - a.y);
-            y = bx.maxy;
-        } else if out & 4 != 0 {
-            x = a.x + (b.x - a.x) * (bx.miny - a.y) / (b.y - a.y);
-            y = bx.miny;
-        } else if out & 2 != 0 {
-            y = a.y + (b.y - a.y) * (bx.maxx - a.x) / (b.x - a.x);
-            x = bx.maxx;
-        } else {
-            y = a.y + (b.y - a.y) * (bx.minx - a.x) / (b.x - a.x);
-            x = bx.minx;
-        }
         if out == ca {
-            a = Point::new(x, y);
+            a = clip_boundary_crossing(&a, &b, bx, out);
             ca = outcode(&a, bx);
         } else {
-            b = Point::new(x, y);
+            b = clip_boundary_crossing(&a, &b, bx, out);
             cb = outcode(&b, bx);
         }
     }
