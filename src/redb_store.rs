@@ -1053,6 +1053,7 @@ pub struct NativeOperationDumpRows {
     /// `development_lane_counters`: `(graph, scope) -> sealed counters blob`.
     pub development_lane_counters: Vec<(String, Vec<u8>)>,
     /// `development_lane_pressure_index`: `(graph, tenant, scope, metric, value, counter_key) -> marker`.
+    #[allow(clippy::type_complexity)]
     pub development_lane_pressure_index: Vec<((String, String, String, u64, String), u8)>,
     /// `development_lane_policies`: `(graph, tenant) -> sealed policy blob`.
     pub development_lane_policies: Vec<(String, Vec<u8>)>,
@@ -14845,6 +14846,7 @@ fn dump_graph_2str_u64(
     Ok(out)
 }
 
+#[allow(clippy::type_complexity)]
 fn dump_graph_3str_text(
     rtx: &redb::ReadTransaction,
     table: redb::TableDefinition<(&str, &str, &str), &str>,
@@ -14866,6 +14868,7 @@ fn dump_graph_3str_text(
     Ok(out)
 }
 
+#[allow(clippy::type_complexity)]
 fn dump_graph_3str_bytes(
     rtx: &redb::ReadTransaction,
     table: redb::TableDefinition<(&str, &str, &str), &[u8]>,
@@ -14888,6 +14891,7 @@ fn dump_graph_3str_bytes(
     Ok(out)
 }
 
+#[allow(clippy::type_complexity)]
 fn dump_graph_str_u64_text(
     rtx: &redb::ReadTransaction,
     table: redb::TableDefinition<(&str, &str, u64), &str>,
@@ -14906,6 +14910,7 @@ fn dump_graph_str_u64_text(
     Ok(out)
 }
 
+#[allow(clippy::type_complexity)]
 fn dump_graph_3str_u64(
     rtx: &redb::ReadTransaction,
     table: redb::TableDefinition<(&str, &str, &str), u64>,
