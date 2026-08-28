@@ -7099,6 +7099,255 @@ fn resource_check_attempt_winner_conflict(
 /// is included here rather than split across the phase boundary, because nothing after
 /// it in the original function ever read `existing_policy`, `policy_rows`, or
 /// `disk_key` again.
+/// Every reserve-admission refusal reports the same shape: the decision, the
+/// request, and the host snapshot it was evaluated against.
+fn resource_admission_refusal(
+    decision: ResourceReservationResultDecision,
+    request: &ResourceReservationRequest,
+    host: &DurableResourceHost,
+) -> crate::protocol::ResultPayload {
+    resource_result_payload(decision, request, None, Some(host), 0, vec![])
+}
+
+/// Host-eligibility gates: the caller's expected host revision, freshness,
+/// required labels, and the two target-identity checks.
+///
+/// The request target is the scheduler's selected placement, while
+/// preferred/required targets in the WorkItem extension describe eligibility and
+/// ordering.  Once selected, the host's immutable target identity must still
+/// equal the asserted local/alias pair; otherwise a local record could carry an
+/// inventory host snapshot (or vice versa) and RM could reconstruct a
+/// contradictory target.
+fn resource_admit_check_host_eligibility(
+    request: &ResourceReservationRequest,
+    host: &DurableResourceHost,
+    extension: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    if let Some(expected) = request.expected_host_revision {
+        if expected != host.revision {
+            return Ok(Some(resource_admission_refusal(
+                ResourceReservationResultDecision::StaleHost,
+                request,
+                host,
+            )));
+        }
+    }
+    let host_state = resource_validate_host_freshness(host, request.now_ms);
+    if host_state != ResourceReservationResultDecision::Accepted {
+        return Ok(Some(resource_admission_refusal(host_state, request, host)));
+    }
+    if !request
+        .required_labels
+        .iter()
+        .all(|label| host.labels.iter().any(|value| value == label))
+    {
+        return Ok(Some(resource_admission_refusal(
+            ResourceReservationResultDecision::Labels,
+            request,
+            host,
+        )));
+    }
+    if !resource_target_selection_matches(extension, host)? {
+        return Ok(Some(resource_admission_refusal(
+            ResourceReservationResultDecision::Policy,
+            request,
+            host,
+        )));
+    }
+    if !resource_selected_target_matches_request(request, host) {
+        return Ok(Some(resource_admission_refusal(
+            ResourceReservationResultDecision::Policy,
+            request,
+            host,
+        )));
+    }
+    Ok(None)
+}
+
+/// Index-backed admission gates, in the original order: anti-affinity tags,
+/// the concurrency scope limit, exclusivity keys, and the capacity vector.
+fn resource_admit_check_index_gates(
+    graph: &str,
+    request: &ResourceReservationRequest,
+    host: &DurableResourceHost,
+    anti_affinity: &redb::Table<(&str, &str, &str), u64>,
+    concurrency: &redb::Table<(&str, &str), u64>,
+    exclusivity: &redb::Table<(&str, &str), &str>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    for tag in &request.anti_affinity {
+        let count = anti_affinity
+            .get((graph, request.host_ref.as_str(), tag.as_str()))
+            .map_err(|error| error.to_string())?
+            .map(|value| value.value())
+            .unwrap_or(0);
+        if count != 0 {
+            return Ok(Some(resource_admission_refusal(
+                ResourceReservationResultDecision::AntiAffinity,
+                request,
+                host,
+            )));
+        }
+    }
+    let concurrency_key = resource_concurrency_scope_key(&request.concurrency_key);
+    let concurrency_count = concurrency
+        .get((graph, concurrency_key.as_str()))
+        .map_err(|error| error.to_string())?
+        .map(|value| value.value())
+        .unwrap_or(0);
+    if request
+        .concurrency_limit
+        .is_some_and(|limit| concurrency_count >= limit)
+    {
+        return Ok(Some(resource_admission_refusal(
+            ResourceReservationResultDecision::Concurrency,
+            request,
+            host,
+        )));
+    }
+    for key in resource_exclusivity_keys(request) {
+        if exclusivity
+            .get((graph, key.as_str()))
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
+            return Ok(Some(resource_admission_refusal(
+                ResourceReservationResultDecision::Exclusivity,
+                request,
+                host,
+            )));
+        }
+    }
+    if !resource_capacity_sum(host, &request.requirement) {
+        return Ok(Some(resource_admission_refusal(
+            ResourceReservationResultDecision::Capacity,
+            request,
+            host,
+        )));
+    }
+    Ok(None)
+}
+
+/// The disk gates that can refuse before anything is written: the per-host
+/// policy-count bound, watermark agreement with the existing policy row, and
+/// free space on the host.
+fn resource_admit_check_disk(
+    request: &ResourceReservationRequest,
+    host: &DurableResourceHost,
+    existing_policy: Option<&DurableResourceDiskPolicy>,
+    policy_row_count: usize,
+) -> Option<crate::protocol::ResultPayload> {
+    if existing_policy.is_none() && policy_row_count >= MAX_RESOURCE_HOST_DISK_POLICIES {
+        return Some(resource_admission_refusal(
+            ResourceReservationResultDecision::Policy,
+            request,
+            host,
+        ));
+    }
+    if let Some(policy) = existing_policy {
+        if policy.low_watermark_mib != request.disk_low_watermark_mib
+            || policy.high_watermark_mib != request.disk_high_watermark_mib
+        {
+            return Some(resource_admission_refusal(
+                ResourceReservationResultDecision::Policy,
+                request,
+                host,
+            ));
+        }
+    }
+    let available_disk = host
+        .disk_capacity_mib
+        .checked_sub(host.disk_used_mib)
+        .and_then(|value| value.checked_sub(host.held_disk_mib))
+        .unwrap_or(0);
+    if request.requirement.disk_mib > available_disk {
+        return Some(resource_admission_refusal(
+            ResourceReservationResultDecision::Disk,
+            request,
+            host,
+        ));
+    }
+    None
+}
+
+/// Persist one disk-policy row for `disk_key`.
+fn resource_put_disk_policy(
+    disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    graph: &str,
+    disk_key: &str,
+    policy: &DurableResourceDiskPolicy,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let bytes = resource_encode(policy, crypto)?;
+    disk_policies
+        .insert((graph, disk_key), bytes.as_slice())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// The disk-policy hysteresis step: compute whether this reservation would cross
+/// the watermark, persist the resulting policy row, and refuse when blocked.
+#[allow(clippy::too_many_arguments)]
+fn resource_admit_apply_disk_policy(
+    graph: &str,
+    request: &ResourceReservationRequest,
+    host: &DurableResourceHost,
+    disk_key: &str,
+    existing_policy: Option<&DurableResourceDiskPolicy>,
+    disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    let predicted_used = host
+        .disk_used_mib
+        .checked_add(host.held_disk_mib)
+        .and_then(|value| value.checked_add(request.requirement.disk_mib))
+        .ok_or_else(|| "resource disk accounting overflow".to_string())?;
+    let blocked = resource_disk_policy_blocked(
+        existing_policy.is_some_and(|policy| policy.blocked),
+        predicted_used,
+        request.disk_low_watermark_mib,
+        request.disk_high_watermark_mib,
+    );
+    let bumped_policy = |blocked: bool| DurableResourceDiskPolicy {
+        blocked,
+        low_watermark_mib: request.disk_low_watermark_mib,
+        high_watermark_mib: request.disk_high_watermark_mib,
+        revision: existing_policy.map_or(1, |value| value.revision.saturating_add(1)),
+    };
+    if blocked {
+        resource_put_disk_policy(
+            disk_policies,
+            graph,
+            disk_key,
+            &bumped_policy(blocked),
+            crypto,
+        )?;
+        return Ok(Some(resource_admission_refusal(
+            ResourceReservationResultDecision::Disk,
+            request,
+            host,
+        )));
+    }
+    if existing_policy.is_some_and(|policy| policy.blocked != blocked) {
+        resource_put_disk_policy(
+            disk_policies,
+            graph,
+            disk_key,
+            &bumped_policy(blocked),
+            crypto,
+        )?;
+    }
+    if existing_policy.is_none() {
+        let policy = DurableResourceDiskPolicy {
+            blocked: false,
+            low_watermark_mib: request.disk_low_watermark_mib,
+            high_watermark_mib: request.disk_high_watermark_mib,
+            revision: 1,
+        };
+        resource_put_disk_policy(disk_policies, graph, disk_key, &policy, crypto)?;
+    }
+    Ok(None)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn resource_admit_reserve_host(
     hosts: &mut redb::Table<(&str, &str), &[u8]>,
@@ -7128,130 +7377,18 @@ fn resource_admit_reserve_host(
     // reservation into an undecodable/unbounded host projection.
     let policy_rows =
         resource_collect_disk_policy_rows(disk_policies, graph, &request.host_ref, crypto)?;
-    if let Some(expected) = request.expected_host_revision {
-        if expected != host.revision {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::StaleHost,
-                request,
-                None,
-                Some(&host),
-                0,
-                vec![],
-            )));
-        }
+    if let Some(payload) = resource_admit_check_host_eligibility(request, &host, extension)? {
+        return Ok(ReservationLifecycleStep::Return(payload));
     }
-    let host_state = resource_validate_host_freshness(&host, request.now_ms);
-    if host_state != ResourceReservationResultDecision::Accepted {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            host_state,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
-    }
-    if !request
-        .required_labels
-        .iter()
-        .all(|label| host.labels.iter().any(|value| value == label))
-    {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Labels,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
-    }
-    if !resource_target_selection_matches(extension, &host)? {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Policy,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
-    }
-    // The request target is the scheduler's selected placement, while
-    // preferred/required targets in the WorkItem extension describe
-    // eligibility and ordering.  Once selected, the host's immutable
-    // target identity must still equal the asserted local/alias pair;
-    // otherwise a local record could carry an inventory host snapshot
-    // (or vice versa) and RM could reconstruct a contradictory target.
-    if !resource_selected_target_matches_request(request, &host) {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Policy,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
-    }
-    for tag in &request.anti_affinity {
-        let count = anti_affinity
-            .get((graph, request.host_ref.as_str(), tag.as_str()))
-            .map_err(|error| error.to_string())?
-            .map(|value| value.value())
-            .unwrap_or(0);
-        if count != 0 {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::AntiAffinity,
-                request,
-                None,
-                Some(&host),
-                0,
-                vec![],
-            )));
-        }
-    }
-    let concurrency_key = resource_concurrency_scope_key(&request.concurrency_key);
-    let concurrency_count = concurrency
-        .get((graph, concurrency_key.as_str()))
-        .map_err(|error| error.to_string())?
-        .map(|value| value.value())
-        .unwrap_or(0);
-    if request
-        .concurrency_limit
-        .is_some_and(|limit| concurrency_count >= limit)
-    {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Concurrency,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
-    }
-    for key in resource_exclusivity_keys(request) {
-        if exclusivity
-            .get((graph, key.as_str()))
-            .map_err(|error| error.to_string())?
-            .is_some()
-        {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::Exclusivity,
-                request,
-                None,
-                Some(&host),
-                0,
-                vec![],
-            )));
-        }
-    }
-    if !resource_capacity_sum(&host, &request.requirement) {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Capacity,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
+    if let Some(payload) = resource_admit_check_index_gates(
+        graph,
+        request,
+        &host,
+        anti_affinity,
+        concurrency,
+        exclusivity,
+    )? {
+        return Ok(ReservationLifecycleStep::Return(payload));
     }
     let disk_key = format!("{}\0{}", request.host_ref, request.disk_policy_key);
     let existing_policy = disk_policies
@@ -7259,108 +7396,21 @@ fn resource_admit_reserve_host(
         .map_err(|error| error.to_string())?
         .map(|value| resource_decode::<DurableResourceDiskPolicy>(value.value(), crypto))
         .transpose()?;
-    if existing_policy.is_none() && policy_rows.len() >= MAX_RESOURCE_HOST_DISK_POLICIES {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Policy,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
-    }
-    if let Some(policy) = existing_policy.as_ref() {
-        if policy.low_watermark_mib != request.disk_low_watermark_mib
-            || policy.high_watermark_mib != request.disk_high_watermark_mib
-        {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::Policy,
-                request,
-                None,
-                Some(&host),
-                0,
-                vec![],
-            )));
-        }
-    }
-    let available_disk = host
-        .disk_capacity_mib
-        .checked_sub(host.disk_used_mib)
-        .and_then(|value| value.checked_sub(host.held_disk_mib))
-        .unwrap_or(0);
-    if request.requirement.disk_mib > available_disk {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Disk,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
-    }
-    let predicted_used = host
-        .disk_used_mib
-        .checked_add(host.held_disk_mib)
-        .and_then(|value| value.checked_add(request.requirement.disk_mib))
-        .ok_or_else(|| "resource disk accounting overflow".to_string())?;
-    let blocked = resource_disk_policy_blocked(
-        existing_policy
-            .as_ref()
-            .is_some_and(|policy| policy.blocked),
-        predicted_used,
-        request.disk_low_watermark_mib,
-        request.disk_high_watermark_mib,
-    );
-    if blocked {
-        let policy = DurableResourceDiskPolicy {
-            blocked,
-            low_watermark_mib: request.disk_low_watermark_mib,
-            high_watermark_mib: request.disk_high_watermark_mib,
-            revision: existing_policy
-                .as_ref()
-                .map_or(1, |value| value.revision.saturating_add(1)),
-        };
-        let bytes = resource_encode(&policy, crypto)?;
-        disk_policies
-            .insert((graph, disk_key.as_str()), bytes.as_slice())
-            .map_err(|error| error.to_string())?;
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Disk,
-            request,
-            None,
-            Some(&host),
-            0,
-            vec![],
-        )));
-    }
-    if existing_policy
-        .as_ref()
-        .is_some_and(|policy| policy.blocked != blocked)
+    if let Some(payload) =
+        resource_admit_check_disk(request, &host, existing_policy.as_ref(), policy_rows.len())
     {
-        let policy = DurableResourceDiskPolicy {
-            blocked,
-            low_watermark_mib: request.disk_low_watermark_mib,
-            high_watermark_mib: request.disk_high_watermark_mib,
-            revision: existing_policy
-                .as_ref()
-                .map_or(1, |value| value.revision.saturating_add(1)),
-        };
-        let bytes = resource_encode(&policy, crypto)?;
-        disk_policies
-            .insert((graph, disk_key.as_str()), bytes.as_slice())
-            .map_err(|error| error.to_string())?;
+        return Ok(ReservationLifecycleStep::Return(payload));
     }
-    if existing_policy.is_none() {
-        let policy = DurableResourceDiskPolicy {
-            blocked: false,
-            low_watermark_mib: request.disk_low_watermark_mib,
-            high_watermark_mib: request.disk_high_watermark_mib,
-            revision: 1,
-        };
-        let bytes = resource_encode(&policy, crypto)?;
-        disk_policies
-            .insert((graph, disk_key.as_str()), bytes.as_slice())
-            .map_err(|error| error.to_string())?;
+    if let Some(payload) = resource_admit_apply_disk_policy(
+        graph,
+        request,
+        &host,
+        &disk_key,
+        existing_policy.as_ref(),
+        disk_policies,
+        crypto,
+    )? {
+        return Ok(ReservationLifecycleStep::Return(payload));
     }
     Ok(ReservationLifecycleStep::Continue(host))
 }
