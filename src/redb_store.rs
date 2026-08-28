@@ -1594,7 +1594,7 @@ fn apply_mutation_batch_in_wtx(
         crossmodal.is_some(),
         crypto,
     )? {
-        MutationBatchPrepareOutcome::Replayed(commit) => return Ok(commit),
+        MutationBatchPrepareOutcome::Replayed(commit) => return Ok(*commit),
         MutationBatchPrepareOutcome::Fresh(plan) => plan,
     };
     let MutationBatchPlan {
@@ -1639,18 +1639,24 @@ fn apply_mutation_batch_in_wtx(
     run_mutation_batch_crashpoint(batch, crashpoint, MutationBatchCrashpoint::AfterRowsBeforeMetadata)?;
 
     let record = write_mutation_batch_commit_rows(
-        wtx,
-        graph_fname,
-        batch,
-        generated_result,
-        result_msgpack,
-        committed_at_ms,
-        current_graph_version,
-        proposed_fence,
-        lifecycle,
-        integrity_policy_update,
+        &MutationRowCtx {
+            wtx,
+            graph_fname,
+            batch,
+            crypto,
+        },
+        MutationCommitReceipt {
+            generated_result,
+            result_msgpack,
+            committed_at_ms,
+        },
+        MutationCommitVersioning {
+            current_graph_version,
+            proposed_fence,
+            lifecycle,
+            integrity_policy_update,
+        },
         change,
-        crypto,
     )?;
 
     // The transaction boundary (BeforeCommit crashpoint / certification fault /
@@ -2556,17 +2562,33 @@ fn apply_native_clear_or_delete_graph_rows(
     Ok(())
 }
 
+/// The batch-level context both native WorkItem-submit operations need: the
+/// batch being applied (its `batch_id` is the outbox id, and its operation count
+/// carries the one-result-producing-operation invariant), the authoritative
+/// commit timestamp, and the sealing handle. Bundled so the two operations stay
+/// inside clippy's parameter cap; each field is the value the caller already
+/// passed positionally.
+#[derive(Clone, Copy)]
+struct NativeSubmitScope<'a> {
+    batch: &'a MutationBatch,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'a>,
+}
+
 fn apply_native_submit_work_item_operation(
     graph_fname: &str,
     request: &eg_types::native_control::SubmitWorkItemRequest,
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
     command_sequences: &mut redb::Table<&str, u64>,
-    batch: &MutationBatch,
-    committed_at_ms: u64,
+    scope: NativeSubmitScope<'_>,
     generated_result: &mut Option<Vec<u8>>,
-    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    let NativeSubmitScope {
+        batch,
+        committed_at_ms,
+        crypto,
+    } = scope;
     let result = apply_submit_work_item_rows(
         graph_fname,
         request,
@@ -2596,11 +2618,14 @@ fn apply_native_submit_work_items_operation(
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
     command_sequences: &mut redb::Table<&str, u64>,
-    batch: &MutationBatch,
-    committed_at_ms: u64,
+    scope: NativeSubmitScope<'_>,
     generated_result: &mut Option<Vec<u8>>,
-    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    let NativeSubmitScope {
+        batch,
+        committed_at_ms,
+        crypto,
+    } = scope;
     let result = apply_submit_work_items_rows(
         graph_fname,
         request,
@@ -2815,10 +2840,12 @@ fn apply_one_native_operation_row(
             nodes,
             edges,
             command_sequences,
-            batch,
-            committed_at_ms,
+            NativeSubmitScope {
+                batch,
+                committed_at_ms,
+                crypto,
+            },
             generated_result,
-            crypto,
         ),
         Method::SubmitWorkItems { request } => apply_native_submit_work_items_operation(
             graph_fname,
@@ -2826,10 +2853,12 @@ fn apply_one_native_operation_row(
             nodes,
             edges,
             command_sequences,
-            batch,
-            committed_at_ms,
+            NativeSubmitScope {
+                batch,
+                committed_at_ms,
+                crypto,
+            },
             generated_result,
-            crypto,
         ),
         method @ (Method::ClaimWorkItem { .. }
         | Method::RenewWorkItemLease { .. }
@@ -2972,16 +3001,19 @@ fn apply_native_operation_rows_loop(
 }
 
 fn apply_native_operations(
-    wtx: &redb::WriteTransaction,
-    graph_fname: &str,
-    batch: &MutationBatch,
+    ctx: &MutationRowCtx<'_>,
     committed_at_ms: u64,
-    crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
     audited: bool,
     generated_result: &mut Option<Vec<u8>>,
     crossmodal_present: bool,
 ) -> Result<(), String> {
+    let MutationRowCtx {
+        wtx,
+        graph_fname,
+        batch,
+        crypto,
+    } = *ctx;
     let _ = audited;
     let (mut nodes, mut native_work_items, mut edges, mut ledger, mut semantic, mut command_sequences) =
         open_native_operation_graph_tables(wtx)?;
@@ -3113,7 +3145,7 @@ struct MutationBatchPlan {
 enum MutationBatchPrepareOutcome {
     /// An exact request-identity hit: `record` was read, not written, and the
     /// caller must return it directly without touching any row.
-    Replayed(MutationBatchCommit),
+    Replayed(Box<MutationBatchCommit>),
     Fresh(MutationBatchPlan),
 }
 
@@ -3153,7 +3185,7 @@ fn prepare_and_validate_mutation_batch(
         lifecycle.as_ref(),
         crypto,
     )? {
-        return Ok(MutationBatchPrepareOutcome::Replayed(commit));
+        return Ok(MutationBatchPrepareOutcome::Replayed(Box::new(commit)));
     }
     check_batch_id_uniqueness(wtx, batch.batch_id.as_str())?;
     validate_change_envelope_preconditions(wtx, graph_fname, batch.tenant.as_str(), change, crypto)?;
@@ -3248,11 +3280,13 @@ fn apply_state_dispatch_rows(
         }
         None => {
             apply_native_operations(
-                wtx,
-                graph_fname,
-                batch,
+                &MutationRowCtx {
+                    wtx,
+                    graph_fname,
+                    batch,
+                    crypto,
+                },
                 committed_at_ms,
-                crypto,
                 #[cfg(feature = "security")]
                 staged_audit_tail,
                 audited,
@@ -3415,15 +3449,48 @@ fn write_mutation_batch_identity_rows(
     Ok(())
 }
 
+/// The four values EVERY durable row writer on the MutationBatch commit path
+/// needs: the open write transaction, the graph file the rows belong to, the
+/// batch being committed, and the (Copy) sealing handle. Bundled so the row
+/// writers stay inside clippy's parameter cap; each field is exactly the borrow
+/// the callers used to pass positionally, so no value any writer sees changes.
+#[derive(Clone, Copy)]
+struct MutationRowCtx<'a> {
+    wtx: &'a redb::WriteTransaction,
+    graph_fname: &'a str,
+    batch: &'a MutationBatch,
+    crypto: DurableCrypto<'a>,
+}
+
+/// The committed record's own payload/timestamp inputs, bundled out of
+/// [`write_mutation_batch_commit_rows`]'s parameter list.
+struct MutationCommitReceipt<'a> {
+    generated_result: Option<Vec<u8>>,
+    result_msgpack: Option<&'a [u8]>,
+    committed_at_ms: u64,
+}
+
+/// The already-validated `MutationBatchPlan` values the commit-row writers
+/// consume, bundled out of [`write_mutation_batch_commit_rows`]'s parameter list.
+struct MutationCommitVersioning {
+    current_graph_version: u64,
+    proposed_fence: DurableMutationFence,
+    lifecycle: Option<(bool, String, Option<GraphType>)>,
+    integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>>,
+}
+
 fn write_mutation_batch_version_and_fence_rows(
-    wtx: &redb::WriteTransaction,
-    graph_fname: &str,
-    batch: &MutationBatch,
+    ctx: &MutationRowCtx<'_>,
     next_graph_version: u64,
     proposed_fence: &DurableMutationFence,
     lifecycle_is_some: bool,
-    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    let MutationRowCtx {
+        wtx,
+        graph_fname,
+        batch,
+        crypto,
+    } = *ctx;
     let mut versions = wtx
         .open_table(MUTATION_GRAPH_VERSION)
         .map_err(|e| e.to_string())?;
@@ -3451,24 +3518,18 @@ fn write_mutation_batch_version_and_fence_rows(
 }
 
 fn write_mutation_batch_core_rows(
-    wtx: &redb::WriteTransaction,
-    graph_fname: &str,
-    batch: &MutationBatch,
+    ctx: &MutationRowCtx<'_>,
     sealed_record: &[u8],
     next_graph_version: u64,
     proposed_fence: &DurableMutationFence,
     lifecycle_is_some: bool,
-    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    write_mutation_batch_identity_rows(wtx, graph_fname, batch, sealed_record)?;
+    write_mutation_batch_identity_rows(ctx.wtx, ctx.graph_fname, ctx.batch, sealed_record)?;
     write_mutation_batch_version_and_fence_rows(
-        wtx,
-        graph_fname,
-        batch,
+        ctx,
         next_graph_version,
         proposed_fence,
         lifecycle_is_some,
-        crypto,
     )?;
     Ok(())
 }
@@ -3636,15 +3697,18 @@ fn write_change_envelope_and_content_version_rows(
 }
 
 fn write_change_committed_outbox_and_envelope_rows(
-    wtx: &redb::WriteTransaction,
-    graph_fname: &str,
-    batch: &MutationBatch,
+    ctx: &MutationRowCtx<'_>,
     change: &ChangeEnvelope,
     next_graph_version: u64,
     committed_at_ms: u64,
     next_ordinal: &mut u32,
-    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    let MutationRowCtx {
+        wtx,
+        graph_fname,
+        batch,
+        crypto,
+    } = *ctx;
     write_change_committed_outbox_row(
         wtx,
         batch,
@@ -3831,24 +3895,24 @@ fn write_change_material_lineage(
 }
 
 fn apply_change_envelope_commit_rows(
-    wtx: &redb::WriteTransaction,
-    graph_fname: &str,
-    batch: &MutationBatch,
+    ctx: &MutationRowCtx<'_>,
     change: &ChangeEnvelope,
     next_graph_version: u64,
     committed_at_ms: u64,
     next_ordinal: &mut u32,
-    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    write_change_committed_outbox_and_envelope_rows(
+    let MutationRowCtx {
         wtx,
         graph_fname,
         batch,
+        crypto,
+    } = *ctx;
+    write_change_committed_outbox_and_envelope_rows(
+        ctx,
         change,
         next_graph_version,
         committed_at_ms,
         next_ordinal,
-        crypto,
     )?;
 
     if let Some(cursor) = &change.cursor {
@@ -3938,19 +4002,28 @@ fn write_mutation_batch_graph_meta_row(
 }
 
 fn write_mutation_batch_commit_rows(
-    wtx: &redb::WriteTransaction,
-    graph_fname: &str,
-    batch: &MutationBatch,
-    generated_result: Option<Vec<u8>>,
-    result_msgpack: Option<&[u8]>,
-    committed_at_ms: u64,
-    current_graph_version: u64,
-    proposed_fence: DurableMutationFence,
-    lifecycle: Option<(bool, String, Option<GraphType>)>,
-    integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>>,
+    ctx: &MutationRowCtx<'_>,
+    receipt: MutationCommitReceipt<'_>,
+    versioning: MutationCommitVersioning,
     change: Option<&ChangeEnvelope>,
-    crypto: DurableCrypto<'_>,
 ) -> Result<MutationBatchRecord, String> {
+    let MutationRowCtx {
+        wtx,
+        graph_fname,
+        batch,
+        crypto,
+    } = *ctx;
+    let MutationCommitReceipt {
+        generated_result,
+        result_msgpack,
+        committed_at_ms,
+    } = receipt;
+    let MutationCommitVersioning {
+        current_graph_version,
+        proposed_fence,
+        lifecycle,
+        integrity_policy_update,
+    } = versioning;
     let record = MutationBatchRecord {
         batch: batch.clone(),
         status: MutationBatchStatus::Committed,
@@ -3963,14 +4036,11 @@ fn write_mutation_batch_commit_rows(
     let next_graph_version = mutation_batch_next_graph_version(batch, current_graph_version)?;
 
     write_mutation_batch_core_rows(
-        wtx,
-        graph_fname,
-        batch,
+        ctx,
         sealed_record.as_ref(),
         next_graph_version,
         &proposed_fence,
         lifecycle.is_some(),
-        crypto,
     )?;
 
     let mut next_ordinal = 0u32;
@@ -3979,14 +4049,11 @@ fn write_mutation_batch_commit_rows(
 
     if let Some(change) = change {
         apply_change_envelope_commit_rows(
-            wtx,
-            graph_fname,
-            batch,
+            ctx,
             change,
             next_graph_version,
             committed_at_ms,
             &mut next_ordinal,
-            crypto,
         )?;
     }
 
@@ -4725,10 +4792,15 @@ fn resource_extension_validate_and_extract_branch(
     resolve_resource_extension_branch(extension, request)
 }
 
+/// The four sorted label sets `resource_extension_resolve_labels` returns, in
+/// order: the host's advertised labels, the request's required labels, the host's
+/// anti-affinity keys, and the request's anti-affinity keys.
+type ResourceLabelSets = (Vec<String>, Vec<String>, Vec<String>, Vec<String>);
+
 fn resource_extension_resolve_labels(
     extension: &serde_json::Map<String, serde_json::Value>,
     request: &ResourceReservationRequest,
-) -> Result<(Vec<String>, Vec<String>, Vec<String>, Vec<String>), String> {
+) -> Result<ResourceLabelSets, String> {
     let mut labels =
         resource_opaque_sequence(extension.get("host_labels"), "resource host_labels")?;
     labels.sort();
@@ -6041,6 +6113,17 @@ fn apply_resource_reservation_lifecycle_rows(
 /// a branch under this repo's complexity gate the same as an `if`, so flattening N
 /// sequential fallible calls into fewer named steps is what brings the caller's own
 /// CCN down, not simplifying any individual step).
+/// What Phases 1+2 hand the reservation orchestrator, in order: is-reserve,
+/// is-reclaim, the existing reservation (if any), the WorkItem's properties, and
+/// its lease fence.
+type ResourceLifecyclePrelude = (
+    bool,
+    bool,
+    Option<DurableResourceReservation>,
+    serde_json::Map<String, serde_json::Value>,
+    ResourceWorkItemFence,
+);
+
 #[allow(clippy::too_many_arguments)]
 fn resource_lifecycle_precheck_and_load_work_item(
     method: &Method,
@@ -6050,16 +6133,7 @@ fn resource_lifecycle_precheck_and_load_work_item(
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     graph: &str,
     crypto: DurableCrypto<'_>,
-) -> Result<
-    ReservationLifecycleStep<(
-        bool,
-        bool,
-        Option<DurableResourceReservation>,
-        serde_json::Map<String, serde_json::Value>,
-        ResourceWorkItemFence,
-    )>,
-    String,
-> {
+) -> Result<ReservationLifecycleStep<ResourceLifecyclePrelude>, String> {
     let (is_reserve, is_reclaim, existing) =
         match resource_lifecycle_precheck(method, request, reservations, hosts, graph, crypto)? {
             ReservationLifecycleStep::Return(payload) => {
@@ -6141,7 +6215,7 @@ fn resource_commit_release_or_reclaim_or_reserve_gate(
 /// then, only if it did not already decide the request, Phase 6
 /// (`resource_admit_reserve_host`). Pure call-site consolidation, no behaviour change.
 #[allow(clippy::too_many_arguments)]
-fn resource_admit_reserve_host_with_winner_check<'p>(
+fn resource_admit_reserve_host_with_winner_check(
     attempts: &mut redb::Table<(&str, &str, u64), &str>,
     reservations: &mut redb::Table<(&str, &str), &[u8]>,
     hosts: &mut redb::Table<(&str, &str), &[u8]>,
@@ -6151,7 +6225,7 @@ fn resource_admit_reserve_host_with_winner_check<'p>(
     exclusivity: &mut redb::Table<(&str, &str), &str>,
     graph: &str,
     request: &ResourceReservationRequest,
-    extension: &'p serde_json::Map<String, serde_json::Value>,
+    extension: &serde_json::Map<String, serde_json::Value>,
     crypto: DurableCrypto<'_>,
 ) -> Result<ReservationLifecycleStep<DurableResourceHost>, String> {
     if let Some(payload) =
@@ -6302,16 +6376,20 @@ fn resource_lifecycle_precheck(
 
 /// Phase 2: load the WorkItem row and validate its fence (attempt/lease_epoch/
 /// fencing_token vs. the request), exactly as the original function's next block.
+/// The validated WorkItem row: its properties map plus the lease fence read from
+/// the same MVCC snapshot.
+type ResourceWorkItemAdmission = (
+    serde_json::Map<String, serde_json::Value>,
+    ResourceWorkItemFence,
+);
+
 fn resource_load_and_validate_work_item(
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     graph: &str,
     request: &ResourceReservationRequest,
     is_reclaim: bool,
     crypto: DurableCrypto<'_>,
-) -> Result<
-    ReservationLifecycleStep<(serde_json::Map<String, serde_json::Value>, ResourceWorkItemFence)>,
-    String,
-> {
+) -> Result<ReservationLifecycleStep<ResourceWorkItemAdmission>, String> {
     let item_bytes = nodes
         .get((graph, request.work_item_id.as_str()))
         .map_err(|error| error.to_string())?
@@ -6656,7 +6734,7 @@ fn resource_check_attempt_winner_conflict(
 /// it in the original function ever read `existing_policy`, `policy_rows`, or
 /// `disk_key` again.
 #[allow(clippy::too_many_arguments)]
-fn resource_admit_reserve_host<'p>(
+fn resource_admit_reserve_host(
     hosts: &mut redb::Table<(&str, &str), &[u8]>,
     disk_policies: &mut redb::Table<(&str, &str), &[u8]>,
     anti_affinity: &mut redb::Table<(&str, &str, &str), u64>,
@@ -6664,7 +6742,7 @@ fn resource_admit_reserve_host<'p>(
     exclusivity: &mut redb::Table<(&str, &str), &str>,
     graph: &str,
     request: &ResourceReservationRequest,
-    extension: &'p serde_json::Map<String, serde_json::Value>,
+    extension: &serde_json::Map<String, serde_json::Value>,
     crypto: DurableCrypto<'_>,
 ) -> Result<ReservationLifecycleStep<DurableResourceHost>, String> {
     let host = resource_load_host(hosts, graph, &request.host_ref, crypto)?;
@@ -7186,7 +7264,6 @@ fn resource_decode_result_payload(
 /// from one MVCC snapshot.  A null reservation id is the intentionally narrow
 /// current-WorkItem precheck used for scheduler ranking; it never returns a
 /// reservation ledger and Reserve revalidates the same fence transactionally.
-#[allow(clippy::type_complexity)]
 #[allow(clippy::type_complexity)]
 fn resolve_current_work_item_query_identity_fields(
     request: &ResourceReservationStatusRequest,
@@ -8027,12 +8104,16 @@ fn resolve_submit_work_item_dependency_rows(
     Ok(dependency_rows)
 }
 
+/// A submit request's resolved admission inputs, in order: the max-inflight
+/// bound, the declared dependency ids, and each dependency's `(id, satisfied)` row.
+type SubmitWorkItemDependencies = (u64, Vec<String>, Vec<(String, bool)>);
+
 fn validate_and_resolve_submit_work_item_dependencies(
     graph: &str,
     request: &eg_types::native_control::SubmitWorkItemRequest,
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<(u64, Vec<String>, Vec<(String, bool)>), String> {
+) -> Result<SubmitWorkItemDependencies, String> {
     validate_submit_work_item_identity_and_refs(graph, request)?;
     let max_inflight = resolve_submit_work_item_admission_limits(request)?;
     let dependencies = check_submit_work_item_dependencies_unique(request)?;
@@ -10947,21 +11028,35 @@ fn apply_crossmodal_body(
     Ok(())
 }
 
+/// Everything one cross-modal commit stages, bundled so [`commit_crossmodal`]
+/// stays inside clippy's parameter cap. Each slice is exactly the borrow callers
+/// used to pass positionally, in the same order.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct CrossModalStaged<'a> {
+    pub methods: &'a [Method],
+    pub vectors: &'a [VectorUpsert],
+    pub blob_refs: &'a [BlobRefRow],
+    /// Staged time-series measurement batches (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Each lands in the SAME
+    /// `WriteTransaction` as the graph/vector/blob writes, into SERIES_CHUNKS/SERIES_META
+    /// in THIS shard (not a separate `series.redb`), so a measurement and the node
+    /// it annotates are durable together — never one without the other.
+    pub measurements: &'a [crate::MeasurementBatch],
+}
+
 pub(crate) fn commit_crossmodal(
     db: &Database,
     graph: &str,
-    methods: &[Method],
-    vectors: &[VectorUpsert],
-    blob_refs: &[BlobRefRow],
-    // Staged time-series measurement batches (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Each lands in the SAME
-    // `WriteTransaction` as the graph/vector/blob writes, into SERIES_CHUNKS/SERIES_META
-    // in THIS shard (not a separate `series.redb`), so a measurement and the node
-    // it annotates are durable together — never one without the other.
-    measurements: &[crate::MeasurementBatch],
+    staged: CrossModalStaged<'_>,
     crypto: DurableCrypto<'_>,
     // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), shared with the group-commit path.
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
+    let CrossModalStaged {
+        methods,
+        vectors,
+        blob_refs,
+        measurements,
+    } = staged;
     let wtx = begin_crossmodal_wtx(db)?;
     if crossmodal_has_clear_or_delete(methods) {
         apply_crossmodal_clear_native_graph_rows(&wtx, graph, crypto)?;
@@ -13844,8 +13939,14 @@ enum GraphDumpPageNodeRowStep {
     Pushed(String, Vec<u8>),
 }
 
+/// One `(graph, id) -> value` NODES row as the table iterator yields it.
+type GraphDumpNodeRow<'a> = redb::Result<(
+    redb::AccessGuard<'a, (&'a str, &'a str)>,
+    redb::AccessGuard<'a, &'a [u8]>,
+)>;
+
 fn graph_dump_page_node_row_step(
-    row: redb::Result<(redb::AccessGuard<'_, (&str, &str)>, redb::AccessGuard<'_, &[u8]>)>,
+    row: GraphDumpNodeRow<'_>,
     graph: &str,
     skip_equal: Option<&str>,
     crypto: DurableCrypto<'_>,
@@ -13928,11 +14029,15 @@ enum GraphDumpPageEdgeRowStep {
     Pushed(String, String, u32, Vec<u8>),
 }
 
+/// One `(graph, source, target, ordinal) -> value` EDGES row as the table
+/// iterator yields it.
+type GraphDumpEdgeRow<'a> = redb::Result<(
+    redb::AccessGuard<'a, (&'a str, &'a str, &'a str, u32)>,
+    redb::AccessGuard<'a, &'a [u8]>,
+)>;
+
 fn graph_dump_page_edge_row_step(
-    row: redb::Result<(
-        redb::AccessGuard<'_, (&str, &str, &str, u32)>,
-        redb::AccessGuard<'_, &[u8]>,
-    )>,
+    row: GraphDumpEdgeRow<'_>,
     graph: &str,
     skip_equal: Option<(&str, &str, u32)>,
     crypto: DurableCrypto<'_>,

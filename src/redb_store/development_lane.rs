@@ -6931,10 +6931,10 @@ mod tests {
         assert!(super::super::commit_crossmodal(
             &fixture.db,
             TEST_GRAPH,
-            std::slice::from_ref(&remove),
-            &[],
-            &[],
-            &[],
+            super::super::CrossModalStaged {
+                methods: std::slice::from_ref(&remove),
+                ..Default::default()
+            },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut crossmodal_audit,
