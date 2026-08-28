@@ -23,7 +23,13 @@
 //! * MutationBatch replay/outbox/fence and governed ChangeEnvelope material remain
 //!   recoverable with the same typed content versions and cursors, and
 //! * the tamper-evident hash-chained `AUDIT` log (CONCEPT:EG-KG.sharding.row-level-security) stays verifiable
-//!   (re-deriving it would break verification; copying preserves it).
+//!   (re-deriving it would break verification; copying preserves it), and
+//! * every RESOURCE_*, development_lane_*, capacity_lease_*, and work_item_capability
+//!   row, plus provenance-anchor-member rows, plan-matview definitions/state, and the
+//!   WorkItem command sequence, are captured too (WD5-BUG-04 — the same class of gap
+//!   BUG-CX-016/BUG-CX-054 were in `shard_migrate.rs`'s offline tool; a backup that
+//!   silently omitted these is worse than the migration that did, since a backup is
+//!   what you reach for after the loss).
 //!
 //! **Cross-shard consistency** rides the commit-before-ack guarantee (CONCEPT:EG-KG.backend.authoritative-dispatch):
 //! any ACKED write is already durably committed, so each per-shard snapshot — opened
@@ -101,6 +107,23 @@ use crate::redb_store::{
 use crate::server::persistence::redb_backend::ENCRYPTION_CANARY;
 use crate::server::persistence::redb_backend::RAFT_META;
 use crate::server::persistence::shard_migrate;
+// BUG-CX-016/BUG-CX-054 class, the SAME 30-table gap WD3-BUG-01 fixed offline in
+// `shard_migrate.rs` (see its coverage-matrix commit message): a backup copies a
+// whole SHARD verbatim (no per-graph filtering — unlike `shard_migrate`/
+// `online_reshard`, which route by graph), so every one of these PER-GRAPH tables
+// belongs in `copy_snapshot_verbatim` unconditionally, and the 2 GLOBAL (shard-0
+// homed, no graph key) tables belong in `copy_global_verbatim` next to
+// `MATVIEWS`/`XSHARD_*` — never per-graph-filtered, since they aren't per-graph data.
+use crate::redb_store::{capacity_lease, development_lane, work_item_capability};
+#[cfg(feature = "security")]
+use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+#[cfg(feature = "matview")]
+use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
+use crate::redb_store::{
+    RESOURCE_ANTI_AFFINITY, RESOURCE_CONCURRENCY, RESOURCE_DISK_POLICIES, RESOURCE_EXCLUSIVITY,
+    RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
+    RESOURCE_RESERVATION_TENANT_INDEX, WORK_ITEM_COMMAND_SEQUENCE,
+};
 
 /// The bundle manifest file name.
 pub const MANIFEST_FILE: &str = "MANIFEST.json";
@@ -172,6 +195,13 @@ pub struct ShardCounts {
     pub xshard_prepares: u64,
     /// Retained cross-shard coordinator decisions.
     pub xshard_decisions: u64,
+    /// Rows copied from the tables this lane found missing from `backup`/
+    /// `restore` (WD5-BUG-04, same class as `shard_migrate.rs`'s `MigrationReport::
+    /// capability_and_resource`): every RESOURCE_*, development_lane_*,
+    /// capacity_lease_*, and work_item_capability row, plus provenance-anchor-
+    /// member rows and the WorkItem command sequence. Counted separately so a
+    /// backup/restore report makes this coverage independently auditable.
+    pub capability_and_resource: u64,
 }
 
 impl std::ops::AddAssign for ShardCounts {
@@ -186,6 +216,7 @@ impl std::ops::AddAssign for ShardCounts {
         self.global += o.global;
         self.xshard_prepares += o.xshard_prepares;
         self.xshard_decisions += o.xshard_decisions;
+        self.capability_and_resource += o.capability_and_resource;
     }
 }
 
@@ -211,6 +242,13 @@ pub struct BackupReport {
     pub global: u64,
     pub xshard_prepares: u64,
     pub xshard_decisions: u64,
+    /// Rows copied from the tables this lane found missing from `backup`/
+    /// `restore` (WD5-BUG-04, same class as `shard_migrate.rs`'s `MigrationReport::
+    /// capability_and_resource`): every RESOURCE_*, development_lane_*,
+    /// capacity_lease_*, and work_item_capability row, plus provenance-anchor-
+    /// member rows and the WorkItem command sequence. Counted separately so a
+    /// backup/restore report makes this coverage independently auditable.
+    pub capability_and_resource: u64,
     pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
     /// Non-shard durable stores copied into the bundle, as `file name → rows copied`
     /// (CONCEPT:EG-KG.sharding.reshard-on-restore).
@@ -234,6 +272,7 @@ impl BackupReport {
         self.global += c.global;
         self.xshard_prepares += c.xshard_prepares;
         self.xshard_decisions += c.xshard_decisions;
+        self.capability_and_resource += c.capability_and_resource;
     }
 }
 
@@ -273,6 +312,11 @@ pub struct BackupManifest {
     pub xshard_prepares: u64,
     /// Retained coordinator decisions needed to resolve prepared participants.
     pub xshard_decisions: u64,
+    /// Rows copied from the tables this lane found missing from `backup`/`restore`
+    /// (WD5-BUG-04). `#[serde(default)]` so a bundle written before this field
+    /// existed still deserializes (reads back as 0, not a hard failure).
+    #[serde(default)]
+    pub capability_and_resource: u64,
     /// Integrity totals for the separate admin coordinator ledger.
     pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
     /// Stable, non-secret encryption key identity required to open this bundle.
@@ -326,6 +370,7 @@ impl BackupManifest {
             global: report.global,
             xshard_prepares: report.xshard_prepares,
             xshard_decisions: report.xshard_decisions,
+            capability_and_resource: report.capability_and_resource,
             admin_mutations: report.admin_mutations,
             encryption_key_id: report.encryption_key_id.clone(),
             encryption_key_version: report.encryption_key_version.clone(),
@@ -533,6 +578,58 @@ pub(crate) fn copy_snapshot_verbatim(
     copy_aux_table!(CHANGE_POLICIES);
     copy_aux_table!(CHANGE_LINEAGE);
 
+    // WD5-BUG-04: the SAME 30-table gap WD3-BUG-01 found and fixed offline in
+    // `shard_migrate.rs` (see its commit message's coverage matrix) — a backup is a
+    // per-shard verbatim copy, so every PER-GRAPH table (unlike `shard_migrate`/
+    // `online_reshard`, nothing here is graph-filtered; the whole shard moves as one
+    // unit) belongs in this same unconditional pass. Counted under
+    // `counts.capability_and_resource`, NOT `counts.auxiliary`, so this coverage
+    // stays independently auditable in the backup/restore report — same convention
+    // as `shard_migrate.rs::MigrationReport::capability_and_resource`.
+    macro_rules! copy_capability_and_resource_table {
+        ($definition:expr) => {{
+            let mut destination = wtx.open_table($definition).map_err(|e| e.to_string())?;
+            if let Ok(source) = rtx.open_table($definition) {
+                for row in source.iter().map_err(|e| e.to_string())? {
+                    let (key, value) = row.map_err(|e| e.to_string())?;
+                    destination
+                        .insert(key.value(), value.value())
+                        .map_err(|e| e.to_string())?;
+                    counts.capability_and_resource += 1;
+                }
+            }
+        }};
+    }
+    #[cfg(feature = "security")]
+    copy_capability_and_resource_table!(PROVENANCE_ANCHOR_MEMBERS);
+    copy_capability_and_resource_table!(WORK_ITEM_COMMAND_SEQUENCE);
+    copy_capability_and_resource_table!(RESOURCE_RESERVATIONS);
+    copy_capability_and_resource_table!(RESOURCE_RESERVATION_TENANT_INDEX);
+    copy_capability_and_resource_table!(RESOURCE_RESERVATION_ATTEMPTS);
+    copy_capability_and_resource_table!(RESOURCE_HOSTS);
+    copy_capability_and_resource_table!(RESOURCE_EXCLUSIVITY);
+    copy_capability_and_resource_table!(RESOURCE_FAIRNESS);
+    copy_capability_and_resource_table!(RESOURCE_CONCURRENCY);
+    copy_capability_and_resource_table!(RESOURCE_ANTI_AFFINITY);
+    copy_capability_and_resource_table!(RESOURCE_DISK_POLICIES);
+    copy_capability_and_resource_table!(development_lane::HOLDS);
+    copy_capability_and_resource_table!(development_lane::TENANT_INDEX);
+    copy_capability_and_resource_table!(development_lane::LANE_INDEX);
+    copy_capability_and_resource_table!(development_lane::REPOSITORY_BRANCH_INDEX);
+    copy_capability_and_resource_table!(development_lane::WORKTREE_INDEX);
+    copy_capability_and_resource_table!(development_lane::WORK_ITEM_INDEX);
+    copy_capability_and_resource_table!(development_lane::COUNTERS);
+    copy_capability_and_resource_table!(development_lane::PRESSURE_INDEX);
+    copy_capability_and_resource_table!(development_lane::POLICIES);
+    copy_capability_and_resource_table!(development_lane::INVOCATIONS);
+    copy_capability_and_resource_table!(capacity_lease::CELLS);
+    copy_capability_and_resource_table!(capacity_lease::LEASES);
+    copy_capability_and_resource_table!(capacity_lease::USAGE);
+    copy_capability_and_resource_table!(capacity_lease::IDEMPOTENCY);
+    copy_capability_and_resource_table!(work_item_capability::CAPABILITIES);
+    copy_capability_and_resource_table!(work_item_capability::INVOCATIONS);
+    copy_capability_and_resource_table!(work_item_capability::NATIVE_WORK_ITEMS);
+
     if is_shard0 {
         let (global, prepares, decisions) = copy_global_verbatim(rtx, wtx)?;
         counts.global += global;
@@ -607,7 +704,46 @@ fn copy_global_verbatim(
             count += 1;
         }
     }
+    #[cfg(feature = "matview")]
+    {
+        count += copy_plan_matview_tables_verbatim(rtx, wtx)?;
+    }
     Ok((count, prepares, decisions))
+}
+
+/// plan_matviews + matview_operator_state, shard-0 only (BUG-CX-016 class; disjoint
+/// tables from `MATVIEWS` that share its shard0() home — see
+/// `shard_migrate.rs::copy_shard_zero_only_tables`'s doc for why). Split out of
+/// `copy_global_verbatim` to keep that function under the complexity cap.
+#[cfg(feature = "matview")]
+fn copy_plan_matview_tables_verbatim(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+) -> Result<u64, String> {
+    let mut count = 0u64;
+    let mut d_plan_matviews = wtx.open_table(PLAN_MATVIEWS).map_err(|e| e.to_string())?;
+    if let Ok(t) = rtx.open_table(PLAN_MATVIEWS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            d_plan_matviews
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
+            count += 1;
+        }
+    }
+    let mut d_matview_operator_state = wtx
+        .open_table(MATVIEW_OPERATOR_STATE)
+        .map_err(|e| e.to_string())?;
+    if let Ok(t) = rtx.open_table(MATVIEW_OPERATOR_STATE) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            d_matview_operator_state
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 /// Write ONE shard's `begin_read()` snapshot verbatim into `dst_path` (a fresh bundle
@@ -853,6 +989,7 @@ pub fn restore_bundle(
         || migration.audit != manifest.audit
         || migration.auxiliary != manifest.auxiliary
         || migration.global != manifest.global
+        || migration.capability_and_resource != manifest.capability_and_resource
     {
         return Err("restored graph totals do not match the backup manifest".to_string());
     }
@@ -948,6 +1085,95 @@ mod tests {
                 .expect("edge");
         }
         backend.shutdown();
+    }
+
+    /// Row count of ONE table in a shard file opened fresh (offline inspection —
+    /// mirrors `shard_migrate.rs`'s own test helper of the same name).
+    fn table_row_count<K, V>(path: &std::path::Path, def: redb::TableDefinition<K, V>) -> usize
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        let db = Database::open(path).expect("open shard for inspection");
+        let rtx = db.begin_read().expect("begin read");
+        match rtx.open_table(def) {
+            Ok(t) => t.iter().expect("iterate table").count(),
+            Err(_) => 0,
+        }
+    }
+
+    /// Insert one raw `(graph, second_key) -> blob` row directly into `table` for a
+    /// shard file, bypassing every request/validation path (WD5-BUG-04: the
+    /// RESOURCE_*/development_lane_*/capacity_lease_* subsystems require heavy
+    /// native-operation preconditions — a registered host, a matching WorkItem node,
+    /// a pre-existing reservation — that a raw seed sidesteps, exactly like
+    /// `shard_migrate.rs`'s own `seed_raw_two_tuple_row` test helper).
+    fn seed_raw_two_str_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<(&str, &str), &[u8]>,
+        graph: &str,
+        second_key: &str,
+        value: &[u8],
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert((graph, second_key), value)
+                .expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
+    }
+
+    /// Insert one raw `(graph, seq) -> blob` row (e.g. `PROVENANCE_ANCHOR_MEMBERS`).
+    fn seed_raw_graph_u64_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<(&str, u64), &[u8]>,
+        graph: &str,
+        seq: u64,
+        value: &[u8],
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert((graph, seq), value).expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
+    }
+
+    /// Insert one raw `graph -> u64` row (`WORK_ITEM_COMMAND_SEQUENCE` — a single
+    /// scalar value per graph, unlike every other table in this lane's scope).
+    fn seed_raw_scalar_u64_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<&str, u64>,
+        key: &str,
+        value: u64,
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert(key, value).expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
+    }
+
+    /// Insert one raw `name -> blob` row (`PLAN_MATVIEWS`/`MATVIEW_OPERATOR_STATE` —
+    /// GLOBAL, shard-0-homed tables with no graph key at all).
+    fn seed_raw_single_str_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<&str, &[u8]>,
+        key: &str,
+        value: &[u8],
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert(key, value).expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
     }
 
     /// Set `EPISTEMIC_GRAPH_ENCRYPTION_KEY` for one test and restore the previous
@@ -1320,5 +1546,126 @@ mod tests {
             "got: {err}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// WD5-BUG-04 (backup/restore half of the SAME defect class WD3-BUG-01 fixed
+    /// offline in `shard_migrate.rs::migrate_shards`, see its commit's coverage
+    /// matrix): `PROVENANCE_ANCHOR_MEMBERS`, `PLAN_MATVIEWS`/`MATVIEW_OPERATOR_STATE`
+    /// (global, shard-0-homed), one representative `RESOURCE_*` row, one
+    /// `development_lane_*` row, one `capacity_lease_*` row, and
+    /// `WORK_ITEM_COMMAND_SEQUENCE` are seeded directly (raw redb — these subsystems
+    /// require heavy native-operation preconditions a raw seed sidesteps, same
+    /// technique `shard_migrate.rs`'s own coverage test uses), backed up, restored,
+    /// and confirmed present afterward. `GRAPH_META` stays implicitly asserted (the
+    /// restore would fail closed without a durable identity). Confirmed FAILING
+    /// before this fix — every `table_row_count(&restored_shard0, ...)` below was 0
+    /// against the unmodified `copy_snapshot_verbatim`/`copy_global_verbatim`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn backup_restore_preserves_resource_lane_capacity_and_provenance_tables() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        use crate::redb_layout::shard_filename;
+        #[cfg(feature = "security")]
+        use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+        #[cfg(feature = "matview")]
+        use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
+        use crate::redb_store::{
+            capacity_lease, development_lane, RESOURCE_RESERVATIONS, WORK_ITEM_COMMAND_SEQUENCE,
+        };
+
+        let root = std::env::temp_dir().join(format!("eg-backup-cx054-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("live");
+        let bundle = root.join("bundle");
+        let restored = root.join("restored");
+        std::fs::create_dir_all(&src).unwrap();
+        let src_s = src.to_string_lossy().to_string();
+
+        let backend = RedbBackend::open_with_shards(src_s.clone(), DurabilityPolicy::Each, 256, 1)
+            .expect("open backend");
+        backend
+            .register_graph("g", "g", GraphType::Global)
+            .await
+            .expect("register");
+        backend.shutdown();
+
+        let shard0 = src.join(shard_filename(0));
+        seed_raw_two_str_row(&shard0, RESOURCE_RESERVATIONS, "g", "r1", b"reservation");
+        seed_raw_two_str_row(&shard0, development_lane::HOLDS, "g", "h1", b"hold");
+        seed_raw_two_str_row(&shard0, capacity_lease::CELLS, "g", "c1", b"cell");
+        seed_raw_scalar_u64_row(&shard0, WORK_ITEM_COMMAND_SEQUENCE, "g", 7);
+        #[cfg(feature = "security")]
+        seed_raw_graph_u64_row(&shard0, PROVENANCE_ANCHOR_MEMBERS, "g", 1, b"anchor-member");
+        #[cfg(feature = "matview")]
+        {
+            seed_raw_single_str_row(&shard0, PLAN_MATVIEWS, "mv-1", b"plan-def");
+            seed_raw_single_str_row(&shard0, MATVIEW_OPERATOR_STATE, "mv-1", b"operator-state");
+        }
+
+        // Sanity: every seeded row landed in the source before backup.
+        assert_eq!(table_row_count(&shard0, RESOURCE_RESERVATIONS), 1);
+        assert_eq!(table_row_count(&shard0, development_lane::HOLDS), 1);
+        assert_eq!(table_row_count(&shard0, capacity_lease::CELLS), 1);
+        assert_eq!(table_row_count(&shard0, WORK_ITEM_COMMAND_SEQUENCE), 1);
+        #[cfg(feature = "security")]
+        assert_eq!(table_row_count(&shard0, PROVENANCE_ANCHOR_MEMBERS), 1);
+        #[cfg(feature = "matview")]
+        {
+            assert_eq!(table_row_count(&shard0, PLAN_MATVIEWS), 1);
+            assert_eq!(table_row_count(&shard0, MATVIEW_OPERATOR_STATE), 1);
+        }
+
+        // ── ONLINE backup (live, reopened — matches every other test in this module) ──
+        let backend = RedbBackend::open_with_shards(src_s.clone(), DurabilityPolicy::Each, 256, 1)
+            .expect("reopen");
+        backend
+            .backup(&bundle, "test-engine", 1, "cx054", &[])
+            .expect("backup");
+        backend.shutdown();
+
+        // ── restore into a FRESH dir ──
+        restore_bundle(&bundle, &restored, 1).expect("restore");
+
+        let restored_shard0 = restored.join(shard_filename(0));
+        assert_eq!(
+            table_row_count(&restored_shard0, RESOURCE_RESERVATIONS),
+            1,
+            "resource_reservations survives backup/restore (WD5-BUG-04)"
+        );
+        assert_eq!(
+            table_row_count(&restored_shard0, development_lane::HOLDS),
+            1,
+            "development_lane_holds survives backup/restore (WD5-BUG-04)"
+        );
+        assert_eq!(
+            table_row_count(&restored_shard0, capacity_lease::CELLS),
+            1,
+            "capacity_cells survives backup/restore (WD5-BUG-04)"
+        );
+        assert_eq!(
+            table_row_count(&restored_shard0, WORK_ITEM_COMMAND_SEQUENCE),
+            1,
+            "work_item_command_sequence survives backup/restore (WD5-BUG-04)"
+        );
+        #[cfg(feature = "security")]
+        assert_eq!(
+            table_row_count(&restored_shard0, PROVENANCE_ANCHOR_MEMBERS),
+            1,
+            "provenance_anchor_members survives backup/restore (WD5-BUG-04)"
+        );
+        #[cfg(feature = "matview")]
+        {
+            assert_eq!(
+                table_row_count(&restored_shard0, PLAN_MATVIEWS),
+                1,
+                "plan_matviews survives backup/restore (WD5-BUG-04)"
+            );
+            assert_eq!(
+                table_row_count(&restored_shard0, MATVIEW_OPERATOR_STATE),
+                1,
+                "matview_operator_state survives backup/restore (WD5-BUG-04)"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
