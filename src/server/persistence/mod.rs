@@ -210,7 +210,11 @@ pub trait PersistenceBackend: Send + Sync {
     /// Replace the cached hierarchy for `graph_fname` with `blob` (a MessagePack-
     /// encoded `eg_compute::algorithms::ClusterHierarchyResult`). Not a graph
     /// mutation — see the trait section doc above.
-    async fn save_cluster_hierarchy(&self, _graph_fname: &str, _blob: Vec<u8>) -> Result<(), String> {
+    async fn save_cluster_hierarchy(
+        &self,
+        _graph_fname: &str,
+        _blob: Vec<u8>,
+    ) -> Result<(), String> {
         Err("persistence backend does not support cluster hierarchy caching".to_string())
     }
 

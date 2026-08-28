@@ -3707,7 +3707,6 @@ fn create_secondary_index_in(
 /// pair means, which the tuple did not.
 type IndexBuildRows = Vec<(u64, Vec<Cell>)>;
 
-
 /// Every stored row of `spec.table`, for the initial directory construction.
 /// Intentionally bounded and atomic: a large table asks its owner to
 /// build/partition it explicitly rather than leaving a silently partial index

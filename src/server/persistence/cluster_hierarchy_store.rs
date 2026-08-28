@@ -78,13 +78,16 @@ impl ClusterHierarchyStore {
         let db = Database::create(&path).map_err(|e| e.to_string())?;
         {
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            wtx.open_table(CLUSTER_HIERARCHY).map_err(|e| e.to_string())?;
+            wtx.open_table(CLUSTER_HIERARCHY)
+                .map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
         }
         let mut entries = HashMap::new();
         {
             let rtx = db.begin_read().map_err(|e| e.to_string())?;
-            let table = rtx.open_table(CLUSTER_HIERARCHY).map_err(|e| e.to_string())?;
+            let table = rtx
+                .open_table(CLUSTER_HIERARCHY)
+                .map_err(|e| e.to_string())?;
             for row in table.iter().map_err(|e| e.to_string())? {
                 if entries.len() >= MAX_ENTRIES {
                     return Err("cluster hierarchy store exceeds resource limits".to_string());
@@ -115,7 +118,9 @@ impl ClusterHierarchyStore {
         if let Some(db) = &self.db {
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
             {
-                let mut table = wtx.open_table(CLUSTER_HIERARCHY).map_err(|e| e.to_string())?;
+                let mut table = wtx
+                    .open_table(CLUSTER_HIERARCHY)
+                    .map_err(|e| e.to_string())?;
                 table
                     .insert(graph, blob.as_slice())
                     .map_err(|e| e.to_string())?;

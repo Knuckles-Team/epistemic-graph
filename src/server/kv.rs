@@ -1119,8 +1119,7 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
             return Err("KV store is in-memory; nothing to bundle".to_string());
         };
         let rtx = source.begin_read().map_err(|e| e.to_string())?;
-        let target =
-            crate::server::persistence::durable_stores::create_bundle_file(destination)?;
+        let target = crate::server::persistence::durable_stores::create_bundle_file(destination)?;
         let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
         wtx.set_durability(Durability::Immediate)
             .map_err(|e| e.to_string())?;
