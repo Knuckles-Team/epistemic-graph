@@ -1766,16 +1766,16 @@ async fn execute_consensus_transaction(
     }
 }
 
+/// Transaction control, identity registration and multisig mutation: the three
+/// proposals whose payload must be re-signed/re-anchored against the caller's
+/// ORIGINAL request graph before routing rewrites `RaftRequest.graph_name`.
+/// Anything else is handed back untouched.
 #[cfg(feature = "raft")]
-fn sanitize_native_proposal(
+fn sanitize_authored_proposal(
     request_graph: &str,
     verified_context: &VerifiedRequestContext,
-    authority: &CarrierAuthority,
     method: Method,
 ) -> Result<Method, String> {
-    if capability_authority_unavailable(&method) {
-        return Err(crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE.to_string());
-    }
     match method {
         // Transaction control is ordered by the placement group, not by the
         // transaction's data graph. Freeze the caller's original request graph
@@ -1830,42 +1830,56 @@ fn sanitize_native_proposal(
                 query,
             })
         }
-        Method::ReserveWorkItemResources { request } => {
-            if request.tenant_ref != verified_context.tenant() && !authority.is_admin() {
-                return Err(
-                    "ACCESS_DENIED: replicated resource tenant is not the verified tenant"
-                        .to_string(),
-                );
-            }
-            Ok(Method::ReserveWorkItemResources { request })
-        }
-        Method::ReleaseWorkItemResources { request } => {
-            if request.tenant_ref != verified_context.tenant() && !authority.is_admin() {
-                return Err(
-                    "ACCESS_DENIED: replicated resource tenant is not the verified tenant"
-                        .to_string(),
-                );
-            }
-            Ok(Method::ReleaseWorkItemResources { request })
-        }
-        Method::ReclaimWorkItemResources { request } => {
-            if request.tenant_ref != verified_context.tenant() && !authority.is_admin() {
-                return Err(
-                    "ACCESS_DENIED: replicated resource tenant is not the verified tenant"
-                        .to_string(),
-                );
-            }
-            Ok(Method::ReclaimWorkItemResources { request })
-        }
-        Method::UpdateResourceHost { request } => {
-            if request.tenant_ref != verified_context.tenant() && !authority.is_admin() {
-                return Err(
-                    "ACCESS_DENIED: replicated resource host tenant is not the verified tenant"
-                        .to_string(),
-                );
-            }
-            Ok(Method::UpdateResourceHost { request })
-        }
+        other => Ok(other),
+    }
+}
+
+/// The tenant in a replicated resource body is a correlation, not an authority
+/// claim: it must be the verified tenant unless the caller is an admin. The
+/// reservation and host surfaces report distinct refusals.
+#[cfg(feature = "raft")]
+fn resource_tenant_denial(
+    method: &Method,
+    verified_context: &VerifiedRequestContext,
+    authority: &CarrierAuthority,
+) -> Option<&'static str> {
+    let (tenant_ref, denial) = match method {
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => (
+            request.tenant_ref.as_str(),
+            "ACCESS_DENIED: replicated resource tenant is not the verified tenant",
+        ),
+        Method::UpdateResourceHost { request } => (
+            request.tenant_ref.as_str(),
+            "ACCESS_DENIED: replicated resource host tenant is not the verified tenant",
+        ),
+        _ => return None,
+    };
+    (tenant_ref != verified_context.tenant() && !authority.is_admin()).then_some(denial)
+}
+
+#[cfg(feature = "raft")]
+fn sanitize_resource_proposal(
+    verified_context: &VerifiedRequestContext,
+    authority: &CarrierAuthority,
+    method: Method,
+) -> Result<Method, String> {
+    match resource_tenant_denial(&method, verified_context, authority) {
+        Some(denial) => Err(denial.to_string()),
+        None => Ok(method),
+    }
+}
+
+/// Channel/messaging proposals name their own actor. The caller's claimed actor
+/// must be the caller, and the REPLICATED copy carries the actor scope rather
+/// than the display agent id, so replay is stable across identity renames.
+#[cfg(feature = "raft")]
+fn sanitize_channel_proposal(
+    authority: &CarrierAuthority,
+    method: Method,
+) -> Result<Method, String> {
+    match method {
         Method::CreateChannel {
             channel_id,
             channel_type,
@@ -1927,6 +1941,23 @@ fn sanitize_native_proposal(
     }
 }
 
+#[cfg(feature = "raft")]
+fn sanitize_native_proposal(
+    request_graph: &str,
+    verified_context: &VerifiedRequestContext,
+    authority: &CarrierAuthority,
+    method: Method,
+) -> Result<Method, String> {
+    if capability_authority_unavailable(&method) {
+        return Err(crate::redb_store::work_item_capability::AUTHORITY_UNAVAILABLE.to_string());
+    }
+    // The three groups own disjoint `Method` variants, so each hands an
+    // unrecognised method straight through and the chain order is immaterial.
+    let method = sanitize_authored_proposal(request_graph, verified_context, method)?;
+    let method = sanitize_resource_proposal(verified_context, authority, method)?;
+    sanitize_channel_proposal(authority, method)
+}
+
 #[derive(serde::Deserialize)]
 struct ScreenObservationWire {
     session_id: String,
@@ -1942,19 +1973,11 @@ struct ScreenObservationWire {
     elements: Vec<crate::screen::UiElementInput>,
 }
 
-fn decode_screen_observation(
-    obs_msgpack: &[u8],
-) -> Result<crate::screen::ScreenObservationInput, String> {
-    let wire: ScreenObservationWire = eg_types::msgpack::decode_bounded(
-        obs_msgpack,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_SCREEN_OBSERVATION_BYTES,
-            MAX_SCREEN_OBSERVATION_ITEMS,
-            64,
-        ),
-    )
-    .map_err(|_| "invalid screen observation payload".to_string())?;
-
+/// Session identity and previous-frame lineage. Checked in the ORIGINAL order:
+/// the session identifier first, then the previous-frame identifier's own shape,
+/// then whether it names an earlier frame of THIS session — an observation
+/// invalid on more than one of these keeps reporting the first.
+fn validate_screen_session(wire: &ScreenObservationWire) -> Result<(), String> {
     if wire.session_id.is_empty()
         || wire.session_id.len() > MAX_SCREEN_SESSION_ID_BYTES
         || !wire
@@ -1969,60 +1992,80 @@ fn decode_screen_observation(
     {
         return Err("invalid previous screen observation identifier".to_string());
     }
-    if !wire.prev_frame_id.is_empty() {
-        let prefix = format!("screenobservation:{}:", wire.session_id);
-        let previous_sequence = wire
-            .prev_frame_id
-            .strip_prefix(&prefix)
-            .and_then(|suffix| suffix.parse::<u64>().ok())
-            .filter(|sequence| *sequence < wire.frame_seq);
-        if previous_sequence.is_none() {
-            return Err(
-                "previous screen observation must belong to the same earlier session frame"
-                    .to_string(),
-            );
-        }
+    if wire.prev_frame_id.is_empty() {
+        return Ok(());
     }
+    let prefix = format!("screenobservation:{}:", wire.session_id);
+    let previous_sequence = wire
+        .prev_frame_id
+        .strip_prefix(&prefix)
+        .and_then(|suffix| suffix.parse::<u64>().ok())
+        .filter(|sequence| *sequence < wire.frame_seq);
+    if previous_sequence.is_none() {
+        return Err(
+            "previous screen observation must belong to the same earlier session frame".to_string(),
+        );
+    }
+    Ok(())
+}
 
-    if wire.png.len() > MAX_SCREEN_PNG_BYTES {
+fn validate_screen_png_dimensions(width: u32, height: u32) -> Result<(), String> {
+    if width == 0
+        || height == 0
+        || width > MAX_SCREEN_DIMENSION
+        || height > MAX_SCREEN_DIMENSION
+        || u64::from(width) * u64::from(height) > MAX_SCREEN_PIXELS
+    {
+        return Err("screen image dimensions exceed the resource limit".to_string());
+    }
+    Ok(())
+}
+
+/// Byte budget first, then the PNG signature/IHDR header, then the declared
+/// dimensions read out of that header. An absent image is allowed.
+fn validate_screen_png(png: &[u8]) -> Result<(), String> {
+    if png.len() > MAX_SCREEN_PNG_BYTES {
         return Err("screen image exceeds the resource limit".to_string());
     }
-    if !wire.png.is_empty() {
-        const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
-        if wire.png.len() < 24
-            || !wire.png.starts_with(PNG_SIGNATURE)
-            || &wire.png[12..16] != b"IHDR"
-        {
-            return Err("screen image must be a PNG".to_string());
-        }
-        let width = u32::from_be_bytes(wire.png[16..20].try_into().unwrap_or([0; 4]));
-        let height = u32::from_be_bytes(wire.png[20..24].try_into().unwrap_or([0; 4]));
-        if width == 0
-            || height == 0
-            || width > MAX_SCREEN_DIMENSION
-            || height > MAX_SCREEN_DIMENSION
-            || u64::from(width) * u64::from(height) > MAX_SCREEN_PIXELS
-        {
-            return Err("screen image dimensions exceed the resource limit".to_string());
-        }
+    if png.is_empty() {
+        return Ok(());
     }
+    const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+    if png.len() < 24 || !png.starts_with(PNG_SIGNATURE) || &png[12..16] != b"IHDR" {
+        return Err("screen image must be a PNG".to_string());
+    }
+    let width = u32::from_be_bytes(png[16..20].try_into().unwrap_or([0; 4]));
+    let height = u32::from_be_bytes(png[20..24].try_into().unwrap_or([0; 4]));
+    validate_screen_png_dimensions(width, height)
+}
 
-    if wire.elements.len() > MAX_SCREEN_ELEMENTS {
+fn screen_element_text_within_policy(element: &crate::screen::UiElementInput) -> bool {
+    !element.role.is_empty()
+        && element.role.len() <= MAX_SCREEN_ROLE_BYTES
+        && !element.role.chars().any(char::is_control)
+        && element.name.len() <= MAX_SCREEN_ELEMENT_NAME_BYTES
+        && !element.name.contains('\0')
+}
+
+fn screen_element_box_within_policy(element: &crate::screen::UiElementInput) -> bool {
+    element.x.unsigned_abs() <= MAX_SCREEN_COORDINATE_ABS as u64
+        && element.y.unsigned_abs() <= MAX_SCREEN_COORDINATE_ABS as u64
+        && element.w >= 0
+        && element.h >= 0
+        && element.w <= MAX_SCREEN_COORDINATE_ABS
+        && element.h <= MAX_SCREEN_COORDINATE_ABS
+}
+
+/// Element cardinality, then each element's own policy, then the RUNNING text
+/// budget — the running total is what bounds a request built from many small
+/// but individually legal elements.
+fn validate_screen_elements(elements: &[crate::screen::UiElementInput]) -> Result<(), String> {
+    if elements.len() > MAX_SCREEN_ELEMENTS {
         return Err("screen element count exceeds the resource limit".to_string());
     }
     let mut text_bytes = 0usize;
-    for element in &wire.elements {
-        if element.role.is_empty()
-            || element.role.len() > MAX_SCREEN_ROLE_BYTES
-            || element.role.chars().any(char::is_control)
-            || element.name.len() > MAX_SCREEN_ELEMENT_NAME_BYTES
-            || element.name.contains('\0')
-            || element.x.unsigned_abs() > MAX_SCREEN_COORDINATE_ABS as u64
-            || element.y.unsigned_abs() > MAX_SCREEN_COORDINATE_ABS as u64
-            || element.w < 0
-            || element.h < 0
-            || element.w > MAX_SCREEN_COORDINATE_ABS
-            || element.h > MAX_SCREEN_COORDINATE_ABS
+    for element in elements {
+        if !screen_element_text_within_policy(element) || !screen_element_box_within_policy(element)
         {
             return Err("screen element violates the input policy".to_string());
         }
@@ -2034,6 +2077,25 @@ fn decode_screen_observation(
             return Err("screen element text exceeds the resource limit".to_string());
         }
     }
+    Ok(())
+}
+
+fn decode_screen_observation(
+    obs_msgpack: &[u8],
+) -> Result<crate::screen::ScreenObservationInput, String> {
+    let wire: ScreenObservationWire = eg_types::msgpack::decode_bounded(
+        obs_msgpack,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_SCREEN_OBSERVATION_BYTES,
+            MAX_SCREEN_OBSERVATION_ITEMS,
+            64,
+        ),
+    )
+    .map_err(|_| "invalid screen observation payload".to_string())?;
+
+    validate_screen_session(&wire)?;
+    validate_screen_png(&wire.png)?;
+    validate_screen_elements(&wire.elements)?;
 
     Ok(crate::screen::ScreenObservationInput {
         session_id: wire.session_id,
@@ -2110,11 +2172,12 @@ fn submit_context_within_carrier_bounds(
         && context.expires_at_ms >= context.issued_at_ms
 }
 
-/// Validate every MessagePack-typed binary field reachable from a request before
-/// routing. Raw source/blob/KV/broker/WASM bytes are intentionally excluded: they
-/// are opaque binary, not nested MessagePack. Operation handlers still enforce
-/// their narrower schema/count limits after this allocation-safety gate.
-fn preflight_request_msgpack(method: &Method) -> Result<(), &'static str> {
+/// Node/edge property blobs on the graph-write surface.
+///
+/// Each group below returns `None` for a method it does not own, so the caller
+/// can chain them; the method variants are disjoint, so the split cannot change
+/// which blob is validated or in what order.
+fn preflight_graph_write_msgpack(method: &Method) -> Option<Result<(), &'static str>> {
     match method {
         Method::AddNode {
             properties_msgpack, ..
@@ -2133,7 +2196,7 @@ fn preflight_request_msgpack(method: &Method) -> Result<(), &'static str> {
         }
         | Method::TxnAddEdge {
             properties_msgpack, ..
-        } => preflight_nested_msgpack(properties_msgpack),
+        } => Some(preflight_nested_msgpack(properties_msgpack)),
         Method::CompareAndSetNodeFields {
             conditions_msgpack,
             updates_msgpack,
@@ -2143,90 +2206,137 @@ fn preflight_request_msgpack(method: &Method) -> Result<(), &'static str> {
             conditions_msgpack,
             updates_msgpack,
             ..
-        } => {
-            preflight_nested_msgpack(conditions_msgpack)?;
-            preflight_nested_msgpack(updates_msgpack)
-        }
+        } => Some(
+            preflight_nested_msgpack(conditions_msgpack)
+                .and_then(|()| preflight_nested_msgpack(updates_msgpack)),
+        ),
         Method::ClaimNext {
             updates_msgpack, ..
-        } => preflight_nested_msgpack(updates_msgpack),
+        } => Some(preflight_nested_msgpack(updates_msgpack)),
+        _ => None,
+    }
+}
+
+/// Agent-memory, scene and trajectory blobs.
+fn preflight_memory_msgpack(method: &Method) -> Option<Result<(), &'static str>> {
+    match method {
         Method::CreateSummaryNode { props_msgpack, .. }
-        | Method::StartTrajectory { props_msgpack } => preflight_nested_msgpack(props_msgpack),
+        | Method::StartTrajectory { props_msgpack } => {
+            Some(preflight_nested_msgpack(props_msgpack))
+        }
         Method::Consolidate {
             semantic_props_msgpack,
             ..
-        } => preflight_nested_msgpack(semantic_props_msgpack),
+        } => Some(preflight_nested_msgpack(semantic_props_msgpack)),
         Method::AddSceneObject { pose_msgpack, .. } | Method::SetPose { pose_msgpack, .. } => {
-            preflight_nested_msgpack(pose_msgpack)
+            Some(preflight_nested_msgpack(pose_msgpack))
         }
-        Method::AppendStep { action_msgpack, .. } => preflight_nested_msgpack(action_msgpack),
-        Method::BatchUpdate { operations_msgpack } => preflight_nested_msgpack(operations_msgpack),
+        Method::AppendStep { action_msgpack, .. } => Some(preflight_nested_msgpack(action_msgpack)),
+        Method::ObserveScreen { obs_msgpack } => Some(preflight_nested_msgpack(obs_msgpack)),
+        _ => None,
+    }
+}
+
+/// Batch, ingestion, SQL and time-series blobs.
+fn preflight_batch_msgpack(method: &Method) -> Option<Result<(), &'static str>> {
+    match method {
+        Method::BatchUpdate { operations_msgpack } => {
+            Some(preflight_nested_msgpack(operations_msgpack))
+        }
         Method::MultiGraphBatchUpdate { batches_msgpack } => {
-            preflight_nested_msgpack(batches_msgpack)
+            Some(preflight_nested_msgpack(batches_msgpack))
         }
         Method::FromMsgpack { msgpack } | Method::Reconcile { msgpack, .. } => {
-            preflight_nested_msgpack(msgpack)
+            Some(preflight_nested_msgpack(msgpack))
         }
         Method::ParseFiles { files_msgpack } | Method::IndexRepository { files_msgpack } => {
-            preflight_nested_msgpack(files_msgpack)
+            Some(preflight_nested_msgpack(files_msgpack))
         }
-        Method::ObserveScreen { obs_msgpack } => preflight_nested_msgpack(obs_msgpack),
-        Method::Sql { params_msgpack, .. } => preflight_optional_nested_msgpack(params_msgpack),
-        Method::TxnAddMeasurement { points, .. } => preflight_nested_msgpack(points),
-        Method::TsAppend { points_msgpack, .. } => preflight_nested_msgpack(points_msgpack),
+        Method::Sql { params_msgpack, .. } => {
+            Some(preflight_optional_nested_msgpack(params_msgpack))
+        }
+        Method::TxnAddMeasurement { points, .. } => Some(preflight_nested_msgpack(points)),
+        Method::TsAppend { points_msgpack, .. } => Some(preflight_nested_msgpack(points_msgpack)),
         Method::TsAsofJoin {
             left_ts_msgpack, ..
-        } => preflight_nested_msgpack(left_ts_msgpack),
-        #[cfg(feature = "streaming")]
-        Method::RegisterContinuousQuery { spec_msgpack, .. } => {
-            preflight_nested_msgpack(spec_msgpack)
+        } => Some(preflight_nested_msgpack(left_ts_msgpack)),
+        _ => None,
+    }
+}
+
+/// A served-modality ingest carries the bundle blob directly; the stream form
+/// bounds its cardinality FIRST, then validates every bundle in order.
+#[cfg(feature = "modality-serving")]
+fn preflight_served_modality_msgpack(
+    op: &eg_types::modality::ServedModalityOp,
+) -> Result<(), &'static str> {
+    match op {
+        eg_types::modality::ServedModalityOp::Ingest { bundle_msgpack, .. } => {
+            preflight_nested_msgpack(bundle_msgpack)
         }
-        #[cfg(feature = "streaming")]
-        Method::RegisterTrigger { action_msgpack, .. } => {
-            preflight_optional_nested_msgpack(action_msgpack)
-        }
-        #[cfg(feature = "streaming")]
-        Method::CepSubscribe {
-            pattern_msgpack, ..
-        } => preflight_nested_msgpack(pattern_msgpack),
-        #[cfg(feature = "knowledge-batch")]
-        Method::KnowledgeStream { request } => {
-            if let crate::knowledge_stream::KnowledgeStreamQuery::Sql { params_msgpack, .. } =
-                &request.query
-            {
-                preflight_optional_nested_msgpack(params_msgpack)?;
+        eg_types::modality::ServedModalityOp::IngestStream { items, .. } => {
+            if !(2..=64).contains(&items.len()) {
+                return Err("served modality ingest stream cardinality is outside bounds");
             }
-            Ok(())
-        }
-        #[cfg(feature = "modality-serving")]
-        Method::ServedModality { op } => match op {
-            eg_types::modality::ServedModalityOp::Ingest { bundle_msgpack, .. } => {
-                preflight_nested_msgpack(bundle_msgpack)
-            }
-            eg_types::modality::ServedModalityOp::IngestStream { items, .. } => {
-                if !(2..=64).contains(&items.len()) {
-                    return Err("served modality ingest stream cardinality is outside bounds");
-                }
-                for item in items {
-                    preflight_nested_msgpack(&item.bundle_msgpack)?;
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        },
-        // ChangeEnvelope validates every feature/evidence/outbox/mutation blob
-        // with the shared eg-types preflight as part of its schema validation.
-        Method::ApplyChangeEnvelope { .. } => Ok(()),
-        // The batch bounds its cardinality up front (the per-envelope nested-blob
-        // validation stays each envelope's own `validate()` responsibility).
-        Method::ApplyChangeEnvelopes { envelopes } => {
-            if envelopes.len() > crate::change_envelope::MAX_ENVELOPES_PER_BATCH {
-                return Err("change envelope batch exceeds the resource limit");
+            for item in items {
+                preflight_nested_msgpack(&item.bundle_msgpack)?;
             }
             Ok(())
         }
         _ => Ok(()),
     }
+}
+
+/// Feature-gated surfaces plus the change-envelope cardinality bound.
+fn preflight_feature_surface_msgpack(method: &Method) -> Option<Result<(), &'static str>> {
+    match method {
+        #[cfg(feature = "streaming")]
+        Method::RegisterContinuousQuery { spec_msgpack, .. } => {
+            Some(preflight_nested_msgpack(spec_msgpack))
+        }
+        #[cfg(feature = "streaming")]
+        Method::RegisterTrigger { action_msgpack, .. } => {
+            Some(preflight_optional_nested_msgpack(action_msgpack))
+        }
+        #[cfg(feature = "streaming")]
+        Method::CepSubscribe {
+            pattern_msgpack, ..
+        } => Some(preflight_nested_msgpack(pattern_msgpack)),
+        #[cfg(feature = "knowledge-batch")]
+        Method::KnowledgeStream { request } => Some(match &request.query {
+            crate::knowledge_stream::KnowledgeStreamQuery::Sql { params_msgpack, .. } => {
+                preflight_optional_nested_msgpack(params_msgpack)
+            }
+            _ => Ok(()),
+        }),
+        #[cfg(feature = "modality-serving")]
+        Method::ServedModality { op } => Some(preflight_served_modality_msgpack(op)),
+        // ChangeEnvelope validates every feature/evidence/outbox/mutation blob
+        // with the shared eg-types preflight as part of its schema validation.
+        Method::ApplyChangeEnvelope { .. } => Some(Ok(())),
+        // The batch bounds its cardinality up front (the per-envelope nested-blob
+        // validation stays each envelope's own `validate()` responsibility).
+        Method::ApplyChangeEnvelopes { envelopes } => Some(
+            if envelopes.len() > crate::change_envelope::MAX_ENVELOPES_PER_BATCH {
+                Err("change envelope batch exceeds the resource limit")
+            } else {
+                Ok(())
+            },
+        ),
+        _ => None,
+    }
+}
+
+/// Validate every MessagePack-typed binary field reachable from a request before
+/// routing. Raw source/blob/KV/broker/WASM bytes are intentionally excluded: they
+/// are opaque binary, not nested MessagePack. Operation handlers still enforce
+/// their narrower schema/count limits after this allocation-safety gate.
+fn preflight_request_msgpack(method: &Method) -> Result<(), &'static str> {
+    preflight_graph_write_msgpack(method)
+        .or_else(|| preflight_memory_msgpack(method))
+        .or_else(|| preflight_batch_msgpack(method))
+        .or_else(|| preflight_feature_surface_msgpack(method))
+        .unwrap_or(Ok(()))
 }
 
 // AST ingestion is intentionally content-based: callers send bounded source bytes
@@ -3971,9 +4081,9 @@ async fn dispatch_case_29_policy_export(
     }
 }
 
-#[cfg(feature = "security")]
 /// A unit-returning RBAC admin mutation answers with a fixed acknowledgement
 /// string on success and the store's own message on failure.
+#[cfg(feature = "security")]
 fn rbac_admin_ack(req_id: u64, outcome: Result<(), String>, acknowledgement: &str) -> Response {
     match outcome {
         Ok(()) => Response::ok(req_id, ResultPayload::String(acknowledgement.to_string())),
@@ -3981,6 +4091,7 @@ fn rbac_admin_ack(req_id: u64, outcome: Result<(), String>, acknowledgement: &st
     }
 }
 
+#[cfg(feature = "security")]
 async fn dispatch_case_30_rbac_admin(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
