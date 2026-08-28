@@ -23,13 +23,17 @@ _METHOD_VARIANT = re.compile(r"\bMethod::([A-Z][A-Za-z0-9_]*)")
 _STRING_LITERAL = re.compile(r'"([A-Z][A-Za-z0-9_]*)"')
 
 
-def _balanced_block(source: str, marker: str, opener: str, closer: str) -> str:
-    """Return one Rust block while ignoring delimiters in comments and strings."""
+def _balanced_span_from(source: str, start: int, opener: str, closer: str) -> int:
+    """Index of the `closer` that balances the `opener` at `start`, comment/string-aware.
 
-    marker_at = source.find(marker)
-    require(marker_at >= 0, f"missing Rust inventory marker: {marker}")
-    start = source.find(opener, marker_at + len(marker))
-    require(start >= 0, f"missing {opener!r} after Rust inventory marker: {marker}")
+    The position-based core `_balanced_block` (and the call-graph resolution in
+    `_routing_call_offset`/`_function_with_callees`) share, factored out so the
+    latter can locate a function's body directly from a known start index instead
+    of re-searching the whole source with `_function`'s marker-based lookup for
+    every candidate — that repeated whole-source re-search is O(candidates ×
+    file size) and was measured costing ~5s on dispatch.rs's ~600-function scale.
+    """
+    require(source[start] == opener, f"expected {opener!r} at position {start}")
     depth = 0
     index = start
     state = "code"
@@ -79,10 +83,21 @@ def _balanced_block(source: str, marker: str, opener: str, closer: str) -> str:
             elif char == closer:
                 depth -= 1
                 if depth == 0:
-                    return source[start + 1 : index]
+                    return index
         index += 1
-    require(False, f"unterminated Rust inventory block: {marker}")
-    return ""  # unreachable; keeps static type checkers total
+    require(False, f"unterminated balanced block starting at position {start}")
+    return -1  # unreachable; keeps static type checkers total
+
+
+def _balanced_block(source: str, marker: str, opener: str, closer: str) -> str:
+    """Return one Rust block while ignoring delimiters in comments and strings."""
+
+    marker_at = source.find(marker)
+    require(marker_at >= 0, f"missing Rust inventory marker: {marker}")
+    start = source.find(opener, marker_at + len(marker))
+    require(start >= 0, f"missing {opener!r} after Rust inventory marker: {marker}")
+    end = _balanced_span_from(source, start, opener, closer)
+    return source[start + 1 : end]
 
 
 def _const_slice(source: str, name: str) -> str:
@@ -98,6 +113,46 @@ def _function(source: str, name: str) -> str:
     match = re.search(rf"\bfn\s+{re.escape(name)}\s*\(", source)
     require(match is not None, f"missing Rust function inventory: {name}")
     return _balanced_block(source, match.group(0), "{", "}")
+
+
+_CALL_TARGET = re.compile(r"\b([a-z_][a-z0-9_]*)\s*\(")
+
+
+def _function_with_callees(source: str, name: str, max_depth: int = 2) -> str:
+    """`_function`'s body, plus the bodies of same-source functions it calls,
+    followed up to `max_depth` hops.
+
+    A legitimate extract-method split can move logic this gate looks for (a
+    literal substring, a Method:: reference) out of the named function into a
+    helper it now calls — the content is still there, just one hop away. A
+    content check that inspects `_function(...)` alone then reports a false
+    "missing" on every such split. This walks the local call graph (by function
+    NAME, textually — no type resolution, so it can both under- and over-collect
+    same-named functions elsewhere in the file; acceptable for this gate's existing
+    level of rigor) so a content check keeps seeing the real, current implementation
+    rather than a stale single-function snapshot.
+    """
+    collected: list[str] = []
+    seen: set[str] = set()
+    frontier = [name]
+    depth = 0
+    while frontier and depth <= max_depth:
+        next_frontier: list[str] = []
+        for fn_name in frontier:
+            if fn_name in seen:
+                continue
+            seen.add(fn_name)
+            if not re.search(rf"\bfn\s+{re.escape(fn_name)}\s*\(", source):
+                continue
+            body = _function(source, fn_name)
+            collected.append(body)
+            for call in _CALL_TARGET.findall(body):
+                if call not in seen and call != fn_name:
+                    next_frontier.append(call)
+        frontier = next_frontier
+        depth += 1
+    require(collected, f"missing Rust function inventory: {name}")
+    return "\n".join(collected)
 
 
 def _enum(source: str, name: str) -> str:
@@ -152,6 +207,68 @@ def _policy_inventory(source: str) -> dict[str, tuple[bool, str]]:
     return inventory
 
 
+_FN_DEF = re.compile(
+    r"\b(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("
+)
+
+
+def _first_present(source: str, candidates: tuple[str, ...], start: int = 0) -> int:
+    """Position of the first `candidates` marker found at/after `start`; -1 if none.
+
+    An ordering check anchored on one literal string goes stale the moment a
+    legitimate rename or inline-to-call-site extraction changes that exact text
+    (e.g. `let response = match req.method` becoming `let response =
+    dispatch_request_method(` once the 59-arm match was extracted into a named
+    function) even though the position it marks is unchanged in spirit. Accepting
+    several known-equivalent forms keeps the check meaningful across that kind of
+    refactor instead of reporting a false "missing" on it.
+    """
+    for candidate in candidates:
+        pos = source.find(candidate, start)
+        if pos != -1:
+            return pos
+    return -1
+
+
+def _routing_call_offset(source: str, literal_marker: str) -> int:
+    """Offset of the effective CALL SITE that performs `literal_marker`'s check.
+
+    Historically each routing predicate (e.g. `is_query_gateway_method(&method)`)
+    was called inline in the dispatch pipeline, so its own text offset WAS the call
+    site and a straight `source.find` sufficed to order the pipeline stages. A
+    legitimate extract-method split (dispatch decomposition) can move that literal
+    call inside a small named wrapper function (e.g. `route_query_gateway`) that the
+    real pipeline calls elsewhere -- the literal's OWN offset then reflects where
+    it is *defined*, not where the pipeline actually *runs* it, and a raw
+    `source.find`-based ordering check goes stale without any real regression.
+    Resolve one hop: if `literal_marker` sits inside a named `fn`, and that fn is
+    itself invoked elsewhere in the same source, use the invocation's offset;
+    otherwise the literal's own offset is already the call site.
+    """
+    literal_at = source.find(literal_marker)
+    require(literal_at >= 0, f"missing dispatch routing marker: {literal_marker}")
+    # Nearest-preceding-`fn` first: Rust top-level/impl fns don't overlap, so the
+    # closest `fn` starting before `literal_at` is virtually always its enclosing
+    # function. Trying candidates nearest-first and stopping at the first whose
+    # (position-based, no whole-source re-search) body actually contains
+    # `literal_at` keeps this O(1) fn bodies scanned in the common case, instead
+    # of the O(every earlier fn) a forward scan of a ~14k-line file like
+    # dispatch.rs would cost.
+    candidates = [m for m in _FN_DEF.finditer(source) if m.start() <= literal_at]
+    for match in reversed(candidates):
+        name = match.group(1)
+        body_open = source.find("{", match.end())
+        if body_open < 0:
+            continue
+        body_end = _balanced_span_from(source, body_open, "{", "}")
+        if body_open <= literal_at < body_end:
+            call_match = re.search(rf"\b{re.escape(name)}\s*\(", source[body_end:])
+            if call_match is not None:
+                return body_end + call_match.start()
+            return literal_at
+    return literal_at
+
+
 def _enum_variants(source: str, name: str) -> set[str]:
     block = _enum(source, name)
     values = re.findall(r"^\s*([A-Z][A-Za-z0-9_]*)\s*(?:\{|\(|,)", block, re.M)
@@ -192,8 +309,16 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
     mirrored_applier = graph_applier_mirror | outbox_applier_mirror
 
     mutation_apply = sources["mutation_apply"]
+    durable_apply = sources["durable_apply"]
+    # The facade's is_durable_mutation handles four DAG-forced families explicitly
+    # and delegates the base+broker set to eg_core::durable_apply::is_durable_mutation
+    # (see the "durable_apply" source comment above) — union both bodies' Method
+    # sets to see the classifier's real, post-hoist coverage.
     live_classifier = _method_set(
         _function(mutation_apply, "is_durable_mutation"), "is_durable_mutation"
+    ) | _method_set(
+        _function(durable_apply, "is_durable_mutation"),
+        "eg_core::durable_apply::is_durable_mutation",
     )
     require(
         live_classifier == mirrored_applier,
@@ -221,14 +346,32 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
 
     live_applier = _method_set(
         _function(mutation_apply, "apply"), "mutation_apply::apply"
+    ) | _method_set(
+        _function(durable_apply, "apply"), "eg_core::durable_apply::apply"
     )
     work_items = _method_set(
         _function(sources["mutation_batch"], "is_work_item_method"),
         "is_work_item_method",
     )
+    # SubmitWorkItem/SubmitWorkItems are `is_work_item_method` but admitted through
+    # a dedicated engine-native atomic WorkItem command-log path (mutation_batch.rs/
+    # redb_store.rs; see `src/server/mutation.rs`'s "dedicated engine-native atomic
+    # WorkItem command-log admission" NON_GATEWAY_COORDINATED entry and `src/raft/
+    # store.rs::require_durable_graph_method`, which explicitly EXCLUDES
+    # `is_work_item_method` methods from the generic classify/apply "graph command"
+    # contract). They never reach `is_durable_mutation`/`apply`, so they cannot be
+    # required to appear in `live_classifier` the way the other 6 work-item methods
+    # (ClaimWorkItem, RenewWorkItemLease, CommitWorkItemResult, CancelWorkItem,
+    # DeferWorkItem, CasWorkItemMetadata — all generically applied/replayed) are.
+    # `NATIVE_GRAPHREDB_DURABLE` is the authoritative Rust inventory of exactly this
+    # natively-admitted set (mirrors the same exemption `native_graph` already grants
+    # elsewhere in this function), so subtract it rather than hand-listing names here.
+    natively_admitted_work_items = work_items & native_graph
     native_commands = _enum_variants(sources["raft"], "NativeMutationCommand")
     implemented_classifier = (
-        live_applier | work_items | (native_commands & live_classifier)
+        live_applier
+        | (work_items - natively_admitted_work_items)
+        | (native_commands & live_classifier)
     )
     require(
         implemented_classifier == live_classifier,
@@ -287,8 +430,8 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
     )
 
     gateway_at = dispatch.find("handlers::graph_ops::try_handle_gateway(")
-    query_at = dispatch.find("is_query_gateway_method(&method)")
-    rdf_at = dispatch.find("is_rdf_gateway_method(&method)")
+    query_at = _routing_call_offset(dispatch, "is_query_gateway_method(&method)")
+    rdf_at = _routing_call_offset(dispatch, "is_rdf_gateway_method(&method)")
     terminal_at = dispatch.find("handlers::graph_ops::try_handle(", gateway_at + 1)
     require(
         -1 < gateway_at < query_at < rdf_at < terminal_at,
@@ -341,7 +484,11 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
         "coordinated ApplyMutation event inventory differs from the current served carriers: "
         f"observed={sorted(event_constants)}",
     )
-    cluster_route = _function(mutation_runtime, "cluster_mutation_route")
+    # cluster_mutation_route delegates its consensus/fanout arms to
+    # cluster_mutation_route_consensus (and its admin arms to
+    # cluster_mutation_route_admin) -- follow both hops so a legitimate split
+    # doesn't read as the SPARQL routing having disappeared.
+    cluster_route = _function_with_callees(mutation_runtime, "cluster_mutation_route")
     require(
         "is_sparql_http_update(method)" in cluster_route
         and "ClusterMutationRoute::ConsensusFanout" in cluster_route,
@@ -349,8 +496,26 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
     )
 
 
+_TEST_MODULE = re.compile(r"#\[cfg\(test\)\]\s*\nmod\s+\w+\s*\{", re.M)
+
+
 def _production_source(source: str) -> str:
-    return source.split("#[cfg(test)]", 1)[0]
+    """Everything before the file's `#[cfg(test)] mod ... { ... }` test module.
+
+    A bare `source.split("#[cfg(test)]", 1)` truncates at the FIRST occurrence of
+    that attribute anywhere in the file — but `#[cfg(test)]` also legitimately
+    gates individual test-only items embedded among production code (e.g. a
+    `#[cfg(test)] pub(crate) fn with_allow(...)` test-only constructor beside the
+    real `from_env` one), which appears earlier than the real test module in
+    files that have one. Splitting there silently discards every genuinely
+    PRODUCTION line after it — both weakening the "forbidden pattern" checks
+    below (they stop scanning real code) and starving positive-presence checks
+    of code that is still there. Anchor on the actual module boundary instead.
+    """
+    match = _TEST_MODULE.search(source)
+    if match is None:
+        return source
+    return source[: match.start()]
 
 
 def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
@@ -446,7 +611,18 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
     dispatch = sources["dispatch"]
     fanout_at = dispatch.find("ClusterMutationRoute::ConsensusFanout")
     sparql_fanout_at = dispatch.find("coordinated_sparql_http_update(", fanout_at)
-    response_match_at = dispatch.find("let response = match req.method", sparql_fanout_at)
+    # The 59-arm `match req.method` this once was got extracted into
+    # `dispatch_request_method` (dispatch.rs's own doc comment on that function
+    # says so); its call site `let response = dispatch_request_method(` is the
+    # current form of the same "terminal per-method routing is reached" marker.
+    response_match_at = _first_present(
+        dispatch,
+        (
+            "let response = match req.method",
+            "let response = dispatch_request_method(",
+        ),
+        sparql_fanout_at,
+    )
     require(
         -1 < fanout_at < sparql_fanout_at < response_match_at
         and "Method::FromMsgpack" in dispatch
@@ -499,6 +675,15 @@ def mutation_inventory_sources() -> dict[str, str]:
         "capabilities": read("crates/eg-capabilities/src/lib.rs"),
         "consistency": read("crates/eg-capabilities/tests/consistency.rs"),
         "mutation_apply": read("src/mutation_apply.rs"),
+        # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
+        # single-writer guard into eg-core"): the base graph-mutation set and the
+        # `broker` family moved out of src/mutation_apply.rs into
+        # eg_core::durable_apply. src/mutation_apply.rs now keeps only the four
+        # DAG-forced families explicit and delegates everything else to this
+        # module's `is_durable_mutation`/`apply` via its `_` arm — so the
+        # classifier/applier inventory below must read BOTH sources and union
+        # them, or it silently measures only the facade remainder (BUG-CX-112).
+        "durable_apply": read("crates/eg-core/src/durable_apply.rs"),
         "mutation_runtime": read("src/server/mutation.rs"),
         "mutation_batch": read("src/server/mutation_batch.rs"),
         "graph_ops": read("src/server/handlers/graph_ops.rs"),
