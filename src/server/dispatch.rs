@@ -796,100 +796,46 @@ pub(crate) async fn apply_replicated_job_publication_finalize(
         .await
 }
 
-/// Commands whose consensus route is a per-tenant opaque coordinator key rather
-/// than a graph. Each of these owns its own store (keyed by blob/kv/series/job/
-/// statechart/catalog id), so it is not graph-scoped; one totally-ordered
-/// consensus route per tenant is what keeps replicas applying them in step.
-///
-/// Returns `None` for every graph-scoped command — the caller decides those.
+/// Per-tenant opaque coordinator key for a command that owns its OWN store
+/// (keyed by blob/kv/series/job/statechart/catalog id) and is therefore not
+/// graph-scoped. One totally-ordered consensus route per tenant is what keeps
+/// replicas applying these in step.
 #[cfg(feature = "raft")]
-fn native_route_opaque_key(
-    tenant_scope: &str,
-    command: &crate::raft::NativeMutationCommand,
-) -> Option<String> {
-    #[allow(unused_variables)]
-    let key = |label: &str, kind: &str| {
-        Some(crate::server::mutation_batch::opaque_coordinator_key(
-            label,
-            tenant_scope,
-            kind,
-        ))
-    };
-    match command {
-        #[cfg(feature = "blob")]
-        crate::raft::NativeMutationCommand::Blob { .. } => key("raft-native-blob", "control"),
-        #[cfg(feature = "kv")]
-        crate::raft::NativeMutationCommand::KeyValue { .. } => key("raft-native-kv", "control"),
-        #[cfg(feature = "tsdb")]
-        crate::raft::NativeMutationCommand::TimeSeries { .. } => {
-            key("raft-native-timeseries", "control")
-        }
-        #[cfg(feature = "jobs")]
-        crate::raft::NativeMutationCommand::AnalyticsJob { .. } => {
-            key("raft-native-jobs", "control")
-        }
-        #[cfg(feature = "statechart")]
-        crate::raft::NativeMutationCommand::Statechart { .. } => {
-            key("raft-native-statechart", "control")
-        }
-        #[cfg(feature = "sqlite-file")]
-        crate::raft::NativeMutationCommand::SqliteCatalog { .. } => {
-            key("raft-native-sqlite", "catalog")
-        }
-        _ => None,
-    }
+fn native_route_opaque_key(label: &str, tenant_scope: &str, kind: &str) -> String {
+    crate::server::mutation_batch::opaque_coordinator_key(label, tenant_scope, kind)
 }
 
-/// Commands ordered by a single process-global route.
-///
-/// `PLACEMENT_GRAPH` totally orders cluster/transaction/session control.
-/// Identity/RBAC state is process-global authority, so every such command must
-/// share ONE Raft order; tenant-hashed groups could apply concurrent
-/// add/remove transitions in different orders on each replica. `__commons__`
-/// also preserves the exact bootstrap route asserted before proposal and
-/// revalidated by `RaftRequest::validate`.
-#[cfg(feature = "raft")]
-fn native_route_control_plane(command: &crate::raft::NativeMutationCommand) -> Option<String> {
-    use crate::raft::NativeMutationCommand;
-    match command {
-        NativeMutationCommand::ClusterAdmin { .. }
-        | NativeMutationCommand::Transaction { .. }
-        | NativeMutationCommand::SessionControl { .. } => {
-            Some(crate::raft::placement::PLACEMENT_GRAPH.to_string())
-        }
-        NativeMutationCommand::Identity { .. } => Some("__commons__".to_string()),
-        _ => None,
-    }
-}
-
-/// A graph-lifecycle command routes to the graph it names, not to the graph the
+/// A graph-lifecycle command routes to the graph it NAMES, not to the graph the
 /// request arrived on. Any other method shape falls back to the request graph.
 #[cfg(feature = "raft")]
-fn native_route_lifecycle_target(
-    method: &Method,
-    command: &crate::raft::NativeMutationCommand,
-) -> Option<String> {
-    if !matches!(
-        command,
-        crate::raft::NativeMutationCommand::GraphLifecycle { .. }
-    ) {
-        return None;
-    }
+fn native_route_lifecycle_target(request_graph: &str, method: &Method) -> String {
     match method {
         Method::CreateGraph { graph_name, .. } | Method::DeleteGraph { graph_name } => {
-            Some(graph_name.clone())
+            graph_name.clone()
         }
-        _ => None,
+        _ => request_graph.to_string(),
     }
 }
 
 /// The consensus route for one native mutation command.
 ///
-/// Checked in order: per-tenant opaque coordinator keys, the process-global
-/// control plane, then the graph a lifecycle command names. Everything else —
-/// graph state, multisig, change envelopes, served modality, transaction
-/// participant/decision/finalize, job publication, work items — is graph-scoped
-/// and rides the request's own graph.
+/// ⚠ ACCEPTED COMPLEXITY EXCEPTION — cyclomatic 13, cap 10. Do not "fix" this by
+/// adding a wildcard arm.
+///
+/// This match is deliberately EXHAUSTIVE and must stay that way. It is the one
+/// place the compiler can refuse to build when `NativeMutationCommand` gains a
+/// variant, forcing whoever adds it to decide that command's consensus route
+/// instead of silently inheriting the request graph. An `or_else` chain over
+/// `Option`-returning helpers measured 1/0 and was rejected for exactly that
+/// reason (WD2-01; the sibling `apply_txn_op` lane made the same call on the
+/// same trade-off).
+///
+/// 13 is the FLOOR for an exhaustive match here, not laziness: the score is arm
+/// COUNT, and six of the twelve arms carry distinct `#[cfg]` feature gates, which
+/// cannot be applied to individual alternatives of an or-pattern. The graph-scoped
+/// variants that CAN be folded already are. Every arm is a single tail call, so
+/// cognitive complexity is 1. Against the pre-refactor original (19/3) this is an
+/// improvement on both metrics, not a regression.
 #[cfg(feature = "raft")]
 fn native_route_target(
     request_graph: &str,
@@ -897,10 +843,64 @@ fn native_route_target(
     method: &Method,
     command: &crate::raft::NativeMutationCommand,
 ) -> String {
-    native_route_opaque_key(tenant_scope, command)
-        .or_else(|| native_route_control_plane(command))
-        .or_else(|| native_route_lifecycle_target(method, command))
-        .unwrap_or_else(|| request_graph.to_string())
+    use crate::raft::NativeMutationCommand;
+    match command {
+        // Graph-scoped: the command's data lives in the request's own graph.
+        NativeMutationCommand::GraphState { .. }
+        | NativeMutationCommand::Multisig { .. }
+        | NativeMutationCommand::ChangeEnvelope { .. }
+        | NativeMutationCommand::TransactionParticipant { .. }
+        | NativeMutationCommand::TransactionDecision { .. }
+        | NativeMutationCommand::TransactionFinalize { .. }
+        | NativeMutationCommand::WorkItem { .. } => request_graph.to_string(),
+        NativeMutationCommand::GraphLifecycle { .. } => {
+            native_route_lifecycle_target(request_graph, method)
+        }
+        // Ordered by the placement group, not by any data graph.
+        NativeMutationCommand::ClusterAdmin { .. }
+        | NativeMutationCommand::Transaction { .. }
+        | NativeMutationCommand::SessionControl { .. } => {
+            crate::raft::placement::PLACEMENT_GRAPH.to_string()
+        }
+        // Identity/RBAC state is process-global authority. Every such command must
+        // therefore share one Raft order; tenant-hashed groups could apply
+        // concurrent add/remove transitions in different orders on each replica.
+        // `__commons__` also preserves the exact bootstrap route asserted before
+        // proposal and revalidated by `RaftRequest::validate`.
+        NativeMutationCommand::Identity { .. } => "__commons__".to_string(),
+        #[cfg(feature = "modality-serving")]
+        NativeMutationCommand::ServedModality { .. } => request_graph.to_string(),
+        #[cfg(feature = "jobs")]
+        NativeMutationCommand::JobPublicationCommit { .. }
+        | NativeMutationCommand::JobPublicationFinalize { .. } => request_graph.to_string(),
+        #[cfg(feature = "blob")]
+        NativeMutationCommand::Blob { .. } => {
+            native_route_opaque_key("raft-native-blob", tenant_scope, "control")
+        }
+        #[cfg(feature = "kv")]
+        NativeMutationCommand::KeyValue { .. } => {
+            native_route_opaque_key("raft-native-kv", tenant_scope, "control")
+        }
+        #[cfg(feature = "tsdb")]
+        NativeMutationCommand::TimeSeries { .. } => {
+            native_route_opaque_key("raft-native-timeseries", tenant_scope, "control")
+        }
+        #[cfg(feature = "jobs")]
+        NativeMutationCommand::AnalyticsJob { .. } => {
+            native_route_opaque_key("raft-native-jobs", tenant_scope, "control")
+        }
+        // Not graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) --
+        // one totally-ordered consensus route per tenant, structurally identical
+        // to `AnalyticsJob` above.
+        #[cfg(feature = "statechart")]
+        NativeMutationCommand::Statechart { .. } => {
+            native_route_opaque_key("raft-native-statechart", tenant_scope, "control")
+        }
+        #[cfg(feature = "sqlite-file")]
+        NativeMutationCommand::SqliteCatalog { .. } => {
+            native_route_opaque_key("raft-native-sqlite", tenant_scope, "catalog")
+        }
+    }
 }
 
 #[cfg(all(test, feature = "raft"))]
