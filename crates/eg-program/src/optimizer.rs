@@ -170,17 +170,35 @@ impl Default for OptimizationBudget {
 
 impl OptimizationBudget {
     fn validate(&self, optimizer: OptimizerKind) -> Result<(), ProgramError> {
-        if self.max_candidates == 0
+        if !self.bounds_ok() {
+            return Err(ProgramError::ResourceLimit);
+        }
+        if !self.executor_budget_matches(optimizer)
+            || (optimizer == OptimizerKind::Ensemble && self.max_candidates < 3)
+        {
+            return Err(ProgramError::ResourceLimit);
+        }
+        Ok(())
+    }
+
+    /// Every count/limit field is within its `MAX_*` ceiling (and the two
+    /// "must be at least 1" fields are non-zero).
+    fn bounds_ok(&self) -> bool {
+        !(self.max_candidates == 0
             || self.max_candidates > MAX_CANDIDATES
             || self.max_demonstrations == 0
             || self.max_demonstrations > MAX_DEMONSTRATIONS
             || self.max_model_calls > MAX_MODEL_CALLS
             || self.max_evaluator_calls > MAX_EVALUATOR_CALLS
-            || self.max_training_steps > MAX_TRAINING_STEPS
-        {
-            return Err(ProgramError::ResourceLimit);
-        }
-        let valid_executor_budget = match optimizer.execution() {
+            || self.max_training_steps > MAX_TRAINING_STEPS)
+    }
+
+    /// The `max_model_calls`/`max_training_steps` shape required by the optimizer's
+    /// execution kind (a native/graph-kernel optimizer spends neither; a
+    /// model-transport plan spends only model calls; a trainer plan spends only
+    /// training steps; a composite plan spends both).
+    fn executor_budget_matches(&self, optimizer: OptimizerKind) -> bool {
+        match optimizer.execution() {
             OptimizerExecution::NativeKernel | OptimizerExecution::GraphKernelPlan => {
                 self.max_model_calls == 0 && self.max_training_steps == 0
             }
@@ -193,13 +211,7 @@ impl OptimizationBudget {
             OptimizerExecution::CompositePlan => {
                 self.max_model_calls > 0 && self.max_training_steps > 0
             }
-        };
-        if !valid_executor_budget
-            || (optimizer == OptimizerKind::Ensemble && self.max_candidates < 3)
-        {
-            return Err(ProgramError::ResourceLimit);
         }
-        Ok(())
     }
 }
 
@@ -298,10 +310,23 @@ impl OptimizationRequest {
         self.promotion.validate()?;
         self.baseline.validate()?;
         let observed = self.corpus.modalities();
-        if self.baseline.subject_ref != self.program.program_ref
-            || self.optimizer_artifacts.len() > MAX_OPTIMIZER_ARTIFACTS
-            || self.candidate_evaluations.len() > MAX_EVALUATIONS
-            || !observed.is_subset(
+        if !self.baseline_consistency_ok(&observed) {
+            return Err(ProgramError::InvalidPromotion);
+        }
+        self.validate_avatar_examples()?;
+        self.validate_artifacts(&observed)?;
+        self.validate_candidate_evaluations()?;
+        Ok(())
+    }
+
+    /// The baseline/limits checks: the baseline scores THIS program, artifact/
+    /// evaluation counts stay within their ceilings, and every observed modality has
+    /// a baseline score.
+    fn baseline_consistency_ok(&self, observed: &BTreeSet<ProgramModality>) -> bool {
+        self.baseline.subject_ref == self.program.program_ref
+            && self.optimizer_artifacts.len() <= MAX_OPTIMIZER_ARTIFACTS
+            && self.candidate_evaluations.len() <= MAX_EVALUATIONS
+            && observed.is_subset(
                 &self
                     .baseline
                     .modality_scores
@@ -309,26 +334,35 @@ impl OptimizationRequest {
                     .copied()
                     .collect::<BTreeSet<_>>(),
             )
-        {
-            return Err(ProgramError::InvalidPromotion);
-        }
-        if self.optimizer == OptimizerKind::Avatar {
-            let positive = self.corpus.examples.iter().any(|example| {
-                example.split == ExampleSplit::Train
-                    && example.outcome == ExampleOutcome::Success
-                    && example.trace_ref.is_some()
-            });
-            let negative = self.corpus.examples.iter().any(|example| {
-                example.split == ExampleSplit::Train
-                    && example.outcome != ExampleOutcome::Success
-                    && example.trace_ref.is_some()
-                    && example.feedback_ref.is_some()
-            });
-            if self.program.tool_refs.is_empty() || !positive || !negative {
-                return Err(ProgramError::NoEligibleExamples);
-            }
-        }
+    }
 
+    /// AVATAR needs tool refs plus at least one successful and one failed-with-feedback
+    /// training example to have anything to contrast.
+    fn validate_avatar_examples(&self) -> Result<(), ProgramError> {
+        if self.optimizer != OptimizerKind::Avatar {
+            return Ok(());
+        }
+        let positive = self.corpus.examples.iter().any(|example| {
+            example.split == ExampleSplit::Train
+                && example.outcome == ExampleOutcome::Success
+                && example.trace_ref.is_some()
+        });
+        let negative = self.corpus.examples.iter().any(|example| {
+            example.split == ExampleSplit::Train
+                && example.outcome != ExampleOutcome::Success
+                && example.trace_ref.is_some()
+                && example.feedback_ref.is_some()
+        });
+        if self.program.tool_refs.is_empty() || !positive || !negative {
+            return Err(ProgramError::NoEligibleExamples);
+        }
+        Ok(())
+    }
+
+    /// Validate every optimizer artifact: unique ref, accepted by this optimizer kind,
+    /// scoped to an observed modality, and (for the ref-carrying kinds) sourced from
+    /// this request's corpus/examples.
+    fn validate_artifacts(&self, observed: &BTreeSet<ProgramModality>) -> Result<(), ProgramError> {
         let example_refs = self
             .corpus
             .examples
@@ -340,7 +374,7 @@ impl OptimizationRequest {
             artifact.validate(&self.program.policy)?;
             if !artifact_refs.insert(&artifact.artifact_ref)
                 || !self.optimizer.accepts_artifact(artifact.kind)
-                || !artifact.modalities.is_subset(&observed)
+                || !artifact.modalities.is_subset(observed)
                 || (artifact.kind == OptimizerArtifactKind::ToolPolicy
                     && artifact.source_ref != self.corpus.corpus_ref)
                 || (artifact.kind == OptimizerArtifactKind::NeighborScore
@@ -349,6 +383,12 @@ impl OptimizationRequest {
                 return Err(ProgramError::InvalidArtifact);
             }
         }
+        Ok(())
+    }
+
+    /// Validate every candidate evaluation: individually well-formed, and at most one
+    /// per subject.
+    fn validate_candidate_evaluations(&self) -> Result<(), ProgramError> {
         let mut subjects = BTreeSet::new();
         for evaluation in &self.candidate_evaluations {
             evaluation.validate()?;
@@ -509,67 +549,21 @@ impl NativeCompiler {
         candidates.sort_by(|left, right| left.content_digest.cmp(&right.content_digest));
         candidates.dedup_by(|left, right| left.candidate_ref == right.candidate_ref);
 
-        if request.optimizer == OptimizerKind::Ensemble
-            && ensemble_artifacts(request).len() < 2
-            && candidates.len() >= 2
-        {
-            let member_refs = candidates
-                .iter()
-                .map(|candidate| candidate.candidate_ref.clone())
-                .collect::<Vec<_>>();
-            let demonstration_refs = candidates
-                .iter()
-                .flat_map(|candidate| candidate.demonstration_refs.iter().cloned())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .take(request.budget.max_demonstrations)
-                .collect::<Vec<_>>();
-            let ensemble = materialize_candidate(
-                request,
-                CandidateSpec {
-                    role: CandidateRole::Ensemble,
-                    demonstration_refs,
-                    artifact_refs: Vec::new(),
-                    composition_refs: member_refs,
-                    instruction_ref: None,
-                    tool_policy_ref: None,
-                    model_profile_ref: None,
-                },
-                &example_modalities,
-                &artifact_modalities,
-                &evaluations,
-            )?;
-            candidates.push(ensemble);
-        }
+        maybe_add_ensemble_candidate(
+            request,
+            &mut candidates,
+            &example_modalities,
+            &artifact_modalities,
+            &evaluations,
+        )?;
         if candidates.len() > request.budget.max_candidates {
             candidates.truncate(request.budget.max_candidates);
         }
-
-        let candidate_ids = candidates
-            .iter()
-            .map(|candidate| candidate.candidate_ref.as_str())
-            .collect::<BTreeSet<_>>();
-        if evaluations
-            .keys()
-            .any(|subject_ref| !candidate_ids.contains(*subject_ref))
-        {
+        if !evaluations_reference_known_candidates(&candidates, &evaluations) {
             return Err(ProgramError::InvalidPromotion);
         }
 
-        let mut plans = required_plans(request, &eligible)?;
-        if request.budget.max_evaluator_calls > 0
-            && candidates
-                .iter()
-                .any(|candidate| candidate.evaluation.is_none())
-        {
-            plans.push(evaluation_plan(request, &candidates)?);
-        }
-        for plan in &plans {
-            plan.validate()?;
-            if plan.policy != request.program.policy {
-                return Err(ProgramError::PolicyMismatch);
-            }
-        }
+        let plans = assemble_plans(request, &eligible, &candidates)?;
 
         let selected_candidate_ref = candidates
             .iter()
@@ -606,6 +600,93 @@ impl NativeCompiler {
     }
 }
 
+/// The [`compile_cancellable`] ensemble step: when running the `Ensemble` optimizer
+/// with fewer than 2 pre-supplied ensemble artifacts and at least 2 member candidates,
+/// synthesize and append the ensemble candidate (its demonstrations are the union of
+/// its members', capped at the budget).
+fn maybe_add_ensemble_candidate(
+    request: &OptimizationRequest,
+    candidates: &mut Vec<ProgramCandidate>,
+    example_modalities: &BTreeMap<OpaqueRef, BTreeSet<ProgramModality>>,
+    artifact_modalities: &BTreeMap<OpaqueRef, BTreeSet<ProgramModality>>,
+    evaluations: &BTreeMap<&str, &EvaluationSummary>,
+) -> Result<(), ProgramError> {
+    if !(request.optimizer == OptimizerKind::Ensemble
+        && ensemble_artifacts(request).len() < 2
+        && candidates.len() >= 2)
+    {
+        return Ok(());
+    }
+    let member_refs = candidates
+        .iter()
+        .map(|candidate| candidate.candidate_ref.clone())
+        .collect::<Vec<_>>();
+    let demonstration_refs = candidates
+        .iter()
+        .flat_map(|candidate| candidate.demonstration_refs.iter().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(request.budget.max_demonstrations)
+        .collect::<Vec<_>>();
+    let ensemble = materialize_candidate(
+        request,
+        CandidateSpec {
+            role: CandidateRole::Ensemble,
+            demonstration_refs,
+            artifact_refs: Vec::new(),
+            composition_refs: member_refs,
+            instruction_ref: None,
+            tool_policy_ref: None,
+            model_profile_ref: None,
+        },
+        example_modalities,
+        artifact_modalities,
+        evaluations,
+    )?;
+    candidates.push(ensemble);
+    Ok(())
+}
+
+/// Every evaluation's subject refers to a candidate that was actually generated
+/// (guards against a stale/foreign evaluation being smuggled into promotion).
+fn evaluations_reference_known_candidates(
+    candidates: &[ProgramCandidate],
+    evaluations: &BTreeMap<&str, &EvaluationSummary>,
+) -> bool {
+    let candidate_ids = candidates
+        .iter()
+        .map(|candidate| candidate.candidate_ref.as_str())
+        .collect::<BTreeSet<_>>();
+    evaluations
+        .keys()
+        .all(|subject_ref| candidate_ids.contains(*subject_ref))
+}
+
+/// Build the required plans, append the evaluation plan when the budget allows more
+/// evaluator calls and some candidate is still unevaluated, then validate every plan
+/// (policy included) before returning.
+fn assemble_plans(
+    request: &OptimizationRequest,
+    eligible: &[&TrainingExample],
+    candidates: &[ProgramCandidate],
+) -> Result<Vec<OptimizationPlan>, ProgramError> {
+    let mut plans = required_plans(request, eligible)?;
+    if request.budget.max_evaluator_calls > 0
+        && candidates
+            .iter()
+            .any(|candidate| candidate.evaluation.is_none())
+    {
+        plans.push(evaluation_plan(request, candidates)?);
+    }
+    for plan in &plans {
+        plan.validate()?;
+        if plan.policy != request.program.policy {
+            return Err(ProgramError::PolicyMismatch);
+        }
+    }
+    Ok(plans)
+}
+
 #[derive(Clone)]
 struct CandidateSpec {
     role: CandidateRole,
@@ -623,7 +704,50 @@ fn candidate_specs(
     cancellation: &AtomicBool,
 ) -> Result<Vec<CandidateSpec>, ProgramError> {
     let cover = select_covering_modalities(eligible, request.budget.max_demonstrations);
-    let simple = |demonstration_refs: Vec<OpaqueRef>| CandidateSpec {
+    // The three optimizers below need `eligible`/`cancellation` for per-candidate
+    // random selection; every other kind needs only the modality-covering
+    // demonstration set, so it delegates to `candidate_specs_from_cover` — split
+    // purely to keep each dispatcher's arm count (hence complexity) low, not for any
+    // behavioral reason.
+    match request.optimizer {
+        OptimizerKind::BootstrapFewShotWithRandomSearch => {
+            specs_bootstrap_random_search(request, eligible, cancellation)
+        }
+        OptimizerKind::MiproV2 => specs_mipro_v2(request, eligible, cancellation),
+        OptimizerKind::Ensemble => specs_ensemble(request, eligible, cover, cancellation),
+        _ => Ok(candidate_specs_from_cover(request, cover)),
+    }
+}
+
+/// The [`candidate_specs`] arms that need only the modality-covering demonstration set
+/// `cover` (no per-candidate randomness, so no `eligible`/`cancellation` needed).
+fn candidate_specs_from_cover(
+    request: &OptimizationRequest,
+    cover: Vec<OpaqueRef>,
+) -> Vec<CandidateSpec> {
+    match request.optimizer {
+        OptimizerKind::LabeledFewShot | OptimizerKind::BootstrapFewShot => {
+            vec![proposal_spec(cover)]
+        }
+        OptimizerKind::Avatar => specs_avatar(request, &cover),
+        OptimizerKind::Copro => specs_copro(request, &cover),
+        OptimizerKind::Simba | OptimizerKind::Gepa => specs_simba_or_gepa(request, &cover),
+        OptimizerKind::InferRules => specs_infer_rules(request, &cover),
+        OptimizerKind::BootstrapFinetune => specs_bootstrap_finetune(request, &cover),
+        OptimizerKind::BetterTogether => specs_better_together(request, &cover),
+        OptimizerKind::KnnFewShot => specs_knn_few_shot(request),
+        OptimizerKind::BootstrapFewShotWithRandomSearch
+        | OptimizerKind::MiproV2
+        | OptimizerKind::Ensemble => {
+            unreachable!("candidate_specs routes these optimizers before delegating here")
+        }
+    }
+}
+
+/// A plain `Proposal`-role spec carrying only demonstrations — LABELED_FEW_SHOT /
+/// BOOTSTRAP_FEW_SHOT's candidate, and the building block for the random-search variant.
+fn proposal_spec(demonstration_refs: Vec<OpaqueRef>) -> CandidateSpec {
+    CandidateSpec {
         role: CandidateRole::Proposal,
         demonstration_refs,
         artifact_refs: Vec::new(),
@@ -631,202 +755,242 @@ fn candidate_specs(
         instruction_ref: None,
         tool_policy_ref: None,
         model_profile_ref: None,
-    };
-    let specs = match request.optimizer {
-        OptimizerKind::LabeledFewShot | OptimizerKind::BootstrapFewShot => vec![simple(cover)],
-        OptimizerKind::BootstrapFewShotWithRandomSearch => random_selections(
-            request,
-            eligible,
-            request.budget.max_candidates,
-            cancellation,
-        )?
+    }
+}
+
+/// BOOTSTRAP_FEW_SHOT_WITH_RANDOM_SEARCH: one proposal per random demonstration
+/// selection.
+fn specs_bootstrap_random_search(
+    request: &OptimizationRequest,
+    eligible: &[&TrainingExample],
+    cancellation: &AtomicBool,
+) -> Result<Vec<CandidateSpec>, ProgramError> {
+    Ok(random_selections(
+        request,
+        eligible,
+        request.budget.max_candidates,
+        cancellation,
+    )?
+    .into_iter()
+    .map(proposal_spec)
+    .collect())
+}
+
+/// AVATAR: one proposal per ranked tool-policy artifact, over the shared cover.
+fn specs_avatar(request: &OptimizationRequest, cover: &[OpaqueRef]) -> Vec<CandidateSpec> {
+    ranked_artifacts(request, OptimizerArtifactKind::ToolPolicy)
         .into_iter()
-        .map(simple)
-        .collect(),
-        OptimizerKind::Avatar => ranked_artifacts(request, OptimizerArtifactKind::ToolPolicy)
-            .into_iter()
-            .take(request.budget.max_candidates)
-            .map(|artifact| CandidateSpec {
-                role: CandidateRole::Proposal,
-                demonstration_refs: cover.clone(),
-                artifact_refs: vec![artifact.artifact_ref.clone()],
-                composition_refs: Vec::new(),
-                instruction_ref: None,
-                tool_policy_ref: Some(artifact.artifact_ref.clone()),
-                model_profile_ref: None,
-            })
-            .collect(),
-        OptimizerKind::Copro => {
-            ranked_artifacts(request, OptimizerArtifactKind::InstructionProposal)
-                .into_iter()
-                .take(request.budget.max_candidates)
-                .map(|artifact| CandidateSpec {
-                    role: CandidateRole::Proposal,
-                    demonstration_refs: cover.clone(),
-                    artifact_refs: vec![artifact.artifact_ref.clone()],
-                    composition_refs: Vec::new(),
-                    instruction_ref: Some(artifact.artifact_ref.clone()),
-                    tool_policy_ref: None,
-                    model_profile_ref: None,
-                })
-                .collect()
+        .take(request.budget.max_candidates)
+        .map(|artifact| CandidateSpec {
+            role: CandidateRole::Proposal,
+            demonstration_refs: cover.to_vec(),
+            artifact_refs: vec![artifact.artifact_ref.clone()],
+            composition_refs: Vec::new(),
+            instruction_ref: None,
+            tool_policy_ref: Some(artifact.artifact_ref.clone()),
+            model_profile_ref: None,
+        })
+        .collect()
+}
+
+/// COPRO: one proposal per ranked instruction-proposal artifact, over the shared cover.
+fn specs_copro(request: &OptimizationRequest, cover: &[OpaqueRef]) -> Vec<CandidateSpec> {
+    ranked_artifacts(request, OptimizerArtifactKind::InstructionProposal)
+        .into_iter()
+        .take(request.budget.max_candidates)
+        .map(|artifact| CandidateSpec {
+            role: CandidateRole::Proposal,
+            demonstration_refs: cover.to_vec(),
+            artifact_refs: vec![artifact.artifact_ref.clone()],
+            composition_refs: Vec::new(),
+            instruction_ref: Some(artifact.artifact_ref.clone()),
+            tool_policy_ref: None,
+            model_profile_ref: None,
+        })
+        .collect()
+}
+
+/// MIPROv2: pair each ranked instruction with an independent random demonstration
+/// selection (cycling instructions if there are fewer than candidates).
+fn specs_mipro_v2(
+    request: &OptimizationRequest,
+    eligible: &[&TrainingExample],
+    cancellation: &AtomicBool,
+) -> Result<Vec<CandidateSpec>, ProgramError> {
+    let instructions = ranked_artifacts(request, OptimizerArtifactKind::InstructionProposal);
+    let selections = random_selections(
+        request,
+        eligible,
+        request.budget.max_candidates,
+        cancellation,
+    )?;
+    Ok(instructions
+        .into_iter()
+        .cycle()
+        .zip(selections)
+        .take(request.budget.max_candidates)
+        .map(|(artifact, demonstration_refs)| CandidateSpec {
+            role: CandidateRole::Proposal,
+            demonstration_refs,
+            artifact_refs: vec![artifact.artifact_ref.clone()],
+            composition_refs: Vec::new(),
+            instruction_ref: Some(artifact.artifact_ref.clone()),
+            tool_policy_ref: None,
+            model_profile_ref: None,
+        })
+        .collect())
+}
+
+/// SIMBA / GEPA: one proposal per ranked reflection artifact, over the shared cover.
+fn specs_simba_or_gepa(request: &OptimizationRequest, cover: &[OpaqueRef]) -> Vec<CandidateSpec> {
+    ranked_artifacts(request, OptimizerArtifactKind::Reflection)
+        .into_iter()
+        .take(request.budget.max_candidates)
+        .map(|artifact| CandidateSpec {
+            role: CandidateRole::Proposal,
+            demonstration_refs: cover.to_vec(),
+            artifact_refs: vec![artifact.artifact_ref.clone()],
+            composition_refs: Vec::new(),
+            instruction_ref: None,
+            tool_policy_ref: None,
+            model_profile_ref: None,
+        })
+        .collect()
+}
+
+/// INFER_RULES: one proposal per ranked rule-set artifact, over the shared cover.
+fn specs_infer_rules(request: &OptimizationRequest, cover: &[OpaqueRef]) -> Vec<CandidateSpec> {
+    ranked_artifacts(request, OptimizerArtifactKind::RuleSet)
+        .into_iter()
+        .take(request.budget.max_candidates)
+        .map(|artifact| CandidateSpec {
+            role: CandidateRole::Proposal,
+            demonstration_refs: cover.to_vec(),
+            artifact_refs: vec![artifact.artifact_ref.clone()],
+            composition_refs: Vec::new(),
+            instruction_ref: Some(artifact.artifact_ref.clone()),
+            tool_policy_ref: None,
+            model_profile_ref: None,
+        })
+        .collect()
+}
+
+/// BOOTSTRAP_FINETUNE: one proposal per ranked finetuned-model artifact, over the
+/// shared cover.
+fn specs_bootstrap_finetune(
+    request: &OptimizationRequest,
+    cover: &[OpaqueRef],
+) -> Vec<CandidateSpec> {
+    ranked_artifacts(request, OptimizerArtifactKind::FinetunedModel)
+        .into_iter()
+        .take(request.budget.max_candidates)
+        .map(|artifact| CandidateSpec {
+            role: CandidateRole::Proposal,
+            demonstration_refs: cover.to_vec(),
+            artifact_refs: vec![artifact.artifact_ref.clone()],
+            composition_refs: Vec::new(),
+            instruction_ref: None,
+            tool_policy_ref: None,
+            model_profile_ref: Some(artifact.artifact_ref.clone()),
+        })
+        .collect()
+}
+
+/// BETTER_TOGETHER: the cross product of ranked instructions x ranked finetuned
+/// models, over the shared cover.
+fn specs_better_together(request: &OptimizationRequest, cover: &[OpaqueRef]) -> Vec<CandidateSpec> {
+    let instructions = ranked_artifacts(request, OptimizerArtifactKind::InstructionProposal);
+    let models = ranked_artifacts(request, OptimizerArtifactKind::FinetunedModel);
+    instructions
+        .into_iter()
+        .flat_map(|instruction| models.iter().map(move |model| (instruction, *model)))
+        .take(request.budget.max_candidates)
+        .map(|(instruction, model)| CandidateSpec {
+            role: CandidateRole::Proposal,
+            demonstration_refs: cover.to_vec(),
+            artifact_refs: vec![instruction.artifact_ref.clone(), model.artifact_ref.clone()],
+            composition_refs: Vec::new(),
+            instruction_ref: Some(instruction.artifact_ref.clone()),
+            tool_policy_ref: None,
+            model_profile_ref: Some(model.artifact_ref.clone()),
+        })
+        .collect()
+}
+
+/// KNN_FEW_SHOT: the ranked neighbor-score artifacts' distinct source examples, up to
+/// the demonstration budget, as a single candidate (none if no neighbor scored).
+fn specs_knn_few_shot(request: &OptimizationRequest) -> Vec<CandidateSpec> {
+    let mut selected = Vec::new();
+    let mut artifacts = Vec::new();
+    let mut seen = BTreeSet::new();
+    for artifact in ranked_artifacts(request, OptimizerArtifactKind::NeighborScore) {
+        if selected.len() >= request.budget.max_demonstrations {
+            break;
         }
-        OptimizerKind::MiproV2 => {
-            let instructions =
-                ranked_artifacts(request, OptimizerArtifactKind::InstructionProposal);
-            let selections = random_selections(
-                request,
-                eligible,
-                request.budget.max_candidates,
-                cancellation,
-            )?;
-            instructions
-                .into_iter()
-                .cycle()
-                .zip(selections)
-                .take(request.budget.max_candidates)
-                .map(|(artifact, demonstration_refs)| CandidateSpec {
-                    role: CandidateRole::Proposal,
-                    demonstration_refs,
-                    artifact_refs: vec![artifact.artifact_ref.clone()],
-                    composition_refs: Vec::new(),
-                    instruction_ref: Some(artifact.artifact_ref.clone()),
-                    tool_policy_ref: None,
-                    model_profile_ref: None,
-                })
-                .collect()
+        if seen.insert(artifact.source_ref.as_str()) {
+            selected.push(artifact.source_ref.clone());
+            artifacts.push(artifact.artifact_ref.clone());
         }
-        OptimizerKind::Simba | OptimizerKind::Gepa => {
-            ranked_artifacts(request, OptimizerArtifactKind::Reflection)
-                .into_iter()
-                .take(request.budget.max_candidates)
-                .map(|artifact| CandidateSpec {
-                    role: CandidateRole::Proposal,
-                    demonstration_refs: cover.clone(),
-                    artifact_refs: vec![artifact.artifact_ref.clone()],
-                    composition_refs: Vec::new(),
-                    instruction_ref: None,
-                    tool_policy_ref: None,
-                    model_profile_ref: None,
-                })
-                .collect()
-        }
-        OptimizerKind::InferRules => ranked_artifacts(request, OptimizerArtifactKind::RuleSet)
-            .into_iter()
-            .take(request.budget.max_candidates)
-            .map(|artifact| CandidateSpec {
-                role: CandidateRole::Proposal,
-                demonstration_refs: cover.clone(),
-                artifact_refs: vec![artifact.artifact_ref.clone()],
-                composition_refs: Vec::new(),
-                instruction_ref: Some(artifact.artifact_ref.clone()),
-                tool_policy_ref: None,
-                model_profile_ref: None,
-            })
-            .collect(),
-        OptimizerKind::BootstrapFinetune => {
-            ranked_artifacts(request, OptimizerArtifactKind::FinetunedModel)
-                .into_iter()
-                .take(request.budget.max_candidates)
-                .map(|artifact| CandidateSpec {
-                    role: CandidateRole::Proposal,
-                    demonstration_refs: cover.clone(),
-                    artifact_refs: vec![artifact.artifact_ref.clone()],
-                    composition_refs: Vec::new(),
-                    instruction_ref: None,
-                    tool_policy_ref: None,
-                    model_profile_ref: Some(artifact.artifact_ref.clone()),
-                })
-                .collect()
-        }
-        OptimizerKind::BetterTogether => {
-            let instructions =
-                ranked_artifacts(request, OptimizerArtifactKind::InstructionProposal);
-            let models = ranked_artifacts(request, OptimizerArtifactKind::FinetunedModel);
-            instructions
-                .into_iter()
-                .flat_map(|instruction| models.iter().map(move |model| (instruction, *model)))
-                .take(request.budget.max_candidates)
-                .map(|(instruction, model)| CandidateSpec {
-                    role: CandidateRole::Proposal,
-                    demonstration_refs: cover.clone(),
-                    artifact_refs: vec![
-                        instruction.artifact_ref.clone(),
-                        model.artifact_ref.clone(),
-                    ],
-                    composition_refs: Vec::new(),
-                    instruction_ref: Some(instruction.artifact_ref.clone()),
-                    tool_policy_ref: None,
-                    model_profile_ref: Some(model.artifact_ref.clone()),
-                })
-                .collect()
-        }
-        OptimizerKind::KnnFewShot => {
-            let mut selected = Vec::new();
-            let mut artifacts = Vec::new();
-            let mut seen = BTreeSet::new();
-            for artifact in ranked_artifacts(request, OptimizerArtifactKind::NeighborScore) {
-                if selected.len() >= request.budget.max_demonstrations {
-                    break;
-                }
-                if seen.insert(artifact.source_ref.as_str()) {
-                    selected.push(artifact.source_ref.clone());
-                    artifacts.push(artifact.artifact_ref.clone());
-                }
-            }
-            (!selected.is_empty())
-                .then_some(CandidateSpec {
-                    role: CandidateRole::Proposal,
-                    demonstration_refs: selected,
-                    artifact_refs: artifacts,
-                    composition_refs: Vec::new(),
-                    instruction_ref: None,
-                    tool_policy_ref: None,
-                    model_profile_ref: None,
-                })
-                .into_iter()
-                .collect()
-        }
-        OptimizerKind::Ensemble => {
-            let members = ensemble_artifacts(request);
-            if members.len() >= 2 {
-                vec![CandidateSpec {
-                    role: CandidateRole::Ensemble,
-                    demonstration_refs: cover,
-                    artifact_refs: members
-                        .iter()
-                        .map(|artifact| artifact.artifact_ref.clone())
-                        .collect(),
-                    composition_refs: members
-                        .iter()
-                        .map(|artifact| artifact.source_ref.clone())
-                        .collect(),
-                    instruction_ref: None,
-                    tool_policy_ref: None,
-                    model_profile_ref: None,
-                }]
-            } else {
-                random_selections(
-                    request,
-                    eligible,
-                    request.budget.max_candidates.saturating_sub(1),
-                    cancellation,
-                )?
-                .into_iter()
-                .map(|demonstration_refs| CandidateSpec {
-                    role: CandidateRole::EnsembleMember,
-                    demonstration_refs,
-                    artifact_refs: Vec::new(),
-                    composition_refs: Vec::new(),
-                    instruction_ref: None,
-                    tool_policy_ref: None,
-                    model_profile_ref: None,
-                })
-                .collect()
-            }
-        }
-    };
-    Ok(specs)
+    }
+    (!selected.is_empty())
+        .then_some(CandidateSpec {
+            role: CandidateRole::Proposal,
+            demonstration_refs: selected,
+            artifact_refs: artifacts,
+            composition_refs: Vec::new(),
+            instruction_ref: None,
+            tool_policy_ref: None,
+            model_profile_ref: None,
+        })
+        .into_iter()
+        .collect()
+}
+
+/// ENSEMBLE: with >=2 pre-supplied ensemble-member artifacts, ONE ensemble candidate
+/// composed from them; otherwise fall back to random-search member candidates (one
+/// fewer than the budget, leaving room for the synthesized ensemble candidate added
+/// later in `compile_cancellable`).
+fn specs_ensemble(
+    request: &OptimizationRequest,
+    eligible: &[&TrainingExample],
+    cover: Vec<OpaqueRef>,
+    cancellation: &AtomicBool,
+) -> Result<Vec<CandidateSpec>, ProgramError> {
+    let members = ensemble_artifacts(request);
+    if members.len() >= 2 {
+        return Ok(vec![CandidateSpec {
+            role: CandidateRole::Ensemble,
+            demonstration_refs: cover,
+            artifact_refs: members
+                .iter()
+                .map(|artifact| artifact.artifact_ref.clone())
+                .collect(),
+            composition_refs: members
+                .iter()
+                .map(|artifact| artifact.source_ref.clone())
+                .collect(),
+            instruction_ref: None,
+            tool_policy_ref: None,
+            model_profile_ref: None,
+        }]);
+    }
+    Ok(random_selections(
+        request,
+        eligible,
+        request.budget.max_candidates.saturating_sub(1),
+        cancellation,
+    )?
+    .into_iter()
+    .map(|demonstration_refs| CandidateSpec {
+        role: CandidateRole::EnsembleMember,
+        demonstration_refs,
+        artifact_refs: Vec::new(),
+        composition_refs: Vec::new(),
+        instruction_ref: None,
+        tool_policy_ref: None,
+        model_profile_ref: None,
+    })
+    .collect())
 }
 
 fn materialize_candidate(
@@ -890,172 +1054,7 @@ fn required_plans(
         request.program.program_ref.clone(),
         request.corpus.corpus_ref.clone(),
     ];
-    let mut steps = Vec::new();
-    match request.optimizer {
-        OptimizerKind::Avatar if !has_artifact(request, OptimizerArtifactKind::ToolPolicy) => {
-            let mut comparator_inputs = input_refs;
-            comparator_inputs.extend(request.program.tool_refs.iter().cloned());
-            steps.push(plan_step(
-                request,
-                0,
-                PlanStepKind::CompareToolUse,
-                PlanExecutor::ModelTransport,
-                comparator_inputs,
-                Vec::new(),
-                observed.clone(),
-                request.budget.max_model_calls,
-            )?);
-        }
-        OptimizerKind::Copro | OptimizerKind::MiproV2
-            if !has_artifact(request, OptimizerArtifactKind::InstructionProposal) =>
-        {
-            steps.push(plan_step(
-                request,
-                0,
-                PlanStepKind::ProposeInstruction,
-                PlanExecutor::ModelTransport,
-                input_refs,
-                Vec::new(),
-                observed.clone(),
-                request.budget.max_model_calls,
-            )?);
-        }
-        OptimizerKind::Simba if !has_artifact(request, OptimizerArtifactKind::Reflection) => {
-            steps.push(plan_step(
-                request,
-                0,
-                PlanStepKind::ReflectOnTrace,
-                PlanExecutor::ModelTransport,
-                input_refs,
-                Vec::new(),
-                observed.clone(),
-                request.budget.max_model_calls,
-            )?);
-        }
-        OptimizerKind::Gepa if !has_artifact(request, OptimizerArtifactKind::Reflection) => {
-            steps.push(plan_step(
-                request,
-                0,
-                PlanStepKind::ParetoReflect,
-                PlanExecutor::ModelTransport,
-                input_refs,
-                Vec::new(),
-                observed.clone(),
-                request.budget.max_model_calls,
-            )?);
-        }
-        OptimizerKind::InferRules if !has_artifact(request, OptimizerArtifactKind::RuleSet) => {
-            steps.push(plan_step(
-                request,
-                0,
-                PlanStepKind::ProposeRules,
-                PlanExecutor::ModelTransport,
-                input_refs,
-                Vec::new(),
-                observed.clone(),
-                request.budget.max_model_calls,
-            )?);
-        }
-        OptimizerKind::BootstrapFinetune
-            if !has_artifact(request, OptimizerArtifactKind::FinetunedModel) =>
-        {
-            steps.push(plan_step(
-                request,
-                0,
-                PlanStepKind::TrainWeights,
-                PlanExecutor::Trainer,
-                input_refs,
-                Vec::new(),
-                observed.clone(),
-                request.budget.max_training_steps,
-            )?);
-        }
-        OptimizerKind::BetterTogether => {
-            let mut dependencies = Vec::new();
-            let mut composition_inputs = Vec::new();
-            if !has_artifact(request, OptimizerArtifactKind::InstructionProposal) {
-                let step = plan_step(
-                    request,
-                    steps.len(),
-                    PlanStepKind::ProposeInstruction,
-                    PlanExecutor::ModelTransport,
-                    input_refs.clone(),
-                    Vec::new(),
-                    observed.clone(),
-                    request.budget.max_model_calls,
-                )?;
-                dependencies.push(step.step_ref.clone());
-                composition_inputs.extend(step.output_refs.iter().cloned());
-                steps.push(step);
-            } else {
-                composition_inputs.extend(
-                    ranked_artifacts(request, OptimizerArtifactKind::InstructionProposal)
-                        .into_iter()
-                        .map(|artifact| artifact.artifact_ref.clone()),
-                );
-            }
-            if !has_artifact(request, OptimizerArtifactKind::FinetunedModel) {
-                let step = plan_step(
-                    request,
-                    steps.len(),
-                    PlanStepKind::TrainWeights,
-                    PlanExecutor::Trainer,
-                    input_refs,
-                    Vec::new(),
-                    observed.clone(),
-                    request.budget.max_training_steps,
-                )?;
-                dependencies.push(step.step_ref.clone());
-                composition_inputs.extend(step.output_refs.iter().cloned());
-                steps.push(step);
-            } else {
-                composition_inputs.extend(
-                    ranked_artifacts(request, OptimizerArtifactKind::FinetunedModel)
-                        .into_iter()
-                        .map(|artifact| artifact.artifact_ref.clone()),
-                );
-            }
-            if !dependencies.is_empty() {
-                steps.push(plan_step(
-                    request,
-                    steps.len(),
-                    PlanStepKind::ComposePrograms,
-                    PlanExecutor::NativeKernel,
-                    composition_inputs,
-                    dependencies,
-                    observed.clone(),
-                    1,
-                )?);
-            }
-        }
-        OptimizerKind::KnnFewShot
-            if !has_artifact(request, OptimizerArtifactKind::NeighborScore) =>
-        {
-            steps.push(plan_step(
-                request,
-                0,
-                PlanStepKind::QuerySimilarity,
-                PlanExecutor::GraphSimilarity,
-                input_refs,
-                Vec::new(),
-                observed.clone(),
-                eligible.len().max(1) as u64,
-            )?);
-        }
-        OptimizerKind::Ensemble if ensemble_artifacts(request).len() < 2 && eligible.len() < 2 => {
-            steps.push(plan_step(
-                request,
-                0,
-                PlanStepKind::ComposePrograms,
-                PlanExecutor::NativeKernel,
-                input_refs,
-                Vec::new(),
-                observed.clone(),
-                request.budget.max_candidates as u64,
-            )?);
-        }
-        _ => {}
-    }
+    let steps = required_plan_steps(request, eligible, &observed, input_refs)?;
     if steps.is_empty() {
         return Ok(Vec::new());
     }
@@ -1066,6 +1065,188 @@ fn required_plans(
         modalities: observed,
         policy: request.program.policy.clone(),
     }])
+}
+
+/// The steps [`required_plans`] needs: BETTER_TOGETHER composes up to two model-side
+/// steps (see [`required_plan_steps_better_together`]); every other optimizer needs at
+/// most the single missing-artifact step [`required_single_step_shape`] identifies.
+fn required_plan_steps(
+    request: &OptimizationRequest,
+    eligible: &[&TrainingExample],
+    observed: &BTreeSet<ProgramModality>,
+    input_refs: Vec<OpaqueRef>,
+) -> Result<Vec<PlanStep>, ProgramError> {
+    if request.optimizer == OptimizerKind::BetterTogether {
+        return required_plan_steps_better_together(request, observed, input_refs);
+    }
+    let Some((kind, executor, extra_inputs, budget)) =
+        required_single_step_shape(request, eligible)
+    else {
+        return Ok(Vec::new());
+    };
+    let mut inputs = input_refs;
+    inputs.extend(extra_inputs);
+    Ok(vec![plan_step(
+        request,
+        0,
+        kind,
+        executor,
+        inputs,
+        Vec::new(),
+        observed.clone(),
+        budget,
+    )?])
+}
+
+/// Which single missing-artifact step (if any) `required_plans` needs for this
+/// optimizer/eligible-example state: `(kind, executor, extra_inputs, budget)`. `None`
+/// when the optimizer needs no such step — either it isn't one of the single-step
+/// kinds (BETTER_TOGETHER is handled separately), or its precondition (the artifact is
+/// already supplied, or `eligible` already has enough examples) is already satisfied.
+fn required_single_step_shape(
+    request: &OptimizationRequest,
+    eligible: &[&TrainingExample],
+) -> Option<(PlanStepKind, PlanExecutor, Vec<OpaqueRef>, u64)> {
+    match request.optimizer {
+        OptimizerKind::Avatar if !has_artifact(request, OptimizerArtifactKind::ToolPolicy) => {
+            Some((
+                PlanStepKind::CompareToolUse,
+                PlanExecutor::ModelTransport,
+                request.program.tool_refs.clone(),
+                request.budget.max_model_calls,
+            ))
+        }
+        OptimizerKind::Copro | OptimizerKind::MiproV2
+            if !has_artifact(request, OptimizerArtifactKind::InstructionProposal) =>
+        {
+            Some((
+                PlanStepKind::ProposeInstruction,
+                PlanExecutor::ModelTransport,
+                Vec::new(),
+                request.budget.max_model_calls,
+            ))
+        }
+        OptimizerKind::Simba if !has_artifact(request, OptimizerArtifactKind::Reflection) => {
+            Some((
+                PlanStepKind::ReflectOnTrace,
+                PlanExecutor::ModelTransport,
+                Vec::new(),
+                request.budget.max_model_calls,
+            ))
+        }
+        OptimizerKind::Gepa if !has_artifact(request, OptimizerArtifactKind::Reflection) => Some((
+            PlanStepKind::ParetoReflect,
+            PlanExecutor::ModelTransport,
+            Vec::new(),
+            request.budget.max_model_calls,
+        )),
+        OptimizerKind::InferRules if !has_artifact(request, OptimizerArtifactKind::RuleSet) => {
+            Some((
+                PlanStepKind::ProposeRules,
+                PlanExecutor::ModelTransport,
+                Vec::new(),
+                request.budget.max_model_calls,
+            ))
+        }
+        OptimizerKind::BootstrapFinetune
+            if !has_artifact(request, OptimizerArtifactKind::FinetunedModel) =>
+        {
+            Some((
+                PlanStepKind::TrainWeights,
+                PlanExecutor::Trainer,
+                Vec::new(),
+                request.budget.max_training_steps,
+            ))
+        }
+        OptimizerKind::KnnFewShot
+            if !has_artifact(request, OptimizerArtifactKind::NeighborScore) =>
+        {
+            Some((
+                PlanStepKind::QuerySimilarity,
+                PlanExecutor::GraphSimilarity,
+                Vec::new(),
+                eligible.len().max(1) as u64,
+            ))
+        }
+        OptimizerKind::Ensemble if ensemble_artifacts(request).len() < 2 && eligible.len() < 2 => {
+            Some((
+                PlanStepKind::ComposePrograms,
+                PlanExecutor::NativeKernel,
+                Vec::new(),
+                request.budget.max_candidates as u64,
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// BETTER_TOGETHER's plan: propose an instruction (unless one is already supplied),
+/// train a finetuned model (unless one is already supplied), then — only if at least
+/// one of those two ran — a composition step depending on whichever ran, with inputs
+/// drawn from either the fresh step's outputs or the already-supplied ranked artifacts.
+fn required_plan_steps_better_together(
+    request: &OptimizationRequest,
+    observed: &BTreeSet<ProgramModality>,
+    input_refs: Vec<OpaqueRef>,
+) -> Result<Vec<PlanStep>, ProgramError> {
+    let mut steps = Vec::new();
+    let mut dependencies = Vec::new();
+    let mut composition_inputs = Vec::new();
+    if !has_artifact(request, OptimizerArtifactKind::InstructionProposal) {
+        let step = plan_step(
+            request,
+            steps.len(),
+            PlanStepKind::ProposeInstruction,
+            PlanExecutor::ModelTransport,
+            input_refs.clone(),
+            Vec::new(),
+            observed.clone(),
+            request.budget.max_model_calls,
+        )?;
+        dependencies.push(step.step_ref.clone());
+        composition_inputs.extend(step.output_refs.iter().cloned());
+        steps.push(step);
+    } else {
+        composition_inputs.extend(
+            ranked_artifacts(request, OptimizerArtifactKind::InstructionProposal)
+                .into_iter()
+                .map(|artifact| artifact.artifact_ref.clone()),
+        );
+    }
+    if !has_artifact(request, OptimizerArtifactKind::FinetunedModel) {
+        let step = plan_step(
+            request,
+            steps.len(),
+            PlanStepKind::TrainWeights,
+            PlanExecutor::Trainer,
+            input_refs,
+            Vec::new(),
+            observed.clone(),
+            request.budget.max_training_steps,
+        )?;
+        dependencies.push(step.step_ref.clone());
+        composition_inputs.extend(step.output_refs.iter().cloned());
+        steps.push(step);
+    } else {
+        composition_inputs.extend(
+            ranked_artifacts(request, OptimizerArtifactKind::FinetunedModel)
+                .into_iter()
+                .map(|artifact| artifact.artifact_ref.clone()),
+        );
+    }
+    if !dependencies.is_empty() {
+        steps.push(plan_step(
+            request,
+            steps.len(),
+            PlanStepKind::ComposePrograms,
+            PlanExecutor::NativeKernel,
+            composition_inputs,
+            dependencies,
+            observed.clone(),
+            1,
+        )?);
+    }
+    Ok(steps)
 }
 
 fn evaluation_plan(
