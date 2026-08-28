@@ -192,6 +192,26 @@ pub(crate) fn read(
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     let cells = rtx.open_table(CELLS).map_err(|e| e.to_string())?;
     let leases = rtx.open_table(LEASES).map_err(|e| e.to_string())?;
+    let cell_rows = scan_status_cells(&cells, graph, request, crypto)?;
+    let lease_rows = scan_status_leases(&leases, graph, request, crypto)?;
+    let next_cursor = lease_rows.last().map(|lease| lease.lease_id.clone());
+    Ok(CapacityStatusResult {
+        schema_version: NativeControlSchemaVersion::V1,
+        cells: cell_rows,
+        leases: lease_rows,
+        next_cursor,
+    })
+}
+
+fn scan_status_cells<T>(
+    cells: &T,
+    graph: &str,
+    request: &CapacityStatusRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<CapacityCell>, String>
+where
+    T: ReadableTable<(&'static str, &'static str), &'static [u8]>,
+{
     let mut cell_rows = Vec::new();
     let mut scanned_cells = 0usize;
     for row in cells.range((graph, "")..).map_err(|e| e.to_string())? {
@@ -217,7 +237,18 @@ pub(crate) fn read(
             return Err("capacity status cell page exceeds native bound".to_string());
         }
     }
+    Ok(cell_rows)
+}
 
+fn scan_status_leases<T>(
+    leases: &T,
+    graph: &str,
+    request: &CapacityStatusRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<CapacityLease>, String>
+where
+    T: ReadableTable<(&'static str, &'static str), &'static [u8]>,
+{
     let mut lease_rows = Vec::new();
     let mut scanned_leases = 0usize;
     let cursor = request.cursor.as_deref().unwrap_or("");
@@ -235,16 +266,7 @@ pub(crate) fn read(
             continue;
         }
         let lease: CapacityLease = decode_durable(&crypto.unseal(value.value())?)?;
-        if lease.tenant_ref != request.tenant_ref
-            || request
-                .cell_id
-                .as_deref()
-                .is_some_and(|wanted| wanted != lease.cell_id)
-            || request
-                .lease_id
-                .as_deref()
-                .is_some_and(|wanted| wanted != lease.lease_id)
-        {
+        if !lease_matches_status_request(&lease, request) {
             continue;
         }
         lease_rows.push(lease);
@@ -255,13 +277,21 @@ pub(crate) fn read(
             return Err("capacity status lease page exceeds native bound".to_string());
         }
     }
-    let next_cursor = lease_rows.last().map(|lease| lease.lease_id.clone());
-    Ok(CapacityStatusResult {
-        schema_version: NativeControlSchemaVersion::V1,
-        cells: cell_rows,
-        leases: lease_rows,
-        next_cursor,
-    })
+    Ok(lease_rows)
+}
+
+/// Whether a scanned lease row belongs to the requester's tenant and matches
+/// the optional cell/lease id filters.
+fn lease_matches_status_request(lease: &CapacityLease, request: &CapacityStatusRequest) -> bool {
+    lease.tenant_ref == request.tenant_ref
+        && request
+            .cell_id
+            .as_deref()
+            .is_none_or(|wanted| wanted == lease.cell_id)
+        && request
+            .lease_id
+            .as_deref()
+            .is_none_or(|wanted| wanted == lease.lease_id)
 }
 
 fn apply_in_wtx(
@@ -359,31 +389,10 @@ fn acquire(
                 "capacity acquire demands must name each cell/resource dimension once".to_string(),
             );
         }
-        let cell = cells
-            .get((graph, demand.cell_id.as_str()))
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("capacity cell '{}' was not found", demand.cell_id))
-            .and_then(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))?;
-        validate_cell_bounds(&cell)?;
-        if cell.resource_class != demand.resource_class {
-            return Err(format!(
-                "capacity cell '{}' resource dimension mismatch",
-                demand.cell_id
-            ));
-        }
-        let row = usage
-            .get((graph, demand.cell_id.as_str()))
-            .map_err(|e| e.to_string())?
-            .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
-            .transpose()?
-            .unwrap_or_default();
-        let available = cell.available_for(request.priority, row.leased_amount);
-        availability.push(CapacityAvailability {
-            cell_id: demand.cell_id.clone(),
-            resource_class: demand.resource_class,
-            available,
-            requested: demand.amount,
-        });
+        let (cell, row, priced) =
+            price_demand(&cells, &usage, graph, request.priority, demand, crypto)?;
+        let available = priced.available;
+        availability.push(priced);
         if demand.amount == 0 || demand.amount > MAX_CAPACITY_AMOUNT || available < demand.amount {
             return Ok(CapacityAcquireResult {
                 schema_version: NativeControlSchemaVersion::V1,
@@ -398,58 +407,24 @@ fn acquire(
     }
 
     let mut out = Vec::with_capacity(demands.len());
-    for (index, ((demand, cell), mut row)) in
-        demands.iter().zip(cell_rows).zip(usage_rows).enumerate()
+    for (index, ((demand, cell), row)) in demands
+        .iter()
+        .zip(cell_rows.iter())
+        .zip(usage_rows)
+        .enumerate()
     {
-        row.next_fence = row
-            .next_fence
-            .checked_add(1)
-            .ok_or_else(|| "capacity fence exhausted".to_string())?;
-        let lease_id = lease_id(request, demand, index, &digest)?;
-        if leases
-            .get((graph, lease_id.as_str()))
-            .map_err(|e| e.to_string())?
-            .is_some()
-        {
-            return Err("capacity lease id is already in use".to_string());
-        }
-        let lease = CapacityLease {
-            schema_version: 1,
-            lease_id,
-            work_item_id: request.work_item_id.clone(),
-            tenant_ref: request.tenant_ref.clone(),
-            actor_digest: request.owner_digest.clone(),
-            cell_id: demand.cell_id.clone(),
-            resource_class: demand.resource_class,
-            amount: demand.amount,
-            priority: request.priority,
-            fence_token: row.next_fence,
-            lease_epoch: cell.epoch,
-            issued_at_ms: request.now_ms,
-            expires_at_ms: request.now_ms.saturating_add(request.ttl_ms),
-            renewed_count: 0,
-            cost_budget_micros: request.cost_budget_micros,
-            token_budget: request.token_budget,
-            idempotency_key: request.idempotency_key.clone(),
-            state: LeaseState::Active,
-        };
-        lease
-            .validate()
-            .map_err(|error| format!("invalid capacity lease: {error:?}"))?;
-        row.leased_amount = row
-            .leased_amount
-            .checked_add(demand.amount)
-            .ok_or_else(|| "capacity usage overflow".to_string())?;
-        let sealed_lease_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
-        let sealed_lease = crypto.seal(&sealed_lease_bytes);
-        leases
-            .insert((graph, lease.lease_id.as_str()), sealed_lease.as_ref())
-            .map_err(|e| e.to_string())?;
-        let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
-        let sealed_usage = crypto.seal(&sealed_usage_bytes);
-        usage
-            .insert((graph, demand.cell_id.as_str()), sealed_usage.as_ref())
-            .map_err(|e| e.to_string())?;
+        let lease = issue_acquired_lease(
+            &mut leases,
+            &mut usage,
+            graph,
+            request,
+            demand,
+            cell,
+            row,
+            index,
+            &digest,
+            crypto,
+        )?;
         out.push(lease);
     }
     let result = CapacityAcquireResult {
@@ -474,6 +449,140 @@ fn acquire(
     Ok(result)
 }
 
+/// Look up one demand's cell + current usage row and price its availability
+/// against the requested priority. Does not decide admission — the caller
+/// compares `CapacityAvailability::available` against the demand's requested
+/// amount, since an exhausted demand still needs its priced entry recorded.
+fn price_demand(
+    cells: &redb::Table<'_, (&str, &str), &[u8]>,
+    usage: &redb::Table<'_, (&str, &str), &[u8]>,
+    graph: &str,
+    priority: eg_types::capacity_lease::LeasePriority,
+    demand: &CapacityDemand,
+    crypto: DurableCrypto<'_>,
+) -> Result<(CapacityCell, DurableUsage, CapacityAvailability), String> {
+    let cell = cells
+        .get((graph, demand.cell_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("capacity cell '{}' was not found", demand.cell_id))
+        .and_then(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))?;
+    validate_cell_bounds(&cell)?;
+    if cell.resource_class != demand.resource_class {
+        return Err(format!(
+            "capacity cell '{}' resource dimension mismatch",
+            demand.cell_id
+        ));
+    }
+    let row = usage
+        .get((graph, demand.cell_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
+        .transpose()?
+        .unwrap_or_default();
+    let available = cell.available_for(priority, row.leased_amount);
+    let availability = CapacityAvailability {
+        cell_id: demand.cell_id.clone(),
+        resource_class: demand.resource_class,
+        available,
+        requested: demand.amount,
+    };
+    Ok((cell, row, availability))
+}
+
+/// Assign the next fence token, mint the lease, and durably record both the
+/// lease row and the cell's updated usage row for one already-priced demand.
+#[allow(clippy::too_many_arguments)]
+fn issue_acquired_lease(
+    leases: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    usage: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    graph: &str,
+    request: &CapacityAcquireRequest,
+    demand: &CapacityDemand,
+    cell: &CapacityCell,
+    mut row: DurableUsage,
+    index: usize,
+    digest: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<CapacityLease, String> {
+    row.next_fence = row
+        .next_fence
+        .checked_add(1)
+        .ok_or_else(|| "capacity fence exhausted".to_string())?;
+    let lease_id = lease_id(request, demand, index, digest)?;
+    if leases
+        .get((graph, lease_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err("capacity lease id is already in use".to_string());
+    }
+    let lease = CapacityLease {
+        schema_version: 1,
+        lease_id,
+        work_item_id: request.work_item_id.clone(),
+        tenant_ref: request.tenant_ref.clone(),
+        actor_digest: request.owner_digest.clone(),
+        cell_id: demand.cell_id.clone(),
+        resource_class: demand.resource_class,
+        amount: demand.amount,
+        priority: request.priority,
+        fence_token: row.next_fence,
+        lease_epoch: cell.epoch,
+        issued_at_ms: request.now_ms,
+        expires_at_ms: request.now_ms.saturating_add(request.ttl_ms),
+        renewed_count: 0,
+        cost_budget_micros: request.cost_budget_micros,
+        token_budget: request.token_budget,
+        idempotency_key: request.idempotency_key.clone(),
+        state: LeaseState::Active,
+    };
+    lease
+        .validate()
+        .map_err(|error| format!("invalid capacity lease: {error:?}"))?;
+    row.leased_amount = row
+        .leased_amount
+        .checked_add(demand.amount)
+        .ok_or_else(|| "capacity usage overflow".to_string())?;
+    let sealed_lease_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
+    let sealed_lease = crypto.seal(&sealed_lease_bytes);
+    leases
+        .insert((graph, lease.lease_id.as_str()), sealed_lease.as_ref())
+        .map_err(|e| e.to_string())?;
+    let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
+    let sealed_usage = crypto.seal(&sealed_usage_bytes);
+    usage
+        .insert((graph, demand.cell_id.as_str()), sealed_usage.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(lease)
+}
+
+/// If the mutation's idempotency key already has a recorded replay row,
+/// validate the stored digest/operation match and return the replayed
+/// result; otherwise `None` so the caller proceeds with a fresh mutation.
+fn check_mutation_replay(
+    wtx: &WriteTransaction,
+    graph: &str,
+    request: &CapacityLeaseMutationRequest,
+    renew: bool,
+    digest: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<CapacityMutationResult>, String> {
+    let Some(key) = request.idempotency_key.as_deref() else {
+        return Ok(None);
+    };
+    let Some(replay) = read_replay(wtx, graph, &request.tenant_ref, key, crypto)? else {
+        return Ok(None);
+    };
+    if replay.digest != digest || replay.operation != if renew { "renew" } else { "release" } {
+        return Err(
+            "IDEMPOTENCY_CONFLICT: capacity mutation key has a different request".to_string(),
+        );
+    }
+    let mut result: CapacityMutationResult = decode_durable(&crypto.unseal(&replay.result)?)?;
+    result.decision = CapacityDecision::Replayed;
+    Ok(Some(result))
+}
+
 fn mutate_leases(
     wtx: &WriteTransaction,
     graph: &str,
@@ -486,127 +595,33 @@ fn mutate_leases(
     let mut digest_request = request.clone();
     digest_request.now_ms = 0;
     let digest = request_digest(&digest_request)?;
-    if let Some(key) = key {
-        if let Some(replay) = read_replay(wtx, graph, &request.tenant_ref, key, crypto)? {
-            if replay.digest != digest
-                || replay.operation != if renew { "renew" } else { "release" }
-            {
-                return Err(
-                    "IDEMPOTENCY_CONFLICT: capacity mutation key has a different request"
-                        .to_string(),
-                );
-            }
-            let mut result: CapacityMutationResult =
-                decode_durable(&crypto.unseal(&replay.result)?)?;
-            result.decision = CapacityDecision::Replayed;
-            return Ok(result);
-        }
+    if let Some(result) = check_mutation_replay(wtx, graph, request, renew, &digest, crypto)? {
+        return Ok(result);
     }
     let leases_table = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
     let cells_table = wtx.open_table(CELLS).map_err(|e| e.to_string())?;
     let mut snapshots = Vec::with_capacity(request.leases.len());
     for fence in &request.leases {
-        let current = leases_table
-            .get((graph, fence.lease_id.as_str()))
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("capacity lease '{}' was not found", fence.lease_id))
-            .and_then(|value| decode_durable::<CapacityLease>(&crypto.unseal(value.value())?))?;
-        if current.tenant_ref != request.tenant_ref || current.actor_digest != request.owner_digest
-        {
-            return Ok(CapacityMutationResult {
-                schema_version: NativeControlSchemaVersion::V1,
-                decision: CapacityDecision::StaleFence,
-                leases: Vec::new(),
-                message: Some("capacity lease owner mismatch".to_string()),
-            });
+        match check_lease_fence(&leases_table, &cells_table, graph, request, fence, crypto)? {
+            FenceCheck::Snapshot(lease) => snapshots.push(*lease),
+            FenceCheck::Rejected(result) => return Ok(*result),
         }
-        if current.lease_epoch != fence.lease_epoch {
-            return Ok(CapacityMutationResult {
-                schema_version: NativeControlSchemaVersion::V1,
-                decision: CapacityDecision::StaleEpoch,
-                leases: Vec::new(),
-                message: Some("capacity lease epoch is stale".to_string()),
-            });
-        }
-        let cell = cells_table
-            .get((graph, current.cell_id.as_str()))
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("capacity cell '{}' was not found", current.cell_id))
-            .and_then(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))?;
-        validate_cell_bounds(&cell)?;
-        if cell.epoch != current.lease_epoch {
-            return Ok(CapacityMutationResult {
-                schema_version: NativeControlSchemaVersion::V1,
-                decision: CapacityDecision::StaleEpoch,
-                leases: vec![current],
-                message: Some("capacity cell epoch has advanced".to_string()),
-            });
-        }
-        if current.fence_token != fence.fence_token {
-            return Ok(CapacityMutationResult {
-                schema_version: NativeControlSchemaVersion::V1,
-                decision: CapacityDecision::StaleFence,
-                leases: Vec::new(),
-                message: Some("capacity lease fence is stale".to_string()),
-            });
-        }
-        if matches!(
-            current.state,
-            LeaseState::Released | LeaseState::Expired | LeaseState::Reclaimed
-        ) {
-            return Ok(CapacityMutationResult {
-                schema_version: NativeControlSchemaVersion::V1,
-                decision: CapacityDecision::Expired,
-                leases: vec![current],
-                message: Some("capacity lease is no longer active".to_string()),
-            });
-        }
-        if request.now_ms >= current.expires_at_ms {
-            return Ok(CapacityMutationResult {
-                schema_version: NativeControlSchemaVersion::V1,
-                decision: CapacityDecision::Expired,
-                leases: vec![current],
-                message: Some("capacity lease has expired".to_string()),
-            });
-        }
-        snapshots.push(current);
     }
     drop(leases_table);
     drop(cells_table);
     let mut leases_table = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
     let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
     let mut output = Vec::with_capacity(snapshots.len());
-    for mut lease in snapshots {
-        if renew {
-            let ttl_ms = request.ttl_ms.unwrap_or(DEFAULT_TTL_MS);
-            lease.expires_at_ms = request.now_ms.saturating_add(ttl_ms);
-            lease.renewed_count = lease.renewed_count.saturating_add(1);
-            lease.state = LeaseState::Renewed;
-        } else {
-            lease.state = LeaseState::Released;
-            let mut row = usage
-                .get((graph, lease.cell_id.as_str()))
-                .map_err(|e| e.to_string())?
-                .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
-                .transpose()?
-                .unwrap_or_default();
-            row.leased_amount = row.leased_amount.checked_sub(lease.amount).ok_or_else(|| {
-                "capacity usage underflow; ledger requires reconciliation".to_string()
-            })?;
-            let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
-            let sealed_usage = crypto.seal(&sealed_usage_bytes);
-            usage
-                .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
-                .map_err(|e| e.to_string())?;
-        }
-        lease
-            .validate()
-            .map_err(|error| format!("invalid capacity lease: {error:?}"))?;
-        let sealed_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
-        let sealed = crypto.seal(&sealed_bytes);
-        leases_table
-            .insert((graph, lease.lease_id.as_str()), sealed.as_ref())
-            .map_err(|e| e.to_string())?;
+    for lease in snapshots {
+        let lease = apply_lease_mutation(
+            &mut leases_table,
+            &mut usage,
+            graph,
+            request,
+            renew,
+            lease,
+            crypto,
+        )?;
         output.push(lease);
     }
     let result = CapacityMutationResult {
@@ -634,6 +649,136 @@ fn mutate_leases(
         )?;
     }
     Ok(result)
+}
+
+/// Outcome of checking one lease-mutation request's fence against the
+/// currently durable lease/cell rows: either the lease snapshot to carry into
+/// the apply pass, or the terminal (non-error) `CapacityMutationResult` the
+/// caller should return as-is. `Box`ed because `CapacityMutationResult` is
+/// large relative to the `CapacityLease` alternative (clippy::large_enum_variant).
+enum FenceCheck {
+    Snapshot(Box<CapacityLease>),
+    Rejected(Box<CapacityMutationResult>),
+}
+
+/// Validate one `CapacityLeaseFence` against its durable lease and cell rows:
+/// ownership, lease epoch, cell epoch (CAS), fence token, and active/expiry
+/// state, in that order — mirrors the original inline guard-clause sequence.
+fn check_lease_fence(
+    leases_table: &redb::Table<'_, (&str, &str), &[u8]>,
+    cells_table: &redb::Table<'_, (&str, &str), &[u8]>,
+    graph: &str,
+    request: &CapacityLeaseMutationRequest,
+    fence: &eg_types::native_control::CapacityLeaseFence,
+    crypto: DurableCrypto<'_>,
+) -> Result<FenceCheck, String> {
+    let current = leases_table
+        .get((graph, fence.lease_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("capacity lease '{}' was not found", fence.lease_id))
+        .and_then(|value| decode_durable::<CapacityLease>(&crypto.unseal(value.value())?))?;
+    if current.tenant_ref != request.tenant_ref || current.actor_digest != request.owner_digest {
+        return Ok(FenceCheck::Rejected(Box::new(CapacityMutationResult {
+            schema_version: NativeControlSchemaVersion::V1,
+            decision: CapacityDecision::StaleFence,
+            leases: Vec::new(),
+            message: Some("capacity lease owner mismatch".to_string()),
+        })));
+    }
+    if current.lease_epoch != fence.lease_epoch {
+        return Ok(FenceCheck::Rejected(Box::new(CapacityMutationResult {
+            schema_version: NativeControlSchemaVersion::V1,
+            decision: CapacityDecision::StaleEpoch,
+            leases: Vec::new(),
+            message: Some("capacity lease epoch is stale".to_string()),
+        })));
+    }
+    let cell = cells_table
+        .get((graph, current.cell_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("capacity cell '{}' was not found", current.cell_id))
+        .and_then(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))?;
+    validate_cell_bounds(&cell)?;
+    if cell.epoch != current.lease_epoch {
+        return Ok(FenceCheck::Rejected(Box::new(CapacityMutationResult {
+            schema_version: NativeControlSchemaVersion::V1,
+            decision: CapacityDecision::StaleEpoch,
+            leases: vec![current],
+            message: Some("capacity cell epoch has advanced".to_string()),
+        })));
+    }
+    if current.fence_token != fence.fence_token {
+        return Ok(FenceCheck::Rejected(Box::new(CapacityMutationResult {
+            schema_version: NativeControlSchemaVersion::V1,
+            decision: CapacityDecision::StaleFence,
+            leases: Vec::new(),
+            message: Some("capacity lease fence is stale".to_string()),
+        })));
+    }
+    if matches!(
+        current.state,
+        LeaseState::Released | LeaseState::Expired | LeaseState::Reclaimed
+    ) {
+        return Ok(FenceCheck::Rejected(Box::new(CapacityMutationResult {
+            schema_version: NativeControlSchemaVersion::V1,
+            decision: CapacityDecision::Expired,
+            leases: vec![current],
+            message: Some("capacity lease is no longer active".to_string()),
+        })));
+    }
+    if request.now_ms >= current.expires_at_ms {
+        return Ok(FenceCheck::Rejected(Box::new(CapacityMutationResult {
+            schema_version: NativeControlSchemaVersion::V1,
+            decision: CapacityDecision::Expired,
+            leases: vec![current],
+            message: Some("capacity lease has expired".to_string()),
+        })));
+    }
+    Ok(FenceCheck::Snapshot(Box::new(current)))
+}
+
+/// Apply a renewal or release to one already-fence-checked lease snapshot and
+/// durably record the lease (and, on release, the cell's usage row).
+fn apply_lease_mutation(
+    leases_table: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    usage: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    graph: &str,
+    request: &CapacityLeaseMutationRequest,
+    renew: bool,
+    mut lease: CapacityLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<CapacityLease, String> {
+    if renew {
+        let ttl_ms = request.ttl_ms.unwrap_or(DEFAULT_TTL_MS);
+        lease.expires_at_ms = request.now_ms.saturating_add(ttl_ms);
+        lease.renewed_count = lease.renewed_count.saturating_add(1);
+        lease.state = LeaseState::Renewed;
+    } else {
+        lease.state = LeaseState::Released;
+        let mut row = usage
+            .get((graph, lease.cell_id.as_str()))
+            .map_err(|e| e.to_string())?
+            .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
+            .transpose()?
+            .unwrap_or_default();
+        row.leased_amount = row.leased_amount.checked_sub(lease.amount).ok_or_else(|| {
+            "capacity usage underflow; ledger requires reconciliation".to_string()
+        })?;
+        let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
+        let sealed_usage = crypto.seal(&sealed_usage_bytes);
+        usage
+            .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
+            .map_err(|e| e.to_string())?;
+    }
+    lease
+        .validate()
+        .map_err(|error| format!("invalid capacity lease: {error:?}"))?;
+    let sealed_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&sealed_bytes);
+    leases_table
+        .insert((graph, lease.lease_id.as_str()), sealed.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(lease)
 }
 
 fn reclaim(
@@ -694,7 +839,59 @@ fn reclaim_expired_inner(
     } = scope;
     let mut leases = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
     let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
-    let mut expired = Vec::new();
+    let candidates = scan_expired_candidates(
+        &leases,
+        graph,
+        now_ms,
+        ExpiryScanFilter {
+            tenant,
+            cell_id,
+            cursor,
+            max_count,
+        },
+        crypto,
+    )?;
+    let mut expired = Vec::with_capacity(candidates.len());
+    for (lease_id, lease) in candidates {
+        expired.push(reclaim_one_lease(
+            &mut leases,
+            &mut usage,
+            graph,
+            lease_id,
+            lease,
+            crypto,
+        )?);
+    }
+    Ok(expired)
+}
+
+/// The tenant/cell/cursor/count filter one expiry scan pass applies while
+/// walking the LEASES table. Split out of `reclaim_expired_inner`'s
+/// `ReclaimScope` so the scan helper's own arity stays readable
+/// (clippy::too_many_arguments).
+struct ExpiryScanFilter<'a> {
+    tenant: Option<&'a str>,
+    cell_id: Option<&'a str>,
+    cursor: Option<&'a str>,
+    max_count: usize,
+}
+
+/// Bounded scan of the LEASES table for active/renewed leases past
+/// `now_ms`, honoring the tenant/cell/cursor filter and paging at
+/// `max_count`. Does not mutate anything — callers reclaim the returned rows.
+fn scan_expired_candidates(
+    leases: &redb::Table<'_, (&str, &str), &[u8]>,
+    graph: &str,
+    now_ms: u64,
+    filter: ExpiryScanFilter<'_>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<(String, CapacityLease)>, String> {
+    let ExpiryScanFilter {
+        tenant,
+        cell_id,
+        cursor,
+        max_count,
+    } = filter;
     let mut candidates = Vec::new();
     let mut scanned = 0usize;
     for row in leases.range((graph, "")..).map_err(|e| e.to_string())? {
@@ -723,30 +920,41 @@ fn reclaim_expired_inner(
             break;
         }
     }
-    for (lease_id, mut lease) in candidates {
-        lease.state = LeaseState::Reclaimed;
-        let mut row = usage
-            .get((graph, lease.cell_id.as_str()))
-            .map_err(|e| e.to_string())?
-            .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
-            .transpose()?
-            .unwrap_or_default();
-        row.leased_amount = row.leased_amount.checked_sub(lease.amount).ok_or_else(|| {
-            "capacity usage underflow; ledger requires reconciliation".to_string()
-        })?;
-        let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
-        let sealed_usage = crypto.seal(&sealed_usage_bytes);
-        usage
-            .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
-            .map_err(|e| e.to_string())?;
-        let sealed_lease_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
-        let sealed_lease = crypto.seal(&sealed_lease_bytes);
-        leases
-            .insert((graph, lease_id.as_str()), sealed_lease.as_ref())
-            .map_err(|e| e.to_string())?;
-        expired.push(lease_id);
-    }
-    Ok(expired)
+    Ok(candidates)
+}
+
+/// Mark one already-selected candidate lease Reclaimed and durably record it
+/// plus its cell's decremented usage row.
+fn reclaim_one_lease(
+    leases: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    usage: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    graph: &str,
+    lease_id: String,
+    mut lease: CapacityLease,
+    crypto: DurableCrypto<'_>,
+) -> Result<String, String> {
+    lease.state = LeaseState::Reclaimed;
+    let mut row = usage
+        .get((graph, lease.cell_id.as_str()))
+        .map_err(|e| e.to_string())?
+        .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
+        .transpose()?
+        .unwrap_or_default();
+    row.leased_amount = row
+        .leased_amount
+        .checked_sub(lease.amount)
+        .ok_or_else(|| "capacity usage underflow; ledger requires reconciliation".to_string())?;
+    let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
+    let sealed_usage = crypto.seal(&sealed_usage_bytes);
+    usage
+        .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
+        .map_err(|e| e.to_string())?;
+    let sealed_lease_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
+    let sealed_lease = crypto.seal(&sealed_lease_bytes);
+    leases
+        .insert((graph, lease_id.as_str()), sealed_lease.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(lease_id)
 }
 
 fn update_cell(
@@ -843,6 +1051,17 @@ fn validate_acquire_request(request: &CapacityAcquireRequest) -> Result<(), Stri
     validate_id(&request.work_item_id, "work_item_id")?;
     validate_id(&request.owner_digest, "owner_digest")?;
     validate_id(&request.idempotency_key, "idempotency_key")?;
+    validate_acquire_batch_shape(request)?;
+    for demand in &request.demands {
+        validate_id(&demand.cell_id, "capacity demand cell_id")?;
+        validate_demand_amount(demand.amount)?;
+    }
+    Ok(())
+}
+
+/// Batch-level acquire-request bounds that do not depend on any one demand:
+/// demand count, ttl, budgets, and the single-demand `lease_id` rule.
+fn validate_acquire_batch_shape(request: &CapacityAcquireRequest) -> Result<(), String> {
     if request.demands.is_empty() || request.demands.len() > MAX_CAPACITY_DEMANDS {
         return Err("capacity acquire demand count is outside native bounds".to_string());
     }
@@ -868,11 +1087,12 @@ fn validate_acquire_request(request: &CapacityAcquireRequest) -> Result<(), Stri
     if request.lease_id.is_some() && request.demands.len() != 1 {
         return Err("capacity lease_id is only valid for a single demand".to_string());
     }
-    for demand in &request.demands {
-        validate_id(&demand.cell_id, "capacity demand cell_id")?;
-        if demand.amount == 0 || demand.amount > MAX_CAPACITY_AMOUNT {
-            return Err("capacity demand amount is outside native bounds".to_string());
-        }
+    Ok(())
+}
+
+fn validate_demand_amount(amount: u64) -> Result<(), String> {
+    if amount == 0 || amount > MAX_CAPACITY_AMOUNT {
+        return Err("capacity demand amount is outside native bounds".to_string());
     }
     Ok(())
 }
@@ -906,9 +1126,19 @@ fn validate_mutation_request(
     let mut ids = BTreeSet::new();
     for lease in &request.leases {
         validate_id(&lease.lease_id, "capacity lease_id")?;
-        if lease.lease_epoch == 0 || lease.fence_token == 0 || !ids.insert(lease.lease_id.clone()) {
-            return Err("capacity lease fence is invalid or duplicated".to_string());
-        }
+        validate_lease_fence_unique(lease, &mut ids)?;
+    }
+    Ok(())
+}
+
+/// A mutation-batch lease fence must carry a nonzero epoch/fence token and
+/// name each `lease_id` at most once within the batch.
+fn validate_lease_fence_unique(
+    lease: &eg_types::native_control::CapacityLeaseFence,
+    ids: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    if lease.lease_epoch == 0 || lease.fence_token == 0 || !ids.insert(lease.lease_id.clone()) {
+        return Err("capacity lease fence is invalid or duplicated".to_string());
     }
     Ok(())
 }
