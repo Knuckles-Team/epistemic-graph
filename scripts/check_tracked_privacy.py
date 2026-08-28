@@ -214,53 +214,58 @@ _RESERVED_IPV6_NETWORKS = tuple(
 )
 
 
-def _is_reserved_hostname(host: str) -> bool:
-    """True for an RFC-reserved-for-documentation hostname/address.
+def _is_localhost_name(candidate: str) -> bool:
+    """``localhost`` or any ``*.localhost`` name (RFC 6761)."""
+    return candidate == "localhost" or candidate.endswith(".localhost")
 
-    Covers example.com/.net/.org and any ``*.test``/``*.example``/
-    ``*.invalid``/``*.localhost`` name (RFC 2606, 6761), plus the RFC
-    5737/3927/3849 documentation address blocks and bare ``localhost``.
 
-    BUG-241: also covers this repo's own extension of the RFC 2606
-    convention -- a hostname whose LEADING label IS ``example`` or is
-    prefixed ``example-`` (e.g. ``example-host-prod.internal.arpa``, the
-    adversarial-fixture convention already used in
-    ``tests/unit/mcp/test_compliance_tools.py``, and mirroring the existing
-    ``_RESERVED_HOME_USERS`` "example"/"example-user" handling for home
-    paths). Scoped to the FIRST label only, never any label anywhere in the
-    name: a multi-label internal-looking value can legitimately carry
-    "example" as an unrelated interior segment (a pre-existing fixture in
-    ``tests/gates/test_docs_contract_gate.py`` builds a value with an interior
-    ``example`` label ahead of the ``svc``/``cluster``/``local`` triplet this
-    way to prove a genuine leak is still caught) -- only the convention's
-    actual signal position,
-    the label that names the fake host itself, counts.
+def _is_docker_internal_name(candidate: str) -> bool:
+    """CX-RAT-09: ``host.docker.internal`` is Docker's OWN published, universal
+    convention (Docker Desktop's `extra_hosts: host.docker.internal:host-
+    gateway` special value, documented at docs.docker.com and used in
+    millions of public docker-compose.yml files) -- it names no host
+    specific to any one deployment; every Docker install answers to it
+    identically. A single fixed literal, not a wildcard/prefix rule, so
+    this cannot mask a genuine ``*.internal`` leak the way widening the
+    general suffix match would.
     """
-    candidate = host.strip().rstrip(".").casefold()
-    if not candidate:
-        return False
-    if candidate == "localhost" or candidate.endswith(".localhost"):
-        return True
-    # CX-RAT-09: ``host.docker.internal`` is Docker's OWN published, universal
-    # convention (Docker Desktop's `extra_hosts: host.docker.internal:host-
-    # gateway` special value, documented at docs.docker.com and used in
-    # millions of public docker-compose.yml files) -- it names no host
-    # specific to any one deployment; every Docker install answers to it
-    # identically. A single fixed literal, not a wildcard/prefix rule, so
-    # this cannot mask a genuine ``*.internal`` leak the way widening the
-    # general suffix match would.
-    if candidate == "host.docker.internal":
-        return True
-    if candidate in _RESERVED_EXAMPLE_DOMAINS or any(
+    return candidate == "host.docker.internal"
+
+
+def _is_reserved_example_domain(candidate: str) -> bool:
+    """RFC 2606 ``example.com``/``.net``/``.org`` and their subdomains."""
+    return candidate in _RESERVED_EXAMPLE_DOMAINS or any(
         candidate.endswith(f".{domain}") for domain in _RESERVED_EXAMPLE_DOMAINS
-    ):
-        return True
+    )
+
+
+def _is_example_prefixed_label(candidate: str) -> bool:
+    """BUG-241: leading label is ``example`` or ``example-*``.
+
+    This repo's own extension of the RFC 2606 convention (e.g.
+    ``example-host-prod.internal.arpa``, the adversarial-fixture convention
+    already used in ``tests/unit/mcp/test_compliance_tools.py``, and
+    mirroring the existing ``_RESERVED_HOME_USERS`` "example"/"example-user"
+    handling for home paths). Scoped to the FIRST label only, never any
+    label anywhere in the name: a multi-label internal-looking value can
+    legitimately carry "example" as an unrelated interior segment (a
+    pre-existing fixture in ``tests/gates/test_docs_contract_gate.py``
+    builds a value with an interior ``example`` label ahead of the
+    ``svc``/``cluster``/``local`` triplet this way to prove a genuine leak
+    is still caught) -- only the convention's actual signal position, the
+    label that names the fake host itself, counts.
+    """
     labels = candidate.split(".")
-    if labels[0] == "example" or labels[0].startswith("example-"):
-        return True
-    last_label = labels[-1]
-    if last_label in _RESERVED_DOCUMENTATION_TLDS:
-        return True
+    return labels[0] == "example" or labels[0].startswith("example-")
+
+
+def _is_documentation_tld(candidate: str) -> bool:
+    """Trailing label is an RFC 2606 documentation TLD."""
+    return candidate.split(".")[-1] in _RESERVED_DOCUMENTATION_TLDS
+
+
+def _is_reserved_documentation_address(candidate: str) -> bool:
+    """RFC 5737/3927/3849 documentation-reserved IPv4/IPv6 address block."""
     try:
         address = ipaddress.ip_address(candidate)
     except ValueError:
@@ -269,6 +274,33 @@ def _is_reserved_hostname(host: str) -> bool:
         _RESERVED_IPV6_NETWORKS if address.version == 6 else _RESERVED_IPV4_NETWORKS
     )
     return any(address in network for network in networks)
+
+
+_RESERVED_HOSTNAME_CHECKS = (
+    _is_localhost_name,
+    _is_docker_internal_name,
+    _is_reserved_example_domain,
+    _is_example_prefixed_label,
+    _is_documentation_tld,
+    _is_reserved_documentation_address,
+)
+
+
+def _is_reserved_hostname(host: str) -> bool:
+    """True for an RFC-reserved-for-documentation hostname/address.
+
+    Covers example.com/.net/.org and any ``*.test``/``*.example``/
+    ``*.invalid``/``*.localhost`` name (RFC 2606, 6761), plus the RFC
+    5737/3927/3849 documentation address blocks and bare ``localhost``,
+    Docker's own ``host.docker.internal``, and this repo's ``example``-
+    prefixed-label convention (BUG-241). See the individual ``_is_*``
+    predicates in ``_RESERVED_HOSTNAME_CHECKS`` above for the per-category
+    rationale.
+    """
+    candidate = host.strip().rstrip(".").casefold()
+    if not candidate:
+        return False
+    return any(check(candidate) for check in _RESERVED_HOSTNAME_CHECKS)
 
 
 _PERSISTED_FIELD_RE = re.compile(
@@ -465,6 +497,74 @@ def _identifier_from_path(value: str) -> set[str]:
     return identifiers
 
 
+def _identifiers_from_override(override: str) -> frozenset[str]:
+    """Declared identifiers from ``AGENT_UTILITIES_PRIVACY_IDENTIFIERS``."""
+    declared = {
+        value.strip() for value in re.split(r"[,\n]", override) if value.strip()
+    }
+    return frozenset(
+        value.casefold()
+        for value in declared
+        if len(value) >= 4 and value.casefold() not in _GENERIC_IDENTIFIERS
+    )
+
+
+def _os_identifier_candidates() -> set[str]:
+    """Ambient OS username/hostname/home-dir candidates (unfiltered)."""
+    candidates = {
+        getpass.getuser(),
+        socket.gethostname(),
+        socket.gethostname().split(".", 1)[0],
+        os.environ.get("USER", ""),
+        os.environ.get("LOGNAME", ""),
+        os.environ.get("USERNAME", ""),
+        Path.home().name,
+    }
+    if pwd is not None:  # POSIX: one more redundant source, see import above
+        candidates.add(pwd.getpwuid(os.getuid()).pw_name)
+    candidates.update(_identifier_from_path(str(Path.home())))
+    return candidates
+
+
+def _git_common_dir_identifiers(root: Path) -> set[str]:
+    """Identifiers embedded in the checkout's own ``--git-common-dir`` path."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            env=sanitized_git_env(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return _identifier_from_path(result.stdout.strip())
+
+
+def _git_config_identifiers(root: Path) -> set[str]:
+    """The calling process's own ``git config user.name``/``user.email``."""
+    candidates: set[str] = set()
+    for command in (
+        ["git", "config", "--get", "user.name"],
+        ["git", "config", "--get", "user.email"],
+    ):
+        try:
+            result = subprocess.run(
+                command,
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+                env=sanitized_git_env(),
+            )
+        except OSError:
+            continue
+        for value in result.stdout.splitlines():
+            candidates.add(value.strip())
+    return candidates
+
+
 def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     """Identifiers this gate treats as sensitive if they appear in tracked text.
 
@@ -514,56 +614,11 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     """
     override = os.environ.get("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", "").strip()
     if override:
-        declared = {
-            value.strip() for value in re.split(r"[,\n]", override) if value.strip()
-        }
-        return frozenset(
-            value.casefold()
-            for value in declared
-            if len(value) >= 4 and value.casefold() not in _GENERIC_IDENTIFIERS
-        )
+        return _identifiers_from_override(override)
 
-    candidates = {
-        getpass.getuser(),
-        socket.gethostname(),
-        socket.gethostname().split(".", 1)[0],
-        os.environ.get("USER", ""),
-        os.environ.get("LOGNAME", ""),
-        os.environ.get("USERNAME", ""),
-        Path.home().name,
-    }
-    if pwd is not None:  # POSIX: one more redundant source, see import above
-        candidates.add(pwd.getpwuid(os.getuid()).pw_name)
-    candidates.update(_identifier_from_path(str(Path.home())))
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            text=True,
-            env=sanitized_git_env(),
-        )
-        candidates.update(_identifier_from_path(result.stdout.strip()))
-    except (OSError, subprocess.SubprocessError):
-        pass
-    for command in (
-        ["git", "config", "--get", "user.name"],
-        ["git", "config", "--get", "user.email"],
-    ):
-        try:
-            result = subprocess.run(
-                command,
-                cwd=root,
-                check=False,
-                capture_output=True,
-                text=True,
-                env=sanitized_git_env(),
-            )
-            for value in result.stdout.splitlines():
-                candidates.add(value.strip())
-        except OSError:
-            pass
+    candidates = _os_identifier_candidates()
+    candidates.update(_git_common_dir_identifiers(root))
+    candidates.update(_git_config_identifiers(root))
     return frozenset(
         value.casefold()
         for value in candidates
@@ -586,6 +641,48 @@ def _is_deployment_doc(path: Path) -> bool:
     )
 
 
+def _persisted_path_category(line: str) -> str | None:
+    """"persisted machine path" if the line assigns a non-neutral path field."""
+    persisted = _PERSISTED_FIELD_RE.search(line)
+    if not persisted or _NEUTRAL_URI_RE.search(persisted.group("value")):
+        return None
+    value = persisted.group("value").strip(" \t,;)}]\"'").casefold()
+    field = persisted.group("field")
+    # A shell/template interpolation placeholder (``${WORKSPACE_ROOT}``, closing
+    # brace already stripped above) is resolved at runtime by whatever consumes
+    # the file, never a baked-in machine path — safe regardless of the field's
+    # own casing, same reasoning as the existing uppercase-field exemption.
+    is_template_placeholder = value.startswith("${")
+    runtime_relative = (
+        field.isupper() or is_template_placeholder
+    ) and not re.match(r"^(?:[a-z]:|[/\\]|~)", value, re.IGNORECASE)
+    if value in {"", "none", "null", "unset"} or runtime_relative:
+        return None
+    return "persisted machine path"
+
+
+def _identifier_category(folded_line: str, identifiers: frozenset[str]) -> str | None:
+    """"local account or host identifier" if any derived identifier appears."""
+    matches = any(
+        re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", folded_line)
+        for value in identifiers
+    )
+    return "local account or host identifier" if matches else None
+
+
+def _deployment_doc_categories(line: str) -> frozenset[str]:
+    """Categories that only apply inside a deployment/recipe doc."""
+    categories: set[str] = set()
+    if _INTERNAL_ENDPOINT_RE.search(line):
+        categories.add("hard-coded internal endpoint")
+    credential_match = _CREDENTIAL_URI_RE.search(line)
+    if credential_match and not _is_credential_exempt(credential_match):
+        categories.add("credential-bearing URI")
+    if _HOST_IDENTITY_RE.search(line):
+        categories.add("hard-coded remote account")
+    return frozenset(categories)
+
+
 def classify_line(
     line: str,
     *,
@@ -593,38 +690,18 @@ def classify_line(
     deployment_doc: bool,
 ) -> frozenset[str]:
     categories: set[str] = set()
-    persisted = _PERSISTED_FIELD_RE.search(line)
-    if persisted and not _NEUTRAL_URI_RE.search(persisted.group("value")):
-        value = persisted.group("value").strip(" \t,;)}]\"'").casefold()
-        field = persisted.group("field")
-        # A shell/template interpolation placeholder (``${WORKSPACE_ROOT}``, closing
-        # brace already stripped above) is resolved at runtime by whatever consumes
-        # the file, never a baked-in machine path — safe regardless of the field's
-        # own casing, same reasoning as the existing uppercase-field exemption.
-        is_template_placeholder = value.startswith("${")
-        runtime_relative = (
-            field.isupper() or is_template_placeholder
-        ) and not re.match(r"^(?:[a-z]:|[/\\]|~)", value, re.IGNORECASE)
-        if value not in {"", "none", "null", "unset"} and not runtime_relative:
-            categories.add("persisted machine path")
-    if "persisted machine path" not in categories and _has_real_home_path(line):
+    persisted_category = _persisted_path_category(line)
+    if persisted_category:
+        categories.add(persisted_category)
+    elif _has_real_home_path(line):
         categories.add("machine-specific home path")
-    folded = line.casefold()
-    if any(
-        re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", folded)
-        for value in identifiers
-    ):
-        categories.add("local account or host identifier")
+    identifier_category = _identifier_category(line.casefold(), identifiers)
+    if identifier_category:
+        categories.add(identifier_category)
     if _MACHINE_HOST_ID_RE.search(line):
         categories.add("machine-specific host identifier")
-    if deployment_doc and _INTERNAL_ENDPOINT_RE.search(line):
-        categories.add("hard-coded internal endpoint")
     if deployment_doc:
-        credential_match = _CREDENTIAL_URI_RE.search(line)
-        if credential_match and not _is_credential_exempt(credential_match):
-            categories.add("credential-bearing URI")
-    if deployment_doc and _HOST_IDENTITY_RE.search(line):
-        categories.add("hard-coded remote account")
+        categories |= _deployment_doc_categories(line)
     return frozenset(categories)
 
 
@@ -689,27 +766,39 @@ def _is_public_artifact(name: str) -> bool:
     )
 
 
+def _is_traversable_directory(current: Path, name: str) -> bool:
+    """A real, non-excluded, non-symlink subdirectory worth walking into."""
+    if name in _SCAN_EXCLUDED_DIRECTORIES or name.endswith(".egg-info"):
+        return False
+    metadata = (current / name).lstat()
+    if stat.S_ISLNK(metadata.st_mode):
+        return False
+    return stat.S_ISDIR(metadata.st_mode)
+
+
+def _regular_files_under(current: Path, file_names: list[str]) -> list[Path]:
+    """Every plain (non-symlink, non-special) file among ``file_names``."""
+    found: list[Path] = []
+    for name in sorted(file_names):
+        path = current / name
+        metadata = path.lstat()
+        if stat.S_ISREG(metadata.st_mode):
+            found.append(path)
+    return found
+
+
 def _filesystem_files(root: Path) -> list[Path]:
     """Enumerate a bounded no-Git source snapshot without following links."""
 
     files: list[Path] = []
     for directory, directory_names, file_names in os.walk(root, topdown=True):
         current = Path(directory)
-        traversable: list[str] = []
-        for name in sorted(directory_names):
-            if name in _SCAN_EXCLUDED_DIRECTORIES or name.endswith(".egg-info"):
-                continue
-            metadata = (current / name).lstat()
-            if stat.S_ISLNK(metadata.st_mode):
-                continue
-            if stat.S_ISDIR(metadata.st_mode):
-                traversable.append(name)
-        directory_names[:] = traversable
-        for name in sorted(file_names):
-            path = current / name
-            metadata = path.lstat()
-            if not stat.S_ISREG(metadata.st_mode):
-                continue
+        directory_names[:] = sorted(
+            name
+            for name in directory_names
+            if _is_traversable_directory(current, name)
+        )
+        for path in _regular_files_under(current, file_names):
             files.append(path)
             if len(files) > _MAX_SCAN_FILES:
                 raise RuntimeError("privacy source inventory exceeds its file bound")
@@ -830,6 +919,20 @@ def _is_bundled_connector_profile(path: Path) -> bool:
     ) and path.suffix.casefold() in {".py", ".json", ".yaml", ".yml"}
 
 
+def _is_non_neutral_author_line(folded: str, *, in_project_authors: bool) -> bool:
+    """True if this folded, stripped line is a non-neutral author assignment."""
+    if re.match(r"authors\s*=", folded):
+        return (
+            _NEUTRAL_AUTHOR_NAME not in folded
+            or _NEUTRAL_AUTHOR_EMAIL_SUFFIX not in folded
+        )
+    if in_project_authors and re.match(r"name\s*=", folded):
+        return _NEUTRAL_AUTHOR_NAME not in folded
+    if in_project_authors and re.match(r"email\s*=", folded):
+        return _NEUTRAL_AUTHOR_EMAIL_SUFFIX not in folded
+    return False
+
+
 def _author_metadata_lines(path: Path, lines: list[str]) -> list[int]:
     """Return non-neutral package-author lines without returning their values."""
     if path.suffix.casefold() != ".toml":
@@ -843,19 +946,10 @@ def _author_metadata_lines(path: Path, lines: list[str]) -> list[int]:
             continue
         if in_project_authors and stripped.startswith("["):
             in_project_authors = False
-        folded = stripped.casefold()
-        if re.match(r"authors\s*=", folded):
-            if (
-                _NEUTRAL_AUTHOR_NAME not in folded
-                or _NEUTRAL_AUTHOR_EMAIL_SUFFIX not in folded
-            ):
-                violations.append(number)
-        elif in_project_authors and re.match(r"name\s*=", folded):
-            if _NEUTRAL_AUTHOR_NAME not in folded:
-                violations.append(number)
-        elif in_project_authors and re.match(r"email\s*=", folded):
-            if _NEUTRAL_AUTHOR_EMAIL_SUFFIX not in folded:
-                violations.append(number)
+        if _is_non_neutral_author_line(
+            stripped.casefold(), in_project_authors=in_project_authors
+        ):
+            violations.append(number)
     return violations
 
 
@@ -867,6 +961,69 @@ def _next_ordinal(
     return ordinal
 
 
+def _record_violation(
+    violations: list[Violation],
+    ordinals: dict[tuple[str, str, str], int],
+    rel_str: str,
+    number: int,
+    category: str,
+    content_hash: str,
+) -> None:
+    ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
+    violations.append(Violation(rel_str, number, category, content_hash, ordinal))
+
+
+def _scan_tracked_artifact(
+    path: Path,
+    root: Path,
+    identifiers: frozenset[str],
+    violations: list[Violation],
+    ordinals: dict[tuple[str, str, str], int],
+) -> None:
+    relative = path.relative_to(root)
+    rel_str = relative.as_posix()
+    deployment_doc = _is_deployment_doc(relative)
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for number in _author_metadata_lines(path, lines):
+        category = "non-neutral package author identity"
+        content_hash = _content_hash(lines[number - 1])
+        _record_violation(violations, ordinals, rel_str, number, category, content_hash)
+    for number, line in enumerate(lines, 1):
+        for category in classify_line(
+            line,
+            identifiers=identifiers,
+            deployment_doc=deployment_doc,
+        ):
+            content_hash = _content_hash(line)
+            _record_violation(
+                violations, ordinals, rel_str, number, category, content_hash
+            )
+
+
+def _scan_runtime_source_artifact(
+    path: Path,
+    root: Path,
+    identifiers: frozenset[str],
+    violations: list[Violation],
+    ordinals: dict[tuple[str, str, str], int],
+) -> None:
+    relative = path.relative_to(root)
+    rel_str = relative.as_posix()
+    if _is_bundled_connector_profile(relative):
+        category = "bundled environment-specific connector profile"
+        # Whole-file finding, not line-anchored: hash the path itself so
+        # it stays stable regardless of the file's own line churn.
+        content_hash = _content_hash(rel_str)
+        _record_violation(violations, ordinals, rel_str, 1, category, content_hash)
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for number, line in enumerate(lines, 1):
+        for category in classify_runtime_source_line(line, identifiers=identifiers):
+            content_hash = _content_hash(line)
+            _record_violation(
+                violations, ordinals, rel_str, number, category, content_hash
+            )
+
+
 def scan(root: Path = ROOT) -> list[Violation]:
     identifiers = derive_local_identifiers(root)
     violations: list[Violation] = []
@@ -876,50 +1033,11 @@ def scan(root: Path = ROOT) -> list[Violation]:
     # otherwise report a moved (not new) leak as a phantom NEW finding.
     ordinals: dict[tuple[str, str, str], int] = {}
     for path in _tracked_artifacts(root):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root)
-        rel_str = relative.as_posix()
-        deployment_doc = _is_deployment_doc(relative)
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        for number in _author_metadata_lines(path, lines):
-            category = "non-neutral package author identity"
-            content_hash = _content_hash(lines[number - 1])
-            ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
-            violations.append(
-                Violation(rel_str, number, category, content_hash, ordinal)
-            )
-        for number, line in enumerate(lines, 1):
-            for category in classify_line(
-                line,
-                identifiers=identifiers,
-                deployment_doc=deployment_doc,
-            ):
-                content_hash = _content_hash(line)
-                ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
-                violations.append(
-                    Violation(rel_str, number, category, content_hash, ordinal)
-                )
+        if path.is_file():
+            _scan_tracked_artifact(path, root, identifiers, violations, ordinals)
     for path in _runtime_source_artifacts(root):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(root)
-        rel_str = relative.as_posix()
-        if _is_bundled_connector_profile(relative):
-            category = "bundled environment-specific connector profile"
-            # Whole-file finding, not line-anchored: hash the path itself so
-            # it stays stable regardless of the file's own line churn.
-            content_hash = _content_hash(rel_str)
-            ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
-            violations.append(Violation(rel_str, 1, category, content_hash, ordinal))
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        for number, line in enumerate(lines, 1):
-            for category in classify_runtime_source_line(line, identifiers=identifiers):
-                content_hash = _content_hash(line)
-                ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
-                violations.append(
-                    Violation(rel_str, number, category, content_hash, ordinal)
-                )
+        if path.is_file():
+            _scan_runtime_source_artifact(path, root, identifiers, violations, ordinals)
     return violations
 
 
