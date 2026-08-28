@@ -6,7 +6,7 @@
 
 ## Capabilities by status
 
-**263 LIVE**, **0 BUILDING**, and **0 ROADMAP** operations tracked in `docs/capabilities.md`'s operation-by-operation truth table (cross-check: the machine-checked `docs/capabilities.generated.md` ledger currently enumerates **400 wire methods** — a different, finer granularity, since several generated-ledger methods can compose into one `capabilities.md` row; the two are not expected to be equal, but a `capabilities.generated.md` that shrinks while `capabilities.md` does not is a drift signal).
+**263 LIVE**, **0 BUILDING**, and **0 ROADMAP** operations tracked in `docs/capabilities.md`'s operation-by-operation truth table (cross-check: the machine-checked `docs/capabilities.generated.md` ledger currently enumerates **407 wire methods** — a different, finer granularity, since several generated-ledger methods can compose into one `capabilities.md` row; the two are not expected to be equal, but a `capabilities.generated.md` that shrinks while `capabilities.md` does not is a drift signal).
 
 | Status | Count |
 |:------|---:|
@@ -17,7 +17,7 @@
 
 ## Concepts by pillar
 
-**649 LIVE** unique `CONCEPT:<ID>` markers (swept from every tracked `*.rs`/`*.py` file, deduplicated by full ID, then bucketed by pillar prefix — the same concept is legitimately cited at every call site that implements it, so this counts distinct IDs, never raw occurrences) and **1 RESERVED** concept IDs (open, unexpired entries in `docs/concept_reservations.yaml`) across **9 pillars**. Unlike agent-utilities, this repo has no generated `concepts.yaml` registry — the marker sweep below is this page's own generated source, not a restatement of one.
+**655 LIVE** unique `CONCEPT:<ID>` markers (swept from every tracked `*.rs`/`*.py` file, deduplicated by full ID, then bucketed by pillar prefix — the same concept is legitimately cited at every call site that implements it, so this counts distinct IDs, never raw occurrences) and **1 RESERVED** concept IDs (open, unexpired entries in `docs/concept_reservations.yaml`) across **9 pillars**. Unlike agent-utilities, this repo has no generated `concepts.yaml` registry — the marker sweep below is this page's own generated source, not a restatement of one.
 
 | Pillar | LIVE ✅ | RESERVED |
 |:------|---:|---:|
@@ -27,10 +27,10 @@
 | **AU-ORCH** — agent-utilities orchestration concepts exercised against this engine | 3 | 0 |
 | **AU-OS** — agent-utilities OS concepts exercised against this engine | 2 | 0 |
 | **EG-AHE** — harness-facing engine concepts | 1 | 0 |
-| **EG-KG** — knowledge-graph engine core | 598 | 1 |
+| **EG-KG** — knowledge-graph engine core | 604 | 1 |
 | **EG-ORCH** — routing / orchestration | 2 | 0 |
 | **EG-OS** — deployment | 9 | 0 |
-| **Total** | 649 | 1 |
+| **Total** | 655 | 1 |
 
 > 2 additional unique `CONCEPT:<ID>` markers use a pre-migration prefix outside the current 9-pillar taxonomy (e.g. `KG-2.*`, `ORCH-1.*`, `OS-5.*`, `AHE-3.*`) and are not broken out above — this page defines an owning subtree/gate only for the pillars in "Domain ownership" below. See `docs/concepts.md` for those markers in prose form.
 
@@ -72,7 +72,7 @@ This page is produced by `scripts/build_status_page.py` from `docs/capabilities.
 python scripts/build_status_page.py --write
 ```
 
-`scripts/check_status_page.py` is wired into `.github/workflows/advisory.yml` (report-only, `continue-on-error: true`, matching this repo's existing approved-vs-enforced convention) and fails loudly — without blocking a release — the moment this file drifts from its sources. Run it locally with:
+`scripts/check_status_page.py` is wired into `.github/workflows/release.yml`'s `lint-and-architecture` job (release-blocking, no `continue-on-error`) and fails the release the moment this file drifts from its sources. Run it locally with:
 
 ```bash
 python scripts/check_status_page.py

@@ -1,30 +1,38 @@
 name: Release
 
 # ─────────────────────────────────────────────────────────────────────────
-# THE TWO-WORKFLOW MODEL (read this before adding a check to either file)
+# ONE WORKFLOW, EVERY GATE BLOCKING (read this before adding a check here)
 #
-# This repo ships exactly two GitHub Actions workflows:
+# This repo ships exactly ONE GitHub Actions workflow. It used to be split
+# into release.yml (blocking) + advisory.yml (everything else, every step
+# `continue-on-error: true`, "debt is visible but never blocks a release").
+# That split was retired 2026-08-28 (wD9-CIGATE): a `push: branches: [main]`
+# on this file already publishes to PyPI (`publish-pypi` <- `numeric-
+# runtime-gate` <- `build` <- `gates`), so anything left in advisory.yml
+# wasn't merely non-blocking, it was OUTSIDE the publish chain entirely --
+# lint/architecture debt could ship to PyPI on a green push. That is a
+# ratchet by this project's definition (a container whose purpose is to
+# hold findings that are allowed to stay red), so it is gone. Every check
+# that was real signal is now a job in this file with no
+# `continue-on-error`; a job still short of that bar stays HERE too (not in
+# a second file) with an explicit comment saying so — see
+# `lint-and-architecture` below for the one still-open example
+# (`cargo fmt`) and `feature-matrix`/`benchmarks` for two jobs whose
+# `continue-on-error` is a disclosed, not-yet-measured gap rather than a
+# permanent policy. Cost-heavy jobs are scoped by TRIGGER (`if:` on tag
+# push / `workflow_dispatch`), never by `continue-on-error` — see those two
+# jobs' `if:` conditions.
 #
-#   release.yml (THIS FILE) — the ONLY workflow that can block a release.
-#     Jobs are wired strictly `needs:` so a failure names its stage at a
-#     glance: gates -> build -> docker-image -> publish-pypi/publish-image.
-#     "Release-critical" is deliberately narrow: secret-history scanning,
-#     the test suite, and wheel build + reproducibility + release-contract +
-#     wheel-privacy checks. NOTHING else may block publishing — if you are
-#     tempted to add a step here, it almost certainly belongs in
-#     advisory.yml instead.
-#
-#   advisory.yml — everything else. The architecture/documentation-contract
-#     gates, lint (clippy/rustfmt), the feature-build matrix, and the perf
-#     benchmark + recall-regression gate. Every step there runs with
-#     `continue-on-error: true` so debt is visible (red step, annotation,
-#     job summary) but never blocks a release.
-#
-# This repo did NOT have agent-utilities' `workflow_run` problem (this file
-# already triggered directly on `push`/`tags`), so this redesign is a pure
-# fold-and-reclassify of rust-ci.yml + the old release-build.yml into the
-# two-workflow shape, plus one genuinely new addition: secret-history
-# scanning (previously not wired into ANY CI here at all).
+# Stages, in `needs:` order: gates -> lint-and-architecture -> build ->
+# {docker-image, publish-pypi} (each also needs: feature-matrix + benchmarks,
+# added 2026-08-28/wD9-CIGATE after those two were found to share
+# docker-image/publish-pypi's own tag/dispatch trigger without being wired
+# into their `needs:` -- meaning a failing feature-build combo or perf/
+# recall regression could not stop a publish that ran in PARALLEL with it)
+# -> publish-image (transitively protected via `needs: [docker-image]`).
+# `pages` alone carries no `needs:` and is not needed BY anything, so it
+# structurally cannot block the publish chain -- see its own comment for why
+# that is fine (a deploy concern, not a gate).
 #
 # eg's wheel-digest-mismatch reproducibility bug is being fixed by a
 # different, separate track of work. Nothing in this redesign touches wheel
@@ -271,6 +279,61 @@ jobs:
           PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -c \
             "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
 
+  # ── STAGE 1b: architecture/documentation-contract gates + lint. Folded in
+  # from the former advisory.yml `lint-and-architecture` job (wD9-CIGATE,
+  # 2026-08-28): every step below was measured green against this commit
+  # (8 architecture/doc gates + all 3 clippy profiles) and made blocking --
+  # no `continue-on-error` anywhere in this job. See this file's top header
+  # for why the two-workflow/continue-on-error model was retired.
+  #
+  # NOT YET INCLUDED: `cargo fmt --all --check`. Measured 2026-08-28 red on
+  # 3 files (crates/eg-rdf/src/obda.rs, src/server/mutation.rs,
+  # src/server/redis_wire/mod.rs), each mid-edit in a live CX complexity-
+  # reduction lane -- formatting them here would fight their uncommitted
+  # work, and this program's own sequencing rule is "measure first, fix the
+  # red, then restructure" (never flip an unmeasured/known-red check to
+  # blocking). Add this step, still with no `continue-on-error`, once those
+  # three lanes land -- tracked as open debt, not silenced.
+  lint-and-architecture:
+    name: Lint + architecture gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: P2 modality architecture gate
+        run: python3 scripts/check_p2_modality_architecture.py
+      - name: P2 analytics and reasoning architecture gate
+        run: python3 scripts/check_p2_analytics_reasoning_architecture.py
+      - name: Bounded lazy lifecycle architecture gate
+        run: python3 scripts/check_lazy_lifecycle_architecture.py
+      - name: Universal served-read RLS and carrier-ownership architecture gate
+        run: python3 scripts/check_universal_read_rls.py
+      - name: Exact protocol, multimodal, KnowledgeBatch, and reasoning campaign architecture gate
+        run: python3 scripts/check_exact_release_campaigns.py
+      - name: Documentation feature, ledger, and MkDocs contract
+        run: python3 scripts/check_documentation_contract.py
+      - name: Status page freshness gate (docs/status.md vs capabilities/concept-reservations)
+        run: python3 scripts/check_status_page.py
+      - name: Canonical structural property schema
+        run: python3 scripts/check_canonical_property_schema.py
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      # Lint each gated build so warnings can't accumulate. `-D warnings` makes
+      # clippy fail the step (and now the job/workflow) on any lint. Numeric
+      # matrix modules carry scoped `#![allow(clippy::needless_range_loop)]`
+      # where explicit indices are clearer.
+      - name: Clippy (every crate, all features)
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+      - name: Clippy (slim lib)
+        run: cargo clippy --no-default-features --features graph,algorithms -- -D warnings
+      - name: Clippy (slim server — proves no compute leaks into the lean build)
+        run: cargo clippy --no-default-features --features server --all-targets -- -D warnings
+
   # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
   # supported native target — release-critical item: wheel build +
   # reproducibility + release-contract + wheel-privacy checks. Needs: gates.
@@ -279,7 +342,7 @@ jobs:
   # change this job's build/determinism logic here).
   build:
     name: wheel ${{ matrix.name }}
-    needs: gates
+    needs: [gates, lint-and-architecture]
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
     # An OPTIONAL leg must not hold the whole run open. Measured on run
@@ -625,10 +688,18 @@ jobs:
   # it is not what makes the kernel present.
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
-  #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip — so it
-  #    depends only on `build`. Tag-gated: only builds on a `v*` tag.
+  #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip.
+  #    Tag-gated: only builds on a `v*` tag. Also `needs:` feature-matrix and
+  #    benchmarks (wD9-CIGATE, 2026-08-28) -- same caveat as publish-pypi's
+  #    own comment below: this `needs:` edge is necessary but, on its own,
+  #    NOT YET sufficient, because both jobs still carry
+  #    `continue-on-error: true` (unmeasured this session) and GitHub
+  #    reports a `continue-on-error: true` job as succeeded to its
+  #    dependents regardless of its own step outcomes. See publish-pypi's
+  #    comment for the full explanation and the `build.matrix.optional`
+  #    precedent this relies on.
   docker-image:
-    needs: [build]
+    needs: [build, feature-matrix, benchmarks]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
@@ -667,12 +738,36 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────────────────
   # PUBLISH — GATED to a `v*` tag only; skipped entirely on a normal branch
-  # push or PR. Needs: build, so publishing is unreachable if `gates` or
-  # `build` failed.
+  # push or PR. Needs: build, feature-matrix, benchmarks, so publishing is
+  # unreachable if `gates`, `lint-and-architecture` (transitively, via
+  # `build`), or `build` failed -- `if:` below has no always()/failure()/
+  # cancelled(), so GitHub's implicit success()-of-all-needs applies to the
+  # full `needs:` list with no further change needed FOR THOSE THREE.
+  #
+  # `feature-matrix`/`benchmarks` are also `needs:` here (added 2026-08-28,
+  # wD9-CIGATE) -- necessary, but on their own NOT YET sufficient. Both run
+  # on this exact tag trigger already (see their own `if:`) but previously
+  # were not wired into this `needs:` at all, so a failing feature-build
+  # combo or perf/recall regression could not stop a publish that ran in
+  # PARALLEL with it. This `needs:` edge alone does not close that gap:
+  # both jobs still carry `continue-on-error: true` (2026-08-28 measurement
+  # never reached them -- 13 cargo builds plus a bench run, deferred; see
+  # the wD9-CIGATE report), and a job with `continue-on-error: true` is
+  # reported SUCCEEDED to anything that `needs:` it regardless of whether
+  # its own steps failed -- exactly the mechanism the `build` job's own
+  # `matrix.optional` leg above relies on to keep an optional macOS failure
+  # from blocking this same `needs: build` chain. So today this `needs:`
+  # edge is a correct, necessary prerequisite that does nothing on its own;
+  # it only starts BLOCKING once `continue-on-error` is removed from
+  # feature-matrix/benchmarks, which requires actually measuring them
+  # green first (the sequencing rule this whole redesign follows: never
+  # flip an unmeasured/known-red check to blocking). Until then, the
+  # publish path still ships on a red feature-matrix/benchmarks leg --
+  # narrowed from "any push" to "a tag push", but not yet closed.
   # ─────────────────────────────────────────────────────────────────────────
   publish-pypi:
     name: Publish wheels to PyPI (release only)
-    needs: [build]
+    needs: [build, feature-matrix, benchmarks]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
@@ -804,3 +899,114 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/epistemic-graph:latest
             ${{ secrets.DOCKER_USERNAME }}/epistemic-graph:${{ github.ref_name }}
+
+  # ── STAGE 1c (non-gating, folded from former advisory.yml): build-only
+  # feature-combination matrix, guarding feature-gate bitrot across combos
+  # that are never published (the real shipped combo is `build` above).
+  # wD9-CIGATE (2026-08-28): NOT measured this session -- 13 legs x a cargo
+  # build each is expensive and the dev host was saturated (load 131/24
+  # cores) during this pass. `continue-on-error: true` is therefore left IN
+  # PLACE here, deliberately, as a disclosed gap rather than an unverified
+  # blocking flip -- see this repo's wD9-CIGATE report for the exact combos
+  # and the follow-up needed before removing it. Trigger scope IS tightened
+  # here independent of that: this cost-heavy matrix no longer runs on every
+  # push/PR, only on a real release tag or an explicit dispatch, per the
+  # "gate by trigger, not by continue-on-error" rule -- once the continue-
+  # on-error above is removed, this job will actually block those two
+  # trigger paths, which is the whole point.
+  feature-matrix:
+    name: feature-build ${{ matrix.target.name }}
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: 'crate-eg-types',   flags: '-p eg-types --all-features' }
+          - { name: 'crate-eg-core',    flags: '-p eg-core --all-features' }
+          - { name: 'crate-eg-compute', flags: '-p eg-compute --all-features' }
+          - { name: 'slim-lib',         flags: '--no-default-features --features graph,algorithms' }
+          - { name: 'default',          flags: '' }
+          - { name: 'minimal-server',   flags: '--features server' }
+          - { name: 'compute',          flags: '--features compute' }
+          - { name: 'full',             flags: '--no-default-features --features full' }
+          - { name: 'cluster',          flags: '--no-default-features --features cluster' }
+          - { name: 'full-extras',      flags: '--no-default-features --features full-extras' }
+          # NE-216: a feature-unification gap between eg-types/geo (turned on
+          # unconditionally by eg-capabilities, a leaf crate with no eg-plan dep, for its
+          # own exhaustive Method-policy match) and eg-plan's OWN geo feature (which used
+          # to gate the eg-types/geo request too) meant this exact combo compiled the
+          # `Pred::Spatial*` wire variants into eg-plan without compiling the exhaustive
+          # `where_clause` match arm that has to cover them -- E0004. These three combos
+          # pin the profile that broke plus its immediate neighbors (no server/security,
+          # and the same profile with `geo` explicitly on) so a future regression of that
+          # class fails fast here instead of only surfacing when someone happens to build
+          # this exact non-default combo.
+          - { name: 'query-only',              flags: '--no-default-features --features query' }
+          - { name: 'server-redb-query-security', flags: '--no-default-features --features "server,redb,query,security"' }
+          - { name: 'server-redb-query-security-geo', flags: '--no-default-features --features "server,redb,query,security,geo"' }
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: ${{ matrix.target.name }}
+      - name: Build ${{ matrix.target.name }}
+        run: cargo build ${{ matrix.target.flags }}
+
+  # ── STAGE 1c (non-gating, folded from former advisory.yml): perf p50
+  # ceilings / recall floor regression net. wD9-CIGATE (2026-08-28): NOT
+  # measured this session (cargo bench is expensive and the dev host was
+  # saturated) -- `continue-on-error: true` left in place as a disclosed
+  # gap, same rationale as feature-matrix above. Trigger scope tightened the
+  # same way: tag or dispatch only, not every push/PR.
+  benchmarks:
+    name: Perf/recall regression gate
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: benchmarks
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      # Run the benches (bounded iters — a short spot-check, not a wall-clock chase). The
+      # bench writes the measured recall to $EG_BENCH_RECALL_OUT and ASSERTS the floor, so
+      # a recall regression fails here directly.
+      - name: Run hybrid-query benches (latency + recall@k)
+        run: cargo bench -p eg-plan --features "query,owl,text,timeseries" --bench hybrid_queries
+      # Gate on the committed thresholds (recall floor + generous per-bench p50 ceilings).
+      - name: Perf/recall regression gate
+        run: python3 scripts/bench_gate.py
+
+  # ── Deploy concern, not a gate (folded from the former standalone
+  # advisory.yml `pages` job, itself folded from pages.yml). No
+  # `pip install -e .`, just `mkdocs build` from `docs/`. A job that calls a
+  # reusable workflow (`uses:`) accepts only
+  # name/uses/with/secrets/needs/if/permissions/strategy/concurrency — no
+  # `runs-on`/`steps`/`continue-on-error` (agent-utilities' release.yml hit
+  # this exact parser trap on its own `publish-docker` job; adding
+  # `continue-on-error` here would invalidate the WHOLE workflow file the
+  # same way). It carries no `needs:`, so it structurally cannot block
+  # `build`/`publish-pypi`/`publish-image` regardless.
+  pages:
+    name: Deploy GitHub Pages
+    if: github.event_name == 'push'
+    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
+    permissions:
+      contents: write
+      pages: write
+      id-token: write

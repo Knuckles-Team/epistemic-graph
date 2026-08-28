@@ -225,6 +225,37 @@ impl TenantCatalog {
     }
 }
 
+/// Bundle the durable tenant→shard placement catalog (CONCEPT:EG-KG.sharding.empty-catalog-routing)
+/// into an online backup.
+///
+/// When a catalog is attached its explicit placements OVERRIDE EG-026 hash routing, so a
+/// restore that dropped `catalog.redb` would silently re-route every explicitly-placed
+/// graph back to its hash shard.
+impl super::durable_stores::BundledStoreSource for TenantCatalog {
+    fn file_name(&self) -> &'static str {
+        "catalog.redb"
+    }
+
+    fn copy_into(&self, destination: &std::path::Path) -> Result<u64, String> {
+        let Some(source) = self.db.as_ref() else {
+            return Err("tenant catalog is not durable; nothing to bundle".to_string());
+        };
+        let rtx = source.begin_read().map_err(|e| e.to_string())?;
+        let target = super::durable_stores::create_bundle_file(destination)?;
+        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
+        wtx.set_durability(redb::Durability::Immediate)
+            .map_err(|e| e.to_string())?;
+        let mut rows = 0u64;
+        crate::copy_bundled_table!(rtx, wtx, rows, CATALOG);
+        wtx.commit().map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
+    fn is_durable(&self) -> bool {
+        self.db.is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,36 +348,5 @@ mod tests {
         assert_eq!(cat2.lookup("beta"), Some(ShardAssignment::local(5)));
         // A fresh (different) dir is empty ⇒ pure EG-026.
         let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-/// Bundle the durable tenant→shard placement catalog (CONCEPT:EG-KG.sharding.empty-catalog-routing)
-/// into an online backup.
-///
-/// When a catalog is attached its explicit placements OVERRIDE EG-026 hash routing, so a
-/// restore that dropped `catalog.redb` would silently re-route every explicitly-placed
-/// graph back to its hash shard.
-impl super::durable_stores::BundledStoreSource for TenantCatalog {
-    fn file_name(&self) -> &'static str {
-        "catalog.redb"
-    }
-
-    fn copy_into(&self, destination: &std::path::Path) -> Result<u64, String> {
-        let Some(source) = self.db.as_ref() else {
-            return Err("tenant catalog is not durable; nothing to bundle".to_string());
-        };
-        let rtx = source.begin_read().map_err(|e| e.to_string())?;
-        let target = super::durable_stores::create_bundle_file(destination)?;
-        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        let mut rows = 0u64;
-        crate::copy_bundled_table!(rtx, wtx, rows, CATALOG);
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(rows)
-    }
-
-    fn is_durable(&self) -> bool {
-        self.db.is_some()
     }
 }
