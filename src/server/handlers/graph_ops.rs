@@ -355,6 +355,16 @@ fn apply_apply_mutation(
 
 /// `RunDatalogReasoning`: pure extract-method from `try_handle_gateway`'s closure,
 /// byte-identical behaviour, no signature change.
+///
+/// Gated on `reasoning`: `crate::reasoning` (see `lib.rs`, `#[cfg(feature =
+/// "reasoning")] pub use eg_compute::reasoning;`) exists only under that feature, and
+/// this function's only caller is the `#[cfg(feature = "reasoning")]
+/// Method::RunDatalogReasoning` arm in `try_handle_gateway` below. Same shape as
+/// BUG-CX-104 / the `dispatch.rs` fix (commit `8f27c425`): a function with no cfg of
+/// its own reaching a cfg-gated module. Without this gate, `cargo check
+/// --no-default-features --features server` fails E0433 on every `crate::reasoning::*`
+/// call in this body, even though the function is unreachable in that build.
+#[cfg(feature = "reasoning")]
 #[allow(clippy::too_many_arguments)]
 fn apply_run_datalog_reasoning(
     core: &GraphCore,

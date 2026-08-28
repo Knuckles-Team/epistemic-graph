@@ -253,7 +253,23 @@ fn finish_batch(
     // properties, query text, document bodies, or identifiers. Bind the outbox row to
     // the canonical operation list with a digest-only manifest; the authoritative
     // batch/state remains the recovery source.
+    //
+    // `crate::redb_store` (the durable-row module) is `#[cfg(feature = "redb")]` in
+    // lib.rs -- correctly so for most of its content, which genuinely needs the
+    // `redb` crate -- but its projection-wakeup encoder is pure serialization +
+    // hashing with no redb dependency, and this call site (every `compile_methods`,
+    // every backend) carries no cfg of its own. Same shape as BUG-CX-104 / the
+    // `dispatch.rs` fix (commit `8f27c425`): a caller reaching a cfg-gated producer
+    // it doesn't itself gate. `redb_store.rs`/`lib.rs` are outside this lane's
+    // ownership (`plans/complex/DISPATCH-REGISTRY.tsv` scopes WD10-P-SLIM to this
+    // file + `handlers/graph_ops.rs`), so the fix lives here: branch on the same
+    // feature the producer is gated on, and for the `not(redb)` arm, encode the
+    // identical payload shape locally rather than making `redb_store` unconditional
+    // (which would pull the `redb`/`eg-mutation-store` deps into every slim build).
+    #[cfg(feature = "redb")]
     let summary = crate::redb_store::projection_payload_for_operations(&operations)?;
+    #[cfg(not(feature = "redb"))]
+    let summary = projection_wakeup_payload_without_redb(&operations)?;
     let mut scope_digest = Sha256::new();
     scope_digest.update(ctx.tenant.as_bytes());
     scope_digest.update([0]);
@@ -291,6 +307,45 @@ fn finish_batch(
     };
     batch.validate()?;
     Ok(batch)
+}
+
+/// `finish_batch`'s outbox projection-wakeup payload for builds without the `redb`
+/// feature, where `crate::redb_store::projection_payload_for_operations` doesn't
+/// exist (that module is `#[cfg(feature = "redb")]`). Encodes the identical shape
+/// that function produces -- `epistemic-tms`'s typed `ReasoningProjectionWakeup` when
+/// that feature is also on, else the plain digest-only summary -- so a redb-less
+/// build's outbox row is byte-for-byte what a redb build would have written for the
+/// same operations. See the `finish_batch` call site for why this duplication exists
+/// instead of ungating `redb_store.rs` itself.
+#[cfg(not(feature = "redb"))]
+fn projection_wakeup_payload_without_redb(
+    operations: &[MutationOperation],
+) -> Result<Vec<u8>, String> {
+    #[cfg(feature = "epistemic-tms")]
+    {
+        let encoded_operations =
+            rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
+        let methods = operations
+            .iter()
+            .map(|operation| operation.method.clone())
+            .collect::<Vec<_>>();
+        let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
+            operations.len(),
+            hex::encode(Sha256::digest(encoded_operations)),
+            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
+        )?;
+        rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
+    }
+    #[cfg(not(feature = "epistemic-tms"))]
+    {
+        let encoded_operations = rmp_serde::to_vec_named(operations).map_err(|e| e.to_string())?;
+        rmp_serde::to_vec_named(&serde_json::json!({
+            "schema": "epistemic.mutation.projection.v1",
+            "operations": operations.len(),
+            "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
+        }))
+        .map_err(|e| e.to_string())
+    }
 }
 
 /// Durable pseudonym used by every native coordinator retry check.
