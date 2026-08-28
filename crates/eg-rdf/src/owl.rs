@@ -55,7 +55,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use oxrdf::{Term, Triple};
+use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
 
 // ── OWL / RDFS / RDF vocabulary IRIs ─────────────────────────────────────────
 
@@ -1852,26 +1852,38 @@ pub fn materialize_instances_weighted(
     let mut out: HashMap<String, HashMap<String, f64>> = HashMap::new();
     for (inst, type_facts) in asserted_conf {
         let entry = out.entry(inst.clone()).or_default();
-        for (ty, fact_conf) in type_facts {
-            let fact_conf = fact_conf.clamp(0.0, 1.0);
-            if let Some(subs) = cls.subsumers.get(ty) {
-                for sup in subs {
-                    let c = fact_conf * cls.subclass_confidence(ty, sup);
-                    let slot = entry.entry(sup.clone()).or_insert(0.0);
-                    if c > *slot {
-                        *slot = c;
-                    }
+        merge_weighted_types(cls, type_facts, entry);
+    }
+    out
+}
+
+/// Fold one instance's asserted `(type, confidence)` facts into its weighted-type map:
+/// propagate each fact's confidence up through `cls`'s subsumers, keeping the max seen
+/// per supertype, or (when a type has no classification entry) keep the asserted type
+/// itself at fact confidence.
+fn merge_weighted_types(
+    cls: &Classification,
+    type_facts: &[(String, f64)],
+    entry: &mut HashMap<String, f64>,
+) {
+    for (ty, fact_conf) in type_facts {
+        let fact_conf = fact_conf.clamp(0.0, 1.0);
+        if let Some(subs) = cls.subsumers.get(ty) {
+            for sup in subs {
+                let c = fact_conf * cls.subclass_confidence(ty, sup);
+                let slot = entry.entry(sup.clone()).or_insert(0.0);
+                if c > *slot {
+                    *slot = c;
                 }
-            } else {
-                // No classification entry → the asserted type itself, at fact conf.
-                let slot = entry.entry(ty.clone()).or_insert(0.0);
-                if fact_conf > *slot {
-                    *slot = fact_conf;
-                }
+            }
+        } else {
+            // No classification entry → the asserted type itself, at fact conf.
+            let slot = entry.entry(ty.clone()).or_insert(0.0);
+            if fact_conf > *slot {
+                *slot = fact_conf;
             }
         }
     }
-    out
 }
 
 /// Confidence-weighted members of `target_class` (CONCEPT:EG-KG.ontology.concept-13): every individual
@@ -1993,6 +2005,19 @@ pub fn asserted_types_from_view(
     class_base: &str,
 ) -> Result<HashMap<String, HashSet<String>>, String> {
     let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+    collect_node_types(view, class_base, &mut out)?;
+    collect_edge_types(view, &mut out);
+    Ok(out)
+}
+
+/// Read the folded `type` property off every node blob into `out` (bridging a bare
+/// IRI/local label into `class_base` per [`bridge_type_identity_or_class`]). Half of
+/// [`asserted_types_from_view`]'s two sources; see its docs.
+fn collect_node_types(
+    view: &eg_core::graph::GraphView,
+    class_base: &str,
+    out: &mut HashMap<String, HashSet<String>>,
+) -> Result<(), String> {
     for (id, blob) in &view.node_properties {
         if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
@@ -2003,8 +2028,16 @@ pub fn asserted_types_from_view(
             }
         }
     }
-    // Explicit rdf:type edges (multi-typed resources): an edge whose predicate is
-    // `rdf:type` assigns the subject `s` the class node `o`.
+    Ok(())
+}
+
+/// Read explicit `rdf:type` edges into `out` (multi-typed resources): an edge whose
+/// predicate is `rdf:type` assigns the subject `s` the class node `o`. The other half
+/// of [`asserted_types_from_view`]'s two sources.
+fn collect_edge_types(
+    view: &eg_core::graph::GraphView,
+    out: &mut HashMap<String, HashSet<String>>,
+) {
     let rdf_type_edge = iri(RDF_TYPE);
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
@@ -2016,7 +2049,6 @@ pub fn asserted_types_from_view(
             }
         }
     }
-    Ok(out)
 }
 
 /// Like [`asserted_types_from_view`] but ALSO reads each fact's confidence
@@ -2034,26 +2066,44 @@ pub fn asserted_types_with_confidence_from_view(
     default_half_life: f64,
     class_base: &str,
 ) -> Result<HashMap<String, Vec<(String, f64)>>, String> {
-    fn fact_conf_of(v: &serde_json::Value, now: u64, default_half_life: f64) -> f64 {
-        let confidence = v.get("confidence").and_then(|x| x.as_f64()).unwrap_or(1.0);
-        let last_access = v
-            .get("last_access")
-            .and_then(|x| x.as_u64())
-            .or_else(|| v.get("updated_at").and_then(|x| x.as_u64()))
-            .or_else(|| v.get("created_at").and_then(|x| x.as_u64()));
-        let half_life = v
-            .get("half_life")
-            .and_then(|x| x.as_f64())
-            .filter(|h| *h > 0.0)
-            .unwrap_or(default_half_life);
-        let age = match last_access {
-            Some(la) if now > la => (now - la) as f64,
-            _ => 0.0,
-        };
-        fact_confidence(confidence, age, half_life)
-    }
-
     let mut out: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    collect_node_type_facts(view, now, default_half_life, class_base, &mut out)?;
+    collect_edge_type_facts(view, now, default_half_life, &mut out);
+    Ok(out)
+}
+
+/// The Ebbinghaus-decayed confidence of one node/edge blob's type fact: stored
+/// `confidence` (default `1.0`) decayed by age (`now - last_access` → `updated_at` →
+/// `created_at`; `0` when no timestamp is present) over `half_life` (a per-fact
+/// override or `default_half_life`), via [`fact_confidence`].
+fn fact_conf_of(v: &serde_json::Value, now: u64, default_half_life: f64) -> f64 {
+    let confidence = v.get("confidence").and_then(|x| x.as_f64()).unwrap_or(1.0);
+    let last_access = v
+        .get("last_access")
+        .and_then(|x| x.as_u64())
+        .or_else(|| v.get("updated_at").and_then(|x| x.as_u64()))
+        .or_else(|| v.get("created_at").and_then(|x| x.as_u64()));
+    let half_life = v
+        .get("half_life")
+        .and_then(|x| x.as_f64())
+        .filter(|h| *h > 0.0)
+        .unwrap_or(default_half_life);
+    let age = match last_access {
+        Some(la) if now > la => (now - la) as f64,
+        _ => 0.0,
+    };
+    fact_confidence(confidence, age, half_life)
+}
+
+/// Read the folded `type` property + its decayed confidence off every node blob into
+/// `out`. Half of [`asserted_types_with_confidence_from_view`]'s two sources.
+fn collect_node_type_facts(
+    view: &eg_core::graph::GraphView,
+    now: u64,
+    default_half_life: f64,
+    class_base: &str,
+    out: &mut HashMap<String, Vec<(String, f64)>>,
+) -> Result<(), String> {
     for (id, blob) in &view.node_properties {
         if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
@@ -2064,7 +2114,17 @@ pub fn asserted_types_with_confidence_from_view(
             }
         }
     }
-    // Explicit rdf:type edges carry their own edge-blob confidence.
+    Ok(())
+}
+
+/// Read explicit `rdf:type` edges + their own edge-blob decayed confidence into `out`.
+/// The other half of [`asserted_types_with_confidence_from_view`]'s two sources.
+fn collect_edge_type_facts(
+    view: &eg_core::graph::GraphView,
+    now: u64,
+    default_half_life: f64,
+    out: &mut HashMap<String, Vec<(String, f64)>>,
+) {
     let rdf_type_edge = iri(RDF_TYPE);
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
@@ -2077,7 +2137,6 @@ pub fn asserted_types_with_confidence_from_view(
             }
         }
     }
-    Ok(out)
 }
 
 /// Extract the OWL/RDF triples (the TBox axioms + folded `rdf:type` facts) directly
@@ -2088,36 +2147,44 @@ pub fn asserted_types_with_confidence_from_view(
 /// is what a `Reason` Op classifies when no explicit ontology document is supplied —
 /// it reasons over the axioms already loaded into the graph via `AddTriples`.
 pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
-    use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode};
-
-    fn subj(id: &str) -> Option<NamedOrBlankNode> {
-        if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
-            NamedNode::new(i).ok().map(NamedOrBlankNode::NamedNode)
-        } else if let Some(b) = id.strip_prefix("_:") {
-            BlankNode::new(b).ok().map(NamedOrBlankNode::BlankNode)
-        } else {
-            None
-        }
-    }
-    fn obj(id: &str) -> Option<Term> {
-        if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
-            NamedNode::new(i).ok().map(Term::NamedNode)
-        } else if let Some(b) = id.strip_prefix("_:") {
-            BlankNode::new(b).ok().map(Term::BlankNode)
-        } else {
-            // A bare IRI (folded `type` may be stored without angle brackets).
-            NamedNode::new(id).ok().map(Term::NamedNode)
-        }
-    }
-
     let mut out = Vec::new();
-    // Edges → object triples (predicate is the edge `relationship`).
+    push_edge_triples(view, &mut out);
+    push_node_type_triples(view, &mut out);
+    out
+}
+
+/// Parse a stored node id (`<iri>`, `_:blank`, or a bare label) into an RDF subject.
+fn tbox_subject(id: &str) -> Option<NamedOrBlankNode> {
+    if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
+        NamedNode::new(i).ok().map(NamedOrBlankNode::NamedNode)
+    } else if let Some(b) = id.strip_prefix("_:") {
+        BlankNode::new(b).ok().map(NamedOrBlankNode::BlankNode)
+    } else {
+        None
+    }
+}
+
+/// Parse a stored node id (`<iri>`, `_:blank`, or a bare IRI — a folded `type` may be
+/// stored without angle brackets) into an RDF object term.
+fn tbox_object(id: &str) -> Option<Term> {
+    if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
+        NamedNode::new(i).ok().map(Term::NamedNode)
+    } else if let Some(b) = id.strip_prefix("_:") {
+        BlankNode::new(b).ok().map(Term::BlankNode)
+    } else {
+        NamedNode::new(id).ok().map(Term::NamedNode)
+    }
+}
+
+/// Edges → object triples (predicate is the edge `relationship`). Half of
+/// [`tbox_triples_from_view`]'s two sources.
+fn push_edge_triples(view: &eg_core::graph::GraphView, out: &mut Vec<Triple>) {
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
             if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
                 if let Some(pred) = v.get("relationship").and_then(|x| x.as_str()) {
                     if let (Some(su), Some(pr), Some(ob)) =
-                        (subj(s), NamedNode::new(pred).ok(), obj(o))
+                        (tbox_subject(s), NamedNode::new(pred).ok(), tbox_object(o))
                     {
                         out.push(Triple::new(su, pr, ob));
                     }
@@ -2125,11 +2192,15 @@ pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
             }
         }
     }
-    // Node `type` cells → folded rdf:type triples.
+}
+
+/// Node `type` cells → folded rdf:type triples. The other half of
+/// [`tbox_triples_from_view`]'s two sources.
+fn push_node_type_triples(view: &eg_core::graph::GraphView, out: &mut Vec<Triple>) {
     for (id, blob) in &view.node_properties {
         if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
-                if let (Some(su), Some(ob)) = (subj(id), obj(t)) {
+                if let (Some(su), Some(ob)) = (tbox_subject(id), tbox_object(t)) {
                     if let Ok(rt) = NamedNode::new(RDF_TYPE) {
                         out.push(Triple::new(su, rt, ob));
                     }
@@ -2137,7 +2208,6 @@ pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
             }
         }
     }
-    out
 }
 
 // ── Distributed (cross-shard) reasoning (CONCEPT:EG-KG.ontology.concept-13) ────────────────────
@@ -2177,11 +2247,7 @@ pub fn reason_distributed_weighted(
     min_confidence: f64,
 ) -> Result<WeightedReasonResult, String> {
     // 1. Gather + UNION the TBox axioms across every shard (+ the explicit ontology).
-    let mut triples: Vec<Triple> = Vec::new();
-    for v in views {
-        triples.extend(tbox_triples_from_view(v));
-    }
-    triples.extend_from_slice(extra_ontology_triples);
+    let triples = gather_distributed_tbox(views, extra_ontology_triples);
 
     // 2. Classify the unioned TBox once, with confidence propagation.
     let mut reasoner = Reasoner::from_triples(&triples);
@@ -2190,6 +2256,43 @@ pub fn reason_distributed_weighted(
     // 3. Gather + UNION the asserted (decayed-confidence) facts across every shard.
     //    A fact for the same instance asserted on two shards keeps the STRONGER.
     // Bridge local string types into the caller's explicit current class namespace.
+    let asserted = gather_distributed_asserted_facts(views, now, half_life, class_base)?;
+
+    // 4. Project the weighted subsumptions + the thresholded instance memberships.
+    let subclasses = project_weighted_subclasses(&cls);
+    let instances = project_weighted_instances(&cls, &asserted, target_class, min_confidence);
+
+    Ok(WeightedReasonResult {
+        subclasses,
+        instances,
+        consistent: cls.consistent,
+        unsatisfiable: cls.unsatisfiable.into_iter().collect(),
+    })
+}
+
+/// Step 1 of [`reason_distributed_weighted`]: union every shard's TBox triples with the
+/// caller's explicit ontology triples.
+fn gather_distributed_tbox(
+    views: &[&eg_core::graph::GraphView],
+    extra_ontology_triples: &[Triple],
+) -> Vec<Triple> {
+    let mut triples: Vec<Triple> = Vec::new();
+    for v in views {
+        triples.extend(tbox_triples_from_view(v));
+    }
+    triples.extend_from_slice(extra_ontology_triples);
+    triples
+}
+
+/// Step 3 of [`reason_distributed_weighted`]: union every shard's decayed-confidence
+/// asserted type facts. A fact for the same instance asserted on two shards keeps both
+/// (the strongest wins later, at the point each is consumed).
+fn gather_distributed_asserted_facts(
+    views: &[&eg_core::graph::GraphView],
+    now: u64,
+    half_life: f64,
+    class_base: &str,
+) -> Result<HashMap<String, Vec<(String, f64)>>, String> {
     let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     for v in views {
         for (inst, facts) in
@@ -2198,8 +2301,12 @@ pub fn reason_distributed_weighted(
             asserted.entry(inst).or_default().extend(facts);
         }
     }
+    Ok(asserted)
+}
 
-    // 4. Project the weighted subsumptions + the thresholded instance memberships.
+/// First half of step 4: the classified subsumption hierarchy, with per-edge
+/// confidence, in stable sorted order.
+fn project_weighted_subclasses(cls: &Classification) -> Vec<(String, String, f64)> {
     let mut subclasses: Vec<(String, String, f64)> = Vec::new();
     for (sub, sups) in &cls.subsumers {
         for sup in sups {
@@ -2207,44 +2314,62 @@ pub fn reason_distributed_weighted(
         }
     }
     subclasses.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    subclasses
+}
 
-    let instances: Vec<(String, String, f64)> = if target_class.trim().is_empty() {
-        let mat = materialize_instances_weighted(&cls, &asserted);
-        let mut out = Vec::new();
-        for (inst, classes) in mat {
-            for (c, conf) in classes {
-                if conf >= min_confidence {
-                    out.push((inst.clone(), c, conf));
-                }
-            }
-        }
-        out.sort_by(|a, b| {
-            b.2.partial_cmp(&a.2)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)))
-        });
-        out
+/// Second half of step 4: the thresholded instance memberships, either every class
+/// (`target_class` empty) or one class's members (via [`instances_of_weighted`]).
+fn project_weighted_instances(
+    cls: &Classification,
+    asserted: &HashMap<String, Vec<(String, f64)>>,
+    target_class: &str,
+    min_confidence: f64,
+) -> Vec<(String, String, f64)> {
+    if target_class.trim().is_empty() {
+        project_all_weighted_instances(cls, asserted, min_confidence)
     } else {
-        let target = if target_class.starts_with('<') {
-            target_class.to_string()
-        } else {
-            format!(
-                "<{}>",
-                target_class.trim_start_matches('<').trim_end_matches('>')
-            )
-        };
-        instances_of_weighted(&cls, &asserted, &target, min_confidence)
+        let target = normalize_target_class(target_class);
+        instances_of_weighted(cls, asserted, &target, min_confidence)
             .into_iter()
             .map(|(inst, conf)| (inst, target.clone(), conf))
             .collect()
-    };
+    }
+}
 
-    Ok(WeightedReasonResult {
-        subclasses,
-        instances,
-        consistent: cls.consistent,
-        unsatisfiable: cls.unsatisfiable.into_iter().collect(),
-    })
+/// The `target_class`-empty branch of [`project_weighted_instances`]: every inferred
+/// membership at or above `min_confidence`, sorted by descending confidence.
+fn project_all_weighted_instances(
+    cls: &Classification,
+    asserted: &HashMap<String, Vec<(String, f64)>>,
+    min_confidence: f64,
+) -> Vec<(String, String, f64)> {
+    let mat = materialize_instances_weighted(cls, asserted);
+    let mut out = Vec::new();
+    for (inst, classes) in mat {
+        for (c, conf) in classes {
+            if conf >= min_confidence {
+                out.push((inst.clone(), c, conf));
+            }
+        }
+    }
+    out.sort_by(|a, b| {
+        b.2.partial_cmp(&a.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)))
+    });
+    out
+}
+
+/// Canonicalize a caller-supplied class id to `<iri>` form.
+fn normalize_target_class(target_class: &str) -> String {
+    if target_class.starts_with('<') {
+        target_class.to_string()
+    } else {
+        format!(
+            "<{}>",
+            target_class.trim_start_matches('<').trim_end_matches('>')
+        )
+    }
 }
 
 #[cfg(test)]

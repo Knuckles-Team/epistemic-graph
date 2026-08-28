@@ -116,45 +116,7 @@ pub fn run_stdio(probe_root: &Path) -> Result<(), ProbeError> {
 
     let mut rows = Vec::with_capacity(request.rows.len());
     for requested in &request.rows {
-        let mut scales = Vec::with_capacity(request.scales.len());
-        let mut equivalence: BTreeMap<String, bool> = requested
-            .equivalence_checks
-            .iter()
-            .map(|name| (name.clone(), true))
-            .collect();
-        for &scale in &request.scales {
-            let mut work_units = 0;
-            let mut memory_bytes = 0;
-            let mut latency_ns = Vec::with_capacity(request.repetitions);
-            for repetition in 0..request.repetitions {
-                let observation = probe_row(
-                    &requested.row_id,
-                    scale,
-                    request.seed,
-                    repetition,
-                    probe_root,
-                )?;
-                work_units = work_units.max(observation.work_units);
-                memory_bytes = memory_bytes.max(observation.memory_bytes);
-                latency_ns.push(observation.latency_ns.max(1));
-                if !observation.equivalent {
-                    for outcome in equivalence.values_mut() {
-                        *outcome = false;
-                    }
-                }
-            }
-            scales.push(ScaleResult {
-                scale,
-                work_units: work_units.max(1),
-                memory_bytes: memory_bytes.max(1),
-                latency_ns,
-            });
-        }
-        rows.push(RowResult {
-            row_id: requested.row_id.clone(),
-            scales,
-            equivalence,
-        });
+        rows.push(probe_one_row(requested, &request, probe_root)?);
     }
 
     let output = ProbeResult {
@@ -169,6 +131,73 @@ pub fn run_stdio(probe_root: &Path) -> Result<(), ProbeError> {
     Ok(())
 }
 
+/// Probe one requested row across every scale in `request`, folding per-repetition
+/// observations into a [`RowResult`]. Extracted from [`run_stdio`]'s per-row loop.
+fn probe_one_row(
+    requested: &RequestedRow,
+    request: &ProbeRequest,
+    probe_root: &Path,
+) -> Result<RowResult, ProbeError> {
+    let mut scales = Vec::with_capacity(request.scales.len());
+    let mut equivalence: BTreeMap<String, bool> = requested
+        .equivalence_checks
+        .iter()
+        .map(|name| (name.clone(), true))
+        .collect();
+    for &scale in &request.scales {
+        scales.push(probe_one_scale(
+            requested,
+            request,
+            scale,
+            probe_root,
+            &mut equivalence,
+        )?);
+    }
+    Ok(RowResult {
+        row_id: requested.row_id.clone(),
+        scales,
+        equivalence,
+    })
+}
+
+/// Probe one `(row, scale)` pair across every repetition, folding results into a
+/// [`ScaleResult`] and marking every equivalence check `false` if any repetition was
+/// not equivalent. Extracted from [`probe_one_row`]'s per-scale loop.
+fn probe_one_scale(
+    requested: &RequestedRow,
+    request: &ProbeRequest,
+    scale: usize,
+    probe_root: &Path,
+    equivalence: &mut BTreeMap<String, bool>,
+) -> Result<ScaleResult, ProbeError> {
+    let mut work_units = 0;
+    let mut memory_bytes = 0;
+    let mut latency_ns = Vec::with_capacity(request.repetitions);
+    for repetition in 0..request.repetitions {
+        let observation = probe_row(
+            &requested.row_id,
+            scale,
+            request.seed,
+            repetition,
+            probe_root,
+        )?;
+        work_units = work_units.max(observation.work_units);
+        memory_bytes = memory_bytes.max(observation.memory_bytes);
+        latency_ns.push(observation.latency_ns.max(1));
+        if !observation.equivalent {
+            for outcome in equivalence.values_mut() {
+                *outcome = false;
+            }
+        }
+    }
+    Ok(ScaleResult {
+        scale,
+        work_units: work_units.max(1),
+        memory_bytes: memory_bytes.max(1),
+        latency_ns,
+    })
+}
+
 fn validate_probe_root(root: &Path) -> Result<(), ProbeError> {
     let metadata = std::fs::symlink_metadata(root)?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
@@ -178,7 +207,27 @@ fn validate_probe_root(root: &Path) -> Result<(), ProbeError> {
 }
 
 fn validate_request(request: &ProbeRequest) -> Result<(), ProbeError> {
-    if request.schema_version != SCHEMA_VERSION
+    if !contract_shape_valid(request) {
+        return Err("invalid exact performance probe contract".into());
+    }
+    let Some((expected_driver, expected_rows)) = scenario_contract(&request.scenario_id) else {
+        return Err("unknown exact performance scenario".into());
+    };
+    let supplied_rows: Vec<&str> = request.rows.iter().map(|row| row.row_id.as_str()).collect();
+    if request.driver != expected_driver || supplied_rows != expected_rows {
+        return Err("exact performance scenario identity mismatch".into());
+    }
+    for row in &request.rows {
+        validate_row_equivalence_checks(row)?;
+    }
+    Ok(())
+}
+
+/// The top-level contract shape check: schema/protocol version, repetition bounds,
+/// exactly 3 strictly-increasing scales within bound, and a well-formed hex
+/// `workload_sha256`. Extracted from [`validate_request`].
+fn contract_shape_valid(request: &ProbeRequest) -> bool {
+    !(request.schema_version != SCHEMA_VERSION
         || request.protocol != PROTOCOL
         || request.repetitions == 0
         || request.repetitions > MAX_REPETITIONS
@@ -192,41 +241,44 @@ fn validate_request(request: &ProbeRequest) -> Result<(), ProbeError> {
         || !request
             .workload_sha256
             .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+}
+
+/// Validate one row's `equivalence_checks` against its ledger contract: non-empty, ≤8
+/// entries, exactly the expected check SET in order (against
+/// [`row_equivalence_contract`]), each a well-formed lowercase/digit/`_` token ≤96
+/// bytes, with no duplicates. Extracted from [`validate_request`]'s per-row loop.
+fn validate_row_equivalence_checks(row: &RequestedRow) -> Result<(), ProbeError> {
+    let mut checks: HashSet<&String> = HashSet::new();
+    let expected_checks =
+        row_equivalence_contract(&row.row_id).ok_or("unknown exact performance ledger row")?;
+    if row.equivalence_checks.is_empty()
+        || row.equivalence_checks.len() > 8
+        || row
+            .equivalence_checks
+            .iter()
+            .map(String::as_str)
+            .ne(expected_checks.iter().copied())
+        || row
+            .equivalence_checks
+            .iter()
+            .any(|check| is_invalid_equivalence_check(check, &mut checks))
     {
-        return Err("invalid exact performance probe contract".into());
-    }
-    let Some((expected_driver, expected_rows)) = scenario_contract(&request.scenario_id) else {
-        return Err("unknown exact performance scenario".into());
-    };
-    let supplied_rows: Vec<&str> = request.rows.iter().map(|row| row.row_id.as_str()).collect();
-    if request.driver != expected_driver || supplied_rows != expected_rows {
-        return Err("exact performance scenario identity mismatch".into());
-    }
-    for row in &request.rows {
-        let mut checks = HashSet::new();
-        let expected_checks =
-            row_equivalence_contract(&row.row_id).ok_or("unknown exact performance ledger row")?;
-        if row.equivalence_checks.is_empty()
-            || row.equivalence_checks.len() > 8
-            || row
-                .equivalence_checks
-                .iter()
-                .map(String::as_str)
-                .ne(expected_checks.iter().copied())
-            || row.equivalence_checks.iter().any(|check| {
-                check.is_empty()
-                    || check.len() > 96
-                    || !check.bytes().all(|byte| {
-                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
-                    })
-                    || !checks.insert(check)
-            })
-        {
-            return Err("invalid exact performance equivalence inventory".into());
-        }
+        return Err("invalid exact performance equivalence inventory".into());
     }
     Ok(())
+}
+
+/// One equivalence-check token's validity: non-empty, ≤96 bytes, lowercase/digit/`_`
+/// only, and not a duplicate (`checks` accumulates seen tokens). Extracted from
+/// [`validate_row_equivalence_checks`].
+fn is_invalid_equivalence_check<'a>(check: &'a String, checks: &mut HashSet<&'a String>) -> bool {
+    check.is_empty()
+        || check.len() > 96
+        || !check
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        || !checks.insert(check)
 }
 
 fn row_equivalence_contract(row_id: &str) -> Option<&'static [&'static str]> {
@@ -717,140 +769,163 @@ fn populated_modality_runtime(
 
 fn probe_modality_kernel(row_id: &str, scale: usize) -> Result<Observation, ProbeError> {
     match row_id {
-        "G37-HP-001" => {
-            let commands: Vec<_> = (1..=scale as u64)
-                .map(|index| modality_ingest(index, 1, None, 8))
-                .collect();
-            let mut streamed = ServedModalityRuntime::new();
-            let (outcomes, latency) = timed(|| streamed.ingest_stream(commands.clone()));
-            let outcomes = outcomes?;
-
-            let mut sequential = ServedModalityRuntime::new();
-            for command in commands {
-                sequential.ingest(command)?;
-            }
-            let before_rollback = streamed.snapshot()?;
-            let rollback_result = streamed.ingest_stream([
-                modality_ingest(1, 2, Some(1), 9),
-                modality_ingest(2, 2, Some(u64::MAX), 10),
-            ]);
-            let rollback_restored = rollback_result.is_err()
-                && streamed.snapshot()? == before_rollback
-                && streamed == sequential;
-            Ok(Observation {
-                work_units: (scale.saturating_add(2)).max(1) as u64,
-                memory_bytes: before_rollback.capacity().max(1) as u64,
-                latency_ns: latency,
-                equivalent: outcomes.len() == scale && rollback_restored,
-            })
-        }
-        "G37-HP-002" => {
-            let (runtime, commands) = populated_modality_runtime(scale)?;
-            let cursor = commands[scale / 2].target_occurrence_id.clone();
-            let query = ServedQuery {
-                scope: modality_scope(),
-                modality: Some(ModalityKind::Document),
-                segment_kind: Some(SegmentKind::Page),
-                after: Some(cursor.clone()),
-                limit: 16,
-                include_cold: false,
-            };
-            let (page, latency) = timed(|| runtime.query(&query));
-            let page = page?;
-            let expected: Vec<_> = commands
-                .iter()
-                .map(|command| command.target_occurrence_id.clone())
-                .filter(|occurrence_id| occurrence_id > &cursor)
-                .take(16)
-                .collect();
-            let actual: Vec<_> = page
-                .records
-                .iter()
-                .map(|record| record.occurrence_id.clone())
-                .collect();
-            let memory = serde_json::to_vec(&page)?.capacity().max(1) as u64;
-            Ok(Observation {
-                work_units: (scale.ilog2() as u64 + actual.len() as u64 + 1).max(1),
-                memory_bytes: memory,
-                latency_ns: latency,
-                equivalent: actual == expected,
-            })
-        }
-        "G37-HP-003" => {
-            let (runtime, commands) = populated_modality_runtime(scale)?;
-            let sequence = (scale / 2) as u64;
-            let (events, latency) = timed(|| runtime.events_after(sequence, 16));
-            let expected_occurrences: Vec<_> = commands
-                .iter()
-                .skip(scale / 2)
-                .take(16)
-                .map(|command| command.target_occurrence_id.clone())
-                .collect();
-            let actual_occurrences: Vec<_> = events
-                .iter()
-                .map(|event| event.occurrence_id.clone())
-                .collect();
-            let sequences_are_exact = events
-                .iter()
-                .enumerate()
-                .all(|(index, event)| event.sequence == sequence + index as u64 + 1);
-            let memory = serde_json::to_vec(&events)?.capacity().max(1) as u64;
-            Ok(Observation {
-                work_units: events.len().max(1) as u64,
-                memory_bytes: memory,
-                latency_ns: latency,
-                equivalent: actual_occurrences == expected_occurrences && sequences_are_exact,
-            })
-        }
-        "G37-HP-004" => {
-            let (runtime, commands) = populated_modality_runtime(scale)?;
-            let (recovered, latency) = timed(|| -> Result<_, eg_modality::ServedError> {
-                let snapshot = runtime.snapshot()?;
-                let recovered = ServedModalityRuntime::recover(&snapshot)?;
-                Ok((snapshot, recovered))
-            });
-            let (snapshot, mut recovered) = recovered?;
-            let replay = recovered.ingest(commands[0].clone())?;
-            Ok(Observation {
-                work_units: (scale.saturating_mul(2)).max(1) as u64,
-                memory_bytes: snapshot.capacity().max(1) as u64,
-                latency_ns: latency,
-                equivalent: replay.disposition == ApplyDisposition::IdempotentReplay
-                    && recovered == runtime,
-            })
-        }
-        "G37-HP-005" => {
-            let (runtime, _) = populated_modality_runtime(scale)?;
-            let (active, latency) = timed(|| runtime.len());
-            let mut scanned = 0usize;
-            let mut after = None;
-            loop {
-                let page = runtime.query(&ServedQuery {
-                    scope: modality_scope(),
-                    modality: None,
-                    segment_kind: None,
-                    after,
-                    limit: 1_000,
-                    include_cold: true,
-                })?;
-                if page.records.is_empty() {
-                    break;
-                }
-                scanned = scanned.saturating_add(page.records.len());
-                after = page.next;
-                if page.records.len() < 1_000 {
-                    break;
-                }
-            }
-            Ok(Observation {
-                work_units: 1,
-                memory_bytes: std::mem::size_of::<usize>() as u64,
-                latency_ns: latency,
-                equivalent: active == scanned && active == scale,
-            })
-        }
+        "G37-HP-001" => probe_modality_stream_rollback(scale),
+        "G37-HP-002" => probe_modality_cursor_page(scale),
+        "G37-HP-003" => probe_modality_cdc_suffix(scale),
+        "G37-HP-004" => probe_modality_snapshot_recovery(scale),
+        "G37-HP-005" => probe_modality_active_count(scale),
         _ => Err("invalid modality probe row".into()),
     }
+}
+
+/// G37-HP-001: streamed ingest matches sequential ingest, and rolling back a stream
+/// whose second command is invalid restores the pre-rollback snapshot exactly.
+/// Extracted from [`probe_modality_kernel`].
+fn probe_modality_stream_rollback(scale: usize) -> Result<Observation, ProbeError> {
+    let commands: Vec<_> = (1..=scale as u64)
+        .map(|index| modality_ingest(index, 1, None, 8))
+        .collect();
+    let mut streamed = ServedModalityRuntime::new();
+    let (outcomes, latency) = timed(|| streamed.ingest_stream(commands.clone()));
+    let outcomes = outcomes?;
+
+    let mut sequential = ServedModalityRuntime::new();
+    for command in commands {
+        sequential.ingest(command)?;
+    }
+    let before_rollback = streamed.snapshot()?;
+    let rollback_result = streamed.ingest_stream([
+        modality_ingest(1, 2, Some(1), 9),
+        modality_ingest(2, 2, Some(u64::MAX), 10),
+    ]);
+    let rollback_restored = rollback_result.is_err()
+        && streamed.snapshot()? == before_rollback
+        && streamed == sequential;
+    Ok(Observation {
+        work_units: (scale.saturating_add(2)).max(1) as u64,
+        memory_bytes: before_rollback.capacity().max(1) as u64,
+        latency_ns: latency,
+        equivalent: outcomes.len() == scale && rollback_restored,
+    })
+}
+
+/// G37-HP-002: a cursor-paged query matches the reference (in-order, filtered,
+/// take(16)) computation over the same commands. Extracted from
+/// [`probe_modality_kernel`].
+fn probe_modality_cursor_page(scale: usize) -> Result<Observation, ProbeError> {
+    let (runtime, commands) = populated_modality_runtime(scale)?;
+    let cursor = commands[scale / 2].target_occurrence_id.clone();
+    let query = ServedQuery {
+        scope: modality_scope(),
+        modality: Some(ModalityKind::Document),
+        segment_kind: Some(SegmentKind::Page),
+        after: Some(cursor.clone()),
+        limit: 16,
+        include_cold: false,
+    };
+    let (page, latency) = timed(|| runtime.query(&query));
+    let page = page?;
+    let expected: Vec<_> = commands
+        .iter()
+        .map(|command| command.target_occurrence_id.clone())
+        .filter(|occurrence_id| occurrence_id > &cursor)
+        .take(16)
+        .collect();
+    let actual: Vec<_> = page
+        .records
+        .iter()
+        .map(|record| record.occurrence_id.clone())
+        .collect();
+    let memory = serde_json::to_vec(&page)?.capacity().max(1) as u64;
+    Ok(Observation {
+        work_units: (scale.ilog2() as u64 + actual.len() as u64 + 1).max(1),
+        memory_bytes: memory,
+        latency_ns: latency,
+        equivalent: actual == expected,
+    })
+}
+
+/// G37-HP-003: the CDC suffix (`events_after`) matches the reference slice, and every
+/// event's sequence number is exact. Extracted from [`probe_modality_kernel`].
+fn probe_modality_cdc_suffix(scale: usize) -> Result<Observation, ProbeError> {
+    let (runtime, commands) = populated_modality_runtime(scale)?;
+    let sequence = (scale / 2) as u64;
+    let (events, latency) = timed(|| runtime.events_after(sequence, 16));
+    let expected_occurrences: Vec<_> = commands
+        .iter()
+        .skip(scale / 2)
+        .take(16)
+        .map(|command| command.target_occurrence_id.clone())
+        .collect();
+    let actual_occurrences: Vec<_> = events
+        .iter()
+        .map(|event| event.occurrence_id.clone())
+        .collect();
+    let sequences_are_exact = events
+        .iter()
+        .enumerate()
+        .all(|(index, event)| event.sequence == sequence + index as u64 + 1);
+    let memory = serde_json::to_vec(&events)?.capacity().max(1) as u64;
+    Ok(Observation {
+        work_units: events.len().max(1) as u64,
+        memory_bytes: memory,
+        latency_ns: latency,
+        equivalent: actual_occurrences == expected_occurrences && sequences_are_exact,
+    })
+}
+
+/// G37-HP-004: recovering a runtime from its own snapshot round-trips exactly, and
+/// replaying the first already-applied command is recognized as an idempotent replay.
+/// Extracted from [`probe_modality_kernel`].
+fn probe_modality_snapshot_recovery(scale: usize) -> Result<Observation, ProbeError> {
+    let (runtime, commands) = populated_modality_runtime(scale)?;
+    let (recovered, latency) = timed(|| -> Result<_, eg_modality::ServedError> {
+        let snapshot = runtime.snapshot()?;
+        let recovered = ServedModalityRuntime::recover(&snapshot)?;
+        Ok((snapshot, recovered))
+    });
+    let (snapshot, mut recovered) = recovered?;
+    let replay = recovered.ingest(commands[0].clone())?;
+    Ok(Observation {
+        work_units: (scale.saturating_mul(2)).max(1) as u64,
+        memory_bytes: snapshot.capacity().max(1) as u64,
+        latency_ns: latency,
+        equivalent: replay.disposition == ApplyDisposition::IdempotentReplay
+            && recovered == runtime,
+    })
+}
+
+/// G37-HP-005: the runtime's active count matches a full paginated scan. Extracted
+/// from [`probe_modality_kernel`].
+fn probe_modality_active_count(scale: usize) -> Result<Observation, ProbeError> {
+    let (runtime, _) = populated_modality_runtime(scale)?;
+    let (active, latency) = timed(|| runtime.len());
+    let mut scanned = 0usize;
+    let mut after = None;
+    loop {
+        let page = runtime.query(&ServedQuery {
+            scope: modality_scope(),
+            modality: None,
+            segment_kind: None,
+            after,
+            limit: 1_000,
+            include_cold: true,
+        })?;
+        if page.records.is_empty() {
+            break;
+        }
+        scanned = scanned.saturating_add(page.records.len());
+        after = page.next;
+        if page.records.len() < 1_000 {
+            break;
+        }
+    }
+    Ok(Observation {
+        work_units: 1,
+        memory_bytes: std::mem::size_of::<usize>() as u64,
+        latency_ns: latency,
+        equivalent: active == scanned && active == scale,
+    })
 }
 
 fn job_spec(index: usize) -> SubmitSpec {
@@ -1201,160 +1276,190 @@ fn graph_with_ring(scale: usize) -> Result<GraphCore, ProbeError> {
 
 fn probe_graph(row_id: &str, scale: usize) -> Result<Observation, ProbeError> {
     match row_id {
-        "G37-HP-015" => {
-            let graph = graph_with_ring(scale)?;
-            graph.add_edge("n-00000000".into(), "n-00000001".into(), property_blob(0))?;
-            let (count, latency) = timed(|| graph.edge_count());
-            Ok(Observation {
-                work_units: 1,
-                memory_bytes: std::mem::size_of::<usize>() as u64,
-                latency_ns: latency,
-                equivalent: count == graph.get_edges().len() && count == scale.max(2) + 1,
-            })
-        }
-        "G37-HP-016" => {
-            let graph = graph_with_ring(scale)?;
-            let before = graph.edge_count();
-            let target = format!("n-{:08}", scale.max(2) / 2);
-            let (_, latency) = timed(|| graph.remove_node(target.clone()));
-            Ok(Observation {
-                work_units: 4,
-                memory_bytes: allocation_bytes::<(String, String)>(2),
-                latency_ns: latency,
-                equivalent: !graph.has_node(&target)
-                    && graph.node_count() == scale.max(2) - 1
-                    && graph.edge_count() + 2 == before,
-            })
-        }
-        "G37-HP-017" => {
-            let graph = graph_with_ring(scale)?;
-            let selected: Vec<_> = (0..scale.max(2))
-                .step_by(4)
-                .map(|index| format!("n-{index:08}"))
-                .collect();
-            let (removed, latency) = timed(|| graph.evict_resident_nodes(&selected));
-            Ok(Observation {
-                work_units: selected.len().saturating_mul(3).max(1) as u64,
-                memory_bytes: graph
-                    .memory_estimate()
-                    .saturating_add(allocation_bytes::<String>(selected.capacity()))
-                    .max(1),
-                latency_ns: latency,
-                equivalent: removed == selected.len()
-                    && selected.iter().all(|id| !graph.has_node(id)),
-            })
-        }
-        "G37-HP-018" => {
-            let graph = GraphCore::new();
-            graph.add_node("source".into(), property_blob(0));
-            graph.add_node("target".into(), property_blob(1));
-            for index in 0..scale {
-                graph.add_edge("source".into(), "target".into(), property_blob(index))?;
-            }
-            let (_, latency) = timed(|| graph.remove_edge("source".into(), "target".into()));
-            Ok(Observation {
-                work_units: scale.max(1) as u64,
-                memory_bytes: graph.memory_estimate().max(1),
-                latency_ns: latency,
-                equivalent: graph.edge_count() == 0
-                    && graph.get_edge_properties("source", "target").is_empty(),
-            })
-        }
-        "G37-HP-019" => {
-            let graph = graph_with_ring(scale)?;
-            let selected: Vec<_> = (0..scale.max(2))
-                .step_by(4)
-                .map(|index| format!("n-{index:08}"))
-                .collect();
-            let (view, latency) = timed(|| graph.get_subgraph(&selected));
-            let selected_set: HashSet<_> = selected.iter().collect();
-            let reference_edges = graph
-                .get_edges()
-                .iter()
-                .filter(|(source, target, _)| {
-                    selected_set.contains(source) && selected_set.contains(target)
-                })
-                .count();
-            Ok(Observation {
-                work_units: selected.len().saturating_mul(3).max(1) as u64,
-                memory_bytes: graph
-                    .memory_estimate()
-                    .saturating_add(allocation_bytes::<String>(selected.capacity()))
-                    .max(1),
-                latency_ns: latency,
-                equivalent: view.node_map.len() == selected.len()
-                    && view.edge_properties.values().map(Vec::len).sum::<usize>()
-                        == reference_edges,
-            })
-        }
-        "G37-HP-020" => {
-            let graph = graph_with_ring(scale)?;
-            let (mut indexed, latency) = timed(|| {
-                graph
-                    .nodes_by_properties(&[("type", "even"), ("team", "blue")])
-                    .unwrap_or_default()
-            });
-            indexed.sort();
-            let mut reference: Vec<_> = (0..scale.max(2))
-                .filter(|index| index % 2 == 0 && index % 3 == 0)
-                .map(|index| format!("n-{index:08}"))
-                .collect();
-            reference.sort();
-            Ok(Observation {
-                work_units: scale.max(2).saturating_mul(2) as u64,
-                memory_bytes: graph
-                    .memory_estimate()
-                    .saturating_add(allocation_bytes::<String>(indexed.capacity()))
-                    .max(1),
-                latency_ns: latency,
-                equivalent: indexed == reference
-                    && indexed.windows(2).all(|pair| pair[0] < pair[1]),
-            })
-        }
-        "G37-HP-021" => {
-            let graph = graph_with_ring(scale)?;
-            let cold = graph.get_nodes_by_label_page("", None, 16);
-            let cursor = cold.last().map(|(id, _)| id.as_str());
-            let (warm, latency) = timed(|| graph.get_nodes_by_label_page("", cursor, 16));
-            let mut reference = graph.get_nodes();
-            reference.sort_by(|left, right| left.0.cmp(&right.0));
-            let expected: Vec<_> = reference.into_iter().skip(cold.len()).take(16).collect();
-            Ok(Observation {
-                work_units: scale.ilog2() as u64 + warm.len() as u64 + 1,
-                memory_bytes: graph.memory_estimate().max(1),
-                latency_ns: latency,
-                equivalent: warm == expected
-                    && cold
-                        .iter()
-                        .chain(warm.iter())
-                        .map(|(id, _)| id)
-                        .collect::<HashSet<_>>()
-                        .len()
-                        == cold.len() + warm.len(),
-            })
-        }
-        "G37-HP-022" => {
-            let graph = graph_with_ring(scale)?;
-            let warm = graph.get_nodes_by_label_page("", None, 16);
-            graph.add_edge(
-                "n-00000000".into(),
-                "n-00000001".into(),
-                property_blob(scale),
-            )?;
-            graph.mark_dirty_preserving_indexes();
-            let (after_edge, latency) = timed(|| graph.get_nodes_by_label_page("", None, 16));
-            graph.add_node("n-new".into(), property_blob(scale + 1));
-            graph.mark_dirty();
-            let after_node = graph.get_nodes_by_label_page("", None, 0);
-            Ok(Observation {
-                work_units: 4,
-                memory_bytes: allocation_bytes::<String>(4),
-                latency_ns: latency,
-                equivalent: after_edge == warm && after_node.iter().any(|(id, _)| id == "n-new"),
-            })
-        }
+        "G37-HP-015" => probe_graph_edge_count(scale),
+        "G37-HP-016" => probe_graph_remove_node(scale),
+        "G37-HP-017" => probe_graph_evict_resident(scale),
+        "G37-HP-018" => probe_graph_remove_edge(scale),
+        "G37-HP-019" => probe_graph_subgraph(scale),
+        "G37-HP-020" => probe_graph_properties_index(scale),
+        "G37-HP-021" => probe_graph_label_page(scale),
+        "G37-HP-022" => probe_graph_dirty_tracking(scale),
         _ => Err("invalid graph probe row".into()),
     }
+}
+
+/// G37-HP-015: the edge count matches a full edge enumeration. Extracted from
+/// [`probe_graph`].
+fn probe_graph_edge_count(scale: usize) -> Result<Observation, ProbeError> {
+    let graph = graph_with_ring(scale)?;
+    graph.add_edge("n-00000000".into(), "n-00000001".into(), property_blob(0))?;
+    let (count, latency) = timed(|| graph.edge_count());
+    Ok(Observation {
+        work_units: 1,
+        memory_bytes: std::mem::size_of::<usize>() as u64,
+        latency_ns: latency,
+        equivalent: count == graph.get_edges().len() && count == scale.max(2) + 1,
+    })
+}
+
+/// G37-HP-016: removing a node removes exactly its incident edges and drops the node
+/// count by one. Extracted from [`probe_graph`].
+fn probe_graph_remove_node(scale: usize) -> Result<Observation, ProbeError> {
+    let graph = graph_with_ring(scale)?;
+    let before = graph.edge_count();
+    let target = format!("n-{:08}", scale.max(2) / 2);
+    let (_, latency) = timed(|| graph.remove_node(target.clone()));
+    Ok(Observation {
+        work_units: 4,
+        memory_bytes: allocation_bytes::<(String, String)>(2),
+        latency_ns: latency,
+        equivalent: !graph.has_node(&target)
+            && graph.node_count() == scale.max(2) - 1
+            && graph.edge_count() + 2 == before,
+    })
+}
+
+/// G37-HP-017: evicting a selected set of resident nodes removes exactly that set.
+/// Extracted from [`probe_graph`].
+fn probe_graph_evict_resident(scale: usize) -> Result<Observation, ProbeError> {
+    let graph = graph_with_ring(scale)?;
+    let selected: Vec<_> = (0..scale.max(2))
+        .step_by(4)
+        .map(|index| format!("n-{index:08}"))
+        .collect();
+    let (removed, latency) = timed(|| graph.evict_resident_nodes(&selected));
+    Ok(Observation {
+        work_units: selected.len().saturating_mul(3).max(1) as u64,
+        memory_bytes: graph
+            .memory_estimate()
+            .saturating_add(allocation_bytes::<String>(selected.capacity()))
+            .max(1),
+        latency_ns: latency,
+        equivalent: removed == selected.len() && selected.iter().all(|id| !graph.has_node(id)),
+    })
+}
+
+/// G37-HP-018: removing the one edge between two nodes leaves zero edges and no
+/// properties for that pair. Extracted from [`probe_graph`].
+fn probe_graph_remove_edge(scale: usize) -> Result<Observation, ProbeError> {
+    let graph = GraphCore::new();
+    graph.add_node("source".into(), property_blob(0));
+    graph.add_node("target".into(), property_blob(1));
+    for index in 0..scale {
+        graph.add_edge("source".into(), "target".into(), property_blob(index))?;
+    }
+    let (_, latency) = timed(|| graph.remove_edge("source".into(), "target".into()));
+    Ok(Observation {
+        work_units: scale.max(1) as u64,
+        memory_bytes: graph.memory_estimate().max(1),
+        latency_ns: latency,
+        equivalent: graph.edge_count() == 0
+            && graph.get_edge_properties("source", "target").is_empty(),
+    })
+}
+
+/// G37-HP-019: a subgraph over a selected node set matches the reference induced-edge
+/// count. Extracted from [`probe_graph`].
+fn probe_graph_subgraph(scale: usize) -> Result<Observation, ProbeError> {
+    let graph = graph_with_ring(scale)?;
+    let selected: Vec<_> = (0..scale.max(2))
+        .step_by(4)
+        .map(|index| format!("n-{index:08}"))
+        .collect();
+    let (view, latency) = timed(|| graph.get_subgraph(&selected));
+    let selected_set: HashSet<_> = selected.iter().collect();
+    let reference_edges = graph
+        .get_edges()
+        .iter()
+        .filter(|(source, target, _)| {
+            selected_set.contains(source) && selected_set.contains(target)
+        })
+        .count();
+    Ok(Observation {
+        work_units: selected.len().saturating_mul(3).max(1) as u64,
+        memory_bytes: graph
+            .memory_estimate()
+            .saturating_add(allocation_bytes::<String>(selected.capacity()))
+            .max(1),
+        latency_ns: latency,
+        equivalent: view.node_map.len() == selected.len()
+            && view.edge_properties.values().map(Vec::len).sum::<usize>() == reference_edges,
+    })
+}
+
+/// G37-HP-020: the `nodes_by_properties` index matches a reference linear scan, sorted.
+/// Extracted from [`probe_graph`].
+fn probe_graph_properties_index(scale: usize) -> Result<Observation, ProbeError> {
+    let graph = graph_with_ring(scale)?;
+    let (mut indexed, latency) = timed(|| {
+        graph
+            .nodes_by_properties(&[("type", "even"), ("team", "blue")])
+            .unwrap_or_default()
+    });
+    indexed.sort();
+    let mut reference: Vec<_> = (0..scale.max(2))
+        .filter(|index| index % 2 == 0 && index % 3 == 0)
+        .map(|index| format!("n-{index:08}"))
+        .collect();
+    reference.sort();
+    Ok(Observation {
+        work_units: scale.max(2).saturating_mul(2) as u64,
+        memory_bytes: graph
+            .memory_estimate()
+            .saturating_add(allocation_bytes::<String>(indexed.capacity()))
+            .max(1),
+        latency_ns: latency,
+        equivalent: indexed == reference && indexed.windows(2).all(|pair| pair[0] < pair[1]),
+    })
+}
+
+/// G37-HP-021: a cursor-paged label listing continues exactly where the cold page left
+/// off, with no gap or overlap. Extracted from [`probe_graph`].
+fn probe_graph_label_page(scale: usize) -> Result<Observation, ProbeError> {
+    let graph = graph_with_ring(scale)?;
+    let cold = graph.get_nodes_by_label_page("", None, 16);
+    let cursor = cold.last().map(|(id, _)| id.as_str());
+    let (warm, latency) = timed(|| graph.get_nodes_by_label_page("", cursor, 16));
+    let mut reference = graph.get_nodes();
+    reference.sort_by(|left, right| left.0.cmp(&right.0));
+    let expected: Vec<_> = reference.into_iter().skip(cold.len()).take(16).collect();
+    Ok(Observation {
+        work_units: scale.ilog2() as u64 + warm.len() as u64 + 1,
+        memory_bytes: graph.memory_estimate().max(1),
+        latency_ns: latency,
+        equivalent: warm == expected
+            && cold
+                .iter()
+                .chain(warm.iter())
+                .map(|(id, _)| id)
+                .collect::<HashSet<_>>()
+                .len()
+                == cold.len() + warm.len(),
+    })
+}
+
+/// G37-HP-022: `mark_dirty_preserving_indexes` keeps a label page stable across an edge
+/// add, while a full `mark_dirty` after a node add is reflected. Extracted from
+/// [`probe_graph`].
+fn probe_graph_dirty_tracking(scale: usize) -> Result<Observation, ProbeError> {
+    let graph = graph_with_ring(scale)?;
+    let warm = graph.get_nodes_by_label_page("", None, 16);
+    graph.add_edge(
+        "n-00000000".into(),
+        "n-00000001".into(),
+        property_blob(scale),
+    )?;
+    graph.mark_dirty_preserving_indexes();
+    let (after_edge, latency) = timed(|| graph.get_nodes_by_label_page("", None, 16));
+    graph.add_node("n-new".into(), property_blob(scale + 1));
+    graph.mark_dirty();
+    let after_node = graph.get_nodes_by_label_page("", None, 0);
+    Ok(Observation {
+        work_units: 4,
+        memory_bytes: allocation_bytes::<String>(4),
+        latency_ns: latency,
+        equivalent: after_edge == warm && after_node.iter().any(|(id, _)| id == "n-new"),
+    })
 }
 
 fn vector(index: usize, dim: usize) -> Vec<f32> {

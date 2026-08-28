@@ -215,67 +215,79 @@ pub struct LoweredTripleGraph {
     pub schema_refs: Vec<String>,
 }
 
-/// Lower RDF triples to deterministic graph rows without mutating a graph.
-pub fn lower_triples(
-    triples: impl IntoIterator<Item = Triple>,
-) -> Result<LoweredTripleGraph, String> {
-    let mut node_props: BTreeMap<String, serde_json::Map<String, serde_json::Value>> =
-        BTreeMap::new();
-    let mut edges: Vec<(String, String, String)> = Vec::new();
-    let mut multivalue: Vec<(String, String, serde_json::Value)> = Vec::new();
-    let mut schema_refs: Vec<String> = Vec::new();
-    let mut count = 0usize;
+/// Mutable accumulator threaded through [`lower_triples`]'s per-triple lowering: nodes'
+/// property maps (keyed by canonical id), the edge list, values that collided into a
+/// multivalue cell, and which node ids became TBox schema (A18).
+#[derive(Default)]
+struct LoweredAccum {
+    node_props: BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
+    edges: Vec<(String, String, String)>,
+    multivalue: Vec<(String, String, serde_json::Value)>,
+    schema_refs: Vec<String>,
+}
 
-    for triple in triples {
-        count += 1;
-        let subject = subject_id(&triple.subject);
-        let predicate = triple.predicate.as_str().to_string();
-        match &triple.object {
-            Term::Literal(literal) => {
-                let properties = node_props.entry(subject.clone()).or_default();
-                if properties.contains_key(&predicate) {
-                    multivalue.push((subject, predicate, literal_to_cell(literal)));
-                } else {
-                    properties.insert(predicate, literal_to_cell(literal));
-                }
-            }
-            #[cfg(feature = "sparql-star")]
-            Term::Triple(_) => {}
-            object => {
-                let object_id = term_node_id(object)
-                    .ok_or_else(|| "RDF resource object has no canonical node id".to_string())?;
-                node_props.entry(subject.clone()).or_default();
-                node_props.entry(object_id.clone()).or_default();
-                if predicate == RDF_TYPE {
-                    if let Term::NamedNode(node_type) = object {
-                        node_props
-                            .entry(subject.clone())
-                            .or_default()
-                            .entry("type".to_string())
-                            .or_insert_with(|| {
-                                serde_json::Value::String(node_type.as_str().to_string())
-                            });
-                        // A18: an explicit `rdf:type owl:Class`/`rdfs:Class`/...
-                        // declaration makes the SUBJECT itself schema (TBox) --
-                        // see the module-level A18 note above.
-                        if TBOX_TYPE_OBJECTS.contains(&node_type.as_str()) {
-                            schema_refs.push(subject.clone());
-                        }
-                    }
-                } else if TBOX_SCHEMA_PREDICATES.contains(&predicate.as_str()) {
-                    // A18: a recognized RDFS/OWL schema predicate names an axiom
-                    // ABOUT both endpoints (a class/property reference on each
-                    // side), so both are schema -- see the module-level A18 note.
-                    schema_refs.push(subject.clone());
-                    schema_refs.push(object_id.clone());
-                }
-                edges.push((subject, predicate, object_id));
+/// Lower one triple into `accum`: a literal object merges into (or multivalue-collides
+/// with) the subject's property blob; a resource object becomes an edge, folding
+/// `rdf:type` into the node-label property and flagging TBox schema refs (A18) exactly
+/// as `crate::update::insert_resource_triple` does for the incremental path. Extracted
+/// from [`lower_triples`]'s per-triple loop.
+fn lower_one_triple(triple: &Triple, accum: &mut LoweredAccum) -> Result<(), String> {
+    let subject = subject_id(&triple.subject);
+    let predicate = triple.predicate.as_str().to_string();
+    match &triple.object {
+        Term::Literal(literal) => {
+            let properties = accum.node_props.entry(subject.clone()).or_default();
+            if properties.contains_key(&predicate) {
+                accum
+                    .multivalue
+                    .push((subject, predicate, literal_to_cell(literal)));
+            } else {
+                properties.insert(predicate, literal_to_cell(literal));
             }
         }
+        #[cfg(feature = "sparql-star")]
+        Term::Triple(_) => {}
+        object => {
+            let object_id = term_node_id(object)
+                .ok_or_else(|| "RDF resource object has no canonical node id".to_string())?;
+            accum.node_props.entry(subject.clone()).or_default();
+            accum.node_props.entry(object_id.clone()).or_default();
+            if predicate == RDF_TYPE {
+                if let Term::NamedNode(node_type) = object {
+                    accum
+                        .node_props
+                        .entry(subject.clone())
+                        .or_default()
+                        .entry("type".to_string())
+                        .or_insert_with(|| {
+                            serde_json::Value::String(node_type.as_str().to_string())
+                        });
+                    // A18: an explicit `rdf:type owl:Class`/`rdfs:Class`/...
+                    // declaration makes the SUBJECT itself schema (TBox) --
+                    // see the module-level A18 note above.
+                    if TBOX_TYPE_OBJECTS.contains(&node_type.as_str()) {
+                        accum.schema_refs.push(subject.clone());
+                    }
+                }
+            } else if TBOX_SCHEMA_PREDICATES.contains(&predicate.as_str()) {
+                // A18: a recognized RDFS/OWL schema predicate names an axiom
+                // ABOUT both endpoints (a class/property reference on each
+                // side), so both are schema -- see the module-level A18 note.
+                accum.schema_refs.push(subject.clone());
+                accum.schema_refs.push(object_id.clone());
+            }
+            accum.edges.push((subject, predicate, object_id));
+        }
     }
+    Ok(())
+}
 
-    for (subject, predicate, cell) in &multivalue {
-        let properties = node_props.entry(subject.clone()).or_default();
+/// Resolve every property key that collided across triples into a reserved multivalue
+/// cell (`RDF_MULTI_VALUE_KEY`), appending each colliding value in triple order.
+/// Extracted from [`lower_triples`]'s post-loop pass.
+fn merge_multivalue_cells(accum: &mut LoweredAccum) -> Result<(), String> {
+    for (subject, predicate, cell) in &accum.multivalue {
+        let properties = accum.node_props.entry(subject.clone()).or_default();
         let extra = properties
             .entry(RDF_MULTI_VALUE_KEY.to_string())
             .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
@@ -289,30 +301,62 @@ pub fn lower_triples(
             .ok_or_else(|| format!("RDF multivalue predicate {predicate} is not an array"))?
             .push(cell.clone());
     }
+    Ok(())
+}
 
-    let nodes = node_props
+/// Encode every node's property map to its msgpack blob. Extracted from
+/// [`lower_triples`]'s final encode pass.
+fn encode_lowered_nodes(
+    node_props: BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    node_props
         .into_iter()
         .map(|(id, properties)| {
             let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(properties))
                 .map_err(|error| format!("encode RDF node {id}: {error}"))?;
             Ok((id, blob))
         })
-        .collect::<Result<Vec<_>, String>>()?;
-    let edges = edges
+        .collect()
+}
+
+/// Encode every edge's relationship property to its msgpack blob. Extracted from
+/// [`lower_triples`]'s final encode pass.
+fn encode_lowered_edges(
+    edges: Vec<(String, String, String)>,
+) -> Result<Vec<(String, String, Vec<u8>)>, String> {
+    edges
         .into_iter()
         .map(|(source, predicate, target)| {
             let blob = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": predicate }))
                 .map_err(|error| format!("encode RDF edge: {error}"))?;
             Ok((source, target, blob))
         })
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect()
+}
+
+/// Lower RDF triples to deterministic graph rows without mutating a graph.
+pub fn lower_triples(
+    triples: impl IntoIterator<Item = Triple>,
+) -> Result<LoweredTripleGraph, String> {
+    let mut accum = LoweredAccum::default();
+    let mut count = 0usize;
+
+    for triple in triples {
+        count += 1;
+        lower_one_triple(&triple, &mut accum)?;
+    }
+
+    merge_multivalue_cells(&mut accum)?;
+
+    let nodes = encode_lowered_nodes(accum.node_props)?;
+    let edges = encode_lowered_edges(accum.edges)?;
 
     Ok(LoweredTripleGraph {
         nodes,
         edges,
         triples: count,
-        multivalue: multivalue.len(),
-        schema_refs,
+        multivalue: accum.multivalue.len(),
+        schema_refs: accum.schema_refs,
     })
 }
 
@@ -411,7 +455,21 @@ pub fn export_triples(core: &GraphCore, graph_name: &str) -> Result<Vec<Triple>,
     let mut out: Vec<Triple> = Vec::new();
     let mut graph_registered = false;
 
-    // Object triples from edges.
+    export_edge_triples(core, &mut out)?;
+
+    for (id, props) in core.get_nodes() {
+        if export_node_triples(&id, &props, &mut out)? {
+            graph_registered = true;
+        }
+    }
+
+    let _ = (graph_name, graph_registered);
+
+    Ok(out)
+}
+
+/// Object triples from edges. Half of [`export_triples`]'s two sources.
+fn export_edge_triples(core: &GraphCore, out: &mut Vec<Triple>) -> Result<(), String> {
     for (s, o, props) in core.get_edges() {
         let v = eg_types::msgpack::decode_property_value(&props).unwrap_or(serde_json::json!({}));
         let pred = v
@@ -420,53 +478,75 @@ pub fn export_triples(core: &GraphCore, graph_name: &str) -> Result<Vec<Triple>,
             .ok_or("edge missing relationship")?;
         out.push(make_triple(&s, pred, &o)?);
     }
+    Ok(())
+}
 
-    // Literal triples + folded rdf:type from node property blobs.
-    for (id, props) in core.get_nodes() {
-        if id.starts_with("__named_graph__:") {
-            graph_registered = true;
-            continue; // engine bookkeeping, not RDF.
-        }
-        let v = eg_types::msgpack::decode_property_value(&props).unwrap_or(serde_json::json!({}));
-        let Some(obj) = v.as_object() else { continue };
-        // Skip the marker node by its type, too (defensive).
-        if obj.get("type").and_then(|t| t.as_str()) == Some(NAMED_GRAPH_MARKER) {
-            graph_registered = true;
-            continue;
-        }
-        for (k, cell) in obj {
-            if k == RDF_MULTI_VALUE_KEY {
-                if let Some(by_predicate) = cell.as_object() {
-                    for (predicate, values) in by_predicate {
-                        let pred = NamedNode::new(predicate)
-                            .map_err(|e| format!("bad pred iri {predicate}: {e}"))?;
-                        for value in values.as_array().into_iter().flatten() {
-                            if let Some(lit) = cell_to_literal(value) {
-                                let subj = parse_subject(id.as_str())?;
-                                out.push(Triple::new(subj, pred.clone(), lit));
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-            if k == "type" {
-                continue; // emitted as an explicit rdf:type edge already.
-            }
-            if k == "graph_name" {
-                continue; // marker bookkeeping.
-            }
-            if let Some(lit) = cell_to_literal(cell) {
-                let subj = parse_subject(id.as_str())?;
-                let pred = NamedNode::new(k).map_err(|e| format!("bad pred iri {k}: {e}"))?;
-                out.push(Triple::new(subj, pred, lit));
+/// Literal triples + folded rdf:type from one node's property blob. Returns whether
+/// this node was engine bookkeeping (a `__named_graph__:` marker) rather than RDF. The
+/// other half of [`export_triples`]'s two sources.
+fn export_node_triples(id: &str, props: &[u8], out: &mut Vec<Triple>) -> Result<bool, String> {
+    if id.starts_with("__named_graph__:") {
+        return Ok(true); // engine bookkeeping, not RDF.
+    }
+    let v = eg_types::msgpack::decode_property_value(props).unwrap_or(serde_json::json!({}));
+    let Some(obj) = v.as_object() else {
+        return Ok(false);
+    };
+    // Skip the marker node by its type, too (defensive).
+    if obj.get("type").and_then(|t| t.as_str()) == Some(NAMED_GRAPH_MARKER) {
+        return Ok(true);
+    }
+    for (k, cell) in obj {
+        export_node_cell(id, k, cell, out)?;
+    }
+    Ok(false)
+}
+
+/// One property cell of a node's blob → 0+ triples: the reserved multivalue cell
+/// expands to one triple per collided value; `type` (emitted as an explicit rdf:type
+/// edge already) and `graph_name` (marker bookkeeping) are skipped; anything else is a
+/// plain literal cell. Extracted from [`export_node_triples`]'s per-key loop.
+fn export_node_cell(
+    id: &str,
+    k: &str,
+    cell: &serde_json::Value,
+    out: &mut Vec<Triple>,
+) -> Result<(), String> {
+    if k == RDF_MULTI_VALUE_KEY {
+        return export_multivalue_cell(id, cell, out);
+    }
+    if k == "type" || k == "graph_name" {
+        return Ok(());
+    }
+    if let Some(lit) = cell_to_literal(cell) {
+        let subj = parse_subject(id)?;
+        let pred = NamedNode::new(k).map_err(|e| format!("bad pred iri {k}: {e}"))?;
+        out.push(Triple::new(subj, pred, lit));
+    }
+    Ok(())
+}
+
+/// The reserved multivalue cell → one triple per `(predicate, value)` that collided
+/// during lowering. Extracted from [`export_node_cell`].
+fn export_multivalue_cell(
+    id: &str,
+    cell: &serde_json::Value,
+    out: &mut Vec<Triple>,
+) -> Result<(), String> {
+    let Some(by_predicate) = cell.as_object() else {
+        return Ok(());
+    };
+    for (predicate, values) in by_predicate {
+        let pred =
+            NamedNode::new(predicate).map_err(|e| format!("bad pred iri {predicate}: {e}"))?;
+        for value in values.as_array().into_iter().flatten() {
+            if let Some(lit) = cell_to_literal(value) {
+                let subj = parse_subject(id)?;
+                out.push(Triple::new(subj, pred.clone(), lit));
             }
         }
     }
-
-    let _ = (graph_name, graph_registered);
-
-    Ok(out)
+    Ok(())
 }
 
 fn parse_subject(id: &str) -> Result<NamedOrBlankNode, String> {

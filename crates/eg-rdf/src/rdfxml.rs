@@ -34,6 +34,24 @@ pub(crate) fn serialize(triples: &[Triple]) -> Result<String, String> {
         .collect();
 
     let mut writer = Writer::new(Vec::new());
+    write_rdfxml_header(&mut writer, &prefixes)?;
+
+    for (triple, (namespace, local)) in triples.iter().zip(predicates) {
+        write_rdfxml_description(&mut writer, triple, &namespace, &local, &prefixes)?;
+    }
+
+    writer
+        .write_event(Event::End(BytesEnd::new("rdf:RDF")))
+        .map_err(xml_write_error)?;
+    String::from_utf8(writer.into_inner()).map_err(|error| format!("rdfxml utf8: {error}"))
+}
+
+/// Write the `<?xml?>` decl + `<rdf:RDF>` root start tag with its `xmlns:` prefix
+/// bindings. Extracted from [`serialize`]'s header emission.
+fn write_rdfxml_header(
+    writer: &mut Writer<Vec<u8>>,
+    prefixes: &BTreeMap<String, String>,
+) -> Result<(), String> {
     writer
         .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
         .map_err(xml_write_error)?;
@@ -48,209 +66,265 @@ pub(crate) fn serialize(triples: &[Triple]) -> Result<String, String> {
     }
     writer
         .write_event(Event::Start(root))
+        .map_err(xml_write_error)
+}
+
+/// Write one `<rdf:Description>` element for `triple`. Extracted from [`serialize`]'s
+/// per-triple loop.
+fn write_rdfxml_description(
+    writer: &mut Writer<Vec<u8>>,
+    triple: &Triple,
+    namespace: &str,
+    local: &str,
+    prefixes: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mut description = BytesStart::new("rdf:Description");
+    match &triple.subject {
+        NamedOrBlankNode::NamedNode(node) => {
+            description.push_attribute(("rdf:about", node.as_str()));
+        }
+        NamedOrBlankNode::BlankNode(node) => {
+            description.push_attribute(("rdf:nodeID", node.as_str()));
+        }
+    }
+    writer
+        .write_event(Event::Start(description))
         .map_err(xml_write_error)?;
 
-    for (triple, (namespace, local)) in triples.iter().zip(predicates) {
-        let mut description = BytesStart::new("rdf:Description");
-        match &triple.subject {
-            NamedOrBlankNode::NamedNode(node) => {
-                description.push_attribute(("rdf:about", node.as_str()));
-            }
-            NamedOrBlankNode::BlankNode(node) => {
-                description.push_attribute(("rdf:nodeID", node.as_str()));
-            }
-        }
-        writer
-            .write_event(Event::Start(description))
-            .map_err(xml_write_error)?;
-
-        let qname = if namespace == RDF_NS {
-            format!("rdf:{local}")
-        } else {
-            format!(
-                "{}:{local}",
-                prefixes
-                    .get(&namespace)
-                    .ok_or_else(|| format!("rdfxml: namespace not declared: {namespace}"))?
-            )
-        };
-        match &triple.object {
-            Term::NamedNode(node) => {
-                let mut property = BytesStart::new(qname.as_str());
-                property.push_attribute(("rdf:resource", node.as_str()));
-                writer
-                    .write_event(Event::Empty(property))
-                    .map_err(xml_write_error)?;
-            }
-            Term::BlankNode(node) => {
-                let mut property = BytesStart::new(qname.as_str());
-                property.push_attribute(("rdf:nodeID", node.as_str()));
-                writer
-                    .write_event(Event::Empty(property))
-                    .map_err(xml_write_error)?;
-            }
-            Term::Literal(literal) => {
-                let mut property = BytesStart::new(qname.as_str());
-                if let Some(language) = literal.language() {
-                    property.push_attribute(("xml:lang", language));
-                } else if literal.datatype().as_str() != XSD_STRING {
-                    property.push_attribute(("rdf:datatype", literal.datatype().as_str()));
-                }
-                writer
-                    .write_event(Event::Start(property))
-                    .map_err(xml_write_error)?;
-                writer
-                    .write_event(Event::Text(BytesText::new(literal.value())))
-                    .map_err(xml_write_error)?;
-                writer
-                    .write_event(Event::End(BytesEnd::new(qname.as_str())))
-                    .map_err(xml_write_error)?;
-            }
-            #[allow(unreachable_patterns)]
-            _ => {
-                return Err(
-                    "rdfxml: RDF-star quoted triple objects have no RDF/XML encoding".into(),
-                )
-            }
-        }
-        writer
-            .write_event(Event::End(BytesEnd::new("rdf:Description")))
-            .map_err(xml_write_error)?;
-    }
+    let qname = if namespace == RDF_NS {
+        format!("rdf:{local}")
+    } else {
+        format!(
+            "{}:{local}",
+            prefixes
+                .get(namespace)
+                .ok_or_else(|| format!("rdfxml: namespace not declared: {namespace}"))?
+        )
+    };
+    write_rdfxml_object(writer, &qname, &triple.object)?;
 
     writer
-        .write_event(Event::End(BytesEnd::new("rdf:RDF")))
-        .map_err(xml_write_error)?;
-    String::from_utf8(writer.into_inner()).map_err(|error| format!("rdfxml utf8: {error}"))
+        .write_event(Event::End(BytesEnd::new("rdf:Description")))
+        .map_err(xml_write_error)
+}
+
+/// Write the property element for a triple's object under `qname`. Extracted from
+/// [`write_rdfxml_description`].
+fn write_rdfxml_object(
+    writer: &mut Writer<Vec<u8>>,
+    qname: &str,
+    object: &Term,
+) -> Result<(), String> {
+    match object {
+        Term::NamedNode(node) => {
+            let mut property = BytesStart::new(qname);
+            property.push_attribute(("rdf:resource", node.as_str()));
+            writer
+                .write_event(Event::Empty(property))
+                .map_err(xml_write_error)
+        }
+        Term::BlankNode(node) => {
+            let mut property = BytesStart::new(qname);
+            property.push_attribute(("rdf:nodeID", node.as_str()));
+            writer
+                .write_event(Event::Empty(property))
+                .map_err(xml_write_error)
+        }
+        Term::Literal(literal) => {
+            let mut property = BytesStart::new(qname);
+            if let Some(language) = literal.language() {
+                property.push_attribute(("xml:lang", language));
+            } else if literal.datatype().as_str() != XSD_STRING {
+                property.push_attribute(("rdf:datatype", literal.datatype().as_str()));
+            }
+            writer
+                .write_event(Event::Start(property))
+                .map_err(xml_write_error)?;
+            writer
+                .write_event(Event::Text(BytesText::new(literal.value())))
+                .map_err(xml_write_error)?;
+            writer
+                .write_event(Event::End(BytesEnd::new(qname)))
+                .map_err(xml_write_error)
+        }
+        #[allow(unreachable_patterns)]
+        _ => Err("rdfxml: RDF-star quoted triple objects have no RDF/XML encoding".into()),
+    }
+}
+
+/// Mutable state threaded through [`parse`]'s per-event state machine: the current
+/// nesting depth relative to `<rdf:RDF>`, the in-progress subject/property (when inside
+/// a node/property element), and the triples produced so far.
+struct ParseState {
+    depth: usize,
+    subject: Option<NamedOrBlankNode>,
+    property: Option<Property>,
+    triples: Vec<Triple>,
 }
 
 pub(crate) fn parse(document: &str) -> Result<Vec<Triple>, String> {
     let mut reader = NsReader::from_str(document);
     reader.config_mut().trim_text(false);
-    let mut depth = 0usize;
-    let mut subject: Option<NamedOrBlankNode> = None;
-    let mut property: Option<Property> = None;
-    let mut triples = Vec::new();
+    let mut state = ParseState {
+        depth: 0,
+        subject: None,
+        property: None,
+        triples: Vec::new(),
+    };
 
     loop {
-        match reader
+        let event = reader
             .read_event()
-            .map_err(|error| format!("rdfxml parse: {error}"))?
-        {
-            Event::Start(element) => {
-                match depth {
-                    0 => require_rdf_root(reader.resolver(), element.name())?,
-                    1 => {
-                        let (node, node_type) = parse_node(&reader, &element)?;
-                        if let Some(node_type) = node_type {
-                            triples.push(Triple::new(
-                                node.clone(),
-                                NamedNode::new(format!("{RDF_NS}type"))
-                                    .map_err(|error| format!("rdfxml rdf:type: {error}"))?,
-                                node_type,
-                            ));
-                        }
-                        subject = Some(node);
-                    }
-                    2 => {
-                        let current = subject
-                            .as_ref()
-                            .ok_or_else(|| "rdfxml: property without a subject".to_string())?;
-                        property = Some(parse_property(&reader, &element)?);
-                        if property
-                            .as_ref()
-                            .is_some_and(|value| value.object.is_some())
-                        {
-                            // Resource-valued properties are still finalized on End,
-                            // ensuring malformed mixed resource/text content is rejected.
-                        }
-                        let _ = current;
-                    }
-                    _ => {
-                        return Err(
-                            "rdfxml: nested parseType/resource nodes are not supported".into()
-                        )
-                    }
-                }
-                depth += 1;
-            }
-            Event::Empty(element) => match depth {
-                1 => {
-                    let (node, node_type) = parse_node(&reader, &element)?;
-                    if let Some(node_type) = node_type {
-                        triples.push(Triple::new(
-                            node,
-                            NamedNode::new(format!("{RDF_NS}type"))
-                                .map_err(|error| format!("rdfxml rdf:type: {error}"))?,
-                            node_type,
-                        ));
-                    }
-                }
-                2 => {
-                    let current = subject
-                        .as_ref()
-                        .ok_or_else(|| "rdfxml: property without a subject".to_string())?;
-                    let value = parse_property(&reader, &element)?;
-                    triples.push(value.finish(current.clone())?);
-                }
-                _ => return Err("rdfxml: unexpected empty element".into()),
-            },
-            Event::Text(text) if depth == 3 => {
-                let value = text
-                    .decode()
-                    .map_err(|error| format!("rdfxml text: {error}"))?;
-                property
-                    .as_mut()
-                    .ok_or_else(|| "rdfxml: text outside a property".to_string())?
-                    .text
-                    .push_str(&value);
-            }
-            Event::CData(text) if depth == 3 => {
-                let value = text
-                    .decode()
-                    .map_err(|error| format!("rdfxml cdata: {error}"))?;
-                property
-                    .as_mut()
-                    .ok_or_else(|| "rdfxml: CDATA outside a property".to_string())?
-                    .text
-                    .push_str(&value);
-            }
-            Event::GeneralRef(reference) if depth == 3 => {
-                let value = decode_reference(&reference)?;
-                property
-                    .as_mut()
-                    .ok_or_else(|| "rdfxml: entity outside a property".to_string())?
-                    .text
-                    .push_str(&value);
-            }
-            Event::End(_) => {
-                if depth == 0 {
-                    return Err("rdfxml: unmatched closing element".into());
-                }
-                depth -= 1;
-                if depth == 2 {
-                    let current = subject
-                        .as_ref()
-                        .ok_or_else(|| "rdfxml: property without a subject".to_string())?;
-                    let value = property
-                        .take()
-                        .ok_or_else(|| "rdfxml: closing property without state".to_string())?;
-                    triples.push(value.finish(current.clone())?);
-                } else if depth == 1 {
-                    subject = None;
-                }
-            }
-            Event::DocType(_) => {
-                return Err("rdfxml: DTDs and external entities are forbidden".into())
-            }
-            Event::Eof => break,
-            _ => {}
+            .map_err(|error| format!("rdfxml parse: {error}"))?;
+        if matches!(event, Event::Eof) {
+            break;
         }
+        handle_rdfxml_event(&reader, &mut state, event)?;
     }
-    if depth != 0 || subject.is_some() || property.is_some() {
+    if state.depth != 0 || state.subject.is_some() || state.property.is_some() {
         return Err("rdfxml: truncated document".into());
     }
-    Ok(triples)
+    Ok(state.triples)
+}
+
+/// Dispatch one XML event against the parser state. Extracted from [`parse`]'s loop.
+fn handle_rdfxml_event(
+    reader: &NsReader<&[u8]>,
+    state: &mut ParseState,
+    event: Event<'_>,
+) -> Result<(), String> {
+    match event {
+        Event::Start(element) => handle_rdfxml_start(reader, state, &element)?,
+        Event::Empty(element) => handle_rdfxml_empty(reader, state, &element)?,
+        Event::Text(text) if state.depth == 3 => {
+            let value = text
+                .decode()
+                .map_err(|error| format!("rdfxml text: {error}"))?;
+            state
+                .property
+                .as_mut()
+                .ok_or_else(|| "rdfxml: text outside a property".to_string())?
+                .text
+                .push_str(&value);
+        }
+        Event::CData(text) if state.depth == 3 => {
+            let value = text
+                .decode()
+                .map_err(|error| format!("rdfxml cdata: {error}"))?;
+            state
+                .property
+                .as_mut()
+                .ok_or_else(|| "rdfxml: CDATA outside a property".to_string())?
+                .text
+                .push_str(&value);
+        }
+        Event::GeneralRef(reference) if state.depth == 3 => {
+            let value = decode_reference(&reference)?;
+            state
+                .property
+                .as_mut()
+                .ok_or_else(|| "rdfxml: entity outside a property".to_string())?
+                .text
+                .push_str(&value);
+        }
+        Event::End(_) => handle_rdfxml_end(state)?,
+        Event::DocType(_) => return Err("rdfxml: DTDs and external entities are forbidden".into()),
+        _ => {}
+    }
+    Ok(())
+}
+
+/// The `Event::Start` arm of [`handle_rdfxml_event`]: root validation at depth 0, a new
+/// subject node at depth 1, a new property at depth 2; deeper nesting is rejected. Bumps
+/// `state.depth` on success.
+fn handle_rdfxml_start(
+    reader: &NsReader<&[u8]>,
+    state: &mut ParseState,
+    element: &BytesStart<'_>,
+) -> Result<(), String> {
+    match state.depth {
+        0 => require_rdf_root(reader.resolver(), element.name())?,
+        1 => {
+            let (node, node_type) = parse_node(reader, element)?;
+            if let Some(node_type) = node_type {
+                state.triples.push(Triple::new(
+                    node.clone(),
+                    NamedNode::new(format!("{RDF_NS}type"))
+                        .map_err(|error| format!("rdfxml rdf:type: {error}"))?,
+                    node_type,
+                ));
+            }
+            state.subject = Some(node);
+        }
+        2 => {
+            // Resource-valued properties are still finalized on End, ensuring
+            // malformed mixed resource/text content is rejected.
+            if state.subject.is_none() {
+                return Err("rdfxml: property without a subject".to_string());
+            }
+            state.property = Some(parse_property(reader, element)?);
+        }
+        _ => return Err("rdfxml: nested parseType/resource nodes are not supported".into()),
+    }
+    state.depth += 1;
+    Ok(())
+}
+
+/// The `Event::Empty` arm of [`handle_rdfxml_event`]: a self-closing subject node at
+/// depth 1, or a self-closing (resource-valued) property at depth 2.
+fn handle_rdfxml_empty(
+    reader: &NsReader<&[u8]>,
+    state: &mut ParseState,
+    element: &BytesStart<'_>,
+) -> Result<(), String> {
+    match state.depth {
+        1 => {
+            let (node, node_type) = parse_node(reader, element)?;
+            if let Some(node_type) = node_type {
+                state.triples.push(Triple::new(
+                    node,
+                    NamedNode::new(format!("{RDF_NS}type"))
+                        .map_err(|error| format!("rdfxml rdf:type: {error}"))?,
+                    node_type,
+                ));
+            }
+            Ok(())
+        }
+        2 => {
+            let current = state
+                .subject
+                .as_ref()
+                .ok_or_else(|| "rdfxml: property without a subject".to_string())?;
+            let value = parse_property(reader, element)?;
+            state.triples.push(value.finish(current.clone())?);
+            Ok(())
+        }
+        _ => Err("rdfxml: unexpected empty element".into()),
+    }
+}
+
+/// The `Event::End` arm of [`handle_rdfxml_event`]: closing a property (depth 3→2, emit
+/// its finished triple) or a subject node (depth 2→1, clear it). Decrements
+/// `state.depth`.
+fn handle_rdfxml_end(state: &mut ParseState) -> Result<(), String> {
+    if state.depth == 0 {
+        return Err("rdfxml: unmatched closing element".into());
+    }
+    state.depth -= 1;
+    if state.depth == 2 {
+        let current = state
+            .subject
+            .as_ref()
+            .ok_or_else(|| "rdfxml: property without a subject".to_string())?;
+        let value = state
+            .property
+            .take()
+            .ok_or_else(|| "rdfxml: closing property without state".to_string())?;
+        state.triples.push(value.finish(current.clone())?);
+    } else if state.depth == 1 {
+        state.subject = None;
+    }
+    Ok(())
 }
 
 struct Property {
@@ -311,28 +385,52 @@ fn parse_node(
             }
         }
     }
-    let subject = match (about, node_id) {
-        (Some(_), Some(_)) => return Err("rdfxml: node has both rdf:about and rdf:nodeID".into()),
+    let subject = resolve_node_subject(about, node_id)?;
+    let node_type = resolve_node_type(namespace, &local)?;
+    Ok((subject, node_type))
+}
+
+/// Resolve a node's subject from its `rdf:about`/`rdf:nodeID` attributes (mutually
+/// exclusive; neither present ⇒ a fresh blank node). Extracted from [`parse_node`].
+fn resolve_node_subject(
+    about: Option<String>,
+    node_id: Option<String>,
+) -> Result<NamedOrBlankNode, String> {
+    match (about, node_id) {
+        (Some(_), Some(_)) => Err("rdfxml: node has both rdf:about and rdf:nodeID".into()),
         (Some(iri), None) => NamedNode::new(iri)
             .map(NamedOrBlankNode::NamedNode)
-            .map_err(|error| format!("rdfxml subject IRI: {error}"))?,
+            .map_err(|error| format!("rdfxml subject IRI: {error}")),
         (None, Some(id)) => BlankNode::new(id)
             .map(NamedOrBlankNode::BlankNode)
-            .map_err(|error| format!("rdfxml blank node: {error}"))?,
-        (None, None) => NamedOrBlankNode::BlankNode(BlankNode::default()),
-    };
-    let node_type = if namespace.as_deref() == Some(RDF_NS) && local == "Description" {
-        None
-    } else {
-        let namespace =
-            namespace.ok_or_else(|| "rdfxml: typed node has no namespace".to_string())?;
-        Some(
-            NamedNode::new(format!("{namespace}{local}"))
-                .map(Term::NamedNode)
-                .map_err(|error| format!("rdfxml node type: {error}"))?,
-        )
-    };
-    Ok((subject, node_type))
+            .map_err(|error| format!("rdfxml blank node: {error}")),
+        (None, None) => Ok(NamedOrBlankNode::BlankNode(BlankNode::default())),
+    }
+}
+
+/// Resolve a node's `rdf:type` from its element name — `None` for the generic
+/// `rdf:Description`, else the qualified type IRI. Extracted from [`parse_node`].
+fn resolve_node_type(namespace: Option<String>, local: &str) -> Result<Option<Term>, String> {
+    if namespace.as_deref() == Some(RDF_NS) && local == "Description" {
+        return Ok(None);
+    }
+    let namespace = namespace.ok_or_else(|| "rdfxml: typed node has no namespace".to_string())?;
+    Ok(Some(
+        NamedNode::new(format!("{namespace}{local}"))
+            .map(Term::NamedNode)
+            .map_err(|error| format!("rdfxml node type: {error}"))?,
+    ))
+}
+
+/// The rdf:/xml:-namespaced attributes recognized on a property element. Bundles what
+/// [`parse_property`]'s attribute scan collects (one typed object rather than four
+/// threaded values).
+#[derive(Default)]
+struct PropertyAttrs {
+    resource: Option<String>,
+    node_id: Option<String>,
+    datatype: Option<String>,
+    language: Option<String>,
 }
 
 fn parse_property(reader: &NsReader<&[u8]>, element: &BytesStart<'_>) -> Result<Property, String> {
@@ -340,40 +438,16 @@ fn parse_property(reader: &NsReader<&[u8]>, element: &BytesStart<'_>) -> Result<
     let namespace = namespace.ok_or_else(|| "rdfxml: property has no namespace".to_string())?;
     let predicate = NamedNode::new(format!("{namespace}{local}"))
         .map_err(|error| format!("rdfxml predicate: {error}"))?;
-    let mut resource = None;
-    let mut node_id = None;
-    let mut datatype = None;
-    let mut language = None;
-    for (attr_namespace, attr_local, value) in attributes(reader, element)? {
-        match (attr_namespace.as_deref(), attr_local.as_str()) {
-            (Some(RDF_NS), "resource") => resource = Some(value),
-            (Some(RDF_NS), "nodeID") => node_id = Some(value),
-            (Some(RDF_NS), "datatype") => datatype = Some(value),
-            (Some(XML_NS), "lang") => language = Some(value),
-            _ => {}
-        }
-    }
-    if resource.is_some() && node_id.is_some() {
+    let attrs = scan_property_attributes(reader, element)?;
+    if attrs.resource.is_some() && attrs.node_id.is_some() {
         return Err("rdfxml: property has both rdf:resource and rdf:nodeID".into());
     }
-    if datatype.is_some() && language.is_some() {
+    if attrs.datatype.is_some() && attrs.language.is_some() {
         return Err("rdfxml: property has both rdf:datatype and xml:lang".into());
     }
-    let object = match (resource, node_id) {
-        (Some(iri), None) => Some(
-            NamedNode::new(iri)
-                .map(Term::NamedNode)
-                .map_err(|error| format!("rdfxml object IRI: {error}"))?,
-        ),
-        (None, Some(id)) => Some(
-            BlankNode::new(id)
-                .map(Term::BlankNode)
-                .map_err(|error| format!("rdfxml object blank node: {error}"))?,
-        ),
-        (None, None) => None,
-        (Some(_), Some(_)) => unreachable!("checked above"),
-    };
-    let datatype = datatype
+    let object = resolve_property_object(attrs.resource, attrs.node_id)?;
+    let datatype = attrs
+        .datatype
         .map(NamedNode::new)
         .transpose()
         .map_err(|error| format!("rdfxml datatype: {error}"))?;
@@ -381,9 +455,52 @@ fn parse_property(reader: &NsReader<&[u8]>, element: &BytesStart<'_>) -> Result<
         predicate,
         object,
         datatype,
-        language,
+        language: attrs.language,
         text: String::new(),
     })
+}
+
+/// Scan a property element's `rdf:resource`/`rdf:nodeID`/`rdf:datatype`/`xml:lang`
+/// attributes. Extracted from [`parse_property`].
+fn scan_property_attributes(
+    reader: &NsReader<&[u8]>,
+    element: &BytesStart<'_>,
+) -> Result<PropertyAttrs, String> {
+    let mut attrs = PropertyAttrs::default();
+    for (attr_namespace, attr_local, value) in attributes(reader, element)? {
+        match (attr_namespace.as_deref(), attr_local.as_str()) {
+            (Some(RDF_NS), "resource") => attrs.resource = Some(value),
+            (Some(RDF_NS), "nodeID") => attrs.node_id = Some(value),
+            (Some(RDF_NS), "datatype") => attrs.datatype = Some(value),
+            (Some(XML_NS), "lang") => attrs.language = Some(value),
+            _ => {}
+        }
+    }
+    Ok(attrs)
+}
+
+/// Resolve a property's object term from its `rdf:resource`/`rdf:nodeID` attributes
+/// (mutually exclusive, already checked by the caller); neither present ⇒ a literal
+/// property (its object is resolved later, from text content). Extracted from
+/// [`parse_property`].
+fn resolve_property_object(
+    resource: Option<String>,
+    node_id: Option<String>,
+) -> Result<Option<Term>, String> {
+    match (resource, node_id) {
+        (Some(iri), None) => Ok(Some(
+            NamedNode::new(iri)
+                .map(Term::NamedNode)
+                .map_err(|error| format!("rdfxml object IRI: {error}"))?,
+        )),
+        (None, Some(id)) => {
+            Ok(Some(BlankNode::new(id).map(Term::BlankNode).map_err(
+                |error| format!("rdfxml object blank node: {error}"),
+            )?))
+        }
+        (None, None) => Ok(None),
+        (Some(_), Some(_)) => unreachable!("checked above"),
+    }
 }
 
 fn attributes(

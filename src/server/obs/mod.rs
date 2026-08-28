@@ -585,30 +585,46 @@ fn text_body(r: &LogRecord) -> String {
 /// OTLP `timeUnixNano` (ns string/number), `@timestamp`/`timestamp`/`time` as epoch
 /// ms or an ISO-8601-ish number. Falls back to `now`.
 fn extract_ts(doc: &serde_json::Value) -> i64 {
-    // OTLP nano timestamp (string or number of nanoseconds).
+    if let Some(n) = extract_nano_ts(doc) {
+        return n;
+    }
+    if let Some(n) = extract_millis_ts(doc) {
+        return n;
+    }
+    now_ns()
+}
+
+/// OTLP nano timestamp (string or number of nanoseconds). Half of [`extract_ts`]'s
+/// field scan.
+fn extract_nano_ts(doc: &serde_json::Value) -> Option<i64> {
     for key in ["timeUnixNano", "observedTimeUnixNano"] {
         if let Some(v) = doc.get(key) {
             if let Some(n) = v.as_str().and_then(|s| s.parse::<i64>().ok()) {
-                return n;
+                return Some(n);
             }
             if let Some(n) = v.as_i64() {
-                return n;
+                return Some(n);
             }
         }
     }
-    // Epoch-millis style fields → ns. A plain integer is treated as milliseconds
-    // (the Elastic/O2 convention); a non-numeric (ISO string) falls back to now.
+    None
+}
+
+/// Epoch-millis style fields → ns. A plain integer is treated as milliseconds (the
+/// Elastic/O2 convention); a non-numeric (ISO string) is left for [`extract_ts`]'s
+/// `now_ns()` fallback. The other half of [`extract_ts`]'s field scan.
+fn extract_millis_ts(doc: &serde_json::Value) -> Option<i64> {
     for key in ["@timestamp", "timestamp", "time", "_timestamp"] {
         if let Some(v) = doc.get(key) {
             if let Some(ms) = v.as_i64() {
-                return ms.saturating_mul(1_000_000);
+                return Some(ms.saturating_mul(1_000_000));
             }
             if let Some(ms) = v.as_f64() {
-                return (ms * 1_000_000.0) as i64;
+                return Some((ms * 1_000_000.0) as i64);
             }
         }
     }
-    now_ns()
+    None
 }
 
 /// Extract the severity text from the common field names.
@@ -743,41 +759,54 @@ pub fn parse_otlp_logs(body: &str, default_stream: &str) -> Result<Vec<LogRecord
         .cloned()
         .unwrap_or_default();
     for rl in &resource_logs {
-        // Resource service.name → stream.
-        let mut stream = default_stream.to_string();
-        if let Some(attrs) = rl
-            .get("resource")
-            .and_then(|r| r.get("attributes"))
-            .and_then(|v| v.as_array())
-        {
-            for a in attrs {
-                if a.get("key").and_then(|v| v.as_str()) == Some("service.name") {
-                    if let Some(val) = a.get("value") {
-                        let s = otlp_anyvalue(val);
-                        if !s.is_empty() {
-                            stream = s;
-                        }
+        let stream = resource_log_stream(rl, default_stream);
+        push_scope_log_records(rl, &stream, &mut out);
+    }
+    Ok(out)
+}
+
+/// Resolve one `resourceLogs` entry's stream name from its `resource.attributes`
+/// `service.name`, falling back to `default_stream`. Extracted from
+/// [`parse_otlp_logs`]'s per-resource loop.
+fn resource_log_stream(rl: &serde_json::Value, default_stream: &str) -> String {
+    let mut stream = default_stream.to_string();
+    if let Some(attrs) = rl
+        .get("resource")
+        .and_then(|r| r.get("attributes"))
+        .and_then(|v| v.as_array())
+    {
+        for a in attrs {
+            if a.get("key").and_then(|v| v.as_str()) == Some("service.name") {
+                if let Some(val) = a.get("value") {
+                    let s = otlp_anyvalue(val);
+                    if !s.is_empty() {
+                        stream = s;
                     }
                 }
             }
         }
-        for sl in rl
-            .get("scopeLogs")
+    }
+    stream
+}
+
+/// Push every log record from one `resourceLogs` entry's `scopeLogs[].logRecords[]`
+/// into `out`. Extracted from [`parse_otlp_logs`]'s per-resource loop.
+fn push_scope_log_records(rl: &serde_json::Value, stream: &str, out: &mut Vec<LogRecord>) {
+    for sl in rl
+        .get("scopeLogs")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+    {
+        for lr in sl
+            .get("logRecords")
             .and_then(|v| v.as_array())
             .into_iter()
             .flatten()
         {
-            for lr in sl
-                .get("logRecords")
-                .and_then(|v| v.as_array())
-                .into_iter()
-                .flatten()
-            {
-                out.push(doc_to_record(lr, &stream));
-            }
+            out.push(doc_to_record(lr, stream));
         }
     }
-    Ok(out)
 }
 
 /// Parse an Elasticsearch `_bulk` NDJSON body: alternating action/source lines
@@ -855,9 +884,37 @@ struct HttpRequest {
 /// Mirrors [`crate::server::sparql_http`]'s reader (bounded header flood guard).
 async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest> {
     let mut buf = Vec::new();
+    let header_end = read_header_bytes(stream, &mut buf).await?;
+
+    let head = std::str::from_utf8(&buf[..header_end]).ok()?;
+    let mut lines = head.split("\r\n");
+    let request_line = lines.next()?;
+    let (method, target, version) = parse_request_line(request_line)?;
+
+    let headers = parse_headers(lines)?;
+    if version == "HTTP/1.1" && headers.host_count != 1 {
+        return None;
+    }
+    let content_length = headers.content_length.unwrap_or(0);
+    let body = read_body(stream, &buf, header_end, content_length).await?;
+
+    Some(HttpRequest {
+        method,
+        target,
+        content_type: headers.content_type,
+        body: String::from_utf8_lossy(&body).to_string(),
+        #[cfg(feature = "otel-export")]
+        body_bytes: body,
+    })
+}
+
+/// Read into `buf` until the `\r\n\r\n` header/body boundary appears, bounded by
+/// `MAX_HTTP_HEADER_BYTES`. Returns the boundary offset. Extracted from
+/// [`read_request`].
+async fn read_header_bytes(stream: &mut tokio::net::TcpStream, buf: &mut Vec<u8>) -> Option<usize> {
     let mut tmp = [0u8; 4096];
     let header_end = loop {
-        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
+        if let Some(pos) = find_subslice(buf, b"\r\n\r\n") {
             break pos;
         }
         let n = stream.read(&mut tmp).await.ok()?;
@@ -872,9 +929,13 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
     if header_end > MAX_HTTP_HEADER_BYTES {
         return None;
     }
-    let head = std::str::from_utf8(&buf[..header_end]).ok()?;
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next()?;
+    Some(header_end)
+}
+
+/// Parse + validate the HTTP request line (`METHOD target VERSION`): only
+/// GET/POST/OPTIONS, only HTTP/1.0 or HTTP/1.1, an absolute-path target with no control
+/// bytes, within `MAX_HTTP_TARGET_BYTES`. Extracted from [`read_request`].
+fn parse_request_line(request_line: &str) -> Option<(String, String, &str)> {
     if request_line.len() > MAX_HTTP_TARGET_BYTES + 32 {
         return None;
     }
@@ -891,70 +952,104 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
     {
         return None;
     }
+    Some((method, target, version))
+}
 
-    let mut content_length: Option<usize> = None;
-    let mut content_type = String::new();
-    let mut host_count = 0usize;
+/// The header values [`parse_headers`] extracts while validating each header line.
+#[derive(Default)]
+struct ParsedHeaders {
+    content_length: Option<usize>,
+    content_type: String,
+    host_count: usize,
+}
+
+/// Validate + fold every header line (bounded count/length, RFC 7230 token/field-value
+/// syntax), collecting `content-length`/`content-type`/`host` and rejecting
+/// `transfer-encoding` outright (chunked framing is intentionally unsupported —
+/// accepting it as an empty body would create request-smuggling ambiguity). Extracted
+/// from [`read_request`].
+fn parse_headers<'a>(lines: impl Iterator<Item = &'a str>) -> Option<ParsedHeaders> {
+    let mut headers = ParsedHeaders::default();
     for (index, line) in lines.enumerate() {
         if index >= MAX_HTTP_HEADERS || line.len() > MAX_HTTP_HEADER_LINE_BYTES {
             return None;
         }
         let (key, value) = line.split_once(':')?;
-        if key.is_empty()
-            || !key.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric()
-                    || matches!(
-                        byte,
-                        b'!' | b'#'
-                            | b'$'
-                            | b'%'
-                            | b'&'
-                            | b'\''
-                            | b'*'
-                            | b'+'
-                            | b'-'
-                            | b'.'
-                            | b'^'
-                            | b'_'
-                            | b'`'
-                            | b'|'
-                            | b'~'
-                    )
-            })
-            || value
-                .bytes()
-                .any(|byte| byte.is_ascii_control() && byte != b'\t')
-        {
+        if !is_valid_header_line(key, value) {
             return None;
         }
-        match key.to_ascii_lowercase().as_str() {
-            "content-length" => {
-                if content_length.is_some() {
-                    return None;
-                }
-                let parsed = value.trim().parse::<usize>().ok()?;
-                if parsed > MAX_HTTP_BODY_BYTES {
-                    return None;
-                }
-                content_length = Some(parsed);
+        apply_header(&mut headers, key, value)?;
+    }
+    Some(headers)
+}
+
+/// RFC 7230 `field-name`/`field-value` syntax check for one header line. Extracted from
+/// [`parse_headers`].
+fn is_valid_header_line(key: &str, value: &str) -> bool {
+    !key.is_empty()
+        && key.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'!' | b'#'
+                        | b'$'
+                        | b'%'
+                        | b'&'
+                        | b'\''
+                        | b'*'
+                        | b'+'
+                        | b'-'
+                        | b'.'
+                        | b'^'
+                        | b'_'
+                        | b'`'
+                        | b'|'
+                        | b'~'
+                )
+        })
+        && !value
+            .bytes()
+            .any(|byte| byte.is_ascii_control() && byte != b'\t')
+}
+
+/// Fold one validated header's `(key, value)` into `headers`. `None` signals a
+/// rejection (a repeated/oversized `content-length`, more than one non-empty `host`, or
+/// any `transfer-encoding`). Extracted from [`parse_headers`].
+fn apply_header(headers: &mut ParsedHeaders, key: &str, value: &str) -> Option<()> {
+    match key.to_ascii_lowercase().as_str() {
+        "content-length" => {
+            if headers.content_length.is_some() {
+                return None;
             }
-            "content-type" => content_type = value.trim().to_ascii_lowercase(),
-            "host" => {
-                host_count += 1;
-                if host_count > 1 || value.trim().is_empty() {
-                    return None;
-                }
+            let parsed = value.trim().parse::<usize>().ok()?;
+            if parsed > MAX_HTTP_BODY_BYTES {
+                return None;
             }
-            // Chunked framing is intentionally unsupported. Accepting it as an
-            // empty body would create request-smuggling ambiguity.
-            "transfer-encoding" => return None,
-            _ => {}
+            headers.content_length = Some(parsed);
         }
+        "content-type" => headers.content_type = value.trim().to_ascii_lowercase(),
+        "host" => {
+            headers.host_count += 1;
+            if headers.host_count > 1 || value.trim().is_empty() {
+                return None;
+            }
+        }
+        "transfer-encoding" => return None,
+        _ => {}
     }
-    if version == "HTTP/1.1" && host_count != 1 {
-        return None;
-    }
-    let content_length = content_length.unwrap_or(0);
+    Some(())
+}
+
+/// Read the request body to `content_length` (already bounded to
+/// `MAX_HTTP_BODY_BYTES` by [`apply_header`]), starting from whatever body bytes
+/// already arrived in `buf` past the header boundary. Extracted from [`read_request`].
+async fn read_body(
+    stream: &mut tokio::net::TcpStream,
+    buf: &[u8],
+    header_end: usize,
+    content_length: usize,
+) -> Option<Vec<u8>> {
+    let mut tmp = [0u8; 4096];
     let mut body = buf[header_end + 4..].to_vec();
     if body.len() > content_length || body.len() > MAX_HTTP_BODY_BYTES {
         return None;
@@ -971,14 +1066,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
         }
         body.extend_from_slice(&tmp[..n]);
     }
-    Some(HttpRequest {
-        method,
-        target,
-        content_type,
-        body: String::from_utf8_lossy(&body).to_string(),
-        #[cfg(feature = "otel-export")]
-        body_bytes: body,
-    })
+    Some(body)
 }
 
 /// Serve the observability log-ingestion HTTP surface on `listener`, backed by
@@ -1085,21 +1173,31 @@ enum ObsOperation {
 /// probe (`GET /healthz` / `GET /`) — so every path this function sees
 /// carries observability data one way or the other.
 fn classify_observability_operation(path: &str) -> ObsOperation {
-    let is_read = path.starts_with("/api/v1/query")
-        || path == "/api/v1/labels"
-        || path.starts_with("/api/v1/label/")
-        || path == "/api/_search"
-        || path == "/_search"
-        || path.ends_with("/_search")
-        || path == "/api/traces"
-        || path.starts_with("/api/traces/")
-        || path == "/api/dependencies"
-        || path == "/api/services/dependencies";
-    if is_read {
+    if is_read_only_obs_path(path) {
         ObsOperation::Read
     } else {
         ObsOperation::Mutation
     }
+}
+
+/// The read-only observability endpoints: PromQL/labels queries, search, traces, and
+/// service-dependency lookups. A table-driven rewrite of
+/// [`classify_observability_operation`]'s membership test (same predicate: exact path,
+/// prefix, or `/_search` suffix).
+fn is_read_only_obs_path(path: &str) -> bool {
+    const EXACT: &[&str] = &[
+        "/api/v1/labels",
+        "/api/_search",
+        "/_search",
+        "/api/traces",
+        "/api/dependencies",
+        "/api/services/dependencies",
+    ];
+    const PREFIXES: &[&str] = &["/api/v1/query", "/api/v1/label/", "/api/traces/"];
+
+    EXACT.contains(&path)
+        || PREFIXES.iter().any(|prefix| path.starts_with(prefix))
+        || path.ends_with("/_search")
 }
 
 async fn observability_access_denied(
@@ -1127,12 +1225,8 @@ async fn handle(
         Some((p, q)) => (p, q),
         None => (req.target.as_str(), ""),
     };
-    if req.method == "OPTIONS" {
-        return ("204 No Content", "text/plain", String::new());
-    }
-    // Health probe.
-    if path == "/healthz" || path == "/" && req.method == "GET" {
-        return ("200 OK", "text/plain", "ok".to_string());
+    if let Some(resp) = control_response(&req.method, path) {
+        return resp;
     }
     // BUG-037: gate every remaining path (both `Read` and `Mutation`) — not
     // just the ones that happen to be GET/query-shaped. `handle`'s two
@@ -1140,34 +1234,15 @@ async fn handle(
     // already ran, so anything reaching this point genuinely serves
     // observability data one way or the other.
     if observability_access_denied(security_state).await {
-        let op = classify_observability_operation(path);
-        // Literal per-operation messages (not a `format!("...{noun}...")`
-        // interpolation) so the exact PromQL/trace/log-search denial text is
-        // greppable verbatim in source — the same shape the architecture
-        // gate (`scripts/check_universal_read_rls.py`) already pins for
-        // every other carrier's static denial string (S3, KV-cache,
-        // federation, Iceberg-REST). Runtime behavior is unchanged: BUG-037
-        // still applies the SAME check to both arms.
-        let body = match op {
-            ObsOperation::Read => {
-                "ACCESS_DENIED: observability read carriers require verified tenant ownership"
-            }
-            ObsOperation::Mutation => {
-                "ACCESS_DENIED: observability ingest carriers require verified tenant ownership"
-            }
-        };
-        return ("403 Forbidden", "text/plain", body.to_string());
+        return access_denied_response(classify_observability_operation(path));
     }
 
     // CONCEPT:EG-KG.query.prometheus-http-query-api — the Prometheus HTTP query API (GET or POST), routed BEFORE the
     // POST-only ingest guard (instant queries are typically GET). Gated on `promql`,
     // which implies `obs`; absent that feature these paths fall through to 404.
     #[cfg(feature = "promql")]
-    if path.starts_with("/api/v1/query")
-        || path == "/api/v1/labels"
-        || path.starts_with("/api/v1/label/")
-    {
-        return crate::server::promql::handle(state, &req.method, path, query, &req.body).await;
+    if let Some(resp) = try_promql_route(state, &req.method, path, query, &req.body).await {
+        return resp;
     }
 
     // CONCEPT:EG-OS.observability.trace-assembly — distributed-trace surface (GET or POST), routed BEFORE the
@@ -1177,13 +1252,8 @@ async fn handle(
     // (`/api/traces`), single-trace assembly (`/api/traces/<id>`) and the
     // service-dependency graph (`/api/dependencies`).
     #[cfg(feature = "traces")]
-    if path == "/v1/traces"
-        || path == "/api/traces"
-        || path.starts_with("/api/traces/")
-        || path == "/api/dependencies"
-        || path == "/api/services/dependencies"
-    {
-        return crate::server::traces::handle(state, &req.method, path, query, &req.body).await;
+    if let Some(resp) = try_traces_route(state, &req.method, path, query, &req.body).await {
+        return resp;
     }
 
     // CONCEPT:EG-OS.observability.prometheus-ingest — the Prometheus `remote_write` receiver (`POST /api/v1/write`):
@@ -1192,10 +1262,21 @@ async fn handle(
     // durable eg-tsdb SeriesStore. Gated on `otel-export`; absent the feature this path
     // falls through to the unknown-ingest 404.
     #[cfg(feature = "otel-export")]
-    if path == "/api/v1/write" {
-        return remote_write::handle(state, &req.method, &req.body_bytes).await;
+    if let Some(resp) = try_otel_write_route(state, &req.method, path, &req.body_bytes).await {
+        return resp;
     }
 
+    handle_ingest(state, &req, path, query).await
+}
+
+/// The POST-only ingest path: `_search` (EG-162), then route-by-shape log ingest.
+/// Extracted from [`handle`]'s tail — everything after the GET-friendly gated routes.
+async fn handle_ingest(
+    state: &Arc<ObsState>,
+    req: &HttpRequest,
+    path: &str,
+    query: &str,
+) -> (&'static str, &'static str, String) {
     if req.method != "POST" {
         return (
             "405 Method Not Allowed",
@@ -1214,27 +1295,7 @@ async fn handle(
     let default_stream = query_param(query, "stream").unwrap_or_else(|| "default".to_string());
 
     // Route by path → parse into records + choose the response shape.
-    enum Shape {
-        Otlp,
-        EsBulk,
-        EsDoc,
-        Lines,
-    }
-    let (records, shape): (Result<Vec<LogRecord>, String>, Shape) = if path == "/v1/logs" {
-        (parse_otlp_logs(&req.body, &default_stream), Shape::Otlp)
-    } else if path == "/_bulk" || path.ends_with("/_bulk") {
-        (Ok(parse_es_bulk(&req.body, &default_stream)), Shape::EsBulk)
-    } else if let Some(stream) = es_doc_stream(path) {
-        // `/<stream>/_doc` — a single ES document.
-        let doc: Result<serde_json::Value, String> =
-            serde_json::from_str(&req.body).map_err(|e| format!("parse _doc JSON: {e}"));
-        (doc.map(|d| vec![doc_to_record(&d, &stream)]), Shape::EsDoc)
-    } else if path == "/" || path == "/api/logs" || path == "/logs" {
-        (
-            Ok(parse_json_lines(&req.body, &default_stream)),
-            Shape::Lines,
-        )
-    } else {
+    let Some((records, shape)) = route_ingest_records(path, &req.body, &default_stream) else {
         return (
             "404 Not Found",
             "text/plain",
@@ -1251,31 +1312,7 @@ async fn handle(
     let st = state.clone();
     let outcome = tokio::task::spawn_blocking(move || st.ingest(records)).await;
     match outcome {
-        Ok(Ok(o)) => {
-            let (status, ctype, body) = match shape {
-                Shape::Otlp => (
-                    "200 OK",
-                    "application/json",
-                    "{\"partialSuccess\":{}}".to_string(),
-                ),
-                Shape::EsBulk => ("200 OK", "application/json", es_bulk_response(o.accepted)),
-                Shape::EsDoc => (
-                    "201 Created",
-                    "application/json",
-                    "{\"result\":\"created\",\"_shards\":{\"total\":1,\"successful\":1,\"failed\":0}}"
-                        .to_string(),
-                ),
-                Shape::Lines => (
-                    "200 OK",
-                    "application/json",
-                    format!(
-                        "{{\"successful\":{},\"failed\":0,\"segments\":{}}}",
-                        o.accepted, o.segments_flushed
-                    ),
-                ),
-            };
-            (status, ctype, body)
-        }
+        Ok(Ok(o)) => format_ingest_success(shape, &o),
         Ok(Err(e)) => (
             "500 Internal Server Error",
             "text/plain",
@@ -1285,6 +1322,167 @@ async fn handle(
             "500 Internal Server Error",
             "text/plain",
             format!("ingest task failed: {e}"),
+        ),
+    }
+}
+
+/// The two no-data control responses [`handle`] answers BEFORE the access-denied gate:
+/// CORS preflight (`OPTIONS`) and the health probe (`GET /healthz` / `GET /`). `None`
+/// for anything else (falls through to the gated routes). Extracted from [`handle`].
+fn control_response(method: &str, path: &str) -> Option<(&'static str, &'static str, String)> {
+    if method == "OPTIONS" {
+        return Some(("204 No Content", "text/plain", String::new()));
+    }
+    if path == "/healthz" || path == "/" && method == "GET" {
+        return Some(("200 OK", "text/plain", "ok".to_string()));
+    }
+    None
+}
+
+/// The literal 403 response body for a denied observability request — per-operation
+/// text (not a `format!` interpolation) so the exact denial string stays greppable
+/// verbatim in source, matching every other carrier's static denial string
+/// (`scripts/check_universal_read_rls.py`). Extracted from [`handle`] (BUG-037: the
+/// SAME check gates both `ObsOperation` arms).
+fn access_denied_response(op: ObsOperation) -> (&'static str, &'static str, String) {
+    let body = match op {
+        ObsOperation::Read => {
+            "ACCESS_DENIED: observability read carriers require verified tenant ownership"
+        }
+        ObsOperation::Mutation => {
+            "ACCESS_DENIED: observability ingest carriers require verified tenant ownership"
+        }
+    };
+    ("403 Forbidden", "text/plain", body.to_string())
+}
+
+/// The Prometheus HTTP query API route (`promql` feature). `None` when `path` doesn't
+/// match, so [`handle`] falls through to its next route. Extracted from [`handle`].
+#[cfg(feature = "promql")]
+async fn try_promql_route(
+    state: &Arc<ObsState>,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &str,
+) -> Option<(&'static str, &'static str, String)> {
+    if path.starts_with("/api/v1/query")
+        || path == "/api/v1/labels"
+        || path.starts_with("/api/v1/label/")
+    {
+        return Some(crate::server::promql::handle(state, method, path, query, body).await);
+    }
+    None
+}
+
+/// The distributed-trace surface route (`traces` feature): OTLP-JSON ingest, trace
+/// search/assembly, and the service-dependency graph. `None` when `path` doesn't match.
+/// Extracted from [`handle`].
+#[cfg(feature = "traces")]
+async fn try_traces_route(
+    state: &Arc<ObsState>,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &str,
+) -> Option<(&'static str, &'static str, String)> {
+    if path == "/v1/traces"
+        || path == "/api/traces"
+        || path.starts_with("/api/traces/")
+        || path == "/api/dependencies"
+        || path == "/api/services/dependencies"
+    {
+        return Some(crate::server::traces::handle(state, method, path, query, body).await);
+    }
+    None
+}
+
+/// The Prometheus `remote_write` receiver route (`otel-export` feature). `None` when
+/// `path` doesn't match. Extracted from [`handle`].
+#[cfg(feature = "otel-export")]
+async fn try_otel_write_route(
+    state: &Arc<ObsState>,
+    method: &str,
+    path: &str,
+    body_bytes: &[u8],
+) -> Option<(&'static str, &'static str, String)> {
+    if path == "/api/v1/write" {
+        return Some(remote_write::handle(state, method, body_bytes).await);
+    }
+    None
+}
+
+/// The routed log-ingest shape [`handle`] parses `body` into, driving both which parser
+/// runs and which success response format [`format_ingest_success`] uses.
+enum IngestShape {
+    Otlp,
+    EsBulk,
+    EsDoc,
+    Lines,
+}
+
+/// Route `path` to its ingest parser, producing the parsed records (or the parse error)
+/// plus which [`IngestShape`] to format the success response as. `None` when `path`
+/// matches no known ingest shape (→ 404). Extracted from [`handle`].
+fn route_ingest_records(
+    path: &str,
+    body: &str,
+    default_stream: &str,
+) -> Option<(Result<Vec<LogRecord>, String>, IngestShape)> {
+    if path == "/v1/logs" {
+        return Some((parse_otlp_logs(body, default_stream), IngestShape::Otlp));
+    }
+    if path == "/_bulk" || path.ends_with("/_bulk") {
+        return Some((Ok(parse_es_bulk(body, default_stream)), IngestShape::EsBulk));
+    }
+    if let Some(stream) = es_doc_stream(path) {
+        // `/<stream>/_doc` — a single ES document.
+        let doc: Result<serde_json::Value, String> =
+            serde_json::from_str(body).map_err(|e| format!("parse _doc JSON: {e}"));
+        return Some((
+            doc.map(|d| vec![doc_to_record(&d, &stream)]),
+            IngestShape::EsDoc,
+        ));
+    }
+    if path == "/" || path == "/api/logs" || path == "/logs" {
+        return Some((
+            Ok(parse_json_lines(body, default_stream)),
+            IngestShape::Lines,
+        ));
+    }
+    None
+}
+
+/// Format the ingest success response for one [`IngestShape`]. Extracted from
+/// [`handle`]'s tail.
+fn format_ingest_success(
+    shape: IngestShape,
+    outcome: &IngestOutcome,
+) -> (&'static str, &'static str, String) {
+    match shape {
+        IngestShape::Otlp => (
+            "200 OK",
+            "application/json",
+            "{\"partialSuccess\":{}}".to_string(),
+        ),
+        IngestShape::EsBulk => (
+            "200 OK",
+            "application/json",
+            es_bulk_response(outcome.accepted),
+        ),
+        IngestShape::EsDoc => (
+            "201 Created",
+            "application/json",
+            "{\"result\":\"created\",\"_shards\":{\"total\":1,\"successful\":1,\"failed\":0}}"
+                .to_string(),
+        ),
+        IngestShape::Lines => (
+            "200 OK",
+            "application/json",
+            format!(
+                "{{\"successful\":{},\"failed\":0,\"segments\":{}}}",
+                outcome.accepted, outcome.segments_flushed
+            ),
         ),
     }
 }
@@ -1328,48 +1526,17 @@ async fn handle_search(
             .and_then(|v| v.as_str())
     });
     if let Some(sql) = sql {
-        let sql = sql.to_string();
-        let st = state.clone();
-        return match tokio::task::spawn_blocking(move || st.search_sql(&sql)).await {
-            Ok(Ok(res)) => ("200 OK", "application/json", sql_search_response(&res)),
-            Ok(Err(e)) => (
-                "400 Bad Request",
-                "text/plain",
-                format!("sql search failed: {e}"),
-            ),
-            Err(e) => (
-                "500 Internal Server Error",
-                "text/plain",
-                format!("sql search task failed: {e}"),
-            ),
-        };
+        return run_sql_search(state, sql).await;
     }
 
     // Structured search mode: resolve the stream (path wins, then body, then `?stream`).
-    let stream = search_stream_from_path(path)
-        .or_else(|| {
-            for key in ["stream", "_stream", "index", "_index"] {
-                if let Some(s) = val
-                    .get(key)
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                {
-                    return Some(s.to_string());
-                }
-            }
-            None
-        })
-        .or_else(|| query_param(query, "stream"));
-    let stream = match stream {
-        Some(s) => s,
-        None => {
-            return (
-                "400 Bad Request",
-                "text/plain",
-                "search requires a stream (path /api/<org>/<stream>/_search or body `stream`)"
-                    .to_string(),
-            )
-        }
+    let Some(stream) = resolve_search_stream(path, query, &val) else {
+        return (
+            "400 Bad Request",
+            "text/plain",
+            "search requires a stream (path /api/<org>/<stream>/_search or body `stream`)"
+                .to_string(),
+        );
     };
 
     let q = parse_log_query(&val, stream);
@@ -1387,6 +1554,50 @@ async fn handle_search(
             format!("search task failed: {e}"),
         ),
     }
+}
+
+/// The SQL-mode branch of [`handle_search`]: run `sql` off the reactor via
+/// `search_sql`. Extracted from [`handle_search`].
+async fn run_sql_search(state: &Arc<ObsState>, sql: &str) -> (&'static str, &'static str, String) {
+    let sql = sql.to_string();
+    let st = state.clone();
+    match tokio::task::spawn_blocking(move || st.search_sql(&sql)).await {
+        Ok(Ok(res)) => ("200 OK", "application/json", sql_search_response(&res)),
+        Ok(Err(e)) => (
+            "400 Bad Request",
+            "text/plain",
+            format!("sql search failed: {e}"),
+        ),
+        Err(e) => (
+            "500 Internal Server Error",
+            "text/plain",
+            format!("sql search task failed: {e}"),
+        ),
+    }
+}
+
+/// Resolve the structured-search-mode stream: the path (`/api/<org>/<stream>/_search`)
+/// wins, then a `stream`/`_stream`/`index`/`_index` body key, then the `?stream` query
+/// param. Extracted from [`handle_search`].
+fn resolve_search_stream(path: &str, query: &str, val: &serde_json::Value) -> Option<String> {
+    search_stream_from_path(path)
+        .or_else(|| search_stream_from_body(val))
+        .or_else(|| query_param(query, "stream"))
+}
+
+/// The body-key fallback of [`resolve_search_stream`]: the first non-empty
+/// `stream`/`_stream`/`index`/`_index` key.
+fn search_stream_from_body(val: &serde_json::Value) -> Option<String> {
+    for key in ["stream", "_stream", "index", "_index"] {
+        if let Some(s) = val
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            return Some(s.to_string());
+        }
+    }
+    None
 }
 
 /// If `path` is `/api/<org>/<stream>/_search`, return `<stream>`; else `None`

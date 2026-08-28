@@ -197,32 +197,9 @@ impl Rule {
         if s.is_empty() {
             return Err("empty rule".into());
         }
-        // Optional trailing confidence `@0.8`.
-        let mut conf = 1.0;
-        if let Some(pos) = s.rfind('@') {
-            // Only treat as a confidence suffix if what follows parses as a float.
-            let tail = s[pos + 1..].trim();
-            if let Ok(c) = tail.parse::<f64>() {
-                conf = c.clamp(0.0, 1.0);
-                s.truncate(pos);
-                s = s.trim().to_string();
-            }
-        }
-        // Optional leading `name:` — but NOT the `:-` Datalog operator and not an IRI
-        // (which contains `:`). The name is a bare identifier before the FIRST `:` that
-        // is not part of `:-`.
-        let mut name = String::new();
-        if let Some(colon) = s.find(':') {
-            let is_datalog = s[colon..].starts_with(":-");
-            let head_part = &s[..colon];
-            let looks_like_name = !head_part.contains('(')
-                && !head_part.contains('<')
-                && !head_part.trim().is_empty();
-            if !is_datalog && looks_like_name {
-                name = head_part.trim().to_string();
-                s = s[colon + 1..].trim().to_string();
-            }
-        }
+        let conf = extract_trailing_confidence(&mut s);
+        let mut name = extract_leading_name(&mut s);
+
         // Split on the implication operator.
         let (body_src, head_src, reversed) = split_implication(&s)?;
         let body_atoms = parse_atom_list(body_src)?;
@@ -238,24 +215,7 @@ impl Rule {
         if name.is_empty() {
             name = default_rule_name(&head);
         }
-        // Safety: every head variable must appear in the body (range-restricted).
-        let body_vars: BTreeSet<&String> = body
-            .iter()
-            .flat_map(|a| a.args.iter())
-            .filter_map(|t| match t {
-                RTerm::Var(v) => Some(v),
-                _ => None,
-            })
-            .collect();
-        for h in &head {
-            for t in &h.args {
-                if let RTerm::Var(v) = t {
-                    if !body_vars.contains(v) {
-                        return Err(format!("unsafe rule: head var ?{v} not in body: {src}"));
-                    }
-                }
-            }
-        }
+        check_range_restricted(&body, &head, src)?;
         Ok(Rule {
             name,
             body,
@@ -263,6 +223,65 @@ impl Rule {
             conf,
         })
     }
+}
+
+/// Optional trailing confidence `@0.8`: strip it off `s` in place and return its value,
+/// or `1.0` when absent or the suffix doesn't parse as a float. Extracted from
+/// [`Rule::parse`]'s first pre-processing stage.
+fn extract_trailing_confidence(s: &mut String) -> f64 {
+    if let Some(pos) = s.rfind('@') {
+        // Only treat as a confidence suffix if what follows parses as a float.
+        let tail = s[pos + 1..].trim();
+        if let Ok(c) = tail.parse::<f64>() {
+            let conf = c.clamp(0.0, 1.0);
+            s.truncate(pos);
+            *s = s.trim().to_string();
+            return conf;
+        }
+    }
+    1.0
+}
+
+/// Optional leading `name:` — but NOT the `:-` Datalog operator and not an IRI (which
+/// contains `:`). The name is a bare identifier before the FIRST `:` that is not part
+/// of `:-`. Strips the prefix off `s` in place when found. Extracted from
+/// [`Rule::parse`]'s second pre-processing stage.
+fn extract_leading_name(s: &mut String) -> String {
+    if let Some(colon) = s.find(':') {
+        let is_datalog = s[colon..].starts_with(":-");
+        let head_part = &s[..colon];
+        let looks_like_name =
+            !head_part.contains('(') && !head_part.contains('<') && !head_part.trim().is_empty();
+        if !is_datalog && looks_like_name {
+            let name = head_part.trim().to_string();
+            *s = s[colon + 1..].trim().to_string();
+            return name;
+        }
+    }
+    String::new()
+}
+
+/// Safety check for [`Rule::parse`]: every head variable must appear in the body
+/// (range-restricted).
+fn check_range_restricted(body: &[Atom], head: &[Atom], src: &str) -> Result<(), String> {
+    let body_vars: BTreeSet<&String> = body
+        .iter()
+        .flat_map(|a| a.args.iter())
+        .filter_map(|t| match t {
+            RTerm::Var(v) => Some(v),
+            _ => None,
+        })
+        .collect();
+    for h in head {
+        for t in &h.args {
+            if let RTerm::Var(v) = t {
+                if !body_vars.contains(v) {
+                    return Err(format!("unsafe rule: head var ?{v} not in body: {src}"));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Split a rule string on its implication operator, returning `(body, head, reversed)`
@@ -488,59 +507,13 @@ fn eval_builtin(
 
     match name {
         // ── comparisons (filters; every argument must be bound) ──────────────
-        "equal" | "notEqual" => {
-            let (a, b) = (val(0)?, val(1)?);
-            // Numeric when BOTH parse as numbers (so 18 == 18.0), else string equality.
-            let eq = match (a.parse::<f64>(), b.parse::<f64>()) {
-                (Ok(x), Ok(y)) => (x - y).abs() < 1e-9,
-                _ => a == b,
-            };
-            ((name == "equal") == eq).then(Vec::new)
-        }
+        "equal" | "notEqual" => eval_builtin_equality(name, val(0)?, val(1)?),
         "lessThan" | "lessThanOrEqual" | "greaterThan" | "greaterThanOrEqual" => {
-            let (a, b) = (num(0)?, num(1)?);
-            let ok = match name {
-                "lessThan" => a < b,
-                "lessThanOrEqual" => a <= b,
-                "greaterThan" => a > b,
-                _ => a >= b,
-            };
-            ok.then(Vec::new)
+            eval_builtin_ordering(name, num(0)?, num(1)?)
         }
-        "contains" | "startsWith" | "endsWith" => {
-            let (a, b) = (val(0)?, val(1)?);
-            let ok = match name {
-                "contains" => a.contains(&b),
-                "startsWith" => a.starts_with(&b),
-                _ => a.ends_with(&b),
-            };
-            ok.then(Vec::new)
-        }
+        "contains" | "startsWith" | "endsWith" => eval_builtin_string_test(name, val(0)?, val(1)?),
         // ── math (first argument = result) ───────────────────────────────────
-        "add" | "subtract" | "multiply" | "divide" => {
-            // Inputs are args[1..]; all must be bound + numeric.
-            let inputs: Vec<f64> = (1..args.len()).map(num).collect::<Option<_>>()?;
-            if inputs.is_empty() {
-                return None;
-            }
-            let result = match name {
-                "add" => inputs.iter().sum(),
-                "multiply" => inputs.iter().product(),
-                "subtract" => {
-                    if inputs.len() != 2 {
-                        return None;
-                    }
-                    inputs[0] - inputs[1]
-                }
-                _ => {
-                    if inputs.len() != 2 || inputs[1] == 0.0 {
-                        return None;
-                    }
-                    inputs[0] / inputs[1]
-                }
-            };
-            bind_or_check_num(args.first()?, result, binding)
-        }
+        "add" | "subtract" | "multiply" | "divide" => eval_builtin_math(name, args, binding),
         // ── string producers (first argument = result) ──────────────────────
         "stringConcat" => {
             let parts: Vec<String> = (1..args.len()).map(val).collect::<Option<_>>()?;
@@ -554,6 +527,74 @@ fn eval_builtin(
         "lowerCase" => bind_or_check_str(args.first()?, val(1)?.to_lowercase(), binding),
         _ => None,
     }
+}
+
+/// `equal`/`notEqual`: numeric equality when BOTH arguments parse as numbers (so
+/// `18 == 18.0`), else string equality. Extracted from [`eval_builtin`]'s match.
+fn eval_builtin_equality(name: &str, a: String, b: String) -> Option<Vec<(String, String)>> {
+    let eq = match (a.parse::<f64>(), b.parse::<f64>()) {
+        (Ok(x), Ok(y)) => (x - y).abs() < 1e-9,
+        _ => a == b,
+    };
+    ((name == "equal") == eq).then(Vec::new)
+}
+
+/// `lessThan`/`lessThanOrEqual`/`greaterThan`/`greaterThanOrEqual`. Extracted from
+/// [`eval_builtin`]'s match.
+fn eval_builtin_ordering(name: &str, a: f64, b: f64) -> Option<Vec<(String, String)>> {
+    let ok = match name {
+        "lessThan" => a < b,
+        "lessThanOrEqual" => a <= b,
+        "greaterThan" => a > b,
+        _ => a >= b,
+    };
+    ok.then(Vec::new)
+}
+
+/// `contains`/`startsWith`/`endsWith`. Extracted from [`eval_builtin`]'s match.
+fn eval_builtin_string_test(name: &str, a: String, b: String) -> Option<Vec<(String, String)>> {
+    let ok = match name {
+        "contains" => a.contains(&b),
+        "startsWith" => a.starts_with(&b),
+        _ => a.ends_with(&b),
+    };
+    ok.then(Vec::new)
+}
+
+/// `add`/`subtract`/`multiply`/`divide` (first argument = result; inputs are
+/// `args[1..]`, all must be bound + numeric). Extracted from [`eval_builtin`]'s match.
+fn eval_builtin_math(
+    name: &str,
+    args: &[RTerm],
+    binding: &HashMap<String, String>,
+) -> Option<Vec<(String, String)>> {
+    let num = |i: usize| -> Option<f64> {
+        args.get(i).and_then(|a| match a {
+            RTerm::Const(c) => c.parse::<f64>().ok(),
+            RTerm::Var(v) => binding.get(v).and_then(|s| s.parse::<f64>().ok()),
+        })
+    };
+    let inputs: Vec<f64> = (1..args.len()).map(num).collect::<Option<_>>()?;
+    if inputs.is_empty() {
+        return None;
+    }
+    let result = match name {
+        "add" => inputs.iter().sum(),
+        "multiply" => inputs.iter().product(),
+        "subtract" => {
+            if inputs.len() != 2 {
+                return None;
+            }
+            inputs[0] - inputs[1]
+        }
+        _ => {
+            if inputs.len() != 2 || inputs[1] == 0.0 {
+                return None;
+            }
+            inputs[0] / inputs[1]
+        }
+    };
+    bind_or_check_num(args.first()?, result, binding)
 }
 
 /// Bind a producer built-in's result `out` to a numeric `value` (when an unbound
@@ -623,6 +664,17 @@ struct Engine {
     diff_pairs: Vec<(String, String)>,
     /// instance-level clashes (a `sameAs` over a `differentFrom` pair).
     conflicts: Vec<String>,
+}
+
+/// The rest of a body-atom walk that [`Engine::eval_at`] threads unchanged through its
+/// per-atom helpers: the full rule body + current position, and the solutions
+/// accumulator. Bundled into one struct so those helpers stay under this workspace's
+/// clippy::too_many_arguments cap (`conf_acc`/`binding` vary per attempt, so they stay
+/// as separate arguments rather than living here).
+struct Walk<'a, 'b> {
+    body: &'a [Atom],
+    idx: usize,
+    out: &'b mut Vec<(HashMap<String, String>, f64)>,
 }
 
 impl Engine {
@@ -751,24 +803,51 @@ impl Engine {
             return;
         }
         let atom = &body[idx];
-        // SWRL built-in atom (CONCEPT:EG-KG.ontology.concept-3): evaluated against the current binding
-        // rather than matched against stored facts. A comparison acts as a filter; a
-        // math / string producer binds its (first-argument) result variable. Built-ins
-        // are deterministic constraints (confidence 1.0, so `conf_acc` is unchanged).
+        let mut walk = Walk { body, idx, out };
         if let Some(bn) = swrl_builtin_name(&atom.pred) {
-            if let Some(extra) = eval_builtin(bn, &atom.args, binding) {
-                let mut newly_bound: Vec<String> = Vec::new();
-                for (v, val) in extra {
-                    binding.insert(v.clone(), val);
-                    newly_bound.push(v);
-                }
-                self.eval_at(body, idx + 1, binding, conf_acc, out);
-                for v in newly_bound {
-                    binding.remove(&v);
-                }
-            }
+            self.eval_builtin_atom(bn, atom, binding, conf_acc, &mut walk);
             return;
         }
+        self.eval_fact_atom(atom, binding, conf_acc, &mut walk);
+    }
+
+    /// SWRL built-in atom (CONCEPT:EG-KG.ontology.concept-3): evaluated against the
+    /// current binding rather than matched against stored facts. A comparison acts as a
+    /// filter; a math / string producer binds its (first-argument) result variable.
+    /// Built-ins are deterministic constraints (confidence 1.0, so `conf_acc` is
+    /// unchanged). One arm of [`Engine::eval_at`]'s per-atom dispatch.
+    fn eval_builtin_atom(
+        &self,
+        bn: &str,
+        atom: &Atom,
+        binding: &mut HashMap<String, String>,
+        conf_acc: f64,
+        walk: &mut Walk,
+    ) {
+        if let Some(extra) = eval_builtin(bn, &atom.args, binding) {
+            let mut newly_bound: Vec<String> = Vec::new();
+            for (v, val) in extra {
+                binding.insert(v.clone(), val);
+                newly_bound.push(v);
+            }
+            self.eval_at(walk.body, walk.idx + 1, binding, conf_acc, walk.out);
+            for v in newly_bound {
+                binding.remove(&v);
+            }
+        }
+    }
+
+    /// Match `atom` against every stored fact tuple whose predicate it matches (exact,
+    /// or a bare rule predicate matching an IRI fact predicate by local name),
+    /// recursing into the rest of the body on each consistent binding. The other arm of
+    /// [`Engine::eval_at`]'s per-atom dispatch.
+    fn eval_fact_atom(
+        &self,
+        atom: &Atom,
+        binding: &mut HashMap<String, String>,
+        conf_acc: f64,
+        walk: &mut Walk,
+    ) {
         // Gather every stored predicate this body atom matches (exact, or a bare rule
         // predicate matching an IRI fact predicate by local name).
         let matched: Vec<&String> = self
@@ -781,45 +860,67 @@ impl Engine {
                 continue;
             };
             for tuple in tuples {
-                if tuple.len() != atom.args.len() {
-                    continue;
-                }
-                let mut newly_bound: Vec<String> = Vec::new();
-                let mut ok = true;
-                for (arg, val) in atom.args.iter().zip(tuple.iter()) {
-                    match arg {
-                        RTerm::Const(c) => {
-                            if self.rep(c) != *val {
-                                ok = false;
-                                break;
-                            }
-                        }
-                        RTerm::Var(v) => match binding.get(v) {
-                            Some(bound) => {
-                                if bound != val {
-                                    ok = false;
-                                    break;
-                                }
-                            }
-                            None => {
-                                binding.insert(v.clone(), val.clone());
-                                newly_bound.push(v.clone());
-                            }
-                        },
-                    }
-                }
-                if ok {
-                    let fconf = self
-                        .conf
-                        .get(&(fp.clone(), tuple.clone()))
-                        .copied()
-                        .unwrap_or(1.0);
-                    self.eval_at(body, idx + 1, binding, conf_acc * fconf, out);
-                }
-                for v in newly_bound {
-                    binding.remove(&v);
-                }
+                self.try_bind_tuple(atom, fp, tuple, binding, conf_acc, walk);
             }
+        }
+    }
+
+    /// Try binding `atom`'s args against one stored `tuple`; on a consistent binding,
+    /// recurse into the rest of the body weighted by the fact's own confidence, then
+    /// undo any variable this attempt newly bound. Extracted from
+    /// [`Engine::eval_fact_atom`]'s inner loop.
+    fn try_bind_tuple(
+        &self,
+        atom: &Atom,
+        fp: &String,
+        tuple: &Vec<String>,
+        binding: &mut HashMap<String, String>,
+        conf_acc: f64,
+        walk: &mut Walk,
+    ) {
+        if tuple.len() != atom.args.len() {
+            return;
+        }
+        let mut newly_bound: Vec<String> = Vec::new();
+        let ok = atom
+            .args
+            .iter()
+            .zip(tuple.iter())
+            .all(|(arg, val)| self.try_bind_one_arg(arg, val, binding, &mut newly_bound));
+        if ok {
+            let fconf = self
+                .conf
+                .get(&(fp.clone(), tuple.clone()))
+                .copied()
+                .unwrap_or(1.0);
+            self.eval_at(walk.body, walk.idx + 1, binding, conf_acc * fconf, walk.out);
+        }
+        for v in newly_bound {
+            binding.remove(&v);
+        }
+    }
+
+    /// Try binding one `(arg, val)` pair from a candidate tuple; returns whether it is
+    /// consistent with `binding` (pushing any variable newly bound to satisfy it onto
+    /// `newly_bound`, so the caller can undo it on backtrack). Extracted from
+    /// [`Engine::try_bind_tuple`]'s inner loop.
+    fn try_bind_one_arg(
+        &self,
+        arg: &RTerm,
+        val: &String,
+        binding: &mut HashMap<String, String>,
+        newly_bound: &mut Vec<String>,
+    ) -> bool {
+        match arg {
+            RTerm::Const(c) => self.rep(c) == *val,
+            RTerm::Var(v) => match binding.get(v) {
+                Some(bound) => bound == val,
+                None => {
+                    binding.insert(v.clone(), val.clone());
+                    newly_bound.push(v.clone());
+                    true
+                }
+            },
         }
     }
 
@@ -830,34 +931,51 @@ impl Engine {
         for (binding, body_conf) in solutions {
             let conf = (rule.conf * body_conf).clamp(0.0, 1.0);
             for head in &rule.head {
-                // Instantiate the head atom; every head var is range-restricted so bound.
-                let mut args = Vec::with_capacity(head.args.len());
-                let mut ok = true;
-                for t in &head.args {
-                    match t {
-                        RTerm::Const(c) => args.push(self.rep(c)),
-                        RTerm::Var(v) => match binding.get(v) {
-                            Some(b) => args.push(b.clone()),
-                            None => {
-                                ok = false;
-                                break;
-                            }
-                        },
-                    }
-                }
-                if !ok {
-                    continue;
-                }
-                if is_same_as(&head.pred) && args.len() == 2 {
-                    if self.union(&args[0], &args[1]) {
-                        changed = true;
-                    }
-                } else if self.add_fact(&head.pred, &args, conf, &rule.name, true) {
+                if self.apply_head_atom(head, &binding, conf, &rule.name) {
                     changed = true;
                 }
             }
         }
         changed
+    }
+
+    /// Instantiate + assert one rule-head atom under `binding`; returns whether it
+    /// changed the fact base. A `sameAs` head unions its two args; anything else is
+    /// asserted as a derived fact. Extracted from [`Engine::apply_rule`]'s inner loop.
+    fn apply_head_atom(
+        &mut self,
+        head: &Atom,
+        binding: &HashMap<String, String>,
+        conf: f64,
+        rule_name: &str,
+    ) -> bool {
+        let Some(args) = self.instantiate_head_args(head, binding) else {
+            return false;
+        };
+        if is_same_as(&head.pred) && args.len() == 2 {
+            self.union(&args[0], &args[1])
+        } else {
+            self.add_fact(&head.pred, &args, conf, rule_name, true)
+        }
+    }
+
+    /// Resolve every head-atom argument against `binding`: a const to its canonical
+    /// representative, a var to its bound value. `None` means an unsafe rule slipped
+    /// past [`check_range_restricted`] (a head var with no body binding). Extracted from
+    /// [`Engine::apply_rule`]'s inner loop.
+    fn instantiate_head_args(
+        &self,
+        head: &Atom,
+        binding: &HashMap<String, String>,
+    ) -> Option<Vec<String>> {
+        let mut args = Vec::with_capacity(head.args.len());
+        for t in &head.args {
+            match t {
+                RTerm::Const(c) => args.push(self.rep(c)),
+                RTerm::Var(v) => args.push(binding.get(v)?.clone()),
+            }
+        }
+        Some(args)
     }
 
     /// Run all rules to a fixpoint with congruence re-canonicalisation between rounds.
@@ -895,19 +1013,35 @@ impl Engine {
 /// SAME fixpoint as the user's custom rules, so a custom rule can build on (and feed)
 /// OWL-inferred facts (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog).
 pub fn builtin_rules(ont: &Ontology) -> Vec<Rule> {
-    let x = || RTerm::Var("x".into());
-    let y = || RTerm::Var("y".into());
-    let z = || RTerm::Var("z".into());
     let mut rules: Vec<Rule> = Vec::new();
     let mut n = 0usize;
-    let mut named = |prefix: &str| {
-        n += 1;
-        format!("builtin:{prefix}:{n}")
-    };
+    push_subclass_rules(ont, &mut rules, &mut n);
+    push_subprop_rules(ont, &mut rules, &mut n);
+    push_domain_range_rules(ont, &mut rules, &mut n);
+    push_symmetric_rules(ont, &mut rules, &mut n);
+    push_inverse_rules(ont, &mut rules, &mut n);
+    push_chain_rules(ont, &mut rules, &mut n);
+    push_functional_rules(ont, &mut rules, &mut n);
+    rules
+}
 
-    // Named subClassOf (single + conjunctive LHS, named RHS): B(x) [^ …] -> C(x).
+/// Allocate the next deterministic builtin-rule name (`builtin:<prefix>:<n>`), shared
+/// across all the `push_*_rules` helpers below so numbering stays contiguous exactly as
+/// it was when `builtin_rules` built every rule inline.
+fn named(prefix: &str, n: &mut usize) -> String {
+    *n += 1;
+    format!("builtin:{prefix}:{n}")
+}
+
+/// Shorthand for the three rule variables shared by every builtin-rule helper below.
+fn var(name: &str) -> RTerm {
+    RTerm::Var(name.into())
+}
+
+/// Named subClassOf (single + conjunctive LHS, named RHS): B(x) [^ …] -> C(x).
+fn push_subclass_rules(ont: &Ontology, rules: &mut Vec<Rule>, n: &mut usize) {
+    use crate::owl::Concept;
     for g in &ont.gcis {
-        use crate::owl::Concept;
         let rhs = match &g.rhs {
             Concept::Named(c) => c.clone(),
             Concept::Some(..) => continue, // existential ⇒ TBox EL completion, not ABox
@@ -918,7 +1052,7 @@ pub fn builtin_rules(ont: &Ontology) -> Vec<Rule> {
             match c {
                 Concept::Named(b) => body.push(Atom {
                     pred: b.clone(),
-                    args: vec![x()],
+                    args: vec![var("x")],
                 }),
                 Concept::Some(..) => {
                     all_named = false;
@@ -928,175 +1062,185 @@ pub fn builtin_rules(ont: &Ontology) -> Vec<Rule> {
         }
         if all_named && !body.is_empty() {
             rules.push(Rule {
-                name: named("subclass"),
+                name: named("subclass", n),
                 body,
                 head: vec![Atom {
                     pred: rhs,
-                    args: vec![x()],
+                    args: vec![var("x")],
                 }],
                 conf: g.conf,
             });
         }
     }
+}
 
-    // subPropertyOf (incl. equivalentProperty's two directions): r(x,y) -> s(x,y).
+/// subPropertyOf (incl. equivalentProperty's two directions): r(x,y) -> s(x,y).
+fn push_subprop_rules(ont: &Ontology, rules: &mut Vec<Rule>, n: &mut usize) {
     for (r, s, _label, conf) in &ont.sub_roles {
         rules.push(Rule {
-            name: named("subprop"),
+            name: named("subprop", n),
             body: vec![Atom {
                 pred: r.clone(),
-                args: vec![x(), y()],
+                args: vec![var("x"), var("y")],
             }],
             head: vec![Atom {
                 pred: s.clone(),
-                args: vec![x(), y()],
+                args: vec![var("x"), var("y")],
             }],
             conf: *conf,
         });
     }
+}
 
-    // domain(r,D): r(x,y) -> D(x).  range(r,D): r(x,y) -> D(y).
+/// domain(r,D): r(x,y) -> D(x).  range(r,D): r(x,y) -> D(y).
+fn push_domain_range_rules(ont: &Ontology, rules: &mut Vec<Rule>, n: &mut usize) {
     for (r, d) in &ont.domains {
         rules.push(Rule {
-            name: named("domain"),
+            name: named("domain", n),
             body: vec![Atom {
                 pred: r.clone(),
-                args: vec![x(), y()],
+                args: vec![var("x"), var("y")],
             }],
             head: vec![Atom {
                 pred: d.clone(),
-                args: vec![x()],
+                args: vec![var("x")],
             }],
             conf: 1.0,
         });
     }
     for (r, d) in &ont.ranges {
         rules.push(Rule {
-            name: named("range"),
+            name: named("range", n),
             body: vec![Atom {
                 pred: r.clone(),
-                args: vec![x(), y()],
+                args: vec![var("x"), var("y")],
             }],
             head: vec![Atom {
                 pred: d.clone(),
-                args: vec![y()],
+                args: vec![var("y")],
             }],
             conf: 1.0,
         });
     }
+}
 
-    // symmetric r: r(x,y) -> r(y,x).
+/// symmetric r: r(x,y) -> r(y,x).
+fn push_symmetric_rules(ont: &Ontology, rules: &mut Vec<Rule>, n: &mut usize) {
     for r in &ont.symmetric {
         rules.push(Rule {
-            name: named("symmetric"),
+            name: named("symmetric", n),
             body: vec![Atom {
                 pred: r.clone(),
-                args: vec![x(), y()],
+                args: vec![var("x"), var("y")],
             }],
             head: vec![Atom {
                 pred: r.clone(),
-                args: vec![y(), x()],
+                args: vec![var("y"), var("x")],
             }],
             conf: 1.0,
         });
     }
+}
 
-    // inverse (p1,p2): p1(x,y) -> p2(y,x) and p2(x,y) -> p1(y,x).
+/// inverse (p1,p2): p1(x,y) -> p2(y,x) and p2(x,y) -> p1(y,x).
+fn push_inverse_rules(ont: &Ontology, rules: &mut Vec<Rule>, n: &mut usize) {
     for (p1, p2) in &ont.inverses {
         rules.push(Rule {
-            name: named("inverse"),
+            name: named("inverse", n),
             body: vec![Atom {
                 pred: p1.clone(),
-                args: vec![x(), y()],
+                args: vec![var("x"), var("y")],
             }],
             head: vec![Atom {
                 pred: p2.clone(),
-                args: vec![y(), x()],
+                args: vec![var("y"), var("x")],
             }],
             conf: 1.0,
         });
         rules.push(Rule {
-            name: named("inverse"),
+            name: named("inverse", n),
             body: vec![Atom {
                 pred: p2.clone(),
-                args: vec![x(), y()],
+                args: vec![var("x"), var("y")],
             }],
             head: vec![Atom {
                 pred: p1.clone(),
-                args: vec![y(), x()],
+                args: vec![var("y"), var("x")],
             }],
             conf: 1.0,
         });
     }
+}
 
-    // property chains (covers transitive r∘r⊑r): r1(x,y) ^ r2(y,z) -> s(x,z).
+/// property chains (covers transitive r∘r⊑r): r1(x,y) ^ r2(y,z) -> s(x,z).
+fn push_chain_rules(ont: &Ontology, rules: &mut Vec<Rule>, n: &mut usize) {
     for ch in &ont.chains {
         if ch.chain.len() == 2 {
             rules.push(Rule {
-                name: named("chain"),
+                name: named("chain", n),
                 body: vec![
                     Atom {
                         pred: ch.chain[0].clone(),
-                        args: vec![x(), y()],
+                        args: vec![var("x"), var("y")],
                     },
                     Atom {
                         pred: ch.chain[1].clone(),
-                        args: vec![y(), z()],
+                        args: vec![var("y"), var("z")],
                     },
                 ],
                 head: vec![Atom {
                     pred: ch.sup.clone(),
-                    args: vec![x(), z()],
+                    args: vec![var("x"), var("z")],
                 }],
                 conf: ch.conf,
             });
         }
     }
+}
 
-    // FunctionalProperty r: r(x,y) ^ r(x,z) -> sameAs(y,z).
+/// FunctionalProperty r: r(x,y) ^ r(x,z) -> sameAs(y,z).
+/// InverseFunctionalProperty r: r(y,x) ^ r(z,x) -> sameAs(y,z).
+fn push_functional_rules(ont: &Ontology, rules: &mut Vec<Rule>, n: &mut usize) {
     for r in &ont.functional {
         rules.push(Rule {
-            name: named("functional"),
+            name: named("functional", n),
             body: vec![
                 Atom {
                     pred: r.clone(),
-                    args: vec![x(), y()],
+                    args: vec![var("x"), var("y")],
                 },
                 Atom {
                     pred: r.clone(),
-                    args: vec![x(), z()],
+                    args: vec![var("x"), var("z")],
                 },
             ],
             head: vec![Atom {
                 pred: iri(OWL_SAME_AS),
-                args: vec![y(), z()],
+                args: vec![var("y"), var("z")],
             }],
             conf: 1.0,
         });
     }
-    // InverseFunctionalProperty r: r(y,x) ^ r(z,x) -> sameAs(y,z).
     for r in &ont.inverse_functional {
         rules.push(Rule {
-            name: named("inverse-functional"),
+            name: named("inverse-functional", n),
             body: vec![
                 Atom {
                     pred: r.clone(),
-                    args: vec![y(), x()],
+                    args: vec![var("y"), var("x")],
                 },
                 Atom {
                     pred: r.clone(),
-                    args: vec![z(), x()],
+                    args: vec![var("z"), var("x")],
                 },
             ],
             head: vec![Atom {
                 pred: iri(OWL_SAME_AS),
-                args: vec![y(), z()],
+                args: vec![var("y"), var("z")],
             }],
             conf: 1.0,
         });
     }
-
-    rules
 }
 
 // ── Top-level entry points + the server-op request/response shape ─────────────
