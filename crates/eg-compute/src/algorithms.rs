@@ -1428,17 +1428,14 @@ pub struct MergeProposal {
 ///      ontology layer downstream).
 ///
 /// Returns proposals only — applying them is the client's decision.
-pub fn resolve_candidates(
+/// (id, embedding, node_type) for embedded nodes, optionally type-filtered.
+/// Split out of `resolve_candidates` (extract-method, cx/wD8) — same terms,
+/// same order as before.
+fn collect_embedded_nodes(
     core: &GraphView,
-    sim_threshold: f64,
-    merge_threshold: f64,
     node_type: Option<&str>,
-) -> Vec<MergeProposal> {
-    use rayon::prelude::*;
-
-    // (id, embedding, node_type) for embedded nodes, optionally type-filtered.
-    let nodes: Vec<(String, Vec<f64>, String)> = core
-        .node_properties
+) -> Vec<(String, Vec<f64>, String)> {
+    core.node_properties
         .iter()
         .filter_map(|(node_id, props_json)| {
             let val: serde_json::Value = serde_json::from_slice(props_json).ok()?;
@@ -1459,14 +1456,18 @@ pub fn resolve_candidates(
             }
             Some((node_id.clone(), vec, nt))
         })
-        .collect();
+        .collect()
+}
 
-    if nodes.len() < 2 {
-        return Vec::new();
-    }
-
-    // All-pairs cosine ≥ sim_threshold (the candidate floor).
-    let pairs: Vec<(usize, usize, f64)> = (0..nodes.len())
+/// All-pairs cosine ≥ `sim_threshold` (the candidate floor). Split out of
+/// `resolve_candidates` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn compute_candidate_pairs(
+    nodes: &[(String, Vec<f64>, String)],
+    sim_threshold: f64,
+) -> Vec<(usize, usize, f64)> {
+    use rayon::prelude::*;
+    (0..nodes.len())
         .into_par_iter()
         .flat_map(|i| {
             let mut local = Vec::new();
@@ -1478,27 +1479,35 @@ pub fn resolve_candidates(
             }
             local
         })
-        .collect();
-    if pairs.is_empty() {
-        return Vec::new();
-    }
+        .collect()
+}
 
-    // Union-find over SAME-TYPE pairs ≥ merge_threshold (the same_as bar).
-    let mut parent: Vec<usize> = (0..nodes.len()).collect();
-    fn find(parent: &mut [usize], mut x: usize) -> usize {
-        while parent[x] != x {
-            parent[x] = parent[parent[x]];
-            x = parent[x];
-        }
-        x
+/// Union-find path-halving root lookup. Split out of `resolve_candidates`
+/// (extract-method, cx/wD8) — was a nested `fn` there, unchanged.
+fn union_find_root(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
     }
+    x
+}
+
+/// Union-find over SAME-TYPE pairs ≥ `merge_threshold` (the same_as bar).
+/// Split out of `resolve_candidates` (extract-method, cx/wD8) — same terms,
+/// same order as before. Returns (parent, degree, extends_pairs).
+fn build_same_as_clusters(
+    nodes: &[(String, Vec<f64>, String)],
+    pairs: &[(usize, usize, f64)],
+    merge_threshold: f64,
+) -> (Vec<usize>, Vec<usize>, Vec<(usize, usize, f64)>) {
+    let mut parent: Vec<usize> = (0..nodes.len()).collect();
     let mut degree = vec![0usize; nodes.len()];
     let mut extends_pairs: Vec<(usize, usize, f64)> = Vec::new();
-    for &(i, j, s) in &pairs {
+    for &(i, j, s) in pairs {
         degree[i] += 1;
         degree[j] += 1;
         if s >= merge_threshold && nodes[i].2 == nodes[j].2 {
-            let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+            let (ri, rj) = (union_find_root(&mut parent, i), union_find_root(&mut parent, j));
             if ri != rj {
                 parent[ri] = rj;
             }
@@ -1507,12 +1516,23 @@ pub fn resolve_candidates(
             extends_pairs.push((i, j, s));
         }
     }
+    (parent, degree, extends_pairs)
+}
 
-    // same_as clusters
+/// Build `same_as` merge proposals from the union-find clusters. Split out of
+/// `resolve_candidates` (extract-method, cx/wD8) — same terms, same order as
+/// before, including the write-only `clustered` set (kept as-is; see the
+/// lane report).
+fn build_same_as_proposals(
+    nodes: &[(String, Vec<f64>, String)],
+    pairs: &[(usize, usize, f64)],
+    parent: &mut [usize],
+    degree: &[usize],
+) -> Vec<MergeProposal> {
     let mut clusters: std::collections::HashMap<usize, Vec<usize>> =
         std::collections::HashMap::new();
     for idx in 0..nodes.len() {
-        let root = find(&mut parent, idx);
+        let root = union_find_root(parent, idx);
         clusters.entry(root).or_default().push(idx);
     }
     let mut proposals: Vec<MergeProposal> = Vec::new();
@@ -1541,10 +1561,20 @@ pub fn resolve_candidates(
             kind: "same_as".to_string(),
         });
     }
+    proposals
+}
 
-    // extends proposals (cross-type / weak high-sim pairs not already merged)
-    for &(i, j, s) in &extends_pairs {
-        if find(&mut parent, i) == find(&mut parent, j) {
+/// Build `extends` merge proposals for cross-type / weak high-sim pairs not
+/// already merged into a `same_as` cluster. Split out of `resolve_candidates`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn build_extends_proposals(
+    nodes: &[(String, Vec<f64>, String)],
+    extends_pairs: &[(usize, usize, f64)],
+    parent: &mut [usize],
+) -> Vec<MergeProposal> {
+    let mut proposals = Vec::new();
+    for &(i, j, s) in extends_pairs {
+        if union_find_root(parent, i) == union_find_root(parent, j) {
             continue; // already in one same_as cluster
         }
         proposals.push(MergeProposal {
@@ -1554,7 +1584,32 @@ pub fn resolve_candidates(
             kind: "extends".to_string(),
         });
     }
+    proposals
+}
 
+pub fn resolve_candidates(
+    core: &GraphView,
+    sim_threshold: f64,
+    merge_threshold: f64,
+    node_type: Option<&str>,
+) -> Vec<MergeProposal> {
+    // (id, embedding, node_type) for embedded nodes, optionally type-filtered.
+    let nodes = collect_embedded_nodes(core, node_type);
+    if nodes.len() < 2 {
+        return Vec::new();
+    }
+
+    // All-pairs cosine ≥ sim_threshold (the candidate floor).
+    let pairs = compute_candidate_pairs(&nodes, sim_threshold);
+    if pairs.is_empty() {
+        return Vec::new();
+    }
+
+    let (mut parent, degree, extends_pairs) =
+        build_same_as_clusters(&nodes, &pairs, merge_threshold);
+
+    let mut proposals = build_same_as_proposals(&nodes, &pairs, &mut parent, &degree);
+    proposals.extend(build_extends_proposals(&nodes, &extends_pairs, &mut parent));
     proposals
 }
 
@@ -1576,47 +1631,62 @@ fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
 ///
 /// Examines node properties for `created_at` (epoch seconds) and `score` fields.
 /// Nodes older than `max_age_secs` or with score below `min_score` are removed.
-pub fn prune_by_lifecycle(
-    core: &GraphCore,
+/// Collect the node ids past `max_age_secs` or below `min_score` (skipping
+/// already archived/compacted nodes). Split out of `prune_by_lifecycle`
+/// (extract-method, cx/wD8) — same terms, same order as before. Returns
+/// (to_remove, archived_count).
+/// Whether one node's decoded properties make it eligible for lifecycle
+/// pruning. Split out of `collect_lifecycle_removals` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn node_should_be_pruned(
+    val: &serde_json::Value,
+    now: u64,
     max_age_secs: u64,
     min_score: f64,
-) -> crate::types::PruneStats {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+) -> bool {
+    let created_at = val.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
+    let score = val.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let lifecycle = val
+        .get("lifecycle_state")
+        .and_then(|v| v.as_str())
+        .unwrap_or("active");
 
+    // Skip already archived/compacted
+    if lifecycle == "archived" || lifecycle == "compacted" {
+        return false;
+    }
+
+    let age = if created_at > 0 { now - created_at } else { 0 };
+    (max_age_secs > 0 && age > max_age_secs) || score < min_score
+}
+
+fn collect_lifecycle_removals(
+    core: &GraphCore,
+    now: u64,
+    max_age_secs: u64,
+    min_score: f64,
+) -> (Vec<String>, usize) {
     let mut to_remove: Vec<String> = Vec::new();
     let mut archived = 0usize;
 
     for entry in core.node_properties.iter() {
         let (node_id, props_json) = (entry.key(), entry.value());
         if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json.as_slice()) {
-            let created_at = val.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
-            let score = val.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0);
-            let lifecycle = val
-                .get("lifecycle_state")
-                .and_then(|v| v.as_str())
-                .unwrap_or("active");
-
-            // Skip already archived/compacted
-            if lifecycle == "archived" || lifecycle == "compacted" {
-                continue;
-            }
-
-            let age = if created_at > 0 { now - created_at } else { 0 };
-
-            if (max_age_secs > 0 && age > max_age_secs) || score < min_score {
+            if node_should_be_pruned(&val, now, max_age_secs, min_score) {
                 to_remove.push(node_id.clone());
                 archived += 1;
             }
         }
     }
+    (to_remove, archived)
+}
 
-    let nodes_removed = to_remove.len();
+/// Remove every node in `to_remove` from `core`, counting the edges dropped
+/// along with them. Split out of `prune_by_lifecycle` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn remove_pruned_nodes(core: &GraphCore, to_remove: &[String]) -> usize {
     let mut edges_removed = 0usize;
-
-    for node_id in &to_remove {
+    for node_id in to_remove {
         // Count edges that will be removed
         let edge_keys: Vec<(String, String)> = core
             .edge_properties
@@ -1627,6 +1697,22 @@ pub fn prune_by_lifecycle(
         edges_removed += edge_keys.len();
         core.remove_node(node_id.clone());
     }
+    edges_removed
+}
+
+pub fn prune_by_lifecycle(
+    core: &GraphCore,
+    max_age_secs: u64,
+    min_score: f64,
+) -> crate::types::PruneStats {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let (to_remove, archived) = collect_lifecycle_removals(core, now, max_age_secs, min_score);
+    let nodes_removed = to_remove.len();
+    let edges_removed = remove_pruned_nodes(core, &to_remove);
 
     crate::types::PruneStats {
         nodes_removed,
