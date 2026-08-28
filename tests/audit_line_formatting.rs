@@ -1,10 +1,11 @@
-//! CX-EG-05 characterization test for `audit::audit_line` (`src/audit.rs`,
-//! CCN 11 as measured by the repo's lizard-based complexity gate before this
-//! lane's refactor -- one over the `--cap 10` ceiling).
+//! Characterization test for `audit::audit_line` (`src/audit.rs`): pins the
+//! exact audit-line text (or `None`) it produces for each durable `Method`
+//! variant, including the multi-condition `ApplyMutation`
+//! authoritative-state-digest guard and the non-durable fallthrough.
 //!
-//! `audit_line` is `pub fn`, so unlike the private `redb_store.rs` functions
-//! this lane also owns, it can be exercised directly (no served-dispatch
-//! harness needed) -- a true black-box call of the public function.
+//! `audit_line` is `pub fn`, so it can be exercised directly (no
+//! served-dispatch harness needed) -- a true black-box call of the public
+//! function.
 #![cfg(feature = "graph")]
 
 use epistemic_graph::audit::audit_line;

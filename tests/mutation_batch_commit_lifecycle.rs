@@ -1,22 +1,22 @@
-//! CX-EG-05 characterization tests for `apply_mutation_batch_in_wtx`
-//! (`src/redb_store.rs`, CCN 353 as measured by the repo's lizard-based
-//! complexity gate before this lane's refactor).
+//! Characterization tests for `apply_mutation_batch_in_wtx`
+//! (`src/redb_store.rs`) — the durable `MutationBatch` commit kernel every
+//! graph mutation routes through.
 //!
 //! These tests pin OBSERVED behaviour of the real served `dispatch` surface
-//! for every request that routes through the durable `MutationBatch` commit
-//! kernel: `apply_mutation_batch_in_wtx` is private to `redb_store.rs`, so it
-//! cannot be unit-tested directly from an external integration-test crate —
-//! this file exercises it black-box, the same pattern already used by
+//! for every request that routes through that commit kernel:
+//! `apply_mutation_batch_in_wtx` is private to `redb_store.rs`, so it cannot
+//! be unit-tested directly from an external integration-test crate — this
+//! file exercises it black-box, the same pattern already used by
 //! `tests/edge_pagination.rs` / `tests/adopt_workitem_metadata_cas_lifecycle.rs`.
+//! Covers: the CreateGraph/AddNode/AddEdge roundtrip, ClearGraph (edges
+//! removed, graph survives), DeleteGraph (subsequent writes fail),
+//! idempotent replay of an identical signed envelope, and AddEdge against a
+//! missing source node.
 //!
 //! Filename note: the file lives directly under `tests/` (not
 //! `tests/characterization/`) because Cargo's test-target auto-discovery only
 //! picks up `tests/*.rs` files, not files in a subdirectory — a file placed
-//! under `tests/characterization/` would silently never run. The
-//! `characterization_cx_eg_05_` prefix keeps the intent from the dispatch
-//! brief (a characterization test, owned by lane CX-EG-05) while staying
-//! inside Cargo's real discovery rule and avoiding any name collision with
-//! sibling CX-EG lanes' own characterization files.
+//! under `tests/characterization/` would silently never run.
 //!
 //! Requires `security` (real signed-envelope dispatch path) and `redb`
 //! (durable persistence, without which the gateway rejects every mutation) —
@@ -258,9 +258,17 @@ async fn t03_delete_graph_then_add_node_fails() {
 
 /// Exercises the idempotency-replay block: dispatching the EXACT same signed
 /// envelope (same nonce / idempotency key) twice must not double-apply the
-/// mutation. OBSERVED, not assumed: this test exists to PIN whatever
-/// `apply_mutation_batch_in_wtx`'s idempotency-key lookup actually does on a
-/// byte-identical retry, ahead of refactor.
+/// mutation.
+///
+/// OBSERVED, and NOT what this test originally assumed: the replayed
+/// envelope never reaches `apply_mutation_batch_in_wtx`'s own idempotency-key
+/// lookup at all -- the durable replay-nonce ledger in `dispatch()`'s auth
+/// layer, which runs BEFORE any mutation-batch code, already rejects the
+/// second identical envelope with "nonce already used (replay rejected)".
+/// Same observation already pinned for `dispatch_inner`'s own replayed
+/// `CreateGraph` case in `tests/protocol_method_routing.rs`
+/// (`t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger`); this
+/// test now pins the identical auth-layer rejection for a replayed `AddNode`.
 #[tokio::test]
 async fn t04_replayed_add_node_request_is_not_double_applied() {
     let state = state();
@@ -277,10 +285,10 @@ async fn t04_replayed_add_node_request_is_not_double_applied() {
     let first = Box::pin(dispatch(&state, add_request.clone())).await;
     assert!(first.error.is_none(), "first AddNode: {:?}", first.error);
     let second = Box::pin(dispatch(&state, add_request.clone())).await;
-    // OBSERVED: pin whichever of these the replay path actually produces.
-    assert!(
-        second.error.is_none(),
-        "replayed identical AddNode request: {:?}",
+    assert_eq!(
+        second.error.as_deref(),
+        Some("nonce already used (replay rejected)"),
+        "replaying the identical signed AddNode envelope: {:?}",
         second.error
     );
 
