@@ -11463,6 +11463,77 @@ fn remove_durable_node_rows(
 // applied -- bundling the table handles into a struct would just move the
 // same borrows behind one more layer of indirection.
 #[allow(clippy::too_many_arguments)]
+/// `Method::CompareAndSetNodeFields` row effect.  Evaluates and merges the CAS
+/// against the durable pre-image inside the held transaction; persisting
+/// `updates_msgpack` by itself discarded every untouched property and could
+/// diverge from GraphCore.  A missing node is a silent no-op, as before.
+fn apply_cas_node_fields_row(
+    graph: &str,
+    node_id: &str,
+    conditions_msgpack: &[u8],
+    updates_msgpack: &[u8],
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let Some(current) = nodes
+        .get((graph, node_id))
+        .map_err(|e| e.to_string())?
+        .map(|v| crypto.unseal(v.value()))
+        .transpose()?
+    else {
+        return Ok(());
+    };
+    let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&current)?;
+    let conditions: serde_json::Map<String, serde_json::Value> =
+        decode_durable(conditions_msgpack)?;
+    let updates: serde_json::Map<String, serde_json::Value> = decode_durable(updates_msgpack)?;
+    let matches = conditions.iter().all(|(key, expected)| {
+        props.get(key).cloned().unwrap_or(serde_json::Value::Null) == *expected
+    });
+    if matches {
+        props.extend(updates);
+        let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+        let blob = crypto.seal(&bytes);
+        nodes
+            .insert((graph, node_id), blob.as_ref())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// `Method::AddEdge` row effect: both endpoints must already be durable, then the
+/// edge is appended at the next ordinal for the pair.
+fn apply_add_edge_row(
+    graph: &str,
+    source_id: &str,
+    target_id: &str,
+    properties_msgpack: &[u8],
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let source_exists = nodes
+        .get((graph, source_id))
+        .map_err(|e| e.to_string())?
+        .is_some();
+    let target_exists = nodes
+        .get((graph, target_id))
+        .map_err(|e| e.to_string())?
+        .is_some();
+    if !source_exists || !target_exists {
+        return Err(format!(
+            "AddEdge requires durable endpoints: source '{}' present={}, target '{}' present={}",
+            source_id, source_exists, target_id, target_exists
+        ));
+    }
+    let ord = next_edge_ordinal(edges, graph, source_id, target_id)?;
+    let blob = crypto.seal(properties_msgpack);
+    edges
+        .insert((graph, source_id, target_id, ord), blob.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub(crate) fn apply_method_rows(
     graph: &str,
     method: &Method,
@@ -11492,61 +11563,29 @@ pub(crate) fn apply_method_rows(
             conditions_msgpack,
             updates_msgpack,
         } => {
-            // Evaluate and merge the CAS against the durable pre-image inside the
-            // held transaction. Persisting `updates_msgpack` by itself discarded
-            // every untouched property and could diverge from GraphCore.
-            let Some(current) = nodes
-                .get((graph, node_id.as_str()))
-                .map_err(|e| e.to_string())?
-                .map(|v| crypto.unseal(v.value()))
-                .transpose()?
-            else {
-                return Ok(());
-            };
-            let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&current)?;
-            let conditions: serde_json::Map<String, serde_json::Value> =
-                decode_durable(conditions_msgpack)?;
-            let updates: serde_json::Map<String, serde_json::Value> =
-                decode_durable(updates_msgpack)?;
-            let matches = conditions.iter().all(|(key, expected)| {
-                props.get(key).cloned().unwrap_or(serde_json::Value::Null) == *expected
-            });
-            if matches {
-                props.extend(updates);
-                let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
-                let blob = crypto.seal(&bytes);
-                nodes
-                    .insert((graph, node_id.as_str()), blob.as_ref())
-                    .map_err(|e| e.to_string())?;
-            }
+            apply_cas_node_fields_row(
+                graph,
+                node_id,
+                conditions_msgpack,
+                updates_msgpack,
+                nodes,
+                crypto,
+            )?;
         }
         Method::AddEdge {
             source_id,
             target_id,
             properties_msgpack,
         } => {
-            let source_exists = nodes
-                .get((graph, source_id.as_str()))
-                .map_err(|e| e.to_string())?
-                .is_some();
-            let target_exists = nodes
-                .get((graph, target_id.as_str()))
-                .map_err(|e| e.to_string())?
-                .is_some();
-            if !source_exists || !target_exists {
-                return Err(format!(
-                    "AddEdge requires durable endpoints: source '{}' present={}, target '{}' present={}",
-                    source_id, source_exists, target_id, target_exists
-                ));
-            }
-            let ord = next_edge_ordinal(edges, graph, source_id, target_id)?;
-            let blob = crypto.seal(properties_msgpack);
-            edges
-                .insert(
-                    (graph, source_id.as_str(), target_id.as_str(), ord),
-                    blob.as_ref(),
-                )
-                .map_err(|e| e.to_string())?;
+            apply_add_edge_row(
+                graph,
+                source_id,
+                target_id,
+                properties_msgpack,
+                nodes,
+                edges,
+                crypto,
+            )?;
         }
         Method::RemoveEdge {
             source_id,
@@ -11557,16 +11596,13 @@ pub(crate) fn apply_method_rows(
         Method::BatchUpdate { operations_msgpack } => {
             apply_batch_rows(graph, operations_msgpack, nodes, edges, semantic, crypto)?;
         }
-        Method::ClearGraph => {
-            clear_graph_rows(graph, nodes, edges, ledger)?;
-            semantic.remove(graph).map_err(|error| error.to_string())?;
-        }
-        Method::DeleteGraph { .. } => {
-            // The lifecycle caller performs the native/resource drain guard
-            // before entering this row applier.  Keep DeleteGraph's ordinary
-            // graph effect here as well so every low-level path (including
-            // cross-modal and checkpoint pending methods) cannot silently
-            // commit a no-op graph delete.
+        // ClearGraph and DeleteGraph share one arm because their row effect is
+        // byte-identical.  For DeleteGraph the lifecycle caller performs the
+        // native/resource drain guard before entering this row applier; keeping
+        // its ordinary graph effect here as well means no low-level path
+        // (including cross-modal and checkpoint pending methods) can silently
+        // commit a no-op graph delete.
+        Method::ClearGraph | Method::DeleteGraph { .. } => {
             clear_graph_rows(graph, nodes, edges, ledger)?;
             semantic.remove(graph).map_err(|error| error.to_string())?;
         }
@@ -12549,34 +12585,43 @@ fn check_resource_tenant_index_consistency(
 /// Clear every `(graph, key)` row of a two-part-key table for `graph`, in
 /// bounded `MAX_RESOURCE_CLEAR_SCAN`-sized passes so the caller's open
 /// `WriteTransaction` never has to allocate an unbounded key list.
+/// One bounded scan pass of `clear_resource_two_part_table`: collects at most
+/// `MAX_RESOURCE_CLEAR_SCAN` second-key parts for `graph`, starting after
+/// `cursor`.  Mirrors `collect_resource_attempts_clear_keys`.
+fn collect_resource_two_part_clear_keys<V: redb::Value + 'static>(
+    table: &redb::Table<(&str, &str), V>,
+    graph: &str,
+    cursor: &Option<String>,
+) -> Result<Vec<String>, String> {
+    let start = cursor.as_deref().unwrap_or("");
+    let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
+    for row in table
+        .range((graph, start)..)
+        .map_err(|error| error.to_string())?
+    {
+        let (key, _) = row.map_err(|error| error.to_string())?;
+        let (row_graph, key_part) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        if cursor.as_deref() == Some(key_part) {
+            continue;
+        }
+        keys.push(key_part.to_string());
+        if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
+            break;
+        }
+    }
+    Ok(keys)
+}
+
 fn clear_resource_two_part_table<V: redb::Value + 'static>(
     table: &mut redb::Table<(&str, &str), V>,
     graph: &str,
 ) -> Result<(), String> {
     let mut cursor: Option<String> = None;
     loop {
-        let keys = {
-            let start = cursor.as_deref().unwrap_or("");
-            let mut keys = Vec::with_capacity(MAX_RESOURCE_CLEAR_SCAN);
-            for row in table
-                .range((graph, start)..)
-                .map_err(|error| error.to_string())?
-            {
-                let (key, _) = row.map_err(|error| error.to_string())?;
-                let (row_graph, key_part) = key.value();
-                if row_graph != graph {
-                    break;
-                }
-                if cursor.as_deref() == Some(key_part) {
-                    continue;
-                }
-                keys.push(key_part.to_string());
-                if keys.len() == MAX_RESOURCE_CLEAR_SCAN {
-                    break;
-                }
-            }
-            keys
-        };
+        let keys = collect_resource_two_part_clear_keys(table, graph, &cursor)?;
         if keys.is_empty() {
             break;
         }
@@ -12938,103 +12983,131 @@ pub(crate) fn clear_change_material_rows(
 /// than silently skipped: a partially observed authority set must abort the
 /// enclosing transaction instead of allowing a recreate to inherit unknown
 /// state.
-pub(crate) fn clear_mutation_authority_rows(
+/// Every `MUTATION_IDEMPOTENCY` batch_id recorded for `graph`.  The table is
+/// keyed `(tenant, graph, idempotency_key)`, so `graph` is not the leading
+/// component and the scan is necessarily full-table.
+fn collect_mutation_idempotency_batch_ids(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<Vec<String>, String> {
+    let table = wtx
+        .open_table(MUTATION_IDEMPOTENCY)
+        .map_err(|e| e.to_string())?;
+    let mut batch_ids = Vec::new();
+    for row in table.iter().map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        let (_, row_graph, _) = key.value();
+        if row_graph == graph {
+            batch_ids.push(value.value().to_string());
+        }
+    }
+    Ok(batch_ids)
+}
+
+/// Remove every `MUTATION_IDEMPOTENCY` replay key belonging to `graph`.
+fn clear_mutation_idempotency_rows(
     wtx: &redb::WriteTransaction,
     graph: &str,
 ) -> Result<(), String> {
-    let batch_ids: Vec<String> = {
-        let table = wtx
-            .open_table(MUTATION_IDEMPOTENCY)
-            .map_err(|e| e.to_string())?;
-        let mut batch_ids = Vec::new();
-        for row in table.iter().map_err(|e| e.to_string())? {
-            let (key, value) = row.map_err(|e| e.to_string())?;
-            let (_, row_graph, _) = key.value();
-            if row_graph == graph {
-                batch_ids.push(value.value().to_string());
-            }
-        }
-        batch_ids
-    };
-    {
-        let mut table = wtx
-            .open_table(MUTATION_IDEMPOTENCY)
-            .map_err(|e| e.to_string())?;
-        let mut keys = Vec::new();
-        for row in table.iter().map_err(|e| e.to_string())? {
-            let (key, _) = row.map_err(|e| e.to_string())?;
-            let (tenant, row_graph, idempotency) = key.value();
-            if row_graph == graph {
-                keys.push((tenant.to_string(), idempotency.to_string()));
-            }
-        }
-        for (tenant, idempotency) in keys {
-            table
-                .remove((tenant.as_str(), graph, idempotency.as_str()))
-                .map_err(|e| e.to_string())?;
+    let mut table = wtx
+        .open_table(MUTATION_IDEMPOTENCY)
+        .map_err(|e| e.to_string())?;
+    let mut keys = Vec::new();
+    for row in table.iter().map_err(|e| e.to_string())? {
+        let (key, _) = row.map_err(|e| e.to_string())?;
+        let (tenant, row_graph, idempotency) = key.value();
+        if row_graph == graph {
+            keys.push((tenant.to_string(), idempotency.to_string()));
         }
     }
-    for batch_id in &batch_ids {
-        {
-            let mut table = wtx
-                .open_table(MUTATION_BATCHES)
+    for (tenant, idempotency) in keys {
+        table
+            .remove((tenant.as_str(), graph, idempotency.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Remove one batch's `MUTATION_BATCHES` record plus its `MUTATION_OUTBOX` and
+/// `MUTATION_OUTBOX_DELIVERY` rows.  Each table is opened in its own scope, in
+/// the original order, so no two are open at once inside the transaction.
+fn clear_mutation_batch_authority_rows(
+    wtx: &redb::WriteTransaction,
+    batch_id: &str,
+) -> Result<(), String> {
+    {
+        let mut table = wtx
+            .open_table(MUTATION_BATCHES)
+            .map_err(|e| e.to_string())?;
+        table.remove(batch_id).map_err(|e| e.to_string())?;
+    }
+    {
+        let mut table = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+        let keys: Vec<u32> = table
+            .range((batch_id, 0u32)..)
+            .map_err(|e| e.to_string())?
+            .filter_map(|row| row.ok())
+            .take_while(|(key, _)| key.value().0 == batch_id)
+            .map(|(key, _)| key.value().1)
+            .collect();
+        for ordinal in keys {
+            table
+                .remove((batch_id, ordinal))
                 .map_err(|e| e.to_string())?;
-            table.remove(batch_id.as_str()).map_err(|e| e.to_string())?;
-        }
-        {
-            let mut table = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
-            let keys: Vec<u32> = table
-                .range((batch_id.as_str(), 0u32)..)
-                .map_err(|e| e.to_string())?
-                .filter_map(|row| row.ok())
-                .take_while(|(key, _)| key.value().0 == batch_id.as_str())
-                .map(|(key, _)| key.value().1)
-                .collect();
-            for ordinal in keys {
-                table
-                    .remove((batch_id.as_str(), ordinal))
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-        {
-            let mut table = wtx
-                .open_table(MUTATION_OUTBOX_DELIVERY)
-                .map_err(|e| e.to_string())?;
-            let keys: Vec<(u32, String)> = table
-                .range((batch_id.as_str(), 0u32, "")..)
-                .map_err(|e| e.to_string())?
-                .filter_map(|row| row.ok())
-                .take_while(|(key, _)| key.value().0 == batch_id.as_str())
-                .map(|(key, _)| {
-                    let (_, ordinal, consumer) = key.value();
-                    (ordinal, consumer.to_string())
-                })
-                .collect();
-            for (ordinal, consumer) in keys {
-                table
-                    .remove((batch_id.as_str(), ordinal, consumer.as_str()))
-                    .map_err(|e| e.to_string())?;
-            }
         }
     }
     {
         let mut table = wtx
-            .open_table(MUTATION_PROJECTION_CURSOR)
+            .open_table(MUTATION_OUTBOX_DELIVERY)
             .map_err(|e| e.to_string())?;
-        let mut keys = Vec::new();
-        for row in table.iter().map_err(|e| e.to_string())? {
-            let (key, _) = row.map_err(|e| e.to_string())?;
-            let (tenant, row_graph, projection) = key.value();
-            if row_graph == graph {
-                keys.push((tenant.to_string(), projection.to_string()));
-            }
-        }
-        for (tenant, projection) in keys {
+        let keys: Vec<(u32, String)> = table
+            .range((batch_id, 0u32, "")..)
+            .map_err(|e| e.to_string())?
+            .filter_map(|row| row.ok())
+            .take_while(|(key, _)| key.value().0 == batch_id)
+            .map(|(key, _)| {
+                let (_, ordinal, consumer) = key.value();
+                (ordinal, consumer.to_string())
+            })
+            .collect();
+        for (ordinal, consumer) in keys {
             table
-                .remove((tenant.as_str(), graph, projection.as_str()))
+                .remove((batch_id, ordinal, consumer.as_str()))
                 .map_err(|e| e.to_string())?;
         }
     }
+    Ok(())
+}
+
+/// Remove every `MUTATION_PROJECTION_CURSOR` row belonging to `graph`.
+fn clear_mutation_projection_cursor_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(MUTATION_PROJECTION_CURSOR)
+        .map_err(|e| e.to_string())?;
+    let mut keys = Vec::new();
+    for row in table.iter().map_err(|e| e.to_string())? {
+        let (key, _) = row.map_err(|e| e.to_string())?;
+        let (tenant, row_graph, projection) = key.value();
+        if row_graph == graph {
+            keys.push((tenant.to_string(), projection.to_string()));
+        }
+    }
+    for (tenant, projection) in keys {
+        table
+            .remove((tenant.as_str(), graph, projection.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Remove the graph-keyed lifecycle scalars: version, fence and lifecycle head.
+fn clear_mutation_graph_scalar_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
     {
         let mut table = wtx
             .open_table(MUTATION_GRAPH_VERSION)
@@ -13051,6 +13124,20 @@ pub(crate) fn clear_mutation_authority_rows(
             .map_err(|e| e.to_string())?;
         table.remove(graph).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+pub(crate) fn clear_mutation_authority_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let batch_ids = collect_mutation_idempotency_batch_ids(wtx, graph)?;
+    clear_mutation_idempotency_rows(wtx, graph)?;
+    for batch_id in &batch_ids {
+        clear_mutation_batch_authority_rows(wtx, batch_id)?;
+    }
+    clear_mutation_projection_cursor_rows(wtx, graph)?;
+    clear_mutation_graph_scalar_rows(wtx, graph)?;
     Ok(())
 }
 
