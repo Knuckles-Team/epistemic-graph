@@ -14,10 +14,15 @@ in a comment, for all three classes of drift this script now guards against:
      CI job for ~24s each (sccache not on the runner's PATH; cargo hard-errors
      rather than falling back).
 
-It also proves the previously-uncovered advisory.yml is now actually replayed
-(GAP 1: a 10-way feature-build matrix was invisible to this script before),
-and that the GAP 3 build-affecting file-set predicate used by `--skip-safe`
-is correct.
+It also proves GAP 1's original fix still holds after the two-workflow model
+(release.yml blocking + advisory.yml, continue-on-error, non-blocking) was
+retired 2026-08-28 (wD9-CIGATE): a 10-way (now 13-way) feature-build matrix
+used to be entirely invisible to this script, folded into a since-deleted
+second file, `advisory.yml`; release.yml now carries that job directly, and
+per-JOB (not per-file) blocking classification keeps its own
+`continue-on-error: true` non-blocking without a second file to hang that
+off of. Also proves the GAP 3 build-affecting file-set predicate used by
+`--skip-safe` is correct.
 """
 
 from __future__ import annotations
@@ -98,7 +103,10 @@ def test_registered_workflow_missing_from_disk_fails_consistency_check(tmp_path)
     workflows_dir = tmp_path / "workflows"
     workflows_dir.mkdir()
     shutil.copy(m.WORKFLOWS_DIR / "release.yml", workflows_dir / "release.yml")
-    # advisory.yml deliberately not copied here.
+    # repro-diagnose.yml deliberately not copied here (advisory.yml -- the
+    # original file this test omitted -- was retired 2026-08-28/wD9-CIGATE
+    # and is no longer a WORKFLOW_REGISTRY entry at all; repro-diagnose.yml
+    # is now the only other registered file to omit).
     ok = m.consistency_check(verbose=False, workflows_dir=workflows_dir)
     assert ok is False
 
@@ -125,7 +133,8 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
 
 
 def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
-    """GAP 1's headline example: advisory.yml's feature-build matrix used to be
+    """GAP 1's headline example: the feature-build matrix (formerly in a
+    since-deleted advisory.yml, now release.yml's own `feature-matrix` job) used to be
     entirely unreplicated. Every leg it declares must now show up as its own
     individually-runnable RUN row with the real matrix values substituted in
     (not a literal, unresolved '${{ matrix... }}').
@@ -140,8 +149,8 @@ def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
     count.
     """
     m = _load_module()
-    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
-    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc)
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
     declared = doc["jobs"]["feature-matrix"]["strategy"]["matrix"]["target"]
     matrix_rows = [
         p
@@ -150,7 +159,7 @@ def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
         and p["mode"] == "RUN"
         and p["name"].startswith("Build ")
     ]
-    assert len(declared) > 0, "advisory.yml declares no feature-matrix legs"
+    assert len(declared) > 0, "release.yml declares no feature-matrix legs"
     assert len(matrix_rows) == len(declared), (
         f"expected one RUN row per declared leg ({len(declared)}), got "
         f"{len(matrix_rows)}: {[r['job'] for r in matrix_rows]}"
@@ -170,27 +179,59 @@ def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
     )
 
 
+def _run_rows_for_job(plan: list[dict], job: str) -> list[dict]:
+    """Every RUN-mode plan row for one job (helper kept OUTSIDE the test so
+    the test itself stays a flat sequence of assertions, not branching
+    logic -- see the module-level complexity cap)."""
+    return [p for p in plan if p["job"] == job and p["mode"] == "RUN"]
+
+
+def _assert_uniform_blocking(rows: list[dict], expected: bool, reason: str) -> None:
+    """Every row's `blocking` field equals `expected`, or fail with `reason`
+    plus the offending rows. A flat assertion, not a loop the test itself
+    has to carry."""
+    assert rows, f"no RUN rows found ({reason})"
+    bad = [p for p in rows if p["blocking"] is not expected]
+    assert not bad, f"{reason}: {bad}"
+
+
 def test_advisory_benchmarks_job_is_now_covered():
+    """benchmarks still lives in release.yml (folded in 2026-08-28,
+    wD9-CIGATE) and is still replayed locally, but its rows must report
+    `blocking: False` -- it carries its own literal
+    `continue-on-error: true` in the real workflow (a disclosed,
+    not-yet-measured gap), which build_plan_for_workflow now reads PER-JOB
+    rather than trusting the whole file's `blocking` flag. gates' rows, in
+    the same file, must still report `blocking: True` -- proving this is a
+    per-job classification, not an accidental file-wide flip."""
     m = _load_module()
-    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
-    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc)
-    bench_run_names = {
-        p["name"] for p in plan if p["job"] == "benchmarks" and p["mode"] == "RUN"
-    }
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
+    bench_run_names = {p["name"] for p in _run_rows_for_job(plan, "benchmarks")}
     assert "Run hybrid-query benches (latency + recall@k)" in bench_run_names
     assert "Perf/recall regression gate" in bench_run_names
-    # advisory.yml never blocks the pre-push gate.
-    assert m.WORKFLOW_REGISTRY["advisory.yml"].blocking is False
-    assert m.WORKFLOW_REGISTRY["release.yml"].blocking is True
+    _assert_uniform_blocking(
+        _run_rows_for_job(plan, "benchmarks"),
+        expected=False,
+        reason="benchmarks carries its own continue-on-error: true and must "
+        "report blocking=False per-row",
+    )
+    _assert_uniform_blocking(
+        _run_rows_for_job(plan, "gates"),
+        expected=True,
+        reason="gates has no continue-on-error and must report "
+        "blocking=True per-row (release.yml itself is blocking=True)",
+    )
 
 
 def test_reusable_workflow_call_job_is_reported_not_silently_dropped():
-    """advisory.yml's `pages` job is a job-level `uses:` reusable-workflow
+    """release.yml's `pages` job (folded in from the retired advisory.yml,
+    2026-08-28/wD9-CIGATE) is a job-level `uses:` reusable-workflow
     call with no `steps:` at all -- it must still produce a plan row (as
     SKIP_LOUD with a reason), never zero rows."""
     m = _load_module()
-    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
-    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["advisory.yml"], doc)
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
     pages_rows = [p for p in plan if p["job"] == "pages"]
     assert pages_rows, "pages job produced zero plan rows -- silently dropped"
     assert all(p["mode"] == "SKIP_LOUD" for p in pages_rows)
@@ -206,13 +247,13 @@ def test_reusable_workflow_call_job_is_reported_not_silently_dropped():
 
 def test_build_tool_dependency_check_passes_on_real_cargo_config():
     m = _load_module()
+    # advisory.yml (once scanned here alongside release.yml) was retired
+    # 2026-08-28/wD9-CIGATE and folded into release.yml, which now carries
+    # every cargo invocation that would need a build-tool dependency check.
     problems = m.check_build_tool_dependencies(
         m.CARGO_CONFIG_PATH,
         {
             "release.yml": (m.WORKFLOWS_DIR / "release.yml").read_text(
-                encoding="utf-8"
-            ),
-            "advisory.yml": (m.WORKFLOWS_DIR / "advisory.yml").read_text(
                 encoding="utf-8"
             ),
         },
@@ -225,7 +266,19 @@ def test_build_tool_dependency_check_fails_on_reintroduced_sccache_wrapper(tmp_p
     `rustc-wrapper = "sccache"` line into a SCRATCH copy of .cargo/config.toml
     (never touching the real repo file) and confirm the check fails and
     names 'sccache' by binary name, without any hard-coded string match on
-    'sccache' in the checker itself."""
+    'sccache' in the checker itself.
+
+    Uses SYNTHETIC workflow text (real `cargo build ...`, genuinely no
+    'sccache' anywhere), not the real release.yml -- that file legitimately
+    mentions the literal word 'sccache' elsewhere (a maturin-action input
+    explicitly DISABLING it, `sccache: 'false'`, unrelated to this
+    rustc-wrapper concern), which the checker's deliberately-broad
+    word-boundary match then reads as "referenced", masking the exact
+    problem this test exists to prove. Isolating the plant text from the
+    real file's incidental content keeps this test's own proof stable
+    regardless of what the real workflow happens to say elsewhere; the
+    companion test above (`..._passes_on_real_cargo_config`) is what
+    exercises the real file."""
     m = _load_module()
     bad_config = tmp_path / "config.toml"
     bad_config.write_text(
@@ -235,11 +288,8 @@ def test_build_tool_dependency_check_fails_on_reintroduced_sccache_wrapper(tmp_p
     problems = m.check_build_tool_dependencies(
         bad_config,
         {
-            "release.yml": (m.WORKFLOWS_DIR / "release.yml").read_text(
-                encoding="utf-8"
-            ),
-            "advisory.yml": (m.WORKFLOWS_DIR / "advisory.yml").read_text(
-                encoding="utf-8"
+            "synthetic.yml": (
+                "jobs:\n  gates:\n    steps:\n      - run: cargo build --workspace\n"
             ),
         },
     )
@@ -451,18 +501,19 @@ def test_check_toolchain_requirements_ignores_non_cargo_text():
 
 def test_build_plan_reclassifies_run_step_when_required_tool_missing(monkeypatch):
     """End-to-end: build_plan_for_workflow (not just the helper function)
-    turns the real advisory.yml full-extras leg from RUN into
+    turns the real feature-matrix full-extras leg (release.yml, folded in
+    2026-08-28/wD9-CIGATE from the retired advisory.yml) from RUN into
     NOT_VALIDATED_LOCALLY-bound TOOLCHAIN_MISSING when cmake is absent, and
     leaves every OTHER matrix leg (that doesn't transitively need ros2-rmw)
     alone as RUN -- proving this is NOT a `job == "feature-matrix"`
     special-case: legs of the very same job are treated differently based
     purely on what their own command line requests."""
     m = _load_module()
-    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
     table = m._load_cargo_features()
     monkeypatch.setattr(m.shutil, "which", lambda tool: None)
     plan, _, _ = m.build_plan_for_workflow(
-        m.WORKFLOW_REGISTRY["advisory.yml"], doc, feature_table=table
+        m.WORKFLOW_REGISTRY["release.yml"], doc, feature_table=table
     )
     by_job = {
         p["job"]: p
@@ -481,12 +532,12 @@ def test_build_plan_leaves_full_extras_as_run_when_toolchain_present():
     test host's REAL PATH provides (no monkeypatch) -- proves the mechanism
     does not default to pessimistic/always-skip; it actually checks."""
     m = _load_module()
-    doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
     table = m._load_cargo_features()
     if m.shutil.which("cmake") is None or m.shutil.which("cc") is None:
         pytest.skip("this test host itself lacks cmake/cc; nothing to prove here")
     plan, _, _ = m.build_plan_for_workflow(
-        m.WORKFLOW_REGISTRY["advisory.yml"], doc, feature_table=table
+        m.WORKFLOW_REGISTRY["release.yml"], doc, feature_table=table
     )
     full_extras = next(
         p

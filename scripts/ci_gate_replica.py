@@ -175,7 +175,28 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
         # 2026-08-28 (wD9-CIGATE) — it is now a real blocking job (no
         # `continue-on-error`) and, like `gates`, is ordinary
         # python3/cargo-clippy commands a local host can run.
-        executable_jobs=frozenset({"gates", "lint-and-architecture"}),
+        #
+        # `feature-matrix`/`benchmarks` also folded in (same date) and stay
+        # in `executable_jobs`, unchanged from their old advisory.yml
+        # treatment (GAP 1's original point: an entire workflow was
+        # otherwise invisible locally until it broke in hosted CI) --
+        # ordinary `cargo build`/`cargo bench` commands once `${{ matrix... }}`
+        # is substituted. Each still carries its own literal
+        # `continue-on-error: true` in release.yml (a disclosed,
+        # not-yet-measured gap -- see the wD9-CIGATE report), which
+        # `build_plan_for_workflow` now reads PER-JOB to report
+        # `blocking: False` for their rows specifically, even though this
+        # whole file is otherwise `blocking=True` -- a failure there is run
+        # and reported loudly here, exactly like every other RUN step, but
+        # does not fail this local hook, matching what the real workflow
+        # does today. Re-scoped `if: startsWith(github.ref, 'refs/tags/v')
+        # || workflow_dispatch` in the real workflow (no longer runs on an
+        # ordinary push/PR at all), which this replica does not model --
+        # running the ordinary command locally on every invocation remains
+        # the safer, more-coverage default matching GAP 1's intent.
+        executable_jobs=frozenset(
+            {"gates", "lint-and-architecture", "feature-matrix", "benchmarks"}
+        ),
         job_skip_reasons={
             "build": (
                 "5-platform native cross-compilation matrix (linux-x86_64/aarch64, "
@@ -199,21 +220,6 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
                 "tag-gated Docker registry push requiring DOCKER_* registry secrets "
                 "via a GitHub Environment approval gate. Publishing must never "
                 "happen from a local pre-push hook."
-            ),
-            "feature-matrix": (
-                "folded in from advisory.yml 2026-08-28 (wD9-CIGATE) and re-scoped "
-                "`if: startsWith(github.ref, 'refs/tags/v') || workflow_dispatch` — "
-                "no longer runs on an ordinary push/PR at all, and its "
-                "`continue-on-error: true` is a disclosed, not-yet-measured gap "
-                "(13-leg cargo build matrix, unmeasured this session — see the "
-                "wD9-CIGATE report), not something a pre-push hook should pay for "
-                "on every push in the meantime."
-            ),
-            "benchmarks": (
-                "same fold + same re-scoping as feature-matrix above (tag/dispatch-"
-                "only, `continue-on-error: true` left as a disclosed unmeasured "
-                "gap) — cargo bench is materially slower than a pre-push hook "
-                "budget allows regardless."
             ),
             "pages": (
                 "folded in from advisory.yml 2026-08-28 (wD9-CIGATE) — job-level "
@@ -521,6 +527,25 @@ def classify_step(step: dict) -> tuple[str, str]:
     )
 
 
+def _job_blocking(spec_blocking: bool, job: dict) -> bool:
+    """A job's own literal `continue-on-error: true` makes IT non-blocking
+    regardless of the file-level `spec.blocking` (release.yml carries both
+    truly-blocking jobs -- gates, lint-and-architecture -- and jobs that
+    still declare their own `continue-on-error: true` -- feature-matrix,
+    benchmarks -- as a disclosed, not-yet-measured gap; see WORKFLOW_REGISTRY
+    comments). Only the literal boolean `True` is recognized; an expression
+    form (e.g. `${{ matrix.optional || false }}`, `build`'s macOS leg) is
+    treated conservatively as blocking since it cannot be evaluated
+    generically here -- `build` itself is not in any WorkflowSpec.
+    executable_jobs, so this never actually needs to resolve that
+    expression today. Extracted to its own function (not inlined at the
+    call site) so it does not add to build_plan_for_workflow's own
+    complexity count -- that function is already over this repo's
+    cyclomatic/cognitive caps and must never be made WORSE, per this
+    project's no-ratchets complexity discipline."""
+    return spec_blocking and job.get("continue-on-error") is not True
+
+
 def build_plan_for_workflow(
     spec: WorkflowSpec, doc: dict, feature_table: dict[str, list[str]] | None = None
 ) -> tuple[list[dict], list[str], list[str]]:
@@ -573,7 +598,7 @@ def build_plan_for_workflow(
                 plan.append(
                     {
                         "workflow": spec.filename,
-                        "blocking": spec.blocking,
+                        "blocking": _job_blocking(spec.blocking, job),
                         "job": job_label,
                         "name": _step_label(step2),
                         "mode": mode,
