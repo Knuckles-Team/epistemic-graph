@@ -38,7 +38,7 @@ lines_per_file            = 900    # measured p50=255, max=11280
 functions_per_file        = 40     # measured p90=38, max=269
 concrete_types_per_file   = 8      # measured p90=8,  max=140
 
-# ---- RETUNED off the upstream default, deliberately ---------------------
+# ---- RE-TUNED off the upstream default, deliberately ------------------
 interface_types_per_file  = 3      # ⚠ upstream default is 0 -- ZERO traits per
                                    # file. Absurd for a 48-crate workspace whose
                                    # every crate contract IS a trait. Measured

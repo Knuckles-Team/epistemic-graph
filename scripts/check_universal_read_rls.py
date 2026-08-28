@@ -13,7 +13,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rust_callgraph import reachable_source, squash
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -148,17 +153,39 @@ def main() -> None:
         "default-deny RLS does not classify every topology row, including missing properties",
     )
 
-    graph_dispatch = dispatch[dispatch.find("async fn dispatch_graph_op_inner") :]
+    # Resolve the graph-dispatch path by CALL GRAPH, and compare on squashed
+    # whitespace. Both are deliberate: the complexity program decomposed
+    # `dispatch_graph_op_inner`, which moved the read authority into
+    # `resolve_graph_read_authority` and the handler call sites into routers,
+    # and reindented every surviving one from twelve spaces to eight. The
+    # property below -- every GraphCore-consuming read receives the verified
+    # read authority -- did not change. A positional, whitespace-coupled
+    # assertion reported it MISSING anyway. See scripts/rust_callgraph.py.
+    graph_dispatch = squash(reachable_source(dispatch, "dispatch_graph_op_inner"))
+    require(
+        graph_dispatch != "",
+        "dispatch_graph_op_inner is unreachable from the call-graph slice",
+    )
     for token in (
-        "GraphReadAuthority::from_verified(verified_context, &s.isolation)",
-        "try_handle_gateway(\n            req_id,",
-        "&core,\n            materialization_manifest.as_ref(),\n            read_authority.as_ref(),",
-        "handlers::mining::try_handle(\n            req_id,\n            core.clone(),\n            read_authority.as_ref(),",
+        # Derived once, under the registry lock, from the verified context and
+        # the authoritative IsolationLayer -- now one call down, in
+        # `resolve_graph_read_authority`, which the gate reaches transitively.
+        "GraphReadAuthority::from_verified(verified_context, isolation)",
+        "resolve_graph_read_authority(req_id, verified_context, &s.isolation)",
+        "try_handle_gateway( req_id,",
+        # `&core` became `core` when the parameter type changed with the
+        # extraction; the manifest and the authority still travel together.
+        "core, materialization_manifest.as_ref(), read_authority.as_ref(),",
+        "handlers::mining::try_handle( req_id, core.clone(), read_authority.as_ref(),",
         "handlers::graphlearn::try_handle(req_id, core.clone(), method)",
-        "read_authority.as_ref(),\n            method,",
-        "read_authority,\n            core.clone(),",
+        "read_authority.as_ref(), method,",
+        # `core.clone()` became `ctx.core.clone()` when the post-lock routers
+        # took a `GraphOpRouting` context struct instead of eight loose args.
+        "read_authority, ctx.core.clone(),",
     ):
-        require(token in graph_dispatch, f"graph dispatch omits {token!r}")
+        require(
+            squash(token) in graph_dispatch, f"graph dispatch omits {token!r}"
+        )
     list_graphs = dispatch[
         dispatch.find("Method::ListGraphs =>") : dispatch.find(
             "// ── M3 catalog-driven", dispatch.find("Method::ListGraphs =>")
@@ -357,7 +384,10 @@ def main() -> None:
         and "authorize_member" in channels
         and "list_channels_for" in channels
         and "scoped_channel_reads_require_same_tenant_membership" in channels
-        and dispatch.count(".channels.authorize_member(") >= 3,
+        # Squashed: rustfmt breaks `s.channels.authorize_member(` across three
+        # lines once the receiver is long enough, which the CX extraction made
+        # it. The receiver and the three arguments are unchanged.
+        and squash(dispatch).count(".channels.authorize_member(") >= 3,
         "channel messages/members/listing are not same-tenant membership scoped",
     )
     require(
@@ -412,7 +442,11 @@ def main() -> None:
         and "txns: Mutex<HashMap<(String, String), CrossModalTxn>>" in graphql_crossmodal
         and "uuid::Uuid::new_v4()" in graphql_crossmodal
         and "CrossModalRoute::Invalid" in graphql_crossmodal
-        and ".project_core(&core)" in query
+        # `&core` or `core`: WB1-EG-01's extraction hoisted the borrow to the
+        # call site, so the argument is already a reference. The property is
+        # that the query path reads through the AUTHORITY's projection rather
+        # than the raw committed core -- not which side takes the `&`.
+        and re.search(r"\.project_core\(&?core\)", query) is not None
         and ".take(authority.owner_scope(), txn_id)" in txn
         and "fn scope_measurement(" in wire
         and "authority.tenant_scope()," in wire,
