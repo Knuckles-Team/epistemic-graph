@@ -2100,6 +2100,45 @@ fn label_join(
 /// Expand a `label_replace` replacement string. `$0` is the whole match, `$1`..`$N`
 /// and `${N}` are numbered capture groups (a reference to an unmatched/absent group
 /// expands to empty), and `$$` is a literal `$`.
+/// Scan the group reference that follows a `$` at `chars[*i]` — either a braced
+/// `{...}` body or a run of digits — advancing `*i` past it. `None` means the `$`
+/// was not followed by a group reference at all, and `*i` is left untouched so the
+/// caller can emit the `$` literally.
+fn scan_group_ref(chars: &[char], i: &mut usize) -> Option<String> {
+    let mut num = String::new();
+    if chars[*i] == '{' {
+        *i += 1;
+        while *i < chars.len() && chars[*i] != '}' {
+            num.push(chars[*i]);
+            *i += 1;
+        }
+        if *i < chars.len() {
+            *i += 1; // consume '}'
+        }
+        return Some(num);
+    }
+    while *i < chars.len() && chars[*i].is_ascii_digit() {
+        num.push(chars[*i]);
+        *i += 1;
+    }
+    if num.is_empty() {
+        return None;
+    }
+    Some(num)
+}
+
+/// What a `$…` group reference expands to: the captured text, or empty for an
+/// unparseable, absent or unmatched group.
+fn group_expansion<'a>(num: &str, groups: &'a [Option<String>]) -> &'a str {
+    let Ok(n) = num.parse::<usize>() else {
+        return "";
+    };
+    match groups.get(n) {
+        Some(Some(v)) => v.as_str(),
+        _ => "",
+    }
+}
+
 fn expand_replacement(repl: &str, groups: &[Option<String>]) -> String {
     let chars: Vec<char> = repl.chars().collect();
     let mut out = String::new();
@@ -2120,31 +2159,10 @@ fn expand_replacement(repl: &str, groups: &[Option<String>]) -> String {
             i += 1;
             continue;
         }
-        let mut num = String::new();
-        if chars[i] == '{' {
-            i += 1;
-            while i < chars.len() && chars[i] != '}' {
-                num.push(chars[i]);
-                i += 1;
-            }
-            if i < chars.len() {
-                i += 1; // consume '}'
-            }
-        } else {
-            while i < chars.len() && chars[i].is_ascii_digit() {
-                num.push(chars[i]);
-                i += 1;
-            }
-            if num.is_empty() {
-                // A bare `$` not followed by a group reference is kept literally.
-                out.push('$');
-                continue;
-            }
-        }
-        if let Ok(n) = num.parse::<usize>() {
-            if let Some(Some(v)) = groups.get(n) {
-                out.push_str(v);
-            }
+        match scan_group_ref(&chars, &mut i) {
+            Some(num) => out.push_str(group_expansion(&num, groups)),
+            // A bare `$` not followed by a group reference is kept literally.
+            None => out.push('$'),
         }
     }
     out
@@ -2759,21 +2777,37 @@ fn class_match(neg: bool, ranges: &[(char, char)], c: char) -> bool {
     hit != neg
 }
 
+/// Consume exactly one input character satisfying `pred`, then continue with `k`.
+/// Shared by both CPS matchers ([`re_match`] and [`cap_match`]).
+fn consume_one(
+    input: &[char],
+    pos: usize,
+    k: &dyn Fn(usize) -> bool,
+    pred: impl Fn(char) -> bool,
+) -> bool {
+    pos < input.len() && pred(input[pos]) && k(pos + 1)
+}
+
 /// CPS backtracking matcher: `k` is the continuation over the remaining input position.
 fn re_match(node: &ReNode, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool) -> bool {
     match node {
         ReNode::Empty => k(pos),
-        ReNode::Char(c) => pos < input.len() && input[pos] == *c && k(pos + 1),
-        ReNode::AnyChar => pos < input.len() && k(pos + 1),
+        ReNode::Char(c) => consume_one(input, pos, k, |ch| ch == *c),
+        ReNode::AnyChar => consume_one(input, pos, k, |_| true),
         ReNode::Class { neg, ranges } => {
-            pos < input.len() && class_match(*neg, ranges, input[pos]) && k(pos + 1)
+            consume_one(input, pos, k, |ch| class_match(*neg, ranges, ch))
         }
         ReNode::Concat(parts) => re_concat(parts, 0, input, pos, k),
         ReNode::Alt(branches) => branches.iter().any(|b| re_match(b, input, pos, k)),
         ReNode::Star(inner) => re_star(inner, input, pos, k),
         ReNode::Plus(inner) => re_match(inner, input, pos, &|p| re_star(inner, input, p, k)),
-        ReNode::Opt(inner) => re_match(inner, input, pos, k) || k(pos),
+        ReNode::Opt(inner) => re_opt(inner, input, pos, k),
     }
+}
+
+/// `?`: try the inner node, else match empty at the same position.
+fn re_opt(inner: &ReNode, input: &[char], pos: usize, k: &dyn Fn(usize) -> bool) -> bool {
+    re_match(inner, input, pos, k) || k(pos)
 }
 
 fn re_concat(
@@ -3055,11 +3089,25 @@ fn cap_match(
 ) -> bool {
     match node {
         CapNode::Empty => k(pos),
-        CapNode::Char(c) => pos < input.len() && input[pos] == *c && k(pos + 1),
-        CapNode::AnyChar => pos < input.len() && k(pos + 1),
+        CapNode::Char(c) => consume_one(input, pos, k, |ch| ch == *c),
+        CapNode::AnyChar => consume_one(input, pos, k, |_| true),
         CapNode::Class { neg, ranges } => {
-            pos < input.len() && class_match(*neg, ranges, input[pos]) && k(pos + 1)
+            consume_one(input, pos, k, |ch| class_match(*neg, ranges, ch))
         }
+        composite => cap_match_composite(composite, input, pos, slots, k),
+    }
+}
+
+/// The composite `CapNode`s. [`cap_match`] handles every leaf node and routes
+/// everything else here, so the final arm cannot be reached.
+fn cap_match_composite(
+    node: &CapNode,
+    input: &[char],
+    pos: usize,
+    slots: &RefCell<CapSlots>,
+    k: &dyn Fn(usize) -> bool,
+) -> bool {
+    match node {
         CapNode::Concat(parts) => cap_concat(parts, 0, input, pos, slots, k),
         CapNode::Alt(branches) => branches.iter().any(|b| cap_match(b, input, pos, slots, k)),
         CapNode::Star(inner) => cap_star(inner, input, pos, slots, k),
@@ -3067,17 +3115,32 @@ fn cap_match(
             cap_star(inner, input, p, slots, k)
         }),
         CapNode::Opt(inner) => cap_match(inner, input, pos, slots, k) || k(pos),
-        CapNode::Group(idx, inner) => cap_match(inner, input, pos, slots, &|end| {
-            let saved = slots.borrow()[*idx];
-            slots.borrow_mut()[*idx] = Some((pos, end));
-            if k(end) {
-                true
-            } else {
-                slots.borrow_mut()[*idx] = saved;
-                false
-            }
-        }),
+        CapNode::Group(idx, inner) => cap_group(*idx, inner, input, pos, slots, k),
+        leaf => unreachable!("cap_match_composite reached a leaf node: {leaf:?}"),
     }
+}
+
+/// A capturing group: record the `[pos, end)` span in slot `idx` before running
+/// the continuation, and restore the previous span if the continuation fails, so
+/// backtracking never leaves a stale capture on the final successful path.
+fn cap_group(
+    idx: usize,
+    inner: &CapNode,
+    input: &[char],
+    pos: usize,
+    slots: &RefCell<CapSlots>,
+    k: &dyn Fn(usize) -> bool,
+) -> bool {
+    cap_match(inner, input, pos, slots, &|end| {
+        let saved = slots.borrow()[idx];
+        slots.borrow_mut()[idx] = Some((pos, end));
+        if k(end) {
+            true
+        } else {
+            slots.borrow_mut()[idx] = saved;
+            false
+        }
+    })
 }
 
 fn cap_concat(
