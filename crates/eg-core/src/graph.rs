@@ -4908,28 +4908,49 @@ impl GraphCore {
             let Ok(val) = decode_property_value(entry.value().as_slice()) else {
                 continue;
             };
-            let id = entry.key();
-            for key in ["type", "node_type", "label"] {
-                if let Some(lbl) = val.get(key).and_then(|v| v.as_str()) {
-                    index.entry(lbl.to_string()).or_default().push(id.clone());
-                }
-            }
-            if let Some(arr) = val.get("labels").and_then(|v| v.as_array()) {
-                for x in arr {
-                    if let Some(lbl) = x.as_str() {
-                        index.entry(lbl.to_string()).or_default().push(id.clone());
-                    }
-                }
+            Self::file_node_labels(entry.key(), &val, &mut index);
+        }
+        Self::dedup_label_postings(&mut index);
+        index
+    }
+
+    /// File ONE node id under every label it carries: the single-valued `type`,
+    /// `node_type` and `label` fields, plus every entry of the multi-valued
+    /// `labels` array.
+    fn file_node_labels(
+        id: &str,
+        val: &serde_json::Value,
+        index: &mut HashMap<String, Vec<String>>,
+    ) {
+        for key in ["type", "node_type", "label"] {
+            if let Some(lbl) = val.get(key).and_then(|v| v.as_str()) {
+                index
+                    .entry(lbl.to_string())
+                    .or_default()
+                    .push(id.to_string());
             }
         }
-        // A node carrying the same value on two of {type,node_type,label} (or a
-        // duplicated `labels` entry) would otherwise be listed twice for that
-        // label; dedup so the returned rows match the pre-index 1-node-1-row scan.
+        let Some(arr) = val.get("labels").and_then(|v| v.as_array()) else {
+            return;
+        };
+        for x in arr {
+            if let Some(lbl) = x.as_str() {
+                index
+                    .entry(lbl.to_string())
+                    .or_default()
+                    .push(id.to_string());
+            }
+        }
+    }
+
+    /// A node carrying the same value on two of {type,node_type,label} (or a
+    /// duplicated `labels` entry) would otherwise be listed twice for that
+    /// label; dedup so the returned rows match the pre-index 1-node-1-row scan.
+    fn dedup_label_postings(index: &mut HashMap<String, Vec<String>>) {
         for ids in index.values_mut() {
             ids.sort_unstable();
             ids.dedup();
         }
-        index
     }
 
     // ── secondary property index (CONCEPT:EG-KG.query.concept-12) ──────────────────────────
@@ -4997,33 +5018,39 @@ impl GraphCore {
         sets.sort_by_key(|s| s.len());
         let mut acc = sets.remove(0);
         for s in &sets {
-            // Every property posting is already sorted + deduplicated when built.
-            // Intersect with the classic two-pointer merge instead of allocating a
-            // fresh HashSet for every predicate. This is deterministic O(a+b) time
-            // with O(1) scratch (beyond the reused result vector).
-            let mut write = 0usize;
-            let mut left = 0usize;
-            let mut right = 0usize;
-            while left < acc.len() && right < s.len() {
-                match acc[left].cmp(&s[right]) {
-                    std::cmp::Ordering::Less => left += 1,
-                    std::cmp::Ordering::Greater => right += 1,
-                    std::cmp::Ordering::Equal => {
-                        if write != left {
-                            acc.swap(write, left);
-                        }
-                        write += 1;
-                        left += 1;
-                        right += 1;
-                    }
-                }
-            }
-            acc.truncate(write);
+            Self::intersect_sorted_ids(&mut acc, s);
             if acc.is_empty() {
                 break;
             }
         }
         Some(acc)
+    }
+
+    /// Intersect `acc` IN PLACE with `other`.
+    ///
+    /// Every property posting is already sorted + deduplicated when built, so this
+    /// is the classic two-pointer merge rather than a fresh `HashSet` per
+    /// predicate: deterministic O(a+b) time with O(1) scratch (beyond the reused
+    /// result vector).
+    fn intersect_sorted_ids(acc: &mut Vec<String>, other: &[String]) {
+        let mut write = 0usize;
+        let mut left = 0usize;
+        let mut right = 0usize;
+        while left < acc.len() && right < other.len() {
+            match acc[left].cmp(&other[right]) {
+                std::cmp::Ordering::Less => left += 1,
+                std::cmp::Ordering::Greater => right += 1,
+                std::cmp::Ordering::Equal => {
+                    if write != left {
+                        acc.swap(write, left);
+                    }
+                    write += 1;
+                    left += 1;
+                    right += 1;
+                }
+            }
+        }
+        acc.truncate(write);
     }
 
     /// Ensure `key` is present in the property index, honouring the bound. Returns
@@ -5755,27 +5782,54 @@ impl GraphCore {
         };
         let mut out: Vec<(String, String, u32, Vec<u8>)> =
             Vec::with_capacity(if limit == 0 { 0 } else { limit });
-        'outer: for (src, tgt) in keys.iter().skip(start) {
+        for (src, tgt) in keys.iter().skip(start) {
             let Some(props_list) = edge_properties.get(&(src.clone(), tgt.clone())) else {
                 continue; // removed since the key list was built; skip defensively.
             };
-            for (ordinal, props) in props_list.iter().enumerate() {
-                let ordinal = ordinal as u32;
-                if let Some((after_src, after_tgt, after_ordinal)) = after {
-                    if src.as_str() == after_src
-                        && tgt.as_str() == after_tgt
-                        && ordinal <= after_ordinal
-                    {
-                        continue;
-                    }
-                }
-                if limit != 0 && out.len() >= limit {
-                    break 'outer;
-                }
-                out.push((src.clone(), tgt.clone(), ordinal, (**props).clone()));
+            if !Self::push_edge_rows(&mut out, src, tgt, props_list.value(), after, limit) {
+                break; // page full — stop scanning keys entirely.
             }
         }
         out
+    }
+
+    /// Append ONE endpoint pair's parallel edges to `out`, honouring the exclusive
+    /// `after` cursor and `limit` (`0` = uncapped). Returns `false` once the page
+    /// is full, which is the caller's signal to stop scanning keys.
+    fn push_edge_rows(
+        out: &mut Vec<(String, String, u32, Vec<u8>)>,
+        src: &str,
+        tgt: &str,
+        props_list: &[Arc<Vec<u8>>],
+        after: Option<(&str, &str, u32)>,
+        limit: usize,
+    ) -> bool {
+        for (ordinal, props) in props_list.iter().enumerate() {
+            let ordinal = ordinal as u32;
+            if Self::edge_row_at_or_before_cursor(src, tgt, ordinal, after) {
+                continue;
+            }
+            if limit != 0 && out.len() >= limit {
+                return false;
+            }
+            out.push((src.to_string(), tgt.to_string(), ordinal, (**props).clone()));
+        }
+        true
+    }
+
+    /// Is this `(source, target, ordinal)` row at or before the EXCLUSIVE cursor?
+    /// Only rows on the cursor's own endpoint pair can be, since the key list is
+    /// sorted and the scan already started at that pair.
+    fn edge_row_at_or_before_cursor(
+        src: &str,
+        tgt: &str,
+        ordinal: u32,
+        after: Option<(&str, &str, u32)>,
+    ) -> bool {
+        let Some((after_src, after_tgt, after_ordinal)) = after else {
+            return false;
+        };
+        src == after_src && tgt == after_tgt && ordinal <= after_ordinal
     }
 
     pub fn get_edge_properties(&self, source_id: &str, target_id: &str) -> Vec<Vec<u8>> {
