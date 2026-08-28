@@ -5681,37 +5681,47 @@ async fn dispatch_resource_cost_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
 ) -> ControlFlow<Response, Method> {
-    #[allow(unused_variables)]
-    let DispatchCtx {
-        state,
-        req,
-        verified_context,
-        ..
-    } = ctx;
-    ControlFlow::Break(match method {
-        // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
-        #[cfg(feature = "cost")]
-        method @ Method::ResourceStats => {
-            dispatch_boxed(dispatch_unpaged_resource_stats(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
-        }
-        #[cfg(feature = "cost")]
-        method @ Method::ResourceStatsPage { .. } => {
-            dispatch_boxed(dispatch_resource_stats_page(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
-        }
-        other => return ControlFlow::Continue(other),
-    })
+    // Every arm of this domain is feature-gated: with none of them compiled
+    // in the group owns no method and passes everything through.
+    #[cfg(not(feature = "cost"))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(feature = "cost")]
+    {
+        #[allow(unused_variables)]
+        let DispatchCtx {
+            state,
+            req,
+            verified_context,
+            ..
+        } = ctx;
+        ControlFlow::Break(match method {
+            // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
+            #[cfg(feature = "cost")]
+            method @ Method::ResourceStats => {
+                dispatch_boxed(dispatch_unpaged_resource_stats(
+                    state,
+                    req.id,
+                    verified_context,
+                    method,
+                ))
+                .await
+            }
+            #[cfg(feature = "cost")]
+            method @ Method::ResourceStatsPage { .. } => {
+                dispatch_boxed(dispatch_resource_stats_page(
+                    state,
+                    req.id,
+                    verified_context,
+                    method,
+                ))
+                .await
+            }
+            other => return ControlFlow::Continue(other),
+        })
+    }
 }
 
 /// Multi-tenant graph lifecycle: create, delete and list graphs.
@@ -6090,72 +6100,94 @@ async fn dispatch_compute_and_media_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
 ) -> ControlFlow<Response, Method> {
-    #[allow(unused_variables)]
-    let DispatchCtx {
-        state,
-        req,
-        verified_context,
-        ..
-    } = ctx;
-    ControlFlow::Break(match method {
-        // ── Durable analytics-job plane (CONCEPT:INT-P2-1, feature `jobs`) ──────────
-        // NOT graph-scoped (own `jobs.redb`, keyed by `job_id`) — self-routes here,
-        // BEFORE the per-graph `dispatch_graph_op` chain, exactly like `TsAppend`/
-        // `Kv*`/`CreateChannel` above. See `handlers/jobs.rs` module docs.
-        #[cfg(feature = "jobs")]
-        method @ Method::AnalyticsJob { .. } => {
-            dispatch_boxed(dispatch_analytics_job(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
-        }
+    // Every arm of this domain is feature-gated: with none of them compiled
+    // in the group owns no method and passes everything through.
+    #[cfg(not(any(
+        feature = "jobs",
+        feature = "statechart",
+        feature = "quantum-agent-api",
+        feature = "asr-whisper",
+        feature = "viz-static-export"
+    )))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(any(
+        feature = "jobs",
+        feature = "statechart",
+        feature = "quantum-agent-api",
+        feature = "asr-whisper",
+        feature = "viz-static-export"
+    ))]
+    {
+        #[allow(unused_variables)]
+        let DispatchCtx {
+            state,
+            req,
+            verified_context,
+            ..
+        } = ctx;
+        ControlFlow::Break(match method {
+            // ── Durable analytics-job plane (CONCEPT:INT-P2-1, feature `jobs`) ──────────
+            // NOT graph-scoped (own `jobs.redb`, keyed by `job_id`) — self-routes here,
+            // BEFORE the per-graph `dispatch_graph_op` chain, exactly like `TsAppend`/
+            // `Kv*`/`CreateChannel` above. See `handlers/jobs.rs` module docs.
+            #[cfg(feature = "jobs")]
+            method @ Method::AnalyticsJob { .. } => {
+                dispatch_boxed(dispatch_analytics_job(
+                    state,
+                    req.id,
+                    verified_context,
+                    method,
+                ))
+                .await
+            }
 
-        // ── Native statechart engine (CONCEPT:INT-P2-2, feature `statechart`) ───────
-        // NOT graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) —
-        // self-routes here, BEFORE the per-graph `dispatch_graph_op` chain, exactly
-        // like `AnalyticsJob` above. See `handlers/statechart.rs` module docs.
-        #[cfg(feature = "statechart")]
-        method @ Method::Statechart { .. } => {
-            dispatch_boxed(dispatch_statechart(state, req.id, verified_context, method)).await
-        }
+            // ── Native statechart engine (CONCEPT:INT-P2-2, feature `statechart`) ───────
+            // NOT graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) —
+            // self-routes here, BEFORE the per-graph `dispatch_graph_op` chain, exactly
+            // like `AnalyticsJob` above. See `handlers/statechart.rs` module docs.
+            #[cfg(feature = "statechart")]
+            method @ Method::Statechart { .. } => {
+                dispatch_boxed(dispatch_statechart(state, req.id, verified_context, method)).await
+            }
 
-        // ── Agent-facing quantum control plane (Q8, CONCEPT:EG-KG.compute.quantum-agent-api,
-        // feature `quantum-agent-api`) ──────────────────────────────────────────
-        // NOT graph-scoped (pure compute -- reads no persisted graph state, writes
-        // nothing durable) — self-routes here, BEFORE the per-graph `dispatch_graph_op`
-        // chain, exactly like `AnalyticsJob`/`Statechart` above. See
-        // `handlers::quantum`'s module docs for the full reachability/exactness/audit
-        // contract this closes (program doc: "no job-plane, no wire protocol Method,
-        // and no KG concept mapping" — the wire protocol Method half ends here).
-        #[cfg(feature = "quantum-agent-api")]
-        Method::Quantum { op } => handlers::quantum::handle(req.id, op).await,
-        // ── Native ASR provider surface (GOC-33, `OWNER-VOICE-ASR`, feature
-        // `asr-whisper`) ─────────────────────────────────────────────────
-        // NOT graph-scoped (a transcription reads no persisted graph state and
-        // commits no durable asr.result.v1 here) — self-routes here, BEFORE the
-        // per-graph `dispatch_graph_op` chain, exactly like `Quantum`/`Viz` above.
-        // See `handlers::asr`'s module doc for the authority boundary.
-        #[cfg(feature = "asr-whisper")]
-        Method::Asr { op } => handlers::asr::handle(req.id, op).await,
-        // ── Native visualization render surface (D-VZ-1 lanes V4/V6, feature
-        // `viz-static-export`) ──────────────────────────────────────────────
-        // NOT graph-scoped (a render builds a FRESH ephemeral per-request
-        // ColumnStore, never reads a live GraphCore) — self-routes here, BEFORE
-        // the per-graph `dispatch_graph_op` chain, exactly like
-        // `AnalyticsJob`/`Statechart` above. See `handlers/viz.rs` module docs.
-        // Gated on `viz-static-export` (not bare `viz`, which `eg-types` alone
-        // already gates the wire `Method::Viz` variant on) — a deliberate,
-        // documented deviation: the handler needs a real ColumnStore + export
-        // backend to do anything, which only exist at that tier.
-        #[cfg(feature = "viz-static-export")]
-        method @ Method::Viz { .. } => {
-            dispatch_boxed(dispatch_viz(state, req.id, verified_context, method)).await
-        }
-        other => return ControlFlow::Continue(other),
-    })
+            // ── Agent-facing quantum control plane (Q8, CONCEPT:EG-KG.compute.quantum-agent-api,
+            // feature `quantum-agent-api`) ──────────────────────────────────────────
+            // NOT graph-scoped (pure compute -- reads no persisted graph state, writes
+            // nothing durable) — self-routes here, BEFORE the per-graph `dispatch_graph_op`
+            // chain, exactly like `AnalyticsJob`/`Statechart` above. See
+            // `handlers::quantum`'s module docs for the full reachability/exactness/audit
+            // contract this closes (program doc: "no job-plane, no wire protocol Method,
+            // and no KG concept mapping" — the wire protocol Method half ends here).
+            #[cfg(feature = "quantum-agent-api")]
+            Method::Quantum { op } => handlers::quantum::handle(req.id, op).await,
+            // ── Native ASR provider surface (GOC-33, `OWNER-VOICE-ASR`, feature
+            // `asr-whisper`) ─────────────────────────────────────────────────
+            // NOT graph-scoped (a transcription reads no persisted graph state and
+            // commits no durable asr.result.v1 here) — self-routes here, BEFORE the
+            // per-graph `dispatch_graph_op` chain, exactly like `Quantum`/`Viz` above.
+            // See `handlers::asr`'s module doc for the authority boundary.
+            #[cfg(feature = "asr-whisper")]
+            Method::Asr { op } => handlers::asr::handle(req.id, op).await,
+            // ── Native visualization render surface (D-VZ-1 lanes V4/V6, feature
+            // `viz-static-export`) ──────────────────────────────────────────────
+            // NOT graph-scoped (a render builds a FRESH ephemeral per-request
+            // ColumnStore, never reads a live GraphCore) — self-routes here, BEFORE
+            // the per-graph `dispatch_graph_op` chain, exactly like
+            // `AnalyticsJob`/`Statechart` above. See `handlers/viz.rs` module docs.
+            // Gated on `viz-static-export` (not bare `viz`, which `eg-types` alone
+            // already gates the wire `Method::Viz` variant on) — a deliberate,
+            // documented deviation: the handler needs a real ColumnStore + export
+            // backend to do anything, which only exist at that tier.
+            #[cfg(feature = "viz-static-export")]
+            method @ Method::Viz { .. } => {
+                dispatch_boxed(dispatch_viz(state, req.id, verified_context, method)).await
+            }
+            other => return ControlFlow::Continue(other),
+        })
+    }
 }
 
 /// Multi-op OCC transactions and their typed sub-operations.
@@ -6273,64 +6305,74 @@ async fn dispatch_store_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
 ) -> ControlFlow<Response, Method> {
-    #[allow(unused_variables)]
-    let DispatchCtx {
-        state,
-        req,
-        verified_context,
-        ..
-    } = ctx;
-    ControlFlow::Break(match method {
-        // ── Blob (CONCEPT:EG-KG.storage.blob-namespace) ──────────────────────────────────
-        // Content-addressed, NOT graph-scoped: a blob is keyed by digest and may be
-        // referenced across graphs, so route at the top level (like txn) before the
-        // per-graph chain. The variants only exist with the `blob` feature; without
-        // it they aren't in the enum and a slim build can't reach this arm.
-        #[cfg(feature = "blob")]
-        method @ (Method::BlobBegin { .. }
-        | Method::BlobChunkPut { .. }
-        | Method::BlobCommit { .. }
-        | Method::BlobFetchBegin { .. }
-        | Method::BlobChunkGet { .. }
-        | Method::BlobFetchEnd { .. }
-        | Method::BlobRef { .. }
-        | Method::BlobUnref { .. }
-        | Method::BlobGc) => {
-            dispatch_boxed(dispatch_blob_begin(state, req.id, verified_context, method)).await
-        }
+    // Every arm of this domain is feature-gated: with none of them compiled
+    // in the group owns no method and passes everything through.
+    #[cfg(not(any(feature = "blob", feature = "kv", feature = "sqlite-file")))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(any(feature = "blob", feature = "kv", feature = "sqlite-file"))]
+    {
+        #[allow(unused_variables)]
+        let DispatchCtx {
+            state,
+            req,
+            verified_context,
+            ..
+        } = ctx;
+        ControlFlow::Break(match method {
+            // ── Blob (CONCEPT:EG-KG.storage.blob-namespace) ──────────────────────────────────
+            // Content-addressed, NOT graph-scoped: a blob is keyed by digest and may be
+            // referenced across graphs, so route at the top level (like txn) before the
+            // per-graph chain. The variants only exist with the `blob` feature; without
+            // it they aren't in the enum and a slim build can't reach this arm.
+            #[cfg(feature = "blob")]
+            method @ (Method::BlobBegin { .. }
+            | Method::BlobChunkPut { .. }
+            | Method::BlobCommit { .. }
+            | Method::BlobFetchBegin { .. }
+            | Method::BlobChunkGet { .. }
+            | Method::BlobFetchEnd { .. }
+            | Method::BlobRef { .. }
+            | Method::BlobUnref { .. }
+            | Method::BlobGc) => {
+                dispatch_boxed(dispatch_blob_begin(state, req.id, verified_context, method)).await
+            }
 
-        // ── Key→Value (CONCEPT:EG-KG.storage.namespaced-kv-surface) ───────────────────────────────
-        // Namespaced KV, NOT graph-scoped: a pair is keyed by (namespace, key) and
-        // lives off the node/edge graph, so route at the top level (like blob/txn)
-        // before the per-graph chain. The variants only exist with the `kv` feature;
-        // without it they aren't in the enum and a slim build can't reach this arm.
-        #[cfg(feature = "kv")]
-        method @ (Method::KvGet { .. }
-        | Method::KvPut { .. }
-        | Method::KvDelete { .. }
-        | Method::KvScan { .. }
-        | Method::KvCas { .. }) => {
-            dispatch_boxed(dispatch_kv_get(state, req.id, verified_context, method)).await
-        }
+            // ── Key→Value (CONCEPT:EG-KG.storage.namespaced-kv-surface) ───────────────────────────────
+            // Namespaced KV, NOT graph-scoped: a pair is keyed by (namespace, key) and
+            // lives off the node/edge graph, so route at the top level (like blob/txn)
+            // before the per-graph chain. The variants only exist with the `kv` feature;
+            // without it they aren't in the enum and a slim build can't reach this arm.
+            #[cfg(feature = "kv")]
+            method @ (Method::KvGet { .. }
+            | Method::KvPut { .. }
+            | Method::KvDelete { .. }
+            | Method::KvScan { .. }
+            | Method::KvCas { .. }) => {
+                dispatch_boxed(dispatch_kv_get(state, req.id, verified_context, method)).await
+            }
 
-        // ── SQLite `.db` file import/export (CONCEPT:EG-KG.query.eg-feature/EG-332) ──
-        // File-scoped, NOT graph-scoped: both ops target a filesystem `path` and move
-        // rows through the verified caller's owner-scoped user-table store (behind `query`), so they
-        // self-route here (like the Blob*/Kv* ops) BEFORE the per-graph chain. Gated
-        // `sqlite-file` (which pulls the bundled C sqlite kept OUT of pi); a build
-        // without it never has the variants in the enum, so this arm can't be reached.
-        #[cfg(feature = "sqlite-file")]
-        method @ (Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. }) => {
-            dispatch_boxed(dispatch_import_sqlite_file(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
-        }
-        other => return ControlFlow::Continue(other),
-    })
+            // ── SQLite `.db` file import/export (CONCEPT:EG-KG.query.eg-feature/EG-332) ──
+            // File-scoped, NOT graph-scoped: both ops target a filesystem `path` and move
+            // rows through the verified caller's owner-scoped user-table store (behind `query`), so they
+            // self-route here (like the Blob*/Kv* ops) BEFORE the per-graph chain. Gated
+            // `sqlite-file` (which pulls the bundled C sqlite kept OUT of pi); a build
+            // without it never has the variants in the enum, so this arm can't be reached.
+            #[cfg(feature = "sqlite-file")]
+            method @ (Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. }) => {
+                dispatch_boxed(dispatch_import_sqlite_file(
+                    state,
+                    req.id,
+                    verified_context,
+                    method,
+                ))
+                .await
+            }
+            other => return ControlFlow::Continue(other),
+        })
+    }
 }
 
 /// The reactive subscription plane: CDC tailing, continuous queries, watches,
@@ -6341,59 +6383,69 @@ async fn dispatch_streaming_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
 ) -> ControlFlow<Response, Method> {
-    #[allow(unused_variables)]
-    let DispatchCtx {
-        state,
-        req,
-        verified_context,
-        ..
-    } = ctx;
-    ControlFlow::Break(match method {
-        // ── Streaming / CDC / subscriptions (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ───
-        // The reactive READ + REGISTER surface over the CDC hub on `state` (the WRITE
-        // side — emitting changes — lives in the dispatch_graph_op write-side-effect
-        // block). These are NOT graph-mutating (CdcRead/Watch/FiredTriggers tail a
-        // cursor; Register*/Drop* manage hub registrations), so they self-route here
-        // BEFORE the per-graph chain, like tsdb/blob. Gated `streaming`: in a slim
-        // build the arm is absent and the variants fall to the graph_ops not-built
-        // catch-all (never a panic, never a mis-route).
-        #[cfg(feature = "streaming")]
-        method @ (Method::CdcRead { .. }
-        | Method::RegisterContinuousQuery { .. }
-        | Method::ReadContinuousQuery { .. }
-        | Method::DropContinuousQuery { .. }
-        | Method::Watch { .. }
-        | Method::RegisterTrigger { .. }
-        | Method::DropTrigger { .. }
-        | Method::ListTriggers { .. }
-        | Method::FiredTriggers { .. }) => {
-            dispatch_boxed(dispatch_cdc_read(state, req.id, verified_context, method)).await
-        }
+    // Every arm of this domain is feature-gated: with none of them compiled
+    // in the group owns no method and passes everything through.
+    #[cfg(not(feature = "streaming"))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(feature = "streaming")]
+    {
+        #[allow(unused_variables)]
+        let DispatchCtx {
+            state,
+            req,
+            verified_context,
+            ..
+        } = ctx;
+        ControlFlow::Break(match method {
+            // ── Streaming / CDC / subscriptions (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ───
+            // The reactive READ + REGISTER surface over the CDC hub on `state` (the WRITE
+            // side — emitting changes — lives in the dispatch_graph_op write-side-effect
+            // block). These are NOT graph-mutating (CdcRead/Watch/FiredTriggers tail a
+            // cursor; Register*/Drop* manage hub registrations), so they self-route here
+            // BEFORE the per-graph chain, like tsdb/blob. Gated `streaming`: in a slim
+            // build the arm is absent and the variants fall to the graph_ops not-built
+            // catch-all (never a panic, never a mis-route).
+            #[cfg(feature = "streaming")]
+            method @ (Method::CdcRead { .. }
+            | Method::RegisterContinuousQuery { .. }
+            | Method::ReadContinuousQuery { .. }
+            | Method::DropContinuousQuery { .. }
+            | Method::Watch { .. }
+            | Method::RegisterTrigger { .. }
+            | Method::DropTrigger { .. }
+            | Method::ListTriggers { .. }
+            | Method::FiredTriggers { .. }) => {
+                dispatch_boxed(dispatch_cdc_read(state, req.id, verified_context, method)).await
+            }
 
-        // ── Live CEP standing queries (CONCEPT:EG-KG.query.protocol-types) ───────────────
-        // The PUSH half of the event-stream + CEP modality: register a CEP pattern once
-        // (CepSubscribe), then long-poll the matches it detects as CDC changes flow
-        // (CepPoll). The engine is fed by the CDC hub (the write side lives in the
-        // dispatch write-side-effect block via `CepSurface::feed_change`); this is the
-        // register + poll surface over it. NOT graph-mutating, so it self-routes here
-        // BEFORE the per-graph chain (like the streaming/tsdb/blob surfaces). Gated
-        // `all(streaming, stream)`: the CDC feed AND the live NFA engine. A build missing
-        // either (e.g. `pi` — streaming, no stream) omits this arm; the `Cep*` variants
-        // (gated `streaming`) then fall to the graph_ops not-available catch-all.
-        #[cfg(all(feature = "streaming", feature = "stream"))]
-        method @ (Method::CepSubscribe { .. }
-        | Method::CepPoll { .. }
-        | Method::CepUnsubscribe { .. }) => {
-            dispatch_boxed(dispatch_cep_subscribe(
-                state,
-                req.id,
-                verified_context,
-                method,
-            ))
-            .await
-        }
-        other => return ControlFlow::Continue(other),
-    })
+            // ── Live CEP standing queries (CONCEPT:EG-KG.query.protocol-types) ───────────────
+            // The PUSH half of the event-stream + CEP modality: register a CEP pattern once
+            // (CepSubscribe), then long-poll the matches it detects as CDC changes flow
+            // (CepPoll). The engine is fed by the CDC hub (the write side lives in the
+            // dispatch write-side-effect block via `CepSurface::feed_change`); this is the
+            // register + poll surface over it. NOT graph-mutating, so it self-routes here
+            // BEFORE the per-graph chain (like the streaming/tsdb/blob surfaces). Gated
+            // `all(streaming, stream)`: the CDC feed AND the live NFA engine. A build missing
+            // either (e.g. `pi` — streaming, no stream) omits this arm; the `Cep*` variants
+            // (gated `streaming`) then fall to the graph_ops not-available catch-all.
+            #[cfg(all(feature = "streaming", feature = "stream"))]
+            method @ (Method::CepSubscribe { .. }
+            | Method::CepPoll { .. }
+            | Method::CepUnsubscribe { .. }) => {
+                dispatch_boxed(dispatch_cep_subscribe(
+                    state,
+                    req.id,
+                    verified_context,
+                    method,
+                ))
+                .await
+            }
+            other => return ControlFlow::Continue(other),
+        })
+    }
 }
 
 /// The two governed stream WRITE surfaces — served-modality results and the
@@ -6406,40 +6458,50 @@ async fn dispatch_governed_stream_write_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
 ) -> ControlFlow<Response, Method> {
-    #[allow(unused_variables)]
-    let DispatchCtx {
-        state,
-        req,
-        verified_context,
-        ..
-    } = ctx;
-    ControlFlow::Break(match method {
-        #[cfg(feature = "modality-serving")]
-        method @ Method::ServedModality { .. } => {
-            dispatch_boxed(authorize_and_route_served_modality(
-                state,
-                req.id,
-                req.agent_id.clone(),
-                req.graph.clone(),
-                verified_context,
-                method,
-            ))
-            .await
-        }
-        #[cfg(feature = "knowledge-batch")]
-        method @ Method::KnowledgeStream { .. } => {
-            dispatch_boxed(authorize_and_route_knowledge_stream(
-                state,
-                req.id,
-                req.agent_id.clone(),
-                req.graph.clone(),
-                verified_context,
-                method,
-            ))
-            .await
-        }
-        other => return ControlFlow::Continue(other),
-    })
+    // Every arm of this domain is feature-gated: with none of them compiled
+    // in the group owns no method and passes everything through.
+    #[cfg(not(any(feature = "modality-serving", feature = "knowledge-batch")))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(any(feature = "modality-serving", feature = "knowledge-batch"))]
+    {
+        #[allow(unused_variables)]
+        let DispatchCtx {
+            state,
+            req,
+            verified_context,
+            ..
+        } = ctx;
+        ControlFlow::Break(match method {
+            #[cfg(feature = "modality-serving")]
+            method @ Method::ServedModality { .. } => {
+                dispatch_boxed(authorize_and_route_served_modality(
+                    state,
+                    req.id,
+                    req.agent_id.clone(),
+                    req.graph.clone(),
+                    verified_context,
+                    method,
+                ))
+                .await
+            }
+            #[cfg(feature = "knowledge-batch")]
+            method @ Method::KnowledgeStream { .. } => {
+                dispatch_boxed(authorize_and_route_knowledge_stream(
+                    state,
+                    req.id,
+                    req.agent_id.clone(),
+                    req.graph.clone(),
+                    verified_context,
+                    method,
+                ))
+                .await
+            }
+            other => return ControlFlow::Continue(other),
+        })
+    }
 }
 
 /// Change-envelope replication and content versioning: apply one or many
