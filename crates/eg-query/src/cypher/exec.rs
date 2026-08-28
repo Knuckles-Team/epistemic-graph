@@ -508,62 +508,48 @@ fn bound_value(b: &Binding, var: &str) -> Option<Value> {
     }
 }
 
-/// Run a `CALL { subquery }` (CONCEPT:EG-KG.query.cypher-planning) and produce the per-result-row binding
-/// additions to merge (cartesian) onto each outer row. Node-valued RETURN vars stay
-/// anchorable node bindings; scalar/property/aggregate columns become `@val@`
-/// sidecars keyed by the projected column name.
-fn subquery_additions(
+/// [`subquery_additions`]'s aggregating-subquery path: an aggregating subquery
+/// collapses rows, so this runs the full RETURN and exposes each resulting
+/// column as a `@val@` scalar sidecar.
+fn aggregate_subquery_additions(
     view: &GraphView,
     subquery: &CypherQuery,
-    params: &Params,
-    index: Option<IndexSource<'_>>,
+    sub_bindings: Vec<Binding>,
 ) -> Result<Vec<Binding>, String> {
-    // A CALL subquery has its own LIMIT scope (applied by its own `finalize` below);
-    // the outer query's short-circuit budget never applies here.
-    let sub_bindings = run_stages(view, &subquery.stages, params, None, index)?;
-    let ret = &subquery.ret;
-    let items: Vec<ReturnItem> = if ret.star {
-        scope_vars(&subquery.stages)
-            .into_iter()
-            .map(|v| ReturnItem {
-                expr: Expr::Var(v),
-                alias: None,
-            })
-            .collect()
-    } else {
-        ret.items.clone()
-    };
-
-    // An aggregating subquery collapses rows; run the full RETURN and expose each
-    // resulting column as a scalar sidecar.
-    if items.iter().any(|i| is_agg(&i.expr)) {
-        let qr = finalize(view, subquery, sub_bindings)?;
-        let mut out = Vec::new();
-        for row in &qr.rows {
-            let cells: Vec<Value> = eg_types::msgpack::decode_bounded(
-                row,
-                eg_types::msgpack::MsgpackLimits::new(
-                    eg_types::msgpack::MAX_PROPERTY_BYTES,
-                    eg_types::msgpack::MAX_PROPERTY_ITEMS,
-                    eg_types::msgpack::DEFAULT_MAX_DEPTH,
-                ),
-            )
-            .map_err(|_| "decode subquery row failed".to_string())?;
-            let mut add = Binding::new();
-            for (i, col) in qr.columns.iter().enumerate() {
-                let v = cells.get(i).cloned().unwrap_or(Value::Null);
-                add.insert(val_key(col), serde_json::to_string(&v).unwrap_or_default());
-            }
-            out.push(add);
-        }
-        return Ok(out);
-    }
-
-    // Non-aggregating: one addition per sub-binding, preserving each var's kind.
+    let qr = finalize(view, subquery, sub_bindings)?;
     let mut out = Vec::new();
-    for b in &sub_bindings {
+    for row in &qr.rows {
+        let cells: Vec<Value> = eg_types::msgpack::decode_bounded(
+            row,
+            eg_types::msgpack::MsgpackLimits::new(
+                eg_types::msgpack::MAX_PROPERTY_BYTES,
+                eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .map_err(|_| "decode subquery row failed".to_string())?;
         let mut add = Binding::new();
-        for it in &items {
+        for (i, col) in qr.columns.iter().enumerate() {
+            let v = cells.get(i).cloned().unwrap_or(Value::Null);
+            add.insert(val_key(col), serde_json::to_string(&v).unwrap_or_default());
+        }
+        out.push(add);
+    }
+    Ok(out)
+}
+
+/// [`subquery_additions`]'s non-aggregating path: one addition per sub-binding,
+/// preserving each RETURN item's kind (node/path/scalar var, or a property
+/// access).
+fn nonagg_subquery_additions(
+    view: &GraphView,
+    sub_bindings: &[Binding],
+    items: &[ReturnItem],
+) -> Vec<Binding> {
+    let mut out = Vec::new();
+    for b in sub_bindings {
+        let mut add = Binding::new();
+        for it in items {
             let name = it.column();
             match &it.expr {
                 Expr::Var(v) => {
@@ -590,7 +576,39 @@ fn subquery_additions(
         }
         out.push(add);
     }
-    Ok(out)
+    out
+}
+
+/// Run a `CALL { subquery }` (CONCEPT:EG-KG.query.cypher-planning) and produce the per-result-row binding
+/// additions to merge (cartesian) onto each outer row. Node-valued RETURN vars stay
+/// anchorable node bindings; scalar/property/aggregate columns become `@val@`
+/// sidecars keyed by the projected column name.
+fn subquery_additions(
+    view: &GraphView,
+    subquery: &CypherQuery,
+    params: &Params,
+    index: Option<IndexSource<'_>>,
+) -> Result<Vec<Binding>, String> {
+    // A CALL subquery has its own LIMIT scope (applied by its own `finalize` below);
+    // the outer query's short-circuit budget never applies here.
+    let sub_bindings = run_stages(view, &subquery.stages, params, None, index)?;
+    let ret = &subquery.ret;
+    let items: Vec<ReturnItem> = if ret.star {
+        scope_vars(&subquery.stages)
+            .into_iter()
+            .map(|v| ReturnItem {
+                expr: Expr::Var(v),
+                alias: None,
+            })
+            .collect()
+    } else {
+        ret.items.clone()
+    };
+
+    if items.iter().any(|i| is_agg(&i.expr)) {
+        return aggregate_subquery_additions(view, subquery, sub_bindings);
+    }
+    Ok(nonagg_subquery_additions(view, &sub_bindings, &items))
 }
 
 /// Run a `CALL proc.name(args) YIELD …` stage (CONCEPT:EG-KG.query.cypher-planning): resolve the args,
