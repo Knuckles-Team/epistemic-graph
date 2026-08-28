@@ -1442,7 +1442,74 @@ async fn handle_txn_unified_query_text(
     .await)
 }
 
+/// The `Op::TsScan` leg-resolution shared by [`handle_nl_query`] (and any sibling
+/// served-query handler that needs the SAME committed-tsdb-store + tenant/graph
+/// scope triple `run_unified`'s `TsdbLegBind` takes): the caller's RLS-checked
+/// scope for `plan`, then the committed store handle only when that scope is
+/// non-empty (never touch the tsdb store for a plan that doesn't reference one).
+#[cfg(all(feature = "nl-query", feature = "tsdb"))]
+async fn resolve_tsdb_leg(
+    state: &Arc<RwLock<ServerState>>,
+    plan: &eg_plan::Plan,
+    graph_name: &str,
+    read_authority: Option<&GraphReadAuthority>,
+    req_id: u64,
+) -> Result<
+    (
+        Option<Arc<eg_tsdb::store::SeriesStore>>,
+        Option<String>,
+        Option<String>,
+    ),
+    Response,
+> {
+    let tsdb_scope = served_tsdb_scope(plan, graph_name, read_authority)
+        .map_err(|denied| Response::err(req_id, denied))?;
+    let tsdb = if tsdb_scope.is_some() {
+        state.read().await.tsdb_store.clone()
+    } else {
+        None
+    };
+    let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
+        Some((tenant, graph)) => (Some(tenant), Some(graph)),
+        None => (None, None),
+    };
+    Ok((tsdb, tsdb_tenant, tsdb_graph))
+}
+
 #[cfg(feature = "nl-query")]
+/// The NL → executable-UQL-plan resolution of [`handle_nl_query`]: resolve the
+/// configured/injected `NlPlanner`, turn `text` into a UQL query STRING, then
+/// parse it into the SAME `wire::Plan` `UnifiedQueryText` carries. NO LLM in the
+/// engine core and NO new execution path — the produced query rides the
+/// deterministic pipeline.
+#[cfg(feature = "nl-query")]
+fn handle_nl_query_plan(
+    text: &str,
+    core: &Arc<GraphCore>,
+    req_id: u64,
+) -> Result<eg_plan::Plan, Response> {
+    let planner = crate::server::nl::resolve_planner().ok_or_else(|| {
+        Response::err(
+            req_id,
+            "NlQuery: no NL planner configured — set an OpenAI-compatible \
+                     endpoint in agent-utilities config.json (or \
+                     EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
+                     server::set_nl_planner"
+                .to_string(),
+        )
+    })?;
+    let hint = nl_schema_hint(core);
+    let uql = planner
+        .plan(text, &hint)
+        .map_err(|e| Response::err(req_id, format!("NlQuery planner error: {e}")))?;
+    eg_plan::uql::parse(&uql).map_err(|e| {
+        Response::err(
+            req_id,
+            format!("NlQuery produced invalid UQL: {}", e.render(&uql)),
+        )
+    })
+}
+
 async fn handle_nl_query(
     ctx: &QueryHandlerCtx<'_>,
     text: String,
@@ -1463,38 +1530,17 @@ async fn handle_nl_query(
     // new execution path — the produced query rides the deterministic pipeline.
     // The graph was already used for routing; the handler runs against `core`.
     let _ = graph;
-    let planner = match crate::server::nl::resolve_planner() {
-        Some(p) => p,
-        None => {
-            return Ok(Response::err(
-                req_id,
-                "NlQuery: no NL planner configured — set an OpenAI-compatible \
-                         endpoint in agent-utilities config.json (or \
-                         EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
-                         server::set_nl_planner"
-                    .to_string(),
-            ))
-        }
+    let plan = match handle_nl_query_plan(&text, &core, req_id) {
+        Ok(plan) => plan,
+        Err(resp) => return Ok(resp),
     };
-    let hint = nl_schema_hint(&core);
-    let uql = match planner.plan(&text, &hint) {
-        Ok(q) => q,
-        Err(e) => return Ok(Response::err(req_id, format!("NlQuery planner error: {e}"))),
-    };
-    let plan = match eg_plan::uql::parse(&uql) {
-        Ok(p) => p,
-        Err(e) => {
-            return Ok(Response::err(
-                req_id,
-                format!("NlQuery produced invalid UQL: {}", e.render(&uql)),
-            ))
-        }
-    };
+    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store + scope for `Op::TsScan` fusion.
     #[cfg(feature = "tsdb")]
-    let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
-        Ok(scope) => scope,
-        Err(denied) => return Ok(Response::err(req_id, denied)),
-    };
+    let (tsdb, tsdb_tenant, tsdb_graph) =
+        match resolve_tsdb_leg(state, &plan, graph_name, read_authority, req_id).await {
+            Ok(leg) => leg,
+            Err(resp) => return Ok(resp),
+        };
     // RLS-filtered off-lock snapshot, exactly like the Sql/UnifiedQueryText reads.
     // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
     // NL text would risk serving a stale/foreign result.
@@ -1505,18 +1551,6 @@ async fn handle_nl_query(
     // See the `UnifiedQuery` arm: push vector + lexical legs into the live
     // persistent indexes via a guard taken INSIDE the off-lock closure.
     let core_for_ctx = core.clone();
-    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
-    #[cfg(feature = "tsdb")]
-    let tsdb = if tsdb_scope.is_some() {
-        state.read().await.tsdb_store.clone()
-    } else {
-        None
-    };
-    #[cfg(feature = "tsdb")]
-    let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
-        Some((tenant, graph)) => (Some(tenant), Some(graph)),
-        None => (None, None),
-    };
     // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
     // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
     // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
@@ -1603,70 +1637,110 @@ async fn handle_graphql_mutation(
     // write path. `classify_crossmodal` picks the route with ONE parse.
     match eg_graphql::classify_crossmodal(&query) {
         eg_graphql::CrossModalRoute::Commit(txn_id) => {
-            let committed = super::txn::commit_graphql_cross_modal(
-                state,
-                req_id,
-                graph_name,
-                core,
-                graphql_crossmodal_registry(),
-                &txn_id,
-                carrier,
-            )
-            .await;
-            let resp = match committed {
-                Ok(committed) => Response::ok(
-                    req_id,
-                    ResultPayload::Raw(
-                        rmp_serde::to_vec_named(&serde_json::json!({
-                            "data": {"commitTransaction": {"committed": committed}}
-                        }))
-                        .unwrap_or_default(),
-                    ),
-                ),
-                Err(msg) => {
-                    Response::err(req_id, format!("GraphQL commitTransaction error: {msg}"))
-                }
-            };
-            Ok(resp)
+            handle_graphql_commit_txn(state, req_id, graph_name, core, &txn_id, carrier).await
         }
         eg_graphql::CrossModalRoute::Staging => {
-            let core_w = read_authority
-                .expect("GraphQL mutation authority checked above")
-                .project_core(core);
-            let owner_scope = carrier.owner_scope().to_string();
-            let reg = graphql_crossmodal_registry();
-            let resp = match compute_off_lock(req_id, move || {
-                eg_graphql::execute_crossmodal(&core_w, reg, &owner_scope, &query)
-            })
-            .await
-            {
-                Ok(Ok(value)) => Response::ok(
-                    req_id,
-                    ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
-                ),
-                Ok(Err(msg)) => Response::err(req_id, format!("GraphQL cross-modal error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
+            handle_graphql_staging_mutation(req_id, read_authority, core, carrier, query).await
         }
         eg_graphql::CrossModalRoute::Invalid(message) => Ok(Response::err(req_id, message)),
         eg_graphql::CrossModalRoute::NotCrossModal => {
-            let core_w = core.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                eg_graphql::execute_mutation(&core_w, &query)
-            })
-            .await
-            {
-                Ok(Ok(value)) => Response::ok(
-                    req_id,
-                    ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
-                ),
-                Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
-                Err(resp) => resp,
-            };
-            Ok(resp)
+            handle_graphql_plain_mutation(req_id, core, query).await
         }
     }
+}
+
+/// The `CrossModalRoute::Commit` arm of [`handle_graphql_mutation`]: land the
+/// staged cross-modal txn DURABLY via `commit_cross_modal_txn` (ONE redb
+/// WriteTransaction across graph + vector + tsdb + axioms), exactly as pgwire's
+/// commit path.
+#[cfg(feature = "graphql")]
+async fn handle_graphql_commit_txn(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &str,
+    core: &Arc<GraphCore>,
+    txn_id: &str,
+    carrier: &crate::server::access::CarrierAuthority,
+) -> Result<Response, Method> {
+    let committed = super::txn::commit_graphql_cross_modal(
+        state,
+        req_id,
+        graph_name,
+        core,
+        graphql_crossmodal_registry(),
+        txn_id,
+        carrier,
+    )
+    .await;
+    let resp = match committed {
+        Ok(committed) => Response::ok(
+            req_id,
+            ResultPayload::Raw(
+                rmp_serde::to_vec_named(&serde_json::json!({
+                    "data": {"commitTransaction": {"committed": committed}}
+                }))
+                .unwrap_or_default(),
+            ),
+        ),
+        Err(msg) => Response::err(req_id, format!("GraphQL commitTransaction error: {msg}")),
+    };
+    Ok(resp)
+}
+
+/// The `CrossModalRoute::Staging` arm of [`handle_graphql_mutation`]: a
+/// begin/stage/read/rollback cross-modal verb, run in-memory over the
+/// process-wide `CrossModalTxnRegistry` (staging + read-your-own-writes, no
+/// durable side effect until commit).
+#[cfg(feature = "graphql")]
+async fn handle_graphql_staging_mutation(
+    req_id: u64,
+    read_authority: Option<&GraphReadAuthority>,
+    core: &Arc<GraphCore>,
+    carrier: &crate::server::access::CarrierAuthority,
+    query: String,
+) -> Result<Response, Method> {
+    let core_w = read_authority
+        .expect("GraphQL mutation authority checked above")
+        .project_core(core);
+    let owner_scope = carrier.owner_scope().to_string();
+    let reg = graphql_crossmodal_registry();
+    let resp = match compute_off_lock(req_id, move || {
+        eg_graphql::execute_crossmodal(&core_w, reg, &owner_scope, &query)
+    })
+    .await
+    {
+        Ok(Ok(value)) => Response::ok(
+            req_id,
+            ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
+        ),
+        Ok(Err(msg)) => Response::err(req_id, format!("GraphQL cross-modal error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
+/// The `CrossModalRoute::NotCrossModal` arm of [`handle_graphql_mutation`]: an
+/// ordinary mutation, the native `execute_mutation` write path.
+#[cfg(feature = "graphql")]
+async fn handle_graphql_plain_mutation(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    query: String,
+) -> Result<Response, Method> {
+    let core_w = core.clone();
+    let resp = match compute_off_lock(req_id, move || {
+        eg_graphql::execute_mutation(&core_w, &query)
+    })
+    .await
+    {
+        Ok(Ok(value)) => Response::ok(
+            req_id,
+            ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
+        ),
+        Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
 }
 
 #[cfg(feature = "graphql")]
@@ -1777,6 +1851,24 @@ async fn handle_graphql(
 }
 
 #[cfg(feature = "cypher")]
+/// Cypher WRITE surface (CONCEPT:EG-KG.query.register-each-user-table/EG-023) — the
+/// `CypherMode::Write` arm of [`handle_cypher_query`]: a `CREATE`/`MERGE`/`SET`/
+/// `DELETE`/`REMOVE` statement applied to the LIVE `GraphCore` via
+/// `exec_cypher_write` (native eg-core write ops — NO DataFusion; it calls
+/// `mark_dirty` once after the mutation). NOT cached, NOT RLS pre-filtered
+/// (writes are graph-ACL-gated upstream — this method classified Write).
+async fn handle_cypher_write(req_id: u64, core: Arc<GraphCore>, query: String) -> Response {
+    let core_w = core.clone();
+    match compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query)).await {
+        Ok(Ok(result)) => Response::ok(
+            req_id,
+            ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
+        ),
+        Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+        Err(resp) => resp,
+    }
+}
+
 async fn handle_cypher_query(
     ctx: &QueryHandlerCtx<'_>,
     query: String,
@@ -1801,19 +1893,7 @@ async fn handle_cypher_query(
         return Ok(Response::err(req_id, error));
     }
     if matches!(mode, crate::protocol::CypherMode::Write) {
-        let core_w = core.clone();
-        let resp =
-            match compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query))
-                .await
-            {
-                Ok(Ok(result)) => Response::ok(
-                    req_id,
-                    ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-                ),
-                Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
-                Err(resp) => resp,
-            };
-        return Ok(resp);
+        return Ok(handle_cypher_write(req_id, core, query).await);
     }
     // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
     // (label index / VF2 / BFS), so it runs in a no-DataFusion Pi build.
@@ -2242,11 +2322,7 @@ pub(crate) fn run_unified(
     // that map — so a caller could register a source successfully and then have every
     // query against it fail. Same shape as the `with_tensor_store` binding below.
     #[cfg(feature = "federation")]
-    let foreign_registry: Option<eg_plan::federation::ForeignSourceRegistry> = match served.foreign
-    {
-        Some(specs) if plan_needs_foreign(&ops) => Some(foreign_registry_from(specs)),
-        _ => None,
-    };
+    let foreign_registry = run_unified_foreign_registry(served.foreign, &ops);
 
     // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 lexical search surface into the
     // served `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries
@@ -2289,19 +2365,9 @@ pub(crate) fn run_unified(
     // EVERY request. `None` (no factory installed, or the plan has no spatial op) keeps
     // `spatial_scan`'s prior ephemeral-build fallback — byte-for-byte the old behavior.
     #[cfg(feature = "geo")]
-    let ctx = if plan_needs_spatial(&ops) {
-        match served_spatial.filter(|s| s.available()) {
-            Some(served) => ctx.with_spatial(served),
-            None => ctx,
-        }
-    } else {
-        ctx
-    };
+    let ctx = run_unified_bind_spatial(ctx, &ops, served_spatial);
     #[cfg(feature = "federation")]
-    let ctx = match foreign_registry.as_ref() {
-        Some(registry) => ctx.with_foreign(registry),
-        None => ctx,
-    };
+    let ctx = run_unified_bind_foreign(ctx, foreign_registry.as_ref());
     // CONCEPT:EG-KG.query.bind-server-side-text — bind the server-side text→vector embedder so a UQL `RANK BY ~ "text"`
     // (`Op::RankEmbed`) resolves its query vector at exec time (the NL→vector seam,
     // EG-411). This is the facade INJECTION POINT: the engine stores embeddings but
@@ -2312,52 +2378,124 @@ pub(crate) fn run_unified(
     // deterministic `HashEmbedder` fallback is opt-in via `EG_UQL_TEXT_EMBEDDER=hash` so the
     // seam is exercisable end-to-end offline (its ranking is deterministic but semantically
     // arbitrary — never the production default).
-    let ctx = match uql_text_embedder() {
-        Some(embedder) => ctx.with_embedder(embedder),
-        None => ctx,
-    };
+    let ctx = run_unified_bind_embedder(ctx);
     // RECONCILE (CONCEPT:EG-KG.query.native-time-series): attach the committed
-    // store and its ownership scope atomically. A partial/missing scope never
+    // store and its ownership scope atomically, plus the txn's staged-series
+    // overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your). A partial/missing scope never
     // leaves a raw store reachable through `TsScan`.
     #[cfg(feature = "tsdb")]
-    let ctx = match (tsdb, tsdb_tenant, tsdb_graph) {
-        (Some(store), Some(tenant), Some(graph)) => {
-            ctx.with_tsdb(store).with_tsdb_scope(tenant, graph)
-        }
-        _ => ctx,
-    };
-    // CONCEPT:EG-KG.query.txn-tsdb-read-your: attach the txn's staged-series overlay so an in-txn `Op::TsScan`
-    // reads its own uncommitted points (RYOW). Absent overlay ⇒ committed series only.
-    #[cfg(feature = "tsdb")]
-    let ctx = match staged_series {
-        Some(staged) => ctx.with_staged_series(staged),
-        None => ctx,
-    };
+    let ctx = run_unified_bind_tsdb(ctx, tsdb, tsdb_tenant, tsdb_graph, staged_series);
     // CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — bind the tensor CAS
     // write-back sink so a served `Op::TensorOp` actually runs instead of its
     // documented-but-unreachable "TensorOp requires a bound tensor store" error.
-    // `Op::TensorScan`/`Op::TensorOp` read their INPUT tensor directly off the
-    // queried `GraphView`'s node properties (`eg_plan::exec::row_tensor`) — this
-    // store is purely the write-back destination for a TensorOp's DERIVED output,
-    // so a process-wide singleton (not threaded through `ServerState`/callers) is
-    // sufficient and still gives real content-address dedup across requests,
-    // unlike a fresh store per call. In-memory only for now — `TensorStore::
-    // persist`/`load` (disk durability across restarts) is a follow-up, tracked
-    // the same way `tsdb_store` earned its own dedicated `ServerState` wiring.
     #[cfg(feature = "tensor")]
-    let ctx = {
-        static TENSOR_STORE: std::sync::OnceLock<std::sync::Mutex<eg_tensor::TensorStore>> =
-            std::sync::OnceLock::new();
-        let store =
-            TENSOR_STORE.get_or_init(|| std::sync::Mutex::new(eg_tensor::TensorStore::new()));
-        ctx.with_tensor_store(store)
-    };
+    let ctx = run_unified_bind_tensor(ctx);
     let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
     Ok(result
         .rows()
         .iter()
         .map(|r| (r.id.clone(), r.score))
         .collect())
+}
+
+/// The `Op::Foreign`/`Op::ForeignScan` leg-resolution decision of [`run_unified`]:
+/// build the [`eg_plan::federation::ForeignSourceRegistry`] only when a registry is
+/// available AND the plan actually references a foreign source.
+#[cfg(feature = "federation")]
+fn run_unified_foreign_registry(
+    served_foreign: Option<&dashmap::DashMap<String, eg_types::wire::ForeignSourceSpec>>,
+    ops: &[eg_plan::Op],
+) -> Option<eg_plan::federation::ForeignSourceRegistry> {
+    match served_foreign {
+        Some(specs) if plan_needs_foreign(ops) => Some(foreign_registry_from(specs)),
+        _ => None,
+    }
+}
+
+/// The `Op::SpatialScan` leg-binding of [`run_unified`] (CONCEPT:EG-KG.storage.incremental-spatial, L37): bind a
+/// persistent spatial index into the served `PlanCtx` only when the plan needs one
+/// and a live, available index was supplied — otherwise keep `spatial_scan`'s
+/// prior ephemeral-build fallback, byte-for-byte the old behavior.
+#[cfg(feature = "geo")]
+fn run_unified_bind_spatial<'a>(
+    ctx: eg_plan::PlanCtx<'a>,
+    ops: &[eg_plan::Op],
+    served_spatial: Option<&'a crate::server::secondary_indexes::ServedSpatialIndex>,
+) -> eg_plan::PlanCtx<'a> {
+    if !plan_needs_spatial(ops) {
+        return ctx;
+    }
+    match served_spatial.filter(|s| s.available()) {
+        Some(served) => ctx.with_spatial(served),
+        None => ctx,
+    }
+}
+
+/// The `Op::Foreign`/`Op::ForeignScan` leg-binding of [`run_unified`]
+/// (CONCEPT:EG-KG.query.closure-backed-source): attach the registry [`run_unified_foreign_registry`] built, if any.
+#[cfg(feature = "federation")]
+fn run_unified_bind_foreign<'a>(
+    ctx: eg_plan::PlanCtx<'a>,
+    foreign_registry: Option<&'a eg_plan::federation::ForeignSourceRegistry>,
+) -> eg_plan::PlanCtx<'a> {
+    match foreign_registry {
+        Some(registry) => ctx.with_foreign(registry),
+        None => ctx,
+    }
+}
+
+/// The `Op::RankEmbed` leg-binding of [`run_unified`] (CONCEPT:EG-KG.query.bind-server-side-text): attach the
+/// server-side text→vector embedder, if one is bound (`EG_UQL_TEXT_EMBEDDER=hash`
+/// for the deterministic offline fallback; otherwise absent, and `Op::RankEmbed` is
+/// a clean typed error).
+fn run_unified_bind_embedder(ctx: eg_plan::PlanCtx<'_>) -> eg_plan::PlanCtx<'_> {
+    match uql_text_embedder() {
+        Some(embedder) => ctx.with_embedder(embedder),
+        None => ctx,
+    }
+}
+
+/// The `Op::TsScan` leg-binding of [`run_unified`] (CONCEPT:EG-KG.query.native-time-series): attach the committed
+/// store and its ownership scope atomically (a partial/missing scope never leaves
+/// a raw store reachable through `TsScan`), then the txn's staged-series overlay
+/// (CONCEPT:EG-KG.query.txn-tsdb-read-your) so an in-txn `TsScan` reads its own uncommitted points.
+#[cfg(feature = "tsdb")]
+fn run_unified_bind_tsdb<'a>(
+    ctx: eg_plan::PlanCtx<'a>,
+    tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
+    tsdb_tenant: Option<&'a str>,
+    tsdb_graph: Option<&'a str>,
+    staged_series: Option<&'a eg_plan::StagedSeries>,
+) -> eg_plan::PlanCtx<'a> {
+    let ctx = match (tsdb, tsdb_tenant, tsdb_graph) {
+        (Some(store), Some(tenant), Some(graph)) => {
+            ctx.with_tsdb(store).with_tsdb_scope(tenant, graph)
+        }
+        _ => ctx,
+    };
+    match staged_series {
+        Some(staged) => ctx.with_staged_series(staged),
+        None => ctx,
+    }
+}
+
+/// The `Op::TensorOp` leg-binding of [`run_unified`] (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink): bind the
+/// tensor CAS write-back sink so a served `Op::TensorOp` actually runs instead of
+/// its documented-but-unreachable "TensorOp requires a bound tensor store" error.
+/// `Op::TensorScan`/`Op::TensorOp` read their INPUT tensor directly off the
+/// queried `GraphView`'s node properties (`eg_plan::exec::row_tensor`) — this
+/// store is purely the write-back destination for a TensorOp's DERIVED output, so
+/// a process-wide singleton (not threaded through `ServerState`/callers) is
+/// sufficient and still gives real content-address dedup across requests, unlike a
+/// fresh store per call. In-memory only for now — `TensorStore::persist`/`load`
+/// (disk durability across restarts) is a follow-up, tracked the same way
+/// `tsdb_store` earned its own dedicated `ServerState` wiring.
+#[cfg(feature = "tensor")]
+fn run_unified_bind_tensor(ctx: eg_plan::PlanCtx<'_>) -> eg_plan::PlanCtx<'_> {
+    static TENSOR_STORE: std::sync::OnceLock<std::sync::Mutex<eg_tensor::TensorStore>> =
+        std::sync::OnceLock::new();
+    let store = TENSOR_STORE.get_or_init(|| std::sync::Mutex::new(eg_tensor::TensorStore::new()));
+    ctx.with_tensor_store(store)
 }
 
 /// Resolve the tsdb/text/geo/federation legs and run `plan` off-lock via
@@ -3030,10 +3168,7 @@ fn explain_belief_redacted_wire(
     isolation: &crate::isolation::IsolationLayer,
     actor_id: &str,
 ) -> crate::protocol::ExplainBeliefRedactedResult {
-    use crate::protocol::{
-        DisclosureLevelWire, ExistenceSignalWire, ExplainBeliefRedactedResult,
-        RedactedJustificationNodeWire,
-    };
+    use crate::protocol::{ExplainBeliefRedactedResult, RedactedJustificationNodeWire};
 
     fn redacted_node_wire(node: &eg_epistemic::RedactedProofNode) -> RedactedJustificationNodeWire {
         RedactedJustificationNodeWire {
@@ -3045,11 +3180,7 @@ fn explain_belief_redacted_wire(
         }
     }
 
-    let cap = match cap {
-        DisclosureLevelWire::Full => eg_epistemic::DisclosureLevel::Full,
-        DisclosureLevelWire::Skeleton => eg_epistemic::DisclosureLevel::Skeleton,
-        DisclosureLevelWire::ExistenceOnly => eg_epistemic::DisclosureLevel::ExistenceOnly,
-    };
+    let cap = disclosure_level_from_wire(cap);
 
     let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
     let policy = eg_epistemic::AuthorityPolicy::default();
@@ -3062,16 +3193,8 @@ fn explain_belief_redacted_wire(
         Some(cap),
     );
 
-    let level = match redacted.level {
-        eg_epistemic::DisclosureLevel::Full => DisclosureLevelWire::Full,
-        eg_epistemic::DisclosureLevel::Skeleton => DisclosureLevelWire::Skeleton,
-        eg_epistemic::DisclosureLevel::ExistenceOnly => DisclosureLevelWire::ExistenceOnly,
-    };
-    let existence = match redacted.existence {
-        eg_epistemic::ExistenceSignal::Supported => ExistenceSignalWire::Supported,
-        eg_epistemic::ExistenceSignal::Contradicted => ExistenceSignalWire::Contradicted,
-        eg_epistemic::ExistenceSignal::Uncertain => ExistenceSignalWire::Uncertain,
-    };
+    let level = disclosure_level_to_wire(redacted.level);
+    let existence = existence_signal_to_wire(redacted.existence);
 
     // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
     // same idiom as `explain_belief` above. `redacted.existence` (Supported/Contradicted/
@@ -3080,17 +3203,7 @@ fn explain_belief_redacted_wire(
     // `root` is `None` at `ExistenceOnly` (no structure rendered at all, by design), so
     // confidence/contradiction_count/policy_labels are only recorded when a tree is
     // actually present — never fabricated.
-    let (confidence, contradicting, policy_labels) = match &redacted.root {
-        Some(root) => {
-            let (supporting, contradicting) = count_redacted_tree_rules(root);
-            (
-                Some(root.confidence),
-                contradicting,
-                eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(","),
-            )
-        }
-        None => (None, 0, String::new()),
-    };
+    let (confidence, contradicting, policy_labels) = redacted_tree_summary(redacted.root.as_ref());
     let _span = tracing::debug_span!(
         "epistemic.explain_belief_redacted",
         epistemic.confidence = tracing::field::Empty,
@@ -3111,6 +3224,62 @@ fn explain_belief_redacted_wire(
         level,
         existence,
         root: redacted.root.as_ref().map(redacted_node_wire),
+    }
+}
+
+fn disclosure_level_from_wire(
+    cap: crate::protocol::DisclosureLevelWire,
+) -> eg_epistemic::DisclosureLevel {
+    match cap {
+        crate::protocol::DisclosureLevelWire::Full => eg_epistemic::DisclosureLevel::Full,
+        crate::protocol::DisclosureLevelWire::Skeleton => eg_epistemic::DisclosureLevel::Skeleton,
+        crate::protocol::DisclosureLevelWire::ExistenceOnly => {
+            eg_epistemic::DisclosureLevel::ExistenceOnly
+        }
+    }
+}
+
+fn disclosure_level_to_wire(
+    level: eg_epistemic::DisclosureLevel,
+) -> crate::protocol::DisclosureLevelWire {
+    match level {
+        eg_epistemic::DisclosureLevel::Full => crate::protocol::DisclosureLevelWire::Full,
+        eg_epistemic::DisclosureLevel::Skeleton => crate::protocol::DisclosureLevelWire::Skeleton,
+        eg_epistemic::DisclosureLevel::ExistenceOnly => {
+            crate::protocol::DisclosureLevelWire::ExistenceOnly
+        }
+    }
+}
+
+fn existence_signal_to_wire(
+    existence: eg_epistemic::ExistenceSignal,
+) -> crate::protocol::ExistenceSignalWire {
+    match existence {
+        eg_epistemic::ExistenceSignal::Supported => crate::protocol::ExistenceSignalWire::Supported,
+        eg_epistemic::ExistenceSignal::Contradicted => {
+            crate::protocol::ExistenceSignalWire::Contradicted
+        }
+        eg_epistemic::ExistenceSignal::Uncertain => crate::protocol::ExistenceSignalWire::Uncertain,
+    }
+}
+
+/// The confidence/contradiction-count/policy-labels summary of
+/// [`explain_belief_redacted_wire`]'s OTEL span attributes: `None`/`0`/empty when
+/// `root` is `None` (`ExistenceOnly` renders no structure at all, by design) —
+/// never fabricated.
+fn redacted_tree_summary(
+    root: Option<&eg_epistemic::RedactedProofNode>,
+) -> (Option<f64>, usize, String) {
+    match root {
+        Some(root) => {
+            let (supporting, contradicting) = count_redacted_tree_rules(root);
+            (
+                Some(root.confidence),
+                contradicting,
+                eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(","),
+            )
+        }
+        None => (None, 0, String::new()),
     }
 }
 
@@ -3237,6 +3406,16 @@ fn epistemic_status_wire(
 /// `undecided` (never fabricated as surviving/defeated) — the same "no signal ⇒ safe
 /// default" convention every other epistemic op follows.
 #[cfg(feature = "epistemic-tms")]
+/// `(extension_sets, surviving, defeated, undecided)` — the shared classification
+/// shape [`resolve_conflict_grounded`] and [`resolve_conflict_preferred_or_stable`]
+/// both produce for [`resolve_conflict_wire`].
+type ConflictClassification = (
+    Vec<std::collections::BTreeSet<String>>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+);
+
 fn resolve_conflict_wire(
     node_ids: &[String],
     semantics: &str,
@@ -3245,52 +3424,10 @@ fn resolve_conflict_wire(
     let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
     let bg = restrict_belief_graph_to_component(&bg, node_ids);
 
-    let (extension_sets, surviving, defeated, undecided): (
-        Vec<std::collections::BTreeSet<String>>,
-        Vec<String>,
-        Vec<String>,
-        Vec<String>,
-    ) = match semantics {
-        "grounded" => {
-            let grounded = eg_epistemic::grounded_extension(&bg);
-            let mut surviving = Vec::new();
-            let mut defeated = Vec::new();
-            let mut undecided = Vec::new();
-            for id in node_ids {
-                if grounded.contains(id) {
-                    surviving.push(id.clone());
-                } else if eg_epistemic::augmented_attackers(&bg, id)
-                    .iter()
-                    .any(|a| grounded.contains(a))
-                {
-                    defeated.push(id.clone());
-                } else {
-                    undecided.push(id.clone());
-                }
-            }
-            (vec![grounded], surviving, defeated, undecided)
-        }
+    let (extension_sets, surviving, defeated, undecided): ConflictClassification = match semantics {
+        "grounded" => resolve_conflict_grounded(&bg, node_ids),
         "preferred" | "stable" => {
-            let extensions = if semantics == "preferred" {
-                eg_epistemic::preferred_extensions(&bg)
-            } else {
-                eg_epistemic::stable_extensions(&bg)
-            };
-            let mut surviving = Vec::new();
-            let mut defeated = Vec::new();
-            let mut undecided = Vec::new();
-            for id in node_ids {
-                if extensions.is_empty() {
-                    undecided.push(id.clone());
-                } else if extensions.iter().all(|e| e.contains(id)) {
-                    surviving.push(id.clone());
-                } else if extensions.iter().all(|e| !e.contains(id)) {
-                    defeated.push(id.clone());
-                } else {
-                    undecided.push(id.clone());
-                }
-            }
-            (extensions, surviving, defeated, undecided)
+            resolve_conflict_preferred_or_stable(&bg, node_ids, semantics == "preferred")
         }
         other => {
             return Err(format!(
@@ -3321,6 +3458,62 @@ fn resolve_conflict_wire(
             .map(|e| e.into_iter().filter(|id| node_ids.contains(id)).collect())
             .collect(),
     })
+}
+
+/// The `"grounded"` arm of [`resolve_conflict_wire`]: each queried id is
+/// `surviving` (in the grounded extension), `defeated` (attacked by some member of
+/// it), or `undecided` (neither).
+fn resolve_conflict_grounded(
+    bg: &eg_epistemic::BeliefGraph,
+    node_ids: &[String],
+) -> ConflictClassification {
+    let grounded = eg_epistemic::grounded_extension(bg);
+    let mut surviving = Vec::new();
+    let mut defeated = Vec::new();
+    let mut undecided = Vec::new();
+    for id in node_ids {
+        if grounded.contains(id) {
+            surviving.push(id.clone());
+        } else if eg_epistemic::augmented_attackers(bg, id)
+            .iter()
+            .any(|a| grounded.contains(a))
+        {
+            defeated.push(id.clone());
+        } else {
+            undecided.push(id.clone());
+        }
+    }
+    (vec![grounded], surviving, defeated, undecided)
+}
+
+/// The `"preferred"`/`"stable"` arm of [`resolve_conflict_wire`]: each queried id
+/// is `surviving` (in every extension), `defeated` (in no extension), or
+/// `undecided` (in some but not all, or there are no extensions at all).
+fn resolve_conflict_preferred_or_stable(
+    bg: &eg_epistemic::BeliefGraph,
+    node_ids: &[String],
+    preferred: bool,
+) -> ConflictClassification {
+    let extensions = if preferred {
+        eg_epistemic::preferred_extensions(bg)
+    } else {
+        eg_epistemic::stable_extensions(bg)
+    };
+    let mut surviving = Vec::new();
+    let mut defeated = Vec::new();
+    let mut undecided = Vec::new();
+    for id in node_ids {
+        if extensions.is_empty() {
+            undecided.push(id.clone());
+        } else if extensions.iter().all(|e| e.contains(id)) {
+            surviving.push(id.clone());
+        } else if extensions.iter().all(|e| !e.contains(id)) {
+            defeated.push(id.clone());
+        } else {
+            undecided.push(id.clone());
+        }
+    }
+    (extensions, surviving, defeated, undecided)
 }
 
 /// Restrict `bg` to the weakly-connected component (over ALL its epistemic edges,
@@ -3753,6 +3946,107 @@ fn rank_by_provenance_wire(
 /// rows BEFORE the txn's own staged writes are overlaid, so the txn always reads its
 /// own writes while committed data stays isolation-scoped.
 #[cfg(feature = "query")]
+/// The txn-resolution half of [`run_unified_overlaid`]: verify the txn exists and is
+/// owned by `caller`, then snapshot its target graph's committed base (RLS-filtered)
+/// plus its staged write-set/embeddings, holding only the cheap state read + per-txn
+/// lock for the duration — everything returned is OWNED, so no lock is held across
+/// the off-lock compute the caller runs next.
+#[cfg(feature = "query")]
+#[allow(clippy::type_complexity)]
+async fn run_unified_overlaid_resolve_txn(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    txn_id: &str,
+    read_authority: Option<&GraphReadAuthority>,
+    caller: &str,
+    #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
+) -> Result<
+    (
+        crate::graph::GraphView,
+        Vec<crate::protocol::Method>,
+        Vec<(String, Vec<f32>)>,
+        Arc<GraphCore>,
+        String,
+    ),
+    Response,
+> {
+    #[cfg(not(feature = "security"))]
+    let _ = caller;
+    let s = state.read().await;
+    let Some(entry) = s.open_txns.get(txn_id) else {
+        return Err(Response::err(
+            req_id,
+            format!("unknown transaction '{}'", txn_id),
+        ));
+    };
+    let guard = entry.value().lock();
+    let Some(expected_owner) = read_authority
+        .and_then(GraphReadAuthority::carrier)
+        .map(crate::server::access::CarrierAuthority::owner_scope)
+    else {
+        crate::metrics::access_denied();
+        return Err(Response::err(
+            req_id,
+            "ACCESS_DENIED: transaction read requires verified owner authority",
+        ));
+    };
+    if guard.agent != expected_owner {
+        crate::metrics::access_denied();
+        return Err(Response::err(
+            req_id,
+            "ACCESS_DENIED: transaction is not owned by caller",
+        ));
+    }
+    let Some(g) = s.registry.get(&guard.graph) else {
+        return Err(Response::err(
+            req_id,
+            format!("Graph '{}' not found", guard.graph),
+        ));
+    };
+    let core = g.core.clone();
+    // Committed base snapshot (O(V+E) structural copy), taken at ONE point in time
+    // so the cross-modal read is snapshot-isolated.
+    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+    let mut view = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    rls.filter_view(caller, &mut view);
+    Ok((
+        view,
+        guard.write_set.clone(),
+        guard.vectors.clone(),
+        core,
+        guard.graph.clone(),
+    ))
+    // `guard` + `s` drop here — no lock held across the compute the caller runs next.
+}
+
+/// CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay of
+/// [`run_unified_overlaid`]: seed a `StagedSeries` from the txn's OWN staged,
+/// uncommitted `GraphTxnState.measurements` so an in-txn `Op::TsScan` sees its own
+/// points (merged BEFORE the committed store), while an off-txn read (no overlay)
+/// still sees committed only. `SeriesStore` is redb-file-backed with no in-memory
+/// overlay, so this dep-free map is the RYOW source. Empty when the txn is gone by
+/// the time this runs (best-effort, never an error).
+#[cfg(feature = "tsdb")]
+async fn run_unified_overlaid_staged_series(
+    state: &Arc<RwLock<ServerState>>,
+    txn_id: &str,
+) -> eg_plan::StagedSeries {
+    let s = state.read().await;
+    let mut staged = eg_plan::StagedSeries::new();
+    let Some(entry) = s.open_txns.get(txn_id) else {
+        return staged;
+    };
+    let guard = entry.value().lock();
+    for m in &guard.measurements {
+        let series = eg_tsdb::store::SeriesKey::decode(&m.series)
+            .map(|key| key.series)
+            .unwrap_or_else(|| m.series.clone());
+        staged.push_points(&series, m.points.iter().cloned());
+    }
+    staged
+}
+
 async fn run_unified_overlaid(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -3762,8 +4056,6 @@ async fn run_unified_overlaid(
     caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Response {
-    #[cfg(not(feature = "security"))]
-    let _ = caller;
     // Resolve the txn's target core + snapshot its staged write-set/embeddings while
     // holding only the cheap state read + per-txn lock; everything moved into the
     // off-lock closure is OWNED, so no lock is held across the compute.
@@ -3771,49 +4063,19 @@ async fn run_unified_overlaid(
     // / served-text-index-binding: the committed `SemanticStore`/text index are pushed
     // down via a guard taken INSIDE the off-lock closure below (not cloned here), so
     // `committed_semantic` is no longer materialized eagerly — see the closure.
-    let (mut view, write_set, vectors, core, _tsdb_graph) = {
-        let s = state.read().await;
-        let entry = match s.open_txns.get(txn_id) {
-            Some(e) => e,
-            None => {
-                return Response::err(req_id, format!("unknown transaction '{}'", txn_id));
-            }
-        };
-        let guard = entry.value().lock();
-        let Some(expected_owner) = read_authority
-            .and_then(GraphReadAuthority::carrier)
-            .map(crate::server::access::CarrierAuthority::owner_scope)
-        else {
-            crate::metrics::access_denied();
-            return Response::err(
-                req_id,
-                "ACCESS_DENIED: transaction read requires verified owner authority",
-            );
-        };
-        if guard.agent != expected_owner {
-            crate::metrics::access_denied();
-            return Response::err(req_id, "ACCESS_DENIED: transaction is not owned by caller");
-        }
-        let core = match s.registry.get(&guard.graph) {
-            Some(g) => g.core.clone(),
-            None => {
-                return Response::err(req_id, format!("Graph '{}' not found", guard.graph));
-            }
-        };
-        // Committed base snapshot (O(V+E) structural copy), taken at ONE point in time
-        // so the cross-modal read is snapshot-isolated.
-        #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-        let mut view = core.analysis_snapshot();
+    let (mut view, write_set, vectors, core, _tsdb_graph) = match run_unified_overlaid_resolve_txn(
+        state,
+        req_id,
+        txn_id,
+        read_authority,
+        caller,
         #[cfg(feature = "security")]
-        rls.filter_view(caller, &mut view);
-        (
-            view,
-            guard.write_set.clone(),
-            guard.vectors.clone(),
-            core,
-            guard.graph.clone(),
-        )
-        // `guard` + `s` drop here — no lock held across the compute below.
+        rls,
+    )
+    .await
+    {
+        Ok(resolved) => resolved,
+        Err(resp) => return resp,
     };
     #[cfg(feature = "tsdb")]
     let tsdb_scope = match served_tsdb_scope(&plan, &_tsdb_graph, read_authority) {
@@ -3846,20 +4108,7 @@ async fn run_unified_overlaid(
     // off-txn read (no overlay) still sees committed only. `SeriesStore` is redb-file-
     // backed with no in-memory overlay, so this dep-free map is the RYOW source.
     #[cfg(feature = "tsdb")]
-    let staged_series = {
-        let s = state.read().await;
-        let mut staged = eg_plan::StagedSeries::new();
-        if let Some(entry) = s.open_txns.get(txn_id) {
-            let guard = entry.value().lock();
-            for m in &guard.measurements {
-                let series = eg_tsdb::store::SeriesKey::decode(&m.series)
-                    .map(|key| key.series)
-                    .unwrap_or_else(|| m.series.clone());
-                staged.push_points(&series, m.points.iter().cloned());
-            }
-        }
-        staged
-    };
+    let staged_series = run_unified_overlaid_staged_series(state, txn_id).await;
     // Overlay the txn's staged graph writes onto the RLS-filtered committed snapshot.
     overlay_write_set(&mut view, &write_set);
     // CONCEPT:EG-KG.query.overlay-leg-rls-filter — RLS on the STAGED-OVERLAY leg too. The committed base was
