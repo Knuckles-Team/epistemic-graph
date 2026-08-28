@@ -1390,47 +1390,69 @@ fn split_top_commas(inner: &str) -> Vec<String> {
 /// Replace whole-word identifiers matching an environment variable with the variable's
 /// SQL literal (CONCEPT:EG-KG.query.concept-7). Quote-aware (a name inside `'…'` is untouched) and a
 /// qualified `t.col` reference is left alone (only bare variable names are substituted).
+/// Copy a `'...'` string literal's body (starting just past the
+/// already-copied opening quote) into `out`, byte for byte. Split out of
+/// `substitute_vars` (extract-method, cx/wD8) — same terms, same order as
+/// before. Returns the index just past the closing quote.
+fn copy_substitute_string_literal(b: &[u8], start: usize, out: &mut String) -> usize {
+    let mut i = start;
+    while i < b.len() {
+        let c = b[i];
+        out.push(c as char);
+        if c == b'\'' {
+            if b.get(i + 1) == Some(&b'\'') {
+                out.push('\'');
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
+/// Substitute one bare (unqualified) identifier starting at `start` with its
+/// environment value's SQL literal, or copy it verbatim if unbound or
+/// qualified (`t.col`). Split out of `substitute_vars` (extract-method,
+/// cx/wD8) — same terms, same order as before. Returns the index just past
+/// the identifier.
+fn substitute_identifier(
+    sql: &str,
+    b: &[u8],
+    start: usize,
+    env: &HashMap<String, Val>,
+    out: &mut String,
+) -> usize {
+    let mut i = start + 1;
+    while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+        i += 1;
+    }
+    let word = &sql[start..i];
+    let qualified = start > 0 && b[start - 1] == b'.';
+    if !qualified {
+        if let Some(v) = env.get(&word.to_ascii_lowercase()) {
+            out.push_str(&v.to_sql_literal());
+            return i;
+        }
+    }
+    out.push_str(word);
+    i
+}
+
 fn substitute_vars(sql: &str, env: &HashMap<String, Val>) -> String {
     let b = sql.as_bytes();
     let mut out = String::with_capacity(sql.len());
     let mut i = 0usize;
-    let mut in_str = false;
     while i < b.len() {
         let c = b[i];
-        if in_str {
-            out.push(c as char);
-            if c == b'\'' {
-                if b.get(i + 1) == Some(&b'\'') {
-                    out.push('\'');
-                    i += 2;
-                    continue;
-                }
-                in_str = false;
-            }
-            i += 1;
-            continue;
-        }
         if c == b'\'' {
-            in_str = true;
             out.push('\'');
-            i += 1;
+            i = copy_substitute_string_literal(b, i + 1, &mut out);
             continue;
         }
         if c.is_ascii_alphabetic() || c == b'_' {
-            let start = i;
-            i += 1;
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
-                i += 1;
-            }
-            let word = &sql[start..i];
-            let qualified = start > 0 && b[start - 1] == b'.';
-            if !qualified {
-                if let Some(v) = env.get(&word.to_ascii_lowercase()) {
-                    out.push_str(&v.to_sql_literal());
-                    continue;
-                }
-            }
-            out.push_str(word);
+            i = substitute_identifier(sql, b, i, env, &mut out);
             continue;
         }
         out.push(c as char);
