@@ -6516,6 +6516,126 @@ fn resource_admit_reserve_host_with_winner_check(
 /// short-circuit). Literal relocation of the original function's first ~110 lines;
 /// no branch was added, removed, or reordered.
 #[allow(clippy::too_many_arguments)]
+/// The two reserve-only window preconditions.
+///
+/// A creation has no prior lifecycle revision to satisfy: accept only the
+/// explicit zero/absent form, since a positive caller precondition must not be
+/// silently persisted or bypassed by a reserve replay.  The reservation window
+/// must also contain `now`.
+fn resource_reserve_window_precheck(
+    request: &ResourceReservationRequest,
+) -> Option<crate::protocol::ResultPayload> {
+    if request
+        .expected_lifecycle_revision
+        .is_some_and(|revision| revision != 0)
+    {
+        return Some(resource_result_payload(
+            ResourceReservationResultDecision::InputConflict,
+            request,
+            None,
+            None,
+            0,
+            vec![],
+        ));
+    }
+    if request.now_ms < request.reserved_at_ms || request.now_ms >= request.expires_at_ms {
+        return Some(resource_result_payload(
+            ResourceReservationResultDecision::Policy,
+            request,
+            None,
+            None,
+            0,
+            vec![],
+        ));
+    }
+    None
+}
+
+/// The `expected_lifecycle_revision` precondition of a release/reclaim.
+///
+/// A live row is matched against its current revision; a terminal replay carries
+/// the precondition captured by the successful lifecycle mutation, which keeps an
+/// exact retry idempotent while refusing a changed precondition after the row is
+/// tombstoned.  The refusal decision differs accordingly (`Stale` vs
+/// `InputConflict`).
+fn resource_lifecycle_revision_precheck(
+    request: &ResourceReservationRequest,
+    stored: &DurableResourceReservation,
+) -> Option<crate::protocol::ResultPayload> {
+    let reserved = stored.record.state == ResourceReservationRecordState::Reserved;
+    let lifecycle_matches = if reserved {
+        request.expected_lifecycle_revision == Some(stored.record.lifecycle_revision)
+    } else {
+        request.expected_lifecycle_revision == stored.record.expected_lifecycle_revision
+    };
+    if lifecycle_matches {
+        return None;
+    }
+    Some(resource_result_payload(
+        if reserved {
+            ResourceReservationResultDecision::Stale
+        } else {
+            ResourceReservationResultDecision::InputConflict
+        },
+        request,
+        Some(stored.record.clone()),
+        None,
+        stored.fairness_debt,
+        vec![],
+    ))
+}
+
+/// The idempotency-precondition pass over an existing reservation row: tenant
+/// match, full immutable record match, the release/reclaim lifecycle-revision
+/// precondition, and the terminal-replay short-circuit.  `Ok(Some(..))` decides
+/// the request; `Ok(None)` lets the lifecycle continue.
+fn resource_existing_reservation_precheck(
+    request: &ResourceReservationRequest,
+    stored: &DurableResourceReservation,
+    is_reserve: bool,
+    graph: &str,
+    hosts: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    if stored.record.tenant_ref != request.tenant_ref {
+        return Ok(Some(resource_result_payload(
+            ResourceReservationResultDecision::Conflict,
+            request,
+            None,
+            None,
+            0,
+            vec![],
+        )));
+    }
+    if !resource_request_matches_record(request, &stored.record) {
+        return Ok(Some(resource_result_payload(
+            ResourceReservationResultDecision::InputConflict,
+            request,
+            None,
+            None,
+            stored.fairness_debt,
+            vec![],
+        )));
+    }
+    if !is_reserve {
+        if let Some(payload) = resource_lifecycle_revision_precheck(request, stored) {
+            return Ok(Some(payload));
+        }
+    }
+    if stored.record.state != ResourceReservationRecordState::Reserved {
+        let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)?;
+        return Ok(Some(resource_result_payload(
+            ResourceReservationResultDecision::Idempotent,
+            request,
+            Some(stored.record.clone()),
+            host.as_ref(),
+            stored.fairness_debt,
+            vec![],
+        )));
+    }
+    Ok(None)
+}
+
 fn resource_lifecycle_precheck(
     method: &Method,
     request: &ResourceReservationRequest,
@@ -6532,34 +6652,10 @@ fn resource_lifecycle_precheck(
     }
     let is_reserve = matches!(method, Method::ReserveWorkItemResources { .. });
     let is_reclaim = matches!(method, Method::ReclaimWorkItemResources { .. });
-    // A creation has no prior lifecycle revision to satisfy.  Accept
-    // only the explicit zero/absent form; a positive caller precondition
-    // must not be silently persisted or bypassed by a reserve replay.
-    if is_reserve
-        && request
-            .expected_lifecycle_revision
-            .is_some_and(|revision| revision != 0)
-    {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::InputConflict,
-            request,
-            None,
-            None,
-            0,
-            vec![],
-        )));
-    }
-    if is_reserve
-        && (request.now_ms < request.reserved_at_ms || request.now_ms >= request.expires_at_ms)
-    {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Policy,
-            request,
-            None,
-            None,
-            0,
-            vec![],
-        )));
+    if is_reserve {
+        if let Some(payload) = resource_reserve_window_precheck(request) {
+            return Ok(ReservationLifecycleStep::Return(payload));
+        }
     }
     // A terminal row is the durable idempotency tombstone.  Replay of
     // the exact release/reclaim (or an accepted reserve) must remain
@@ -6571,62 +6667,10 @@ fn resource_lifecycle_precheck(
     // WorkItem/fence authorization.
     let existing = resource_load_reservation(reservations, graph, &request.reservation_id, crypto)?;
     if let Some(stored) = existing.as_ref() {
-        if stored.record.tenant_ref != request.tenant_ref {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::Conflict,
-                request,
-                None,
-                None,
-                0,
-                vec![],
-            )));
-        }
-        if !resource_request_matches_record(request, &stored.record) {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::InputConflict,
-                request,
-                None,
-                None,
-                stored.fairness_debt,
-                vec![],
-            )));
-        }
-        if !is_reserve {
-            let lifecycle_matches =
-                if stored.record.state == ResourceReservationRecordState::Reserved {
-                    request.expected_lifecycle_revision == Some(stored.record.lifecycle_revision)
-                } else {
-                    // A terminal replay carries the precondition captured
-                    // by the successful lifecycle mutation.  This keeps
-                    // an exact retry idempotent while refusing a changed
-                    // precondition after the row is tombstoned.
-                    request.expected_lifecycle_revision == stored.record.expected_lifecycle_revision
-                };
-            if !lifecycle_matches {
-                return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                    if stored.record.state == ResourceReservationRecordState::Reserved {
-                        ResourceReservationResultDecision::Stale
-                    } else {
-                        ResourceReservationResultDecision::InputConflict
-                    },
-                    request,
-                    Some(stored.record.clone()),
-                    None,
-                    stored.fairness_debt,
-                    vec![],
-                )));
-            }
-        }
-        if stored.record.state != ResourceReservationRecordState::Reserved {
-            let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)?;
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::Idempotent,
-                request,
-                Some(stored.record.clone()),
-                host.as_ref(),
-                stored.fairness_debt,
-                vec![],
-            )));
+        if let Some(payload) = resource_existing_reservation_precheck(
+            request, stored, is_reserve, graph, hosts, crypto,
+        )? {
+            return Ok(ReservationLifecycleStep::Return(payload));
         }
     }
     Ok(ReservationLifecycleStep::Continue((
