@@ -49,9 +49,9 @@ use eg_query::{
     AlterTableAction, AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan,
     CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, CypherCallPlan,
     DeleteNodes, DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan,
-    HypertablePlan, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflictAction,
-    PgColType, StatementKind, TableSchema, TableStore, TableTxn, TxnOp, TypedColumn,
-    TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    HypertablePlan, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict,
+    OnConflictAction, PgColType, StatementKind, TableSchema, TableStore, TableTxn, TxnOp,
+    TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 
 use crate::isolation::AccessLevel;
@@ -179,6 +179,20 @@ pub(crate) fn aborted_txn_err() -> WireError {
     }
 }
 
+/// The mutual-exclusion guard of [`WireSession::run_commit`]: only the
+/// CROSS-MODAL + user-table combination is unimplemented (the cross-modal commit
+/// path returns before ever reaching the sequenced user-table commit, so a staged
+/// `table_txn` would be silently dropped); plain graph-node ops + user-table ops
+/// are NOT mutually exclusive and are committed sequenced instead.
+fn run_commit_reject_mixed_xmodal(has_table_ops: bool, has_xmodal: bool) -> WireResult<()> {
+    if has_table_ops && has_xmodal {
+        return Err(user_err(
+            "one SQL transaction cannot mix a cross-modal write and user-table durability domains",
+        ));
+    }
+    Ok(())
+}
+
 /// Map a standard SQL isolation-level spelling onto the engine's ACTUAL
 /// levels (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005). `SERIALIZABLE` maps 1:1 (this engine really has
 /// one). `REPEATABLE READ` / `READ COMMITTED` / `READ UNCOMMITTED` all map
@@ -245,53 +259,77 @@ fn parse_begin_isolation_clause(
 fn extract_label_predicates(sql: &str) -> Vec<String> {
     let chars: Vec<(usize, char)> = sql.char_indices().collect();
     let n = chars.len();
-    const COLUMNS: [&str; 3] = ["labels", "label", "type"];
     let mut out = Vec::new();
     let mut i = 0;
     while i < n {
-        let matched = COLUMNS.iter().find(|col| {
-            let len = col.chars().count();
-            i + len <= n
-                && chars[i..i + len]
-                    .iter()
-                    .zip(col.chars())
-                    .all(|((_, c), cc)| c.eq_ignore_ascii_case(&cc))
-        });
-        let Some(col) = matched else {
+        let Some(col) = matching_label_column(&chars, i, n) else {
             i += 1;
             continue;
         };
         let col_len = col.chars().count();
         let before_ok = i == 0 || !(chars[i - 1].1.is_alphanumeric() || chars[i - 1].1 == '_');
-        let mut j = i + col_len;
-        while j < n && chars[j].1.is_whitespace() {
-            j += 1;
-        }
+        let j = skip_whitespace(&chars, i + col_len, n);
         if before_ok && j < n && chars[j].1 == '=' {
-            let mut k = j + 1;
-            while k < n && chars[k].1.is_whitespace() {
-                k += 1;
-            }
-            if k < n && chars[k].1 == '\'' {
-                let val_start = k + 1;
-                let mut e = val_start;
-                while e < n && chars[e].1 != '\'' {
-                    e += 1;
-                }
-                if e < n {
-                    let start_byte = chars[val_start].0;
-                    // `e` may equal `n` only when the loop ran off the end,
-                    // which the `e < n` guard above already excludes here.
-                    let end_byte = chars[e].0;
-                    out.push(sql[start_byte..end_byte].to_string());
-                    i = e + 1;
-                    continue;
-                }
+            if let Some((value, next_i)) = extract_quoted_value(&chars, sql, j + 1, n) {
+                out.push(value);
+                i = next_i;
+                continue;
             }
         }
         i += col_len;
     }
     out
+}
+
+const LABEL_PREDICATE_COLUMNS: [&str; 3] = ["labels", "label", "type"];
+
+/// Case-insensitive, char-indexed match of one of [`LABEL_PREDICATE_COLUMNS`]
+/// starting at `i` — the column-name-recognition half of
+/// [`extract_label_predicates`].
+fn matching_label_column(chars: &[(usize, char)], i: usize, n: usize) -> Option<&'static str> {
+    LABEL_PREDICATE_COLUMNS.iter().copied().find(|col| {
+        let len = col.chars().count();
+        i + len <= n
+            && chars[i..i + len]
+                .iter()
+                .zip(col.chars())
+                .all(|((_, c), cc)| c.eq_ignore_ascii_case(&cc))
+    })
+}
+
+/// Advance past whitespace starting at `j`.
+fn skip_whitespace(chars: &[(usize, char)], mut j: usize, n: usize) -> usize {
+    while j < n && chars[j].1.is_whitespace() {
+        j += 1;
+    }
+    j
+}
+
+/// After a matched `col =`, at index `after_eq` (just past the `=`): skip
+/// whitespace, then — if a `'...'` literal follows — return its inner text and the
+/// index just past the closing quote. `None` when no complete quoted literal
+/// starts here (no opening quote, or an unterminated one).
+fn extract_quoted_value(
+    chars: &[(usize, char)],
+    sql: &str,
+    after_eq: usize,
+    n: usize,
+) -> Option<(String, usize)> {
+    let k = skip_whitespace(chars, after_eq, n);
+    if k >= n || chars[k].1 != '\'' {
+        return None;
+    }
+    let val_start = k + 1;
+    let mut e = val_start;
+    while e < n && chars[e].1 != '\'' {
+        e += 1;
+    }
+    if e >= n {
+        return None;
+    }
+    let start_byte = chars[val_start].0;
+    let end_byte = chars[e].0;
+    Some((sql[start_byte..end_byte].to_string(), e + 1))
 }
 
 /// Resolve a classify `ColumnDef` (raw SQL type spelling) into a store [`Column`].
@@ -394,7 +432,7 @@ fn authorize_table_txn(
     txn: &mut TableTxn,
     committed_replay: bool,
 ) -> WireResult<Vec<TableSchema>> {
-    use crate::server::sql_catalog_acl::{self, SqlPrivilege};
+    use crate::server::sql_catalog_acl;
     sql_catalog_acl::ensure_actor_migrated(authority, persist_dir).map_err(user_err)?;
     let table_store =
         crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)
@@ -402,176 +440,317 @@ fn authorize_table_txn(
     let mut created_tables = Vec::new();
     let mut provisional_creates = std::collections::HashMap::new();
     for op in txn.ops.iter_mut() {
-        match op {
-            TxnOp::CreateTable {
-                schema,
-                if_not_exists,
-            } => {
-                // A later DML op may use this exact batch-local capability only
-                // when this non-idempotent create targets a physically absent
-                // table. Concurrent creators are still serialized by redb's
-                // atomic `create_in`; one loser aborts the whole batch.
-                let physically_absent = table_store
-                    .get_schema(&schema.name)
-                    .map_err(user_err)?
-                    .is_none();
-                // A committed replay is the sole case where a physically
-                // present but still-unowned table may receive the same exact
-                // batch-local capability: the durable receipt is bound to the
-                // owner, tenant, graph, operation id, and hashed replay recipe.
-                let owns_committed_create = committed_replay && !*if_not_exists;
-                if !*if_not_exists && (physically_absent || owns_committed_create) {
-                    if let Some(capability) = sql_catalog_acl::begin_provisional_create(
-                        authority,
-                        persist_dir,
-                        &schema.name,
-                    )
-                    .map_err(user_err)?
-                    {
-                        provisional_creates.insert(schema.name.clone(), capability);
-                    }
-                }
-                // Register/repair ownership only for a table this exact batch
-                // can have created. An existing IF NOT EXISTS target is never
-                // an authority to claim an orphaned or foreign table.
-                if physically_absent || owns_committed_create {
-                    created_tables.push(schema.clone());
-                }
-            }
-            TxnOp::DropTable { name, .. } => {
-                if provisional_creates.remove(name).is_some() {
-                    // CREATE then DROP leaves no table and therefore must not
-                    // register ownership after the batch commits.
-                    created_tables.retain(|schema| schema.name.as_str() != name.as_str());
-                } else {
-                    sql_catalog_acl::authorize_ddl(
-                        authority,
-                        persist_dir,
-                        name,
-                        SqlPrivilege::Alter,
-                    )
-                    .map_err(user_err)?;
-                }
-            }
-            TxnOp::AddColumn { table, .. }
-            | TxnOp::DropColumn { table, .. }
-            | TxnOp::RenameColumn { table, .. }
-            | TxnOp::AlterColumnType { table, .. }
-            | TxnOp::DropConstraint { table, .. }
-            | TxnOp::AddConstraint { table, .. }
-            | TxnOp::DropAnnIndexesForColumn { table, .. } => {
-                let permitted = provisional_creates
-                    .get(table)
-                    .is_some_and(|capability| capability.permits(authority, table));
-                if !permitted {
-                    sql_catalog_acl::authorize_ddl(
-                        authority,
-                        persist_dir,
-                        table,
-                        SqlPrivilege::Alter,
-                    )
-                    .map_err(user_err)?;
-                }
-            }
-            TxnOp::RenameTable { table, .. } => {
-                // Renaming a not-yet-created table would require retargeting the
-                // capability and post-commit ownership record. Keep that complex
-                // shape fail-closed rather than silently granting the new name.
-                if provisional_creates.contains_key(table) {
-                    return Err(user_err(sql_catalog_acl::ACCESS_DENIED));
-                }
-                sql_catalog_acl::authorize_ddl(authority, persist_dir, table, SqlPrivilege::Alter)
-                    .map_err(user_err)?;
-            }
-            TxnOp::PutAnnIndex { plan } => {
-                sql_catalog_acl::authorize_ddl(
-                    authority,
-                    persist_dir,
-                    &plan.table,
-                    SqlPrivilege::Alter,
-                )
-                .map_err(user_err)?;
-            }
-            TxnOp::PutHypertable { plan } => {
-                sql_catalog_acl::authorize_ddl(
-                    authority,
-                    persist_dir,
-                    &plan.table,
-                    SqlPrivilege::Alter,
-                )
-                .map_err(user_err)?;
-            }
-            TxnOp::Insert {
-                table,
-                col_order,
-                rows,
-            } => {
-                let permitted = provisional_creates
-                    .get(table)
-                    .is_some_and(|capability| capability.permits(authority, table));
-                if !permitted {
-                    let (new_cols, new_rows) = sql_catalog_acl::authorize_insert(
-                        authority,
-                        persist_dir,
-                        table,
-                        col_order,
-                        rows,
-                    )
-                    .map_err(user_err)?;
-                    *col_order = new_cols;
-                    *rows = new_rows;
-                }
-            }
-            TxnOp::Update {
-                table,
-                set,
-                selector,
-            } => {
-                let permitted = provisional_creates
-                    .get(table)
-                    .is_some_and(|capability| capability.permits(authority, table));
-                if !permitted {
-                    let (new_set, new_selector) = sql_catalog_acl::authorize_update(
-                        authority,
-                        persist_dir,
-                        table,
-                        set.clone(),
-                        selector.clone(),
-                    )
-                    .map_err(user_err)?;
-                    *set = new_set;
-                    *selector = new_selector;
-                }
-            }
-            TxnOp::Delete { table, selector } => {
-                let permitted = provisional_creates
-                    .get(table)
-                    .is_some_and(|capability| capability.permits(authority, table));
-                if !permitted {
-                    *selector = sql_catalog_acl::authorize_delete(
-                        authority,
-                        persist_dir,
-                        table,
-                        selector.clone(),
-                    )
-                    .map_err(user_err)?;
-                }
-            }
-            TxnOp::CreateView { .. }
-            | TxnOp::DropView { .. }
-            | TxnOp::CreateExtension { .. }
-            | TxnOp::DropExtension { .. }
-            | TxnOp::CreateFunction { .. }
-            | TxnOp::DropFunction { .. } => {
-                authority
-                    .require_admin(
-                        "catalog-wide DDL (view/extension/function) over the shared tenant catalog",
-                    )
-                    .map_err(user_err)?;
-            }
-        }
+        authorize_table_txn_op(
+            authority,
+            persist_dir,
+            &table_store,
+            op,
+            committed_replay,
+            &mut provisional_creates,
+            &mut created_tables,
+        )?;
     }
     Ok(created_tables)
+}
+
+/// One [`TxnOp`]'s worth of [`authorize_table_txn`]: dispatch to the per-op-kind
+/// authorization, which may mutate `op` in place (RLS stamping on
+/// Insert/Update/Delete) and/or `provisional_creates`/`created_tables` (CreateTable/
+/// DropTable's batch-local capability bookkeeping).
+fn authorize_table_txn_op(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table_store: &TableStore,
+    op: &mut TxnOp,
+    committed_replay: bool,
+    provisional_creates: &mut std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+    created_tables: &mut Vec<TableSchema>,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl::{self, SqlPrivilege};
+    match op {
+        TxnOp::CreateTable {
+            schema,
+            if_not_exists,
+        } => authorize_create_table(
+            authority,
+            persist_dir,
+            table_store,
+            schema,
+            *if_not_exists,
+            committed_replay,
+            provisional_creates,
+            created_tables,
+        ),
+        TxnOp::DropTable { name, .. } => authorize_drop_table(
+            authority,
+            persist_dir,
+            name,
+            provisional_creates,
+            created_tables,
+        ),
+        TxnOp::AddColumn { table, .. }
+        | TxnOp::DropColumn { table, .. }
+        | TxnOp::RenameColumn { table, .. }
+        | TxnOp::AlterColumnType { table, .. }
+        | TxnOp::DropConstraint { table, .. }
+        | TxnOp::AddConstraint { table, .. }
+        | TxnOp::DropAnnIndexesForColumn { table, .. } => {
+            authorize_alter_like(authority, persist_dir, table, provisional_creates)
+        }
+        TxnOp::RenameTable { table, .. } => {
+            authorize_rename_table(authority, persist_dir, table, provisional_creates)
+        }
+        TxnOp::PutAnnIndex { plan } => {
+            sql_catalog_acl::authorize_ddl(authority, persist_dir, &plan.table, SqlPrivilege::Alter)
+                .map_err(user_err)
+        }
+        TxnOp::PutHypertable { plan } => {
+            sql_catalog_acl::authorize_ddl(authority, persist_dir, &plan.table, SqlPrivilege::Alter)
+                .map_err(user_err)
+        }
+        TxnOp::Insert {
+            table,
+            col_order,
+            rows,
+        } => authorize_insert_op(
+            authority,
+            persist_dir,
+            table,
+            col_order,
+            rows,
+            provisional_creates,
+        ),
+        TxnOp::Update {
+            table,
+            set,
+            selector,
+        } => authorize_update_op(
+            authority,
+            persist_dir,
+            table,
+            set,
+            selector,
+            provisional_creates,
+        ),
+        TxnOp::Delete { table, selector } => {
+            authorize_delete_op(authority, persist_dir, table, selector, provisional_creates)
+        }
+        TxnOp::CreateView { .. }
+        | TxnOp::DropView { .. }
+        | TxnOp::CreateExtension { .. }
+        | TxnOp::DropExtension { .. }
+        | TxnOp::CreateFunction { .. }
+        | TxnOp::DropFunction { .. } => authority
+            .require_admin(
+                "catalog-wide DDL (view/extension/function) over the shared tenant catalog",
+            )
+            .map_err(user_err),
+    }
+}
+
+/// Whether `table` is covered by this exact batch's own not-yet-committed CREATE
+/// (the batch-local capability [`authorize_create_table`] may have issued) — the
+/// repeated `provisional_creates.get(table).is_some_and(...)` check shared by every
+/// DDL/DML arm below.
+fn is_provisionally_permitted(
+    provisional_creates: &std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+    authority: &CarrierAuthority,
+    table: &str,
+) -> bool {
+    provisional_creates
+        .get(table)
+        .is_some_and(|capability| capability.permits(authority, table))
+}
+
+/// The `CreateTable` arm of [`authorize_table_txn_op`].
+#[allow(clippy::too_many_arguments)]
+fn authorize_create_table(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table_store: &TableStore,
+    schema: &TableSchema,
+    if_not_exists: bool,
+    committed_replay: bool,
+    provisional_creates: &mut std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+    created_tables: &mut Vec<TableSchema>,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl;
+    // A later DML op may use this exact batch-local capability only when this
+    // non-idempotent create targets a physically absent table. Concurrent creators
+    // are still serialized by redb's atomic `create_in`; one loser aborts the whole
+    // batch.
+    let physically_absent = table_store
+        .get_schema(&schema.name)
+        .map_err(user_err)?
+        .is_none();
+    // A committed replay is the sole case where a physically present but
+    // still-unowned table may receive the same exact batch-local capability: the
+    // durable receipt is bound to the owner, tenant, graph, operation id, and
+    // hashed replay recipe.
+    let owns_committed_create = committed_replay && !if_not_exists;
+    if !if_not_exists && (physically_absent || owns_committed_create) {
+        if let Some(capability) =
+            sql_catalog_acl::begin_provisional_create(authority, persist_dir, &schema.name)
+                .map_err(user_err)?
+        {
+            provisional_creates.insert(schema.name.clone(), capability);
+        }
+    }
+    // Register/repair ownership only for a table this exact batch can have
+    // created. An existing IF NOT EXISTS target is never an authority to claim an
+    // orphaned or foreign table.
+    if physically_absent || owns_committed_create {
+        created_tables.push(schema.clone());
+    }
+    Ok(())
+}
+
+/// The `DropTable` arm of [`authorize_table_txn_op`].
+fn authorize_drop_table(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    name: &str,
+    provisional_creates: &mut std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+    created_tables: &mut Vec<TableSchema>,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl::{self, SqlPrivilege};
+    if provisional_creates.remove(name).is_some() {
+        // CREATE then DROP leaves no table and therefore must not register
+        // ownership after the batch commits.
+        created_tables.retain(|schema| schema.name.as_str() != name);
+        return Ok(());
+    }
+    sql_catalog_acl::authorize_ddl(authority, persist_dir, name, SqlPrivilege::Alter)
+        .map_err(user_err)
+}
+
+/// The combined `AddColumn`/`DropColumn`/`RenameColumn`/`AlterColumnType`/
+/// `DropConstraint`/`AddConstraint`/`DropAnnIndexesForColumn` arm of
+/// [`authorize_table_txn_op`]: every plain per-table ALTER-shaped op.
+fn authorize_alter_like(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    provisional_creates: &std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl::{self, SqlPrivilege};
+    if is_provisionally_permitted(provisional_creates, authority, table) {
+        return Ok(());
+    }
+    sql_catalog_acl::authorize_ddl(authority, persist_dir, table, SqlPrivilege::Alter)
+        .map_err(user_err)
+}
+
+/// The `RenameTable` arm of [`authorize_table_txn_op`]. Renaming a not-yet-created
+/// table would require retargeting the capability and post-commit ownership
+/// record; keep that complex shape fail-closed rather than silently granting the
+/// new name.
+fn authorize_rename_table(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    provisional_creates: &std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl::{self, SqlPrivilege};
+    if provisional_creates.contains_key(table) {
+        return Err(user_err(sql_catalog_acl::ACCESS_DENIED));
+    }
+    sql_catalog_acl::authorize_ddl(authority, persist_dir, table, SqlPrivilege::Alter)
+        .map_err(user_err)
+}
+
+/// The `Insert` arm of [`authorize_table_txn_op`]: RLS-stamp `col_order`/`rows` in
+/// place unless this batch's own provisional CREATE already covers `table`.
+fn authorize_insert_op(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    col_order: &mut Vec<String>,
+    rows: &mut Vec<Vec<serde_json::Value>>,
+    provisional_creates: &std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl;
+    if is_provisionally_permitted(provisional_creates, authority, table) {
+        return Ok(());
+    }
+    let (new_cols, new_rows) =
+        sql_catalog_acl::authorize_insert(authority, persist_dir, table, col_order, rows)
+            .map_err(user_err)?;
+    *col_order = new_cols;
+    *rows = new_rows;
+    Ok(())
+}
+
+/// The `Update` arm of [`authorize_table_txn_op`]: RLS-rewrite `set`/`selector` in
+/// place unless this batch's own provisional CREATE already covers `table`.
+fn authorize_update_op(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    set: &mut serde_json::Map<String, serde_json::Value>,
+    selector: &mut eg_types::RowPredicate,
+    provisional_creates: &std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl;
+    if is_provisionally_permitted(provisional_creates, authority, table) {
+        return Ok(());
+    }
+    let (new_set, new_selector) = sql_catalog_acl::authorize_update(
+        authority,
+        persist_dir,
+        table,
+        set.clone(),
+        selector.clone(),
+    )
+    .map_err(user_err)?;
+    *set = new_set;
+    *selector = new_selector;
+    Ok(())
+}
+
+/// The `Delete` arm of [`authorize_table_txn_op`]: RLS-scope `selector` in place
+/// unless this batch's own provisional CREATE already covers `table`.
+fn authorize_delete_op(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    table: &str,
+    selector: &mut eg_types::RowPredicate,
+    provisional_creates: &std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl;
+    if is_provisionally_permitted(provisional_creates, authority, table) {
+        return Ok(());
+    }
+    *selector = sql_catalog_acl::authorize_delete(authority, persist_dir, table, selector.clone())
+        .map_err(user_err)?;
+    Ok(())
 }
 
 /// Return the exact committed SQL receipt that authorizes owner repair for a
@@ -1810,16 +1989,62 @@ impl WireSession {
     /// record with idempotent crash recovery, never landing one durably
     /// without the other even across a process crash between the two commits.
     ///
+    /// The mixed graph-node + user-table commit path of [`Self::run_commit`]
+    /// (NE-004): a transaction that staged BOTH must land on both stores or
+    /// neither, including across a crash between the two commits — routed
+    /// through the durable commit-intent path instead of the plain sequential
+    /// one.
+    async fn commit_run_mixed_txn(
+        &self,
+        graph: Option<String>,
+        node_ops: Vec<NodeOp>,
+        table_txn: Option<TableTxn>,
+    ) -> WireResult<WireOutcome> {
+        let graph =
+            graph.ok_or_else(|| user_err("transaction has node ops but no pinned graph"))?;
+        let table_txn = table_txn
+            .filter(|t| !t.ops.is_empty())
+            .ok_or_else(|| user_err("internal error: has_table_ops without a table transaction"))?;
+        self.commit_mixed_txn(&graph, node_ops, table_txn).await
+    }
+
+    /// The plain graph-node-only commit path of [`Self::run_commit`]: compile the
+    /// buffered node ops into one authoritative batch and commit it. The commit
+    /// kernel writes durable state before publishing RAM.
+    async fn commit_run_node_ops(&self, graph: &str, node_ops: &[NodeOp]) -> WireResult<()> {
+        let methods = Self::node_ops_to_methods(node_ops)?;
+        let graph_isolation = *self.txn_isolation.lock();
+        // A real open transaction — require the captured BEGIN-time version
+        // rather than let a stale `None` silently defeat OCC (NE-071).
+        let begin_version = self.require_txn_begin_version()?;
+        self.commit_graph_methods_with_op(
+            graph,
+            methods,
+            uuid::Uuid::new_v4(),
+            graph_isolation,
+            begin_version,
+        )
+        .await
+    }
+
+    /// The aborted-txn arm of [`Self::run_commit`]: a COMMIT while the txn is
+    /// aborted behaves as ROLLBACK (drop everything) — nothing is applied.
+    fn run_commit_aborted_rollback(&self) -> Option<WireOutcome> {
+        if !(self.in_txn() && self.txn_aborted()) {
+            return None;
+        }
+        self.take_txn();
+        #[cfg(feature = "query")]
+        let _ = self.take_xmodal();
+        Some(WireOutcome::TxnEnd { tag: "ROLLBACK" })
+    }
+
     /// An aborted transaction (a statement inside it errored, CONCEPT:EG-KG.compute.kg-transaction-is-pinned) commits
     /// as a ROLLBACK — nothing is applied. A `COMMIT` with no open transaction is a
     /// no-op (Postgres-compatible).
     async fn run_commit(&self) -> WireResult<WireOutcome> {
-        // A COMMIT while the txn is aborted behaves as ROLLBACK (drop everything).
-        if self.in_txn() && self.txn_aborted() {
-            self.take_txn();
-            #[cfg(feature = "query")]
-            let _ = self.take_xmodal();
-            return Ok(WireOutcome::TxnEnd { tag: "ROLLBACK" });
+        if let Some(outcome) = self.run_commit_aborted_rollback() {
+            return Ok(outcome);
         }
         // The graph a txn was pinned to at BEGIN (node ops are scoped to it).
         let graph = self.txn_graph.lock().clone();
@@ -1848,11 +2073,7 @@ impl WireSession {
         // "ordinary mixed-store path" below), so this guard must not reject that
         // combination (it previously did, contradicting the sequencing code it
         // guards and the docs immediately below).
-        if has_table_ops && has_xmodal {
-            return Err(user_err(
-                "one SQL transaction cannot mix a cross-modal write and user-table durability domains",
-            ));
-        }
+        run_commit_reject_mixed_xmodal(has_table_ops, has_xmodal)?;
 
         // ── EG-372 cross-modal COMMIT: when the txn staged any cross-modal modality
         // (vector / measurement / OWL / CONSTRUCT), hand the WHOLE txn — graph nodes
@@ -1863,37 +2084,9 @@ impl WireSession {
         // sequenced, exactly like the ordinary mixed-store path. ──
         #[cfg(feature = "query")]
         if has_xmodal {
-            let graph = graph
-                .clone()
-                .ok_or_else(|| user_err("cross-modal transaction has no pinned graph"))?;
-            // `new_txn_state` resolves the pinned graph's core (surfacing a not-found).
-            let mixed_isolation = *self.txn_isolation.lock();
-            // This is a REAL open transaction (has staged cross-modal writes) —
-            // require the captured BEGIN-time version rather than let a stale
-            // `None` silently defeat OCC (NE-071).
-            let mixed_begin_version = self.require_txn_begin_version()?;
-            let mut ts = self
-                .new_txn_state(&graph, mixed_isolation, mixed_begin_version)
-                .await?;
-            ts.write_set = Self::node_ops_to_methods(&node_ops)?;
-            ts.vectors = xmodal.vectors;
-            #[cfg(feature = "tsdb")]
-            {
-                ts.measurements = xmodal
-                    .measurements
-                    .into_iter()
-                    .map(|measurement| self.scope_measurement(&graph, measurement))
-                    .collect::<WireResult<Vec<_>>>()?;
-            }
-            #[cfg(not(feature = "tsdb"))]
-            if !xmodal.measurements.is_empty() {
-                return Err(user_err(
-                    "time-series transaction requires the tsdb feature",
-                ));
-            }
-            ts.axioms = xmodal.owl_methods;
-            self.commit_txn_state(ts).await?;
-            return Ok(WireOutcome::TxnEnd { tag: "COMMIT" });
+            return self
+                .commit_xmodal_txn(graph.clone(), &node_ops, xmodal)
+                .await;
         }
 
         let has_node_ops = !node_ops.is_empty();
@@ -1902,43 +2095,86 @@ impl WireSession {
         // between the two commits — route it through the durable
         // commit-intent path instead of the plain sequential one below.
         if has_node_ops && has_table_ops {
-            let graph = graph
-                .clone()
-                .ok_or_else(|| user_err("transaction has node ops but no pinned graph"))?;
-            let table_txn = table_txn.filter(|t| !t.ops.is_empty()).ok_or_else(|| {
-                user_err("internal error: has_table_ops without a table transaction")
-            })?;
-            return self.commit_mixed_txn(&graph, node_ops, table_txn).await;
+            return self
+                .commit_run_mixed_txn(graph.clone(), node_ops, table_txn)
+                .await;
         }
 
-        // Graph store: compile the buffered methods into one authoritative batch.
-        // The commit kernel writes durable state before publishing RAM.
+        // Graph store, then SQL catalog/table store — each independently, since
+        // NE-004's mixed-commit-intent path above already handled the case where
+        // both are present together.
+        self.commit_run_sequential(graph, node_ops, has_node_ops, table_txn)
+            .await
+    }
+
+    /// The tail of [`Self::run_commit`]'s ordinary (non-mixed) sequential path:
+    /// commit buffered graph-node ops (if any) — the commit kernel writes durable
+    /// state before publishing RAM — then buffered user-table ops (if any), which
+    /// share one native redb transaction for rows, result, OCC/fence, idempotency,
+    /// and outbox.
+    async fn commit_run_sequential(
+        &self,
+        graph: Option<String>,
+        node_ops: Vec<NodeOp>,
+        has_node_ops: bool,
+        table_txn: Option<TableTxn>,
+    ) -> WireResult<WireOutcome> {
         if has_node_ops {
             let graph = graph
                 .clone()
                 .ok_or_else(|| user_err("transaction has node ops but no pinned graph"))?;
-            let methods = Self::node_ops_to_methods(&node_ops)?;
-            let graph_isolation = *self.txn_isolation.lock();
-            // A real open transaction — require the captured BEGIN-time
-            // version rather than let a stale `None` silently defeat OCC
-            // (NE-071).
-            let begin_version = self.require_txn_begin_version()?;
-            self.commit_graph_methods_with_op(
-                &graph,
-                methods,
-                uuid::Uuid::new_v4(),
-                graph_isolation,
-                begin_version,
-            )
-            .await?;
+            self.commit_run_node_ops(&graph, &node_ops).await?;
         }
-
-        // SQL catalog/table store: rows, result, OCC/fence, idempotency, and outbox
-        // share one native redb transaction.
         if let Some(txn) = table_txn.filter(|transaction| !transaction.ops.is_empty()) {
             let graph = graph.unwrap_or_else(|| self.current_graph());
             self.commit_table_txn(&graph, "transaction", txn).await?;
         }
+        Ok(WireOutcome::TxnEnd { tag: "COMMIT" })
+    }
+
+    /// EG-372 cross-modal COMMIT (the `has_xmodal` arm of [`Self::run_commit`]): when
+    /// the txn staged any cross-modal modality (vector / measurement / OWL /
+    /// CONSTRUCT), hand the WHOLE txn — graph nodes PLUS every cross-modal modality —
+    /// to the SHARED RPC cross-modal commit so all land atomically in ONE redb
+    /// `WriteTransaction` (the SAME seam the RPC TxnAddEmbedding/TxnAxiom/TxnConstruct
+    /// path commits through). The user-table ops (which this does not cover) are then
+    /// committed sequenced back in `run_commit`, exactly like the ordinary
+    /// mixed-store path.
+    #[cfg(feature = "query")]
+    async fn commit_xmodal_txn(
+        &self,
+        graph: Option<String>,
+        node_ops: &[NodeOp],
+        xmodal: XmodalStaged,
+    ) -> WireResult<WireOutcome> {
+        let graph = graph.ok_or_else(|| user_err("cross-modal transaction has no pinned graph"))?;
+        // `new_txn_state` resolves the pinned graph's core (surfacing a not-found).
+        let mixed_isolation = *self.txn_isolation.lock();
+        // This is a REAL open transaction (has staged cross-modal writes) — require
+        // the captured BEGIN-time version rather than let a stale `None` silently
+        // defeat OCC (NE-071).
+        let mixed_begin_version = self.require_txn_begin_version()?;
+        let mut ts = self
+            .new_txn_state(&graph, mixed_isolation, mixed_begin_version)
+            .await?;
+        ts.write_set = Self::node_ops_to_methods(node_ops)?;
+        ts.vectors = xmodal.vectors;
+        #[cfg(feature = "tsdb")]
+        {
+            ts.measurements = xmodal
+                .measurements
+                .into_iter()
+                .map(|measurement| self.scope_measurement(&graph, measurement))
+                .collect::<WireResult<Vec<_>>>()?;
+        }
+        #[cfg(not(feature = "tsdb"))]
+        if !xmodal.measurements.is_empty() {
+            return Err(user_err(
+                "time-series transaction requires the tsdb feature",
+            ));
+        }
+        ts.axioms = xmodal.owl_methods;
+        self.commit_txn_state(ts).await?;
         Ok(WireOutcome::TxnEnd { tag: "COMMIT" })
     }
 
@@ -2557,6 +2793,65 @@ impl WireSession {
         }
     }
 
+    /// One row of [`Self::run_insert_nodes_select`]'s SELECT result → either a new
+    /// node (`AddNode`) or, under `ON CONFLICT DO UPDATE`, a field patch
+    /// (`CompareAndSetNodeFields`) — applied to the overlay `view` immediately (so a
+    /// later row in the same batch sees it) — plus the RETURNING projection when
+    /// requested. `Ok(None)` is `ON CONFLICT DO NOTHING` on an already-present node:
+    /// skip, no method, no RETURNING row.
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+    fn insert_nodes_select_row(
+        row: &[serde_json::Value],
+        columns: &[String],
+        on_conflict: Option<&OnConflict>,
+        returning: bool,
+        id_pos: usize,
+        view: &mut crate::graph::GraphView,
+        cond_blob: &[u8],
+        empty: &serde_json::Map<String, serde_json::Value>,
+    ) -> WireResult<
+        Option<(
+            crate::protocol::Method,
+            Option<(String, serde_json::Map<String, serde_json::Value>)>,
+        )>,
+    > {
+        let node_id = Self::cell_to_node_id(&row[id_pos])?;
+        let mut props = serde_json::Map::new();
+        for (i, col) in columns.iter().enumerate() {
+            if i != id_pos {
+                props.insert(col.clone(), row[i].clone());
+            }
+        }
+        // ON CONFLICT — conflict key is the node id.
+        if view.has_node(&node_id) {
+            match on_conflict.map(|oc| &oc.action) {
+                Some(OnConflictAction::DoNothing) => return Ok(None),
+                Some(OnConflictAction::DoUpdate(set)) => {
+                    let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(set.clone()))
+                        .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
+                    let method = crate::protocol::Method::CompareAndSetNodeFields {
+                        node_id: node_id.clone(),
+                        conditions_msgpack: cond_blob.to_vec(),
+                        updates_msgpack: upd_blob,
+                    };
+                    view.overlay_compare_and_set_fields(&node_id, empty, set);
+                    let affected = returning.then(|| (node_id, set.clone()));
+                    return Ok(Some((method, affected)));
+                }
+                None => {} // no ON CONFLICT → overwrite (add_node semantics)
+            }
+        }
+        let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props.clone()))
+            .map_err(|e| user_err(format!("encode node properties: {e}")))?;
+        let method = crate::protocol::Method::AddNode {
+            node_id: node_id.clone(),
+            properties_msgpack: blob.clone(),
+        };
+        view.overlay_add_node(node_id.clone(), blob);
+        let affected = returning.then_some((node_id, props));
+        Ok(Some((method, affected)))
+    }
+
     /// CONCEPT:EG-KG.query.insert-into-nodes-select — `INSERT INTO nodes (cols…) SELECT …`: run the SELECT through the
     /// read path, then materialize each row as a node (the `id` column → node id, the rest
     /// → properties), honoring `ON CONFLICT` (CONCEPT:EG-KG.query.delete-returning-sees-row). RETURNING optional.
@@ -2566,16 +2861,25 @@ impl WireSession {
         sql: &str,
         ins: InsertNodesSelect,
     ) -> WireResult<WireOutcome> {
-        let result = self.run_read(graph, ins.select_sql).await?;
-        if result.columns.len() != ins.columns.len() {
+        // Destructured up front (rather than borrowed piecemeal below) because
+        // `select_sql` is consumed by `run_read` — a partial move of one field
+        // forbids a later `&ins` whole-struct borrow, so every field this
+        // function needs is bound to its own local here instead.
+        let InsertNodesSelect {
+            columns,
+            select_sql,
+            returning,
+            on_conflict,
+        } = ins;
+        let result = self.run_read(graph, select_sql).await?;
+        if result.columns.len() != columns.len() {
             return Err(user_err(format!(
                 "INSERT INTO nodes … SELECT column count mismatch: {} target columns, {} selected",
-                ins.columns.len(),
+                columns.len(),
                 result.columns.len()
             )));
         }
-        let id_pos = ins
-            .columns
+        let id_pos = columns
             .iter()
             .position(|c| c.eq_ignore_ascii_case("id"))
             .ok_or_else(|| user_err("INSERT INTO nodes … SELECT must include the `id` column"))?;
@@ -2584,7 +2888,7 @@ impl WireSession {
         let cond_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(empty.clone()))
             .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
         let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
-        let returning = if ins.returning {
+        let returning_cols = if returning {
             Some(self.returning_cols(graph, sql).await?)
         } else {
             None
@@ -2592,50 +2896,25 @@ impl WireSession {
         let mut methods = Vec::with_capacity(result.rows.len());
         let mut n = 0usize;
         for row in result.rows {
-            let node_id = Self::cell_to_node_id(&row[id_pos])?;
-            let mut props = serde_json::Map::new();
-            for (i, col) in ins.columns.iter().enumerate() {
-                if i != id_pos {
-                    props.insert(col.clone(), row[i].clone());
+            if let Some((method, affected_row)) = Self::insert_nodes_select_row(
+                &row,
+                &columns,
+                on_conflict.as_ref(),
+                returning,
+                id_pos,
+                &mut view,
+                &cond_blob,
+                &empty,
+            )? {
+                methods.push(method);
+                if let Some(a) = affected_row {
+                    affected.push(a);
                 }
+                n += 1;
             }
-            // ON CONFLICT — conflict key is the node id.
-            if view.has_node(&node_id) {
-                match ins.on_conflict.as_ref().map(|oc| &oc.action) {
-                    Some(OnConflictAction::DoNothing) => continue,
-                    Some(OnConflictAction::DoUpdate(set)) => {
-                        let upd_blob =
-                            rmp_serde::to_vec_named(&serde_json::Value::Object(set.clone()))
-                                .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
-                        methods.push(crate::protocol::Method::CompareAndSetNodeFields {
-                            node_id: node_id.clone(),
-                            conditions_msgpack: cond_blob.clone(),
-                            updates_msgpack: upd_blob,
-                        });
-                        view.overlay_compare_and_set_fields(&node_id, &empty, set);
-                        if ins.returning {
-                            affected.push((node_id, set.clone()));
-                        }
-                        n += 1;
-                        continue;
-                    }
-                    None => {} // no ON CONFLICT → overwrite (add_node semantics)
-                }
-            }
-            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props.clone()))
-                .map_err(|e| user_err(format!("encode node properties: {e}")))?;
-            methods.push(crate::protocol::Method::AddNode {
-                node_id: node_id.clone(),
-                properties_msgpack: blob.clone(),
-            });
-            view.overlay_add_node(node_id.clone(), blob);
-            if ins.returning {
-                affected.push((node_id, props));
-            }
-            n += 1;
         }
         self.commit_graph_methods(graph, methods).await?;
-        if let Some((cols, types)) = returning {
+        if let Some((cols, types)) = returning_cols {
             Ok(WireOutcome::Rows(returning_result(
                 &affected, &cols, &types,
             )))
@@ -3023,6 +3302,55 @@ impl WireSession {
         }
     }
 
+    /// One row of [`Self::buffer_insert_nodes_select`]'s SELECT result: buffers the
+    /// node write (`NodeOp::Add`/`NodeOp::Cas`) and advances the local overlay `view`
+    /// so a later row in the same statement — or a later statement in the same txn —
+    /// sees it. Outer `Ok(None)` is `ON CONFLICT DO NOTHING` on an already-present
+    /// node: skip, nothing buffered, no RETURNING row. Outer `Some` carries the
+    /// RETURNING projection (inner `None` when `ins.returning` is false).
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn buffer_insert_nodes_select_row(
+        &self,
+        row: &[serde_json::Value],
+        columns: &[String],
+        on_conflict: Option<&OnConflict>,
+        returning: bool,
+        id_pos: usize,
+        view: &mut crate::graph::GraphView,
+        empty: &serde_json::Map<String, serde_json::Value>,
+    ) -> WireResult<Option<Option<(String, serde_json::Map<String, serde_json::Value>)>>> {
+        let node_id = Self::cell_to_node_id(&row[id_pos])?;
+        let mut props = serde_json::Map::new();
+        for (i, col) in columns.iter().enumerate() {
+            if i != id_pos {
+                props.insert(col.clone(), row[i].clone());
+            }
+        }
+        if view.has_node(&node_id) {
+            match on_conflict.map(|oc| &oc.action) {
+                Some(OnConflictAction::DoNothing) => return Ok(None),
+                Some(OnConflictAction::DoUpdate(set)) => {
+                    self.buffer_node(NodeOp::Cas {
+                        id: node_id.clone(),
+                        conditions: empty.clone(),
+                        updates: set.clone(),
+                    });
+                    view.overlay_compare_and_set_fields(&node_id, empty, set);
+                    return Ok(Some(returning.then(|| (node_id, set.clone()))));
+                }
+                None => {} // no ON CONFLICT → overwrite (add_node semantics)
+            }
+        }
+        let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props.clone()))
+            .map_err(|e| user_err(format!("encode node properties: {e}")))?;
+        self.buffer_node(NodeOp::Add {
+            id: node_id.clone(),
+            blob: blob.clone(),
+        });
+        view.overlay_add_node(node_id.clone(), blob);
+        Ok(Some(returning.then_some((node_id, props))))
+    }
+
     /// Buffered `INSERT INTO nodes … SELECT …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). The SELECT resolves
     /// over the RYOW overlay; `ON CONFLICT` is evaluated against the txn's own evolving
     /// buffered state (a local overlaid view advanced per row), so a conflict against a
@@ -3033,16 +3361,24 @@ impl WireSession {
         sql: &str,
         ins: InsertNodesSelect,
     ) -> WireResult<WireOutcome> {
-        let result = self.run_read(graph, ins.select_sql).await?;
-        if result.columns.len() != ins.columns.len() {
+        // Destructured up front — see `run_insert_nodes_select`'s comment: `select_sql`
+        // is consumed by `run_read`, and a partial move forbids a later `&ins`
+        // whole-struct borrow.
+        let InsertNodesSelect {
+            columns,
+            select_sql,
+            returning,
+            on_conflict,
+        } = ins;
+        let result = self.run_read(graph, select_sql).await?;
+        if result.columns.len() != columns.len() {
             return Err(user_err(format!(
                 "INSERT INTO nodes … SELECT column count mismatch: {} target columns, {} selected",
-                ins.columns.len(),
+                columns.len(),
                 result.columns.len()
             )));
         }
-        let id_pos = ins
-            .columns
+        let id_pos = columns
             .iter()
             .position(|c| c.eq_ignore_ascii_case("id"))
             .ok_or_else(|| user_err("INSERT INTO nodes … SELECT must include the `id` column"))?;
@@ -3053,45 +3389,22 @@ impl WireSession {
         let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
         let mut n = 0usize;
         for row in result.rows {
-            let node_id = Self::cell_to_node_id(&row[id_pos])?;
-            let mut props = serde_json::Map::new();
-            for (i, col) in ins.columns.iter().enumerate() {
-                if i != id_pos {
-                    props.insert(col.clone(), row[i].clone());
+            if let Some(affected_row) = self.buffer_insert_nodes_select_row(
+                &row,
+                &columns,
+                on_conflict.as_ref(),
+                returning,
+                id_pos,
+                &mut view,
+                &empty,
+            )? {
+                if let Some(a) = affected_row {
+                    affected.push(a);
                 }
+                n += 1;
             }
-            if view.has_node(&node_id) {
-                match ins.on_conflict.as_ref().map(|oc| &oc.action) {
-                    Some(OnConflictAction::DoNothing) => continue,
-                    Some(OnConflictAction::DoUpdate(set)) => {
-                        self.buffer_node(NodeOp::Cas {
-                            id: node_id.clone(),
-                            conditions: empty.clone(),
-                            updates: set.clone(),
-                        });
-                        view.overlay_compare_and_set_fields(&node_id, &empty, set);
-                        if ins.returning {
-                            affected.push((node_id, set.clone()));
-                        }
-                        n += 1;
-                        continue;
-                    }
-                    None => {} // no ON CONFLICT → overwrite (add_node semantics)
-                }
-            }
-            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props.clone()))
-                .map_err(|e| user_err(format!("encode node properties: {e}")))?;
-            self.buffer_node(NodeOp::Add {
-                id: node_id.clone(),
-                blob: blob.clone(),
-            });
-            view.overlay_add_node(node_id.clone(), blob);
-            if ins.returning {
-                affected.push((node_id, props));
-            }
-            n += 1;
         }
-        if ins.returning {
+        if returning {
             let (cols, types) = self.returning_cols(graph, sql).await?;
             Ok(WireOutcome::Rows(returning_result(
                 &affected, &cols, &types,
@@ -4082,6 +4395,168 @@ impl WireSession {
         }
         Ok(())
     }
+
+    /// The pgwire CROSS-MODAL transaction seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) of [`Self::execute`]:
+    /// recognize the cross-modal verbs BEFORE the SQL classifier (a UQL query / a
+    /// `SET EMBEDDING` / an `INSERT INTO series` / a `SPARQL …` statement is not SQL)
+    /// and route them onto the committed RPC seam, wrapped in the same aborted-txn
+    /// gate, ACL check, and aborted-latch-on-error the SQL dispatch applies. `None`
+    /// when `sql` is not a recognized cross-modal statement (the caller falls through
+    /// to the ordinary SQL classifier).
+    #[cfg(feature = "query")]
+    async fn try_execute_crossmodal(
+        &self,
+        graph: &str,
+        sql: &str,
+    ) -> Option<WireResult<WireOutcome>> {
+        let stmt = Self::detect_crossmodal(sql)?;
+        if self.in_txn() && self.txn_aborted() {
+            return Some(Err(aborted_txn_err()));
+        }
+        if let Err(e) = self
+            .check_access(graph, Self::crossmodal_access(&stmt))
+            .await
+        {
+            return Some(Err(e));
+        }
+        let in_txn = self.in_txn();
+        let result = self.exec_crossmodal(graph, stmt, in_txn).await;
+        if in_txn && result.is_err() {
+            *self.txn_failed.lock() = true;
+        }
+        Some(result)
+    }
+
+    /// The `StatementKind::Begin` arm of [`Self::execute`].
+    async fn handle_begin(&self, sql: &str, graph: &str) -> WireResult<WireOutcome> {
+        self.begin_txn();
+        // NE-005: resolve this txn's isolation level — an inline `BEGIN …
+        // ISOLATION LEVEL …` clause wins; otherwise a prior bare `SET TRANSACTION
+        // ISOLATION LEVEL …` (Postgres: applies to the NEXT transaction only);
+        // otherwise the session default; otherwise `Snapshot`.
+        let resolved = match parse_begin_isolation_clause(sql) {
+            Some(Ok(level)) => level,
+            Some(Err(e)) => {
+                // Malformed/unsupported clause: the transaction never really
+                // opened — undo `begin_txn()`'s state and reject with a typed
+                // error (never silently accept an isolation level we cannot
+                // provide).
+                self.take_txn();
+                #[cfg(feature = "query")]
+                let _ = self.take_xmodal();
+                return Err(e);
+            }
+            None => self
+                .pending_isolation
+                .lock()
+                .take()
+                .or_else(|| *self.session_isolation_default.lock())
+                .unwrap_or(crate::server::txn::IsolationLevel::Snapshot),
+        };
+        *self.txn_isolation.lock() = resolved;
+        // Capture the REAL begin-time version now, before any statement runs —
+        // see `txn_begin_version`'s doc for why this must not be re-derived at
+        // commit time. Best-effort: a not-found graph here just leaves it
+        // `None`, and the later commit path's own `graph_core` call surfaces
+        // the real error.
+        if let Ok(core) = self.graph_core(graph).await {
+            *self.txn_begin_version.lock() = Some(core.version());
+        }
+        Ok(WireOutcome::TxnStart)
+    }
+
+    /// The `StatementKind::Rollback` arm of [`Self::execute`]: drop both buffers +
+    /// the cross-modal staging + the RYOW overlay (nothing was applied in-memory),
+    /// and always end the block.
+    fn handle_rollback(&self) -> WireOutcome {
+        self.take_txn();
+        #[cfg(feature = "query")]
+        let _ = self.take_xmodal();
+        self.serializable_predicate_reads.lock().clear();
+        self.txn_replay_log.lock().clear();
+        WireOutcome::TxnEnd { tag: "ROLLBACK" }
+    }
+
+    /// NE-005 auto predicate tracking, the read-and-Serializable half of
+    /// [`Self::execute`]'s in-txn gate: a `Serializable` transaction's OWN reads seed
+    /// the predicate read-set the commit-time check protects — see
+    /// [`extract_label_predicates`]'s doc for exactly what shape this captures (and
+    /// does not). Fingerprinted RIGHT NOW, before the read itself runs — the
+    /// "captured at begin" baseline `validate()` re-checks at commit MUST be from
+    /// read time, never recomputed later (a baseline captured seconds — or even
+    /// microseconds — before `validate()` re-checks it protects nothing; see
+    /// `GraphTxnState::add_predicate_read`'s doc). A no-op outside `Serializable` or
+    /// when the read matches no label predicate.
+    async fn track_serializable_predicate_read(&self, graph: &str, sql: &str) {
+        if *self.txn_isolation.lock() != crate::server::txn::IsolationLevel::Serializable {
+            return;
+        }
+        let labels = extract_label_predicates(sql);
+        if labels.is_empty() {
+            return;
+        }
+        let Ok(core) = self.graph_core(graph).await else {
+            return;
+        };
+        let mut captured = self.serializable_predicate_reads.lock();
+        for label in labels {
+            let predicate = crate::server::txn::PredicateRead::Label(label);
+            let fp = predicate.fingerprint(&core);
+            captured.push((predicate, fp));
+        }
+    }
+
+    /// The engine-ACL check of [`Self::execute`]: a read needs Read access, any DML
+    /// needs Write.
+    async fn check_access_for_kind(&self, graph: &str, kind: &StatementKind) -> WireResult<()> {
+        let access = match kind {
+            // CONCEPT:EG-KG.query.postgres-family-extension-plan — an AGE cypher() call is a read.
+            StatementKind::Read | StatementKind::CypherCall(_) => AccessLevel::Read,
+            _ => AccessLevel::Write,
+        };
+        self.check_access(graph, access).await
+    }
+
+    /// The tail of [`Self::execute`]: dispatch the classified statement, latching
+    /// the transaction into the aborted state on any error so subsequent
+    /// statements are rejected with 25P02 (CONCEPT:EG-KG.compute.kg-transaction-is-pinned), and — on
+    /// success — recording this statement's literal SQL into the replay log when it
+    /// buffered a NEW table op (NE-004: compared against the table-op count before
+    /// dispatch, so a crash-recovered mixed transaction can rebuild its `TableTxn`).
+    async fn execute_dispatch_and_finish(
+        &self,
+        graph: &str,
+        sql: &str,
+        kind: StatementKind,
+        in_txn: bool,
+    ) -> WireResult<WireOutcome> {
+        let table_ops_before = if in_txn {
+            self.txn.lock().as_ref().map(|t| t.ops.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        // CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query timing for the wire SQL path (psql/BI/ORM).
+        // `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS is set.
+        let slow = crate::slow_query::describe_sql(sql);
+        let slow_start = slow.as_ref().map(|_| std::time::Instant::now());
+
+        let result = self.dispatch_kind(graph, sql, kind, in_txn).await;
+        if let (Some(slow), Some(start)) = (slow, slow_start) {
+            slow.log_if_slow(start.elapsed());
+        }
+        if in_txn && result.is_ok() {
+            let table_ops_after = self.txn.lock().as_ref().map(|t| t.ops.len()).unwrap_or(0);
+            if table_ops_after > table_ops_before {
+                self.txn_replay_log
+                    .lock()
+                    .push(crate::server::txn_intent::ReplayStep::Sql(sql.to_string()));
+            }
+        }
+        if in_txn && result.is_err() {
+            *self.txn_failed.lock() = true;
+        }
+        result
+    }
 }
 
 /// A detected cross-modal wire statement (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — the parser/router output of
@@ -4297,15 +4772,15 @@ impl WireProtocol for WireSession {
         // probe may touch state until a current signed request or a verified native
         // SQL proxy handshake has bound tenant+actor authority to the connection.
         self.carrier_authority()?;
-        if let Some(res) = self.try_set_graph(sql) {
-            return res;
-        }
         // NE-005: `SET TRANSACTION ISOLATION LEVEL …` / `SET SESSION
         // CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL …` — neither has a
         // `sqlparser` AST node this classifier recognizes (see
         // `try_set_isolation`'s doc), so intercept them textually BEFORE the
         // classifier, exactly like `try_set_graph` does for `SET graph`.
-        if let Some(res) = self.try_set_isolation(sql) {
+        if let Some(res) = self
+            .try_set_graph(sql)
+            .or_else(|| self.try_set_isolation(sql))
+        {
             return res;
         }
         let graph = self.current_graph();
@@ -4321,18 +4796,8 @@ impl WireProtocol for WireSession {
         // and route them onto the committed RPC seam. The same aborted-txn gate,
         // ACL check, and aborted-latch-on-error the SQL dispatch applies wrap them.
         #[cfg(feature = "query")]
-        if let Some(stmt) = Self::detect_crossmodal(sql) {
-            if self.in_txn() && self.txn_aborted() {
-                return Err(aborted_txn_err());
-            }
-            self.check_access(&graph, Self::crossmodal_access(&stmt))
-                .await?;
-            let in_txn = self.in_txn();
-            let result = self.exec_crossmodal(&graph, stmt, in_txn).await;
-            if in_txn && result.is_err() {
-                *self.txn_failed.lock() = true;
-            }
-            return result;
+        if let Some(res) = self.try_execute_crossmodal(&graph, sql).await {
+            return res;
         }
 
         let kind = eg_query::classify(sql).map_err(user_err)?;
@@ -4341,55 +4806,9 @@ impl WireProtocol for WireSession {
         // BEGIN/COMMIT/ROLLBACK report a txn-status change so the wire reports the
         // correct in-transaction status to the driver.
         match &kind {
-            StatementKind::Begin => {
-                self.begin_txn();
-                // NE-005: resolve this txn's isolation level — an inline
-                // `BEGIN … ISOLATION LEVEL …` clause wins; otherwise a prior
-                // bare `SET TRANSACTION ISOLATION LEVEL …` (Postgres: applies
-                // to the NEXT transaction only); otherwise the session
-                // default; otherwise `Snapshot`.
-                let resolved = match parse_begin_isolation_clause(sql) {
-                    Some(Ok(level)) => level,
-                    Some(Err(e)) => {
-                        // Malformed/unsupported clause: the transaction never
-                        // really opened — undo `begin_txn()`'s state and
-                        // reject with a typed error (never silently accept an
-                        // isolation level we cannot provide).
-                        self.take_txn();
-                        #[cfg(feature = "query")]
-                        let _ = self.take_xmodal();
-                        return Err(e);
-                    }
-                    None => self
-                        .pending_isolation
-                        .lock()
-                        .take()
-                        .or_else(|| *self.session_isolation_default.lock())
-                        .unwrap_or(crate::server::txn::IsolationLevel::Snapshot),
-                };
-                *self.txn_isolation.lock() = resolved;
-                // Capture the REAL begin-time version now, before any
-                // statement runs — see `txn_begin_version`'s doc for why
-                // this must not be re-derived at commit time. Best-effort:
-                // a not-found graph here just leaves it `None`, and the
-                // later commit path's own `graph_core` call surfaces the
-                // real error.
-                if let Ok(core) = self.graph_core(&graph).await {
-                    *self.txn_begin_version.lock() = Some(core.version());
-                }
-                return Ok(WireOutcome::TxnStart);
-            }
+            StatementKind::Begin => return self.handle_begin(sql, &graph).await,
             StatementKind::Commit => return self.run_commit().await,
-            StatementKind::Rollback => {
-                // ROLLBACK drops both buffers + the cross-modal staging + the RYOW
-                // overlay (nothing was applied in-memory), and always ends the block.
-                self.take_txn();
-                #[cfg(feature = "query")]
-                let _ = self.take_xmodal();
-                self.serializable_predicate_reads.lock().clear();
-                self.txn_replay_log.lock().clear();
-                return Ok(WireOutcome::TxnEnd { tag: "ROLLBACK" });
-            }
+            StatementKind::Rollback => return Ok(self.handle_rollback()),
             _ => {}
         }
 
@@ -4404,12 +4823,7 @@ impl WireProtocol for WireSession {
         // Enforce the engine ACL under the connection's authenticated actor
         // (CONCEPT:EG-KG.query.concept-13) BEFORE touching the graph: a read needs Read access, any
         // DML needs Write. The authenticated actor must exist in durable policy.
-        let access = match kind {
-            // CONCEPT:EG-KG.query.postgres-family-extension-plan — an AGE cypher() call is a read.
-            StatementKind::Read | StatementKind::CypherCall(_) => AccessLevel::Read,
-            _ => AccessLevel::Write,
-        };
-        self.check_access(&graph, access).await?;
+        self.check_access_for_kind(&graph, &kind).await?;
 
         // While a transaction is OPEN, buffer BOTH user-table DDL/DML (into `txn`)
         // and graph-node DML (into `graph_txn`); the buffers are applied at COMMIT.
@@ -4417,67 +4831,12 @@ impl WireProtocol for WireSession {
         // so they observe the txn's own buffered writes.
         let in_txn = self.in_txn();
 
-        // NE-005 auto predicate tracking: a `Serializable` transaction's OWN
-        // reads seed the predicate read-set the commit-time check protects —
-        // see `extract_label_predicates`'s doc for exactly what shape this
-        // captures (and does not). Fingerprinted RIGHT NOW, before the read
-        // itself runs — the "captured at begin" baseline `validate()`
-        // re-checks at commit MUST be from read time, never recomputed later
-        // (a baseline captured seconds — or even microseconds — before
-        // `validate()` re-checks it protects nothing; see
-        // `GraphTxnState::add_predicate_read`'s doc).
-        if in_txn
-            && matches!(kind, StatementKind::Read)
-            && *self.txn_isolation.lock() == crate::server::txn::IsolationLevel::Serializable
-        {
-            let labels = extract_label_predicates(sql);
-            if !labels.is_empty() {
-                if let Ok(core) = self.graph_core(&graph).await {
-                    let mut captured = self.serializable_predicate_reads.lock();
-                    for label in labels {
-                        let predicate = crate::server::txn::PredicateRead::Label(label);
-                        let fp = predicate.fingerprint(&core);
-                        captured.push((predicate, fp));
-                    }
-                }
-            }
+        if in_txn && matches!(kind, StatementKind::Read) {
+            self.track_serializable_predicate_read(&graph, sql).await;
         }
 
-        // NE-004: how many table ops this txn has buffered BEFORE dispatch —
-        // compared against the count AFTER, below, to detect (without
-        // enumerating every table-touching `StatementKind`) whether THIS
-        // statement just buffered a table op, so its literal SQL text can be
-        // recorded into the replay log a crash-recovered mixed transaction
-        // rebuilds its `TableTxn` from.
-        let table_ops_before = if in_txn {
-            self.txn.lock().as_ref().map(|t| t.ops.len()).unwrap_or(0)
-        } else {
-            0
-        };
-
-        // CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query timing for the wire SQL path (psql/BI/ORM).
-        // `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS is set.
-        let slow = crate::slow_query::describe_sql(sql);
-        let slow_start = slow.as_ref().map(|_| std::time::Instant::now());
-
-        // Run the dispatch, latching the transaction into the aborted state on any
-        // error so subsequent statements are rejected with 25P02 (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
-        let result = self.dispatch_kind(&graph, sql, kind, in_txn).await;
-        if let (Some(slow), Some(start)) = (slow, slow_start) {
-            slow.log_if_slow(start.elapsed());
-        }
-        if in_txn && result.is_ok() {
-            let table_ops_after = self.txn.lock().as_ref().map(|t| t.ops.len()).unwrap_or(0);
-            if table_ops_after > table_ops_before {
-                self.txn_replay_log
-                    .lock()
-                    .push(crate::server::txn_intent::ReplayStep::Sql(sql.to_string()));
-            }
-        }
-        if in_txn && result.is_err() {
-            *self.txn_failed.lock() = true;
-        }
-        result
+        self.execute_dispatch_and_finish(&graph, sql, kind, in_txn)
+            .await
     }
 }
 

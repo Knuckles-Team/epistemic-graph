@@ -522,72 +522,11 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
     if !eg_capabilities::policy(method).mutates {
         return ClusterMutationRoute::ReadOnly;
     }
-    if matches!(method, Method::Shutdown) {
-        return ClusterMutationRoute::VolatileControl;
+    if let Some(route) = cluster_mutation_route_admin(method) {
+        return route;
     }
-    if matches!(
-        method,
-        Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. }
-    ) {
-        // These mutate (`admin:cluster`, `ControlRedb`, `Saga` — the SAME policy
-        // shape as `Reshard`/`CatalogAssign`/etc.), so `authz_action ==
-        // "admin:cluster"` alone can't discriminate them: those sibling methods
-        // legitimately ARE `ConsensusNative` (they have a bounded
-        // `NativeMutationDomain::ClusterAdmin` command). What actually sets
-        // `RaftAddLearner`/`RaftChangeMembership` apart is that they have NO
-        // bounded `NativeMutationCommand` at all — see
-        // `SELF_ROUTED_ADMIN_METHODS`'s doc comment — and are handled entirely by
-        // `handlers::raft_admin::try_handle`, which resolves `MultiRaft` and does
-        // its own leader check/`OPERATION_REDIRECTED` redirect, exactly like
-        // `handlers::placement::try_handle` does for `PlacementRoute`.
-        debug_assert!(
-            SELF_ROUTED_ADMIN_METHODS.contains(&method_variant_name(method)),
-            "SELF_ROUTED_ADMIN_METHODS drifted from this match arm"
-        );
-        return ClusterMutationRoute::SelfRoutedAdmin;
-    }
-    // `PlacementAdmin` (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5) is durable, but
-    // NOT via this generic layer: `MultiRaft::placement_assign`/`TenantManager::
-    // move_partition`/`abort_move` each commit through their OWN raft round-trip
-    // (`commit_placement` -> the DEFAULT group's `client_write`) BEFORE this
-    // classifier ever runs on the replicated-apply pass. Routing it through
-    // `ConsensusNative`'s generic `propose_native_mutation` wrapper (as `Reshard`/
-    // `CatalogAssign` correctly do — they have no self-contained commit of their
-    // own) would propose a SECOND, redundant raft entry and, worse, re-enter
-    // `handlers::placement::try_handle` -> another `commit_placement` proposal from
-    // INSIDE that second entry's own apply callback. `VolatileControl` is the
-    // existing bucket for "this method's own mechanism handles durability; the
-    // generic cluster-routing layer does nothing extra" (see `Shutdown` above) --
-    // the name describes this layer's role, not whether the effect persists.
-    if matches!(method, Method::PlacementAdmin { .. }) {
-        return ClusterMutationRoute::VolatileControl;
-    }
-    // `RegisterServer` (CONCEPT:EG-KG.sharding.server-registry, W2.5) never itself reaches
-    // this classifier at runtime: `dispatch.rs`'s `handle_register_server` intercepts it
-    // BEFORE the mutation gateway, validates it, and self-translates into a
-    // `Method::AddNode` against `__commons__` dispatched through the ordinary
-    // `dispatch_graph_op` path (which IS `GATEWAY_ROUTED`, hence already properly
-    // raft-replicated). Same shape as `PlacementAdmin` immediately above: this generic
-    // layer does nothing extra for the method NAMED `RegisterServer` because its own
-    // mechanism (the translation) already lands the mutation on an already-safe path.
-    if matches!(method, Method::RegisterServer { .. }) {
-        return ClusterMutationRoute::VolatileControl;
-    }
-    if matches!(method, Method::ApplyChangeEnvelope { .. }) {
-        return ClusterMutationRoute::ConsensusNative;
-    }
-    // The batch coordinator decomposes into per-graph `ApplyChangeEnvelope`-shaped
-    // sub-batches (each an independently-placed native consensus commit) before any
-    // local mutation — the same shape as `MultiGraphBatchUpdate`.
-    if matches!(method, Method::ApplyChangeEnvelopes { .. }) {
-        return ClusterMutationRoute::ConsensusFanout;
-    }
-    #[cfg(feature = "sparql-http")]
-    if is_sparql_http_update(method) {
-        return ClusterMutationRoute::ConsensusFanout;
-    }
-    if matches!(method, Method::MultiGraphBatchUpdate { .. }) {
-        return ClusterMutationRoute::ConsensusFanout;
+    if let Some(route) = cluster_mutation_route_consensus(method) {
+        return route;
     }
     #[cfg(feature = "modality-serving")]
     if let Method::ServedModality { op } = method {
@@ -609,6 +548,90 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
         // locally because dispatch proposes this route unconditionally.
         ClusterMutationRoute::ConsensusNative
     }
+}
+
+/// The admin/control-plane arms of [`cluster_mutation_route`]: `Shutdown`,
+/// `RaftAddLearner`/`RaftChangeMembership`, `PlacementAdmin`, `RegisterServer`.
+/// `None` when `method` is none of these (the caller falls through to
+/// [`cluster_mutation_route_consensus`]).
+fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute> {
+    if matches!(method, Method::Shutdown) {
+        return Some(ClusterMutationRoute::VolatileControl);
+    }
+    if matches!(
+        method,
+        Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. }
+    ) {
+        // These mutate (`admin:cluster`, `ControlRedb`, `Saga` — the SAME policy
+        // shape as `Reshard`/`CatalogAssign`/etc.), so `authz_action ==
+        // "admin:cluster"` alone can't discriminate them: those sibling methods
+        // legitimately ARE `ConsensusNative` (they have a bounded
+        // `NativeMutationDomain::ClusterAdmin` command). What actually sets
+        // `RaftAddLearner`/`RaftChangeMembership` apart is that they have NO
+        // bounded `NativeMutationCommand` at all — see
+        // `SELF_ROUTED_ADMIN_METHODS`'s doc comment — and are handled entirely by
+        // `handlers::raft_admin::try_handle`, which resolves `MultiRaft` and does
+        // its own leader check/`OPERATION_REDIRECTED` redirect, exactly like
+        // `handlers::placement::try_handle` does for `PlacementRoute`.
+        debug_assert!(
+            SELF_ROUTED_ADMIN_METHODS.contains(&method_variant_name(method)),
+            "SELF_ROUTED_ADMIN_METHODS drifted from this match arm"
+        );
+        return Some(ClusterMutationRoute::SelfRoutedAdmin);
+    }
+    // `PlacementAdmin` (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5) is durable, but
+    // NOT via this generic layer: `MultiRaft::placement_assign`/`TenantManager::
+    // move_partition`/`abort_move` each commit through their OWN raft round-trip
+    // (`commit_placement` -> the DEFAULT group's `client_write`) BEFORE this
+    // classifier ever runs on the replicated-apply pass. Routing it through
+    // `ConsensusNative`'s generic `propose_native_mutation` wrapper (as `Reshard`/
+    // `CatalogAssign` correctly do — they have no self-contained commit of their
+    // own) would propose a SECOND, redundant raft entry and, worse, re-enter
+    // `handlers::placement::try_handle` -> another `commit_placement` proposal from
+    // INSIDE that second entry's own apply callback. `VolatileControl` is the
+    // existing bucket for "this method's own mechanism handles durability; the
+    // generic cluster-routing layer does nothing extra" (see `Shutdown` above) --
+    // the name describes this layer's role, not whether the effect persists.
+    if matches!(method, Method::PlacementAdmin { .. }) {
+        return Some(ClusterMutationRoute::VolatileControl);
+    }
+    // `RegisterServer` (CONCEPT:EG-KG.sharding.server-registry, W2.5) never itself reaches
+    // this classifier at runtime: `dispatch.rs`'s `handle_register_server` intercepts it
+    // BEFORE the mutation gateway, validates it, and self-translates into a
+    // `Method::AddNode` against `__commons__` dispatched through the ordinary
+    // `dispatch_graph_op` path (which IS `GATEWAY_ROUTED`, hence already properly
+    // raft-replicated). Same shape as `PlacementAdmin` immediately above: this generic
+    // layer does nothing extra for the method NAMED `RegisterServer` because its own
+    // mechanism (the translation) already lands the mutation on an already-safe path.
+    if matches!(method, Method::RegisterServer { .. }) {
+        return Some(ClusterMutationRoute::VolatileControl);
+    }
+    None
+}
+
+/// The consensus/fanout arms of [`cluster_mutation_route`]: `ApplyChangeEnvelope`
+/// (single-graph native consensus), and the batch/fanout-shaped methods
+/// (`ApplyChangeEnvelopes`, the SPARQL-HTTP update event, `MultiGraphBatchUpdate`)
+/// that decompose into independently-placed per-graph commits. `None` when `method`
+/// is none of these.
+fn cluster_mutation_route_consensus(method: &Method) -> Option<ClusterMutationRoute> {
+    if matches!(method, Method::ApplyChangeEnvelope { .. }) {
+        return Some(ClusterMutationRoute::ConsensusNative);
+    }
+    // The batch coordinator decomposes into per-graph `ApplyChangeEnvelope`-shaped
+    // sub-batches (each an independently-placed native consensus commit) before any
+    // local mutation — the same shape as `MultiGraphBatchUpdate`.
+    if matches!(method, Method::ApplyChangeEnvelopes { .. }) {
+        return Some(ClusterMutationRoute::ConsensusFanout);
+    }
+    #[cfg(feature = "sparql-http")]
+    if is_sparql_http_update(method) {
+        return Some(ClusterMutationRoute::ConsensusFanout);
+    }
+    if matches!(method, Method::MultiGraphBatchUpdate { .. }) {
+        return Some(ClusterMutationRoute::ConsensusFanout);
+    }
+    None
 }
 
 /// Everything [`commit_mutation`] needs beyond the plan + the apply closure.
@@ -726,13 +749,6 @@ fn idempotency_store() -> &'static IdempotencyStore {
 /// arm covers a future idempotent addition to [`GATEWAY_ROUTED`] generically
 /// (correct but not as precise as a bespoke key).
 fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) -> String {
-    #[cfg(feature = "modality-serving")]
-    let modality_discriminator = |value: &eg_types::ServedModalityKind| match value {
-        eg_types::ServedModalityKind::Document => "document",
-        eg_types::ServedModalityKind::Image => "image",
-        eg_types::ServedModalityKind::Audio => "audio",
-        eg_types::ServedModalityKind::Video => "video",
-    };
     match method {
         // `ClearGraph`/`ClearLedger` carry NO distinguishing fields, so the
         // generic `{other:?}|{graph_name}` key below is IDENTICAL across every
@@ -788,20 +804,15 @@ fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) -> String {
                     bundle_msgpack,
                     source_bytes,
                 },
-        } => {
-            use sha2::{Digest, Sha256};
-            let mut digest = Sha256::new();
-            digest.update(b"served-modality-idempotency-v2");
-            digest.update(modality_discriminator(modality).as_bytes());
-            for value in [idempotency_ref.as_bytes(), target_occurrence_id.as_bytes()] {
-                digest.update((value.len() as u64).to_be_bytes());
-                digest.update(value);
-            }
-            digest.update(expected_version.unwrap_or(u64::MAX).to_be_bytes());
-            digest.update(Sha256::digest(bundle_msgpack));
-            digest.update(Sha256::digest(source_bytes));
-            format!("ServedModality|{graph_name}|{}", hex::encode(digest.finalize()))
-        }
+        } => served_modality_ingest_key(
+            graph_name,
+            modality,
+            idempotency_ref,
+            target_occurrence_id,
+            *expected_version,
+            bundle_msgpack,
+            source_bytes,
+        ),
         #[cfg(feature = "modality-serving")]
         Method::ServedModality {
             op:
@@ -818,28 +829,81 @@ fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) -> String {
         #[cfg(feature = "modality-serving")]
         Method::ServedModality {
             op: eg_types::ServedModalityOp::IngestStream { modality, items },
-        } => {
-            use sha2::{Digest, Sha256};
-            let mut digest = Sha256::new();
-            digest.update(b"served-modality-stream-idempotency-v2");
-            digest.update(modality_discriminator(modality).as_bytes());
-            digest.update((items.len() as u64).to_be_bytes());
-            for item in items {
-                for value in [
-                    item.idempotency_ref.as_bytes(),
-                    item.target_occurrence_id.as_bytes(),
-                ] {
-                    digest.update((value.len() as u64).to_be_bytes());
-                    digest.update(value);
-                }
-                digest.update(item.expected_version.unwrap_or(u64::MAX).to_be_bytes());
-                digest.update(Sha256::digest(&item.bundle_msgpack));
-                digest.update(Sha256::digest(&item.source_bytes));
-            }
-            format!("ServedModalityStream|{graph_name}|{}", hex::encode(digest.finalize()))
-        }
+        } => served_modality_ingest_stream_key(graph_name, modality, items),
         other => format!("{other:?}|{graph_name}"),
     }
+}
+
+/// The `modality`/discriminator half of every `ServedModality` idempotency key.
+#[cfg(feature = "modality-serving")]
+fn modality_discriminator(value: &eg_types::ServedModalityKind) -> &'static str {
+    match value {
+        eg_types::ServedModalityKind::Document => "document",
+        eg_types::ServedModalityKind::Image => "image",
+        eg_types::ServedModalityKind::Audio => "audio",
+        eg_types::ServedModalityKind::Video => "video",
+    }
+}
+
+/// The `ServedModalityOp::Ingest` arm of [`idempotency_key`]: content-addressed on
+/// every field that determines the write's effect.
+#[cfg(feature = "modality-serving")]
+#[allow(clippy::too_many_arguments)]
+fn served_modality_ingest_key(
+    graph_name: &str,
+    modality: &eg_types::ServedModalityKind,
+    idempotency_ref: &str,
+    target_occurrence_id: &str,
+    expected_version: Option<u64>,
+    bundle_msgpack: &[u8],
+    source_bytes: &[u8],
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"served-modality-idempotency-v2");
+    digest.update(modality_discriminator(modality).as_bytes());
+    for value in [idempotency_ref.as_bytes(), target_occurrence_id.as_bytes()] {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value);
+    }
+    digest.update(expected_version.unwrap_or(u64::MAX).to_be_bytes());
+    digest.update(Sha256::digest(bundle_msgpack));
+    digest.update(Sha256::digest(source_bytes));
+    format!(
+        "ServedModality|{graph_name}|{}",
+        hex::encode(digest.finalize())
+    )
+}
+
+/// The `ServedModalityOp::IngestStream` arm of [`idempotency_key`]: content-addressed
+/// over every item in the bounded stream, in order.
+#[cfg(feature = "modality-serving")]
+fn served_modality_ingest_stream_key(
+    graph_name: &str,
+    modality: &eg_types::ServedModalityKind,
+    items: &[eg_types::ServedModalityIngestItem],
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"served-modality-stream-idempotency-v2");
+    digest.update(modality_discriminator(modality).as_bytes());
+    digest.update((items.len() as u64).to_be_bytes());
+    for item in items {
+        for value in [
+            item.idempotency_ref.as_bytes(),
+            item.target_occurrence_id.as_bytes(),
+        ] {
+            digest.update((value.len() as u64).to_be_bytes());
+            digest.update(value);
+        }
+        digest.update(item.expected_version.unwrap_or(u64::MAX).to_be_bytes());
+        digest.update(Sha256::digest(&item.bundle_msgpack));
+        digest.update(Sha256::digest(&item.source_bytes));
+    }
+    format!(
+        "ServedModalityStream|{graph_name}|{}",
+        hex::encode(digest.finalize())
+    )
 }
 
 /// Source bodies belong only to the live native decoder. State-backed batches
@@ -994,98 +1058,7 @@ pub(crate) fn apply_coalescable_write(
     let mut txn = core.txn();
     let capture_content = core.wants_change_content();
     let mut change = crate::index::ChangeSet::new();
-    let result = match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => {
-            if capture_content {
-                change
-                    .added_nodes
-                    .push(crate::index::NodeChange::with_properties(
-                        node_id.clone(),
-                        properties_msgpack.clone(),
-                    ));
-            } else {
-                change.record_add_node(node_id.clone());
-            }
-            txn.add_node(node_id.clone(), properties_msgpack.clone());
-            Ok(ResultPayload::String("ok".to_string()))
-        }
-        Method::RemoveNode { node_id } => {
-            match txn.get_node_properties(node_id) {
-                Some(props) => change.record_remove_node_with_properties(node_id.clone(), props),
-                None => change.record_remove_node(node_id.clone()),
-            }
-            txn.remove_node(node_id.clone());
-            core.semantic_store.write().remove_embedding(node_id);
-            Ok(ResultPayload::String("ok".to_string()))
-        }
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => {
-            match txn.add_edge(
-                source_id.clone(),
-                target_id.clone(),
-                properties_msgpack.clone(),
-            ) {
-                Ok(()) => {
-                    change.record_add_edge(source_id.clone(), target_id.clone());
-                    Ok(ResultPayload::String("ok".to_string()))
-                }
-                Err(e) => Err(e),
-            }
-        }
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => {
-            change.record_remove_edge(source_id.clone(), target_id.clone());
-            txn.remove_edge(source_id.clone(), target_id.clone());
-            Ok(ResultPayload::String("ok".to_string()))
-        }
-        Method::CompareAndSetNodeFields {
-            node_id,
-            conditions_msgpack,
-            updates_msgpack,
-        } => {
-            let conditions = match eg_types::msgpack::decode_property_object(conditions_msgpack) {
-                Ok(value) => value,
-                Err(_) => return Ok(ResultPayload::Bool(false)),
-            };
-            let updates = match eg_types::msgpack::decode_property_object(updates_msgpack) {
-                Ok(value) => value,
-                Err(_) => return Ok(ResultPayload::Bool(false)),
-            };
-            let ok = txn.compare_and_set_fields(node_id, &conditions, &updates);
-            if ok {
-                if capture_content {
-                    let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
-                        .unwrap_or_default();
-                    change.updated_nodes.push(
-                        crate::index::NodeChange::with_properties_and_fields(
-                            node_id.clone(),
-                            blob,
-                            updates.keys().cloned().collect(),
-                        ),
-                    );
-                } else {
-                    change
-                        .updated_nodes
-                        .push(crate::index::NodeChange::with_fields(
-                            node_id.clone(),
-                            updates.keys().cloned().collect(),
-                        ));
-                }
-            }
-            Ok(ResultPayload::Bool(ok))
-        }
-        other => {
-            unreachable!("apply_coalescable_write called with a non-coalescable method: {other:?}")
-        }
-    };
+    let result = apply_coalescable_write_op(core, &mut txn, &mut change, capture_content, method);
     if !change.is_empty() {
         core.maintain_indexes_at(
             &change,
@@ -1096,6 +1069,157 @@ pub(crate) fn apply_coalescable_write(
     }
     drop(txn);
     result
+}
+
+/// Dispatch one of the five coalescable methods to its RAM-apply arm, each of which
+/// mutates `txn` and captures the corresponding [`crate::index::ChangeSet`] entry
+/// (this function's five match arms are intentionally the same shape as
+/// `write_coalescer::apply_batch`'s — see [`apply_coalescable_write`]'s doc).
+fn apply_coalescable_write_op(
+    core: &GraphCore,
+    txn: &mut crate::graph::GraphTxn<'_>,
+    change: &mut crate::index::ChangeSet,
+    capture_content: bool,
+    method: &Method,
+) -> Result<ResultPayload, String> {
+    match method {
+        Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } => apply_coalescable_add_node(txn, change, capture_content, node_id, properties_msgpack),
+        Method::RemoveNode { node_id } => apply_coalescable_remove_node(core, txn, change, node_id),
+        Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        } => apply_coalescable_add_edge(txn, change, source_id, target_id, properties_msgpack),
+        Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => apply_coalescable_remove_edge(txn, change, source_id, target_id),
+        Method::CompareAndSetNodeFields {
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        } => apply_coalescable_cas_fields(
+            txn,
+            change,
+            capture_content,
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        ),
+        other => {
+            unreachable!("apply_coalescable_write called with a non-coalescable method: {other:?}")
+        }
+    }
+}
+
+fn apply_coalescable_add_node(
+    txn: &mut crate::graph::GraphTxn<'_>,
+    change: &mut crate::index::ChangeSet,
+    capture_content: bool,
+    node_id: &str,
+    properties_msgpack: &[u8],
+) -> Result<ResultPayload, String> {
+    if capture_content {
+        change
+            .added_nodes
+            .push(crate::index::NodeChange::with_properties(
+                node_id.to_string(),
+                properties_msgpack.to_vec(),
+            ));
+    } else {
+        change.record_add_node(node_id.to_string());
+    }
+    txn.add_node(node_id.to_string(), properties_msgpack.to_vec());
+    Ok(ResultPayload::String("ok".to_string()))
+}
+
+fn apply_coalescable_remove_node(
+    core: &GraphCore,
+    txn: &mut crate::graph::GraphTxn<'_>,
+    change: &mut crate::index::ChangeSet,
+    node_id: &str,
+) -> Result<ResultPayload, String> {
+    match txn.get_node_properties(node_id) {
+        Some(props) => change.record_remove_node_with_properties(node_id.to_string(), props),
+        None => change.record_remove_node(node_id.to_string()),
+    }
+    txn.remove_node(node_id.to_string());
+    core.semantic_store.write().remove_embedding(node_id);
+    Ok(ResultPayload::String("ok".to_string()))
+}
+
+fn apply_coalescable_add_edge(
+    txn: &mut crate::graph::GraphTxn<'_>,
+    change: &mut crate::index::ChangeSet,
+    source_id: &str,
+    target_id: &str,
+    properties_msgpack: &[u8],
+) -> Result<ResultPayload, String> {
+    match txn.add_edge(
+        source_id.to_string(),
+        target_id.to_string(),
+        properties_msgpack.to_vec(),
+    ) {
+        Ok(()) => {
+            change.record_add_edge(source_id.to_string(), target_id.to_string());
+            Ok(ResultPayload::String("ok".to_string()))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn apply_coalescable_remove_edge(
+    txn: &mut crate::graph::GraphTxn<'_>,
+    change: &mut crate::index::ChangeSet,
+    source_id: &str,
+    target_id: &str,
+) -> Result<ResultPayload, String> {
+    change.record_remove_edge(source_id.to_string(), target_id.to_string());
+    txn.remove_edge(source_id.to_string(), target_id.to_string());
+    Ok(ResultPayload::String("ok".to_string()))
+}
+
+fn apply_coalescable_cas_fields(
+    txn: &mut crate::graph::GraphTxn<'_>,
+    change: &mut crate::index::ChangeSet,
+    capture_content: bool,
+    node_id: &str,
+    conditions_msgpack: &[u8],
+    updates_msgpack: &[u8],
+) -> Result<ResultPayload, String> {
+    let conditions = match eg_types::msgpack::decode_property_object(conditions_msgpack) {
+        Ok(value) => value,
+        Err(_) => return Ok(ResultPayload::Bool(false)),
+    };
+    let updates = match eg_types::msgpack::decode_property_object(updates_msgpack) {
+        Ok(value) => value,
+        Err(_) => return Ok(ResultPayload::Bool(false)),
+    };
+    let ok = txn.compare_and_set_fields(node_id, &conditions, &updates);
+    if ok {
+        if capture_content {
+            let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
+                .unwrap_or_default();
+            change
+                .updated_nodes
+                .push(crate::index::NodeChange::with_properties_and_fields(
+                    node_id.to_string(),
+                    blob,
+                    updates.keys().cloned().collect(),
+                ));
+        } else {
+            change
+                .updated_nodes
+                .push(crate::index::NodeChange::with_fields(
+                    node_id.to_string(),
+                    updates.keys().cloned().collect(),
+                ));
+        }
+    }
+    Ok(ResultPayload::Bool(ok))
 }
 
 /// The commit gateway entry point for a coalescable structural write
@@ -1360,80 +1484,23 @@ async fn commit_finalize(
     }
 
     // 5. Mark the graph dirty (checkpoint scheduling). Idempotent flag set.
-    if plan.mutates {
-        if preserve_node_indexes {
-            ctx.core.mark_dirty_preserving_indexes();
-        } else {
-            ctx.core.mark_dirty();
-        }
-    }
+    commit_finalize_mark_dirty(ctx, plan, preserve_node_indexes);
 
     // 6. Durable commit -- reuses the EXISTING `PersistenceBackend` plumbing.
     if !durability_already_committed && !matches!(plan.durability_domain, DurabilityDomain::None) {
-        let Some(persistence) = ctx.persistence else {
-            return Response::err(
-                ctx.req_id,
-                "durable mutation requires a persistence backend",
-            );
-        };
-        let fname = crate::persist::sanitize(ctx.graph_name);
-        if let Err(e) = persistence.record_durable(&fname, method).await {
-            return Response::err(
-                ctx.req_id,
-                format!("durable commit failed (write not acknowledged): {e}"),
-            );
+        if let Some(err_response) = commit_finalize_durable(ctx, method).await {
+            return err_response;
         }
     }
 
-    // 6.5. Refresh the per-graph node/edge size gauges. `commit_finalize` is
-    // the universal mutation gateway essentially all current writes route
-    // through (GATEWAY_ROUTED) -- the refresh previously lived ONLY in the
-    // legacy non-gateway dispatch tail (`dispatch.rs`'s post-`'dispatch`
-    // block) and Raft snapshot-install (`raft/store.rs`), so a graph mutated
-    // exclusively via gateway-routed writes (the common case -- AddNode/
-    // AddEmbedding/etc.) never refreshed its gauge at all and silently froze
-    // at its last snapshot-install value. Confirmed live: the `/metrics`
-    // gauge sat at 56,882 nodes while a live `NodeCount` RPC, a Cypher
-    // `count(n)`, and full label enumeration all independently agreed on
-    // 25,122 -- unchanged across two scrapes ten minutes apart despite
-    // `graph_ops_total` advancing by ~30k in that window.
-    //
-    // Placed AFTER the durable-commit step (not alongside `mark_dirty` in
-    // step 5) so it only fires once a mutation is confirmed durable, and
-    // gated on `plan.mutates` exactly like `mark_dirty` above and
-    // `dispatch.rs`'s equivalent `AccessLevel::Write` gate, so a read-only
-    // gateway call never pays for it. Both counts are O(1) (`GraphCore::
-    // node_count`/`edge_count` read the already-resident `StableGraph`'s own
-    // cardinality, no full scan) -- the same cost `dispatch.rs` already
-    // accepted on every mutation ("both petgraph counts are O(1), so this
-    // adds no meaningful write-path cost"), so refreshing unconditionally on
-    // every commit (rather than on a bounded cadence) is the right choice
-    // here too: a gauge that costs an O(1) read on the write path is strictly
-    // better than one that silently freezes, and there is no hot-loop
-    // concern (this fires once per already-durably-committed mutation, not
-    // once per poll).
+    // 6.5. Refresh the per-graph node/edge size gauges. See
+    // `commit_finalize_refresh_size_gauges`'s doc for why this runs here.
     #[cfg(feature = "metrics")]
-    if plan.mutates {
-        crate::metrics::set_graph_size(
-            ctx.graph_name,
-            ctx.core.node_count() as i64,
-            ctx.core.edge_count() as i64,
-        );
-    }
+    commit_finalize_refresh_size_gauges(ctx, plan);
 
     // 7. CDC emit -- only AFTER the authoritative durable commit succeeds.
     #[cfg(feature = "streaming")]
-    if plan.emits_cdc {
-        if let Some(hub) = ctx.cdc {
-            crate::server::cdc::emit_for_method(
-                hub,
-                ctx.core,
-                ctx.graph_name,
-                method,
-                prep.cdc_pre,
-            );
-        }
-    }
+    commit_finalize_emit_cdc(ctx, plan, method, prep.cdc_pre);
 
     // 8. Cache the response for idempotent-replay dedup.
     if let Some(key) = prep.dedup_key {
@@ -1441,6 +1508,94 @@ async fn commit_finalize(
     }
 
     response
+}
+
+/// Step 5 of [`commit_finalize`].
+fn commit_finalize_mark_dirty(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    preserve_node_indexes: bool,
+) {
+    if !plan.mutates {
+        return;
+    }
+    if preserve_node_indexes {
+        ctx.core.mark_dirty_preserving_indexes();
+    } else {
+        ctx.core.mark_dirty();
+    }
+}
+
+/// Step 6 of [`commit_finalize`]: the durable commit. `Some(response)` is the
+/// caller's early-return error response (no persistence backend configured, or the
+/// backend's write itself failed); `None` means it succeeded.
+async fn commit_finalize_durable(ctx: &MutationCtx<'_>, method: &Method) -> Option<Response> {
+    let Some(persistence) = ctx.persistence else {
+        return Some(Response::err(
+            ctx.req_id,
+            "durable mutation requires a persistence backend",
+        ));
+    };
+    let fname = crate::persist::sanitize(ctx.graph_name);
+    if let Err(e) = persistence.record_durable(&fname, method).await {
+        return Some(Response::err(
+            ctx.req_id,
+            format!("durable commit failed (write not acknowledged): {e}"),
+        ));
+    }
+    None
+}
+
+/// Step 6.5 of [`commit_finalize`]: refresh the per-graph node/edge size gauges.
+/// `commit_finalize` is the universal mutation gateway essentially all current
+/// writes route through (GATEWAY_ROUTED) -- the refresh previously lived ONLY in
+/// the legacy non-gateway dispatch tail (`dispatch.rs`'s post-`'dispatch` block)
+/// and Raft snapshot-install (`raft/store.rs`), so a graph mutated exclusively via
+/// gateway-routed writes (the common case -- AddNode/AddEmbedding/etc.) never
+/// refreshed its gauge at all and silently froze at its last snapshot-install
+/// value. Confirmed live: the `/metrics` gauge sat at 56,882 nodes while a live
+/// `NodeCount` RPC, a Cypher `count(n)`, and full label enumeration all
+/// independently agreed on 25,122 -- unchanged across two scrapes ten minutes
+/// apart despite `graph_ops_total` advancing by ~30k in that window.
+///
+/// Placed AFTER the durable-commit step (not alongside `mark_dirty` in step 5) so
+/// it only fires once a mutation is confirmed durable, and gated on `plan.mutates`
+/// exactly like `mark_dirty` above and `dispatch.rs`'s equivalent
+/// `AccessLevel::Write` gate, so a read-only gateway call never pays for it. Both
+/// counts are O(1) (`GraphCore::node_count`/`edge_count` read the already-resident
+/// `StableGraph`'s own cardinality, no full scan) -- the same cost `dispatch.rs`
+/// already accepted on every mutation ("both petgraph counts are O(1), so this
+/// adds no meaningful write-path cost"), so refreshing unconditionally on every
+/// commit (rather than on a bounded cadence) is the right choice here too: a gauge
+/// that costs an O(1) read on the write path is strictly better than one that
+/// silently freezes, and there is no hot-loop concern (this fires once per
+/// already-durably-committed mutation, not once per poll).
+#[cfg(feature = "metrics")]
+fn commit_finalize_refresh_size_gauges(ctx: &MutationCtx<'_>, plan: &MutationPlan) {
+    if !plan.mutates {
+        return;
+    }
+    crate::metrics::set_graph_size(
+        ctx.graph_name,
+        ctx.core.node_count() as i64,
+        ctx.core.edge_count() as i64,
+    );
+}
+
+/// Step 7 of [`commit_finalize`]: CDC emit, only after the authoritative durable
+/// commit succeeds.
+#[cfg(feature = "streaming")]
+fn commit_finalize_emit_cdc(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    cdc_pre: crate::server::cdc::CdcPre,
+) {
+    if !plan.emits_cdc {
+        return;
+    }
+    let Some(hub) = ctx.cdc else { return };
+    crate::server::cdc::emit_for_method(hub, ctx.core, ctx.graph_name, method, cdc_pre);
 }
 
 /// The single commit gateway (CONCEPT:EG-P0-2): authz, apply, durable commit,
@@ -1552,55 +1707,10 @@ where
     // A retry after `fsync` but before RAM publication repairs the serving
     // projection from authority and returns the exact stored result. No handler is
     // re-executed and no duplicate outbox row is produced.
-    match persistence.read_mutation_batch(&fname, &batch_id).await {
-        Ok(Some(record)) => {
-            match persistence.read_authoritative_graph_snapshot(&fname).await {
-                Ok(Some((snapshot, version))) => {
-                    if let Err(error) = ctx.core.install_committed_snapshot(snapshot, version) {
-                        return Response::err(
-                            ctx.req_id,
-                            format!("committed projection reconciliation failed: {error}"),
-                        );
-                    }
-                }
-                Ok(None) => {
-                    return Response::err(
-                        ctx.req_id,
-                        "committed projection reconciliation found no authoritative graph",
-                    );
-                }
-                Err(error) => {
-                    return Response::err(
-                        ctx.req_id,
-                        format!("committed projection reconciliation failed: {error}"),
-                    )
-                }
-            }
-            let response = record
-                .result_msgpack
-                .as_deref()
-                .ok_or_else(|| "committed MutationBatch has no durable result".to_string())
-                .and_then(|bytes| {
-                    eg_types::msgpack::decode_bounded(
-                        bytes,
-                        eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
-                    )
-                    .map_err(|_| "committed MutationBatch result is corrupt".to_string())
-                })
-                .map(|payload| Response::ok(ctx.req_id, payload))
-                .unwrap_or_else(|error| Response::err(ctx.req_id, error));
-            if let Some(key) = prep.dedup_key {
-                idempotency_store().insert(key, response.clone());
-            }
-            return response;
-        }
-        Ok(None) => {}
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                format!("MutationBatch status lookup failed: {error}"),
-            )
-        }
+    if let Some(response) =
+        commit_mutation_body_replay_check(ctx, persistence, &fname, &batch_id, &prep).await
+    {
+        return response;
     }
 
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
@@ -1608,129 +1718,300 @@ where
     // Row-local operations have a deterministic success result and can commit
     // their compact Method directly before applying the serving projection.
     if let Some(predicted) = prepublish_success(ctx.core, method) {
-        let source_version = match crate::server::mutation_batch::authoritative_graph_version(
+        return commit_mutation_body_prepublish_fast_path(
+            ctx,
+            plan,
+            method,
             persistence,
             &fname,
-            ctx.core,
+            &batch_id,
+            created_at_ms,
+            predicted,
+            prep,
+            apply,
         )
-        .await
-        {
-            Ok(version) => version,
-            Err(error) => {
-                return Response::err(
-                    ctx.req_id,
-                    format!("authoritative version read failed: {error}"),
-                )
-            }
-        };
-        let batch = match crate::server::mutation_batch::compile_methods(
-            crate::server::mutation_batch::CompileBatch {
-                batch_id: &batch_id,
-                request_id: ctx.req_id,
-                principal: ctx.caller,
-                tenant: ctx.tenant_scope,
-                graph: ctx.graph_name,
-                placement_epoch: 0,
-                idempotency_key: &batch_id,
-                expected_graph_version: Some(source_version),
-                fencing_token: None,
-                created_at_ms,
-                default_surface: crate::mutation_batch::MutationSurface::Graph,
-                authoritative_state: None,
-            },
-            vec![method.clone()],
-        ) {
-            Ok(batch) => batch,
-            Err(error) => {
-                return Response::err(ctx.req_id, format!("MutationBatch compile failed: {error}"))
-            }
-        };
-        let result = match rmp_serde::to_vec_named(&predicted) {
-            Ok(result) => result,
-            Err(error) => {
-                return Response::err(
-                    ctx.req_id,
-                    format!("MutationBatch result encode failed: {error}"),
-                )
-            }
-        };
-        let committed = match persistence
-            .commit_mutation_batch(&fname, &batch, Some(&result), created_at_ms)
-            .await
-        {
-            Ok(committed) => committed,
-            Err(error) => {
-                return Response::err(
-                    ctx.req_id,
-                    format!("MutationBatch durable commit failed: {error}"),
-                )
-            }
-        };
-        if committed.replayed {
-            return match persistence.read_authoritative_graph_snapshot(&fname).await {
-                Ok(Some((snapshot, version))) => {
-                    match ctx.core.install_committed_snapshot(snapshot, version) {
-                        Ok(()) => Response::ok(ctx.req_id, predicted),
-                        Err(error) => Response::err(ctx.req_id, error),
-                    }
-                }
-                Ok(None) => Response::err(ctx.req_id, "committed graph image is missing"),
-                Err(error) => Response::err(ctx.req_id, error),
-            };
-        }
-        // The coalescing decision (batch this RAM publish with concurrent
-        // siblings vs apply it here inline) is made by the CALLER now —
-        // `commit_coalescable_mutation` for the five coalescable structural
-        // writes, before this function is ever invoked — never here. By the
-        // time `commit_mutation_body` runs, `apply` is simply run directly:
-        // for the ordinary single-call path that's the only thing that ever
-        // happened; for a queued coalescable op the worker already decided to
-        // run this op's own `apply` (never re-enqueuing), so this is still
-        // the only mutation of `core` for this op either way.
-        let response = match apply(ctx.core) {
-            Ok(payload) => Response::ok(ctx.req_id, payload),
-            Err(error) => Response::err(ctx.req_id, error),
-        };
-        let indexes_maintained = preserves_node_derived_indexes(method);
-        return commit_finalize(ctx, plan, method, response, prep, true, indexes_maintained).await;
+        .await;
     }
 
     // Runtime-result operations execute against an isolated authoritative image,
     // never the live projection. Its authenticated affected rows, terminal result,
     // batch, version/fence, and outbox share one redb commit point.
-    let (base_snapshot, source_version) =
-        match persistence.read_authoritative_graph_snapshot(&fname).await {
-            Ok(Some(snapshot)) => snapshot,
-            Ok(None) => match crate::server::mutation_batch::authoritative_graph_version(
-                persistence,
-                &fname,
-                ctx.core,
-            )
-            .await
-            {
-                Ok(version) => (ctx.core.snapshot(), version),
-                Err(error) => {
-                    return Response::err(
-                        ctx.req_id,
-                        format!("authoritative version read failed: {error}"),
-                    )
-                }
-            },
-            Err(error) => {
+    commit_mutation_body_staged_path(
+        ctx,
+        plan,
+        method,
+        persistence,
+        &fname,
+        &batch_id,
+        created_at_ms,
+        prep,
+        apply,
+    )
+    .await
+}
+
+/// The replay-repair check at the top of [`commit_mutation_body`]'s durable path:
+/// a retry after `fsync` but before RAM publication repairs the serving projection
+/// from authority and returns the exact stored result — no handler is re-executed
+/// and no duplicate outbox row is produced. `Some(response)` is the caller's
+/// immediate return (a replay was found and repaired, or the status lookup itself
+/// failed); `None` means no prior committed batch exists, so the caller proceeds
+/// to actually apply the mutation.
+async fn commit_mutation_body_replay_check(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    prep: &CommitPrep,
+) -> Option<Response> {
+    match persistence.read_mutation_batch(fname, batch_id).await {
+        Ok(Some(record)) => {
+            Some(commit_mutation_body_replay_response(ctx, persistence, fname, record, prep).await)
+        }
+        Ok(None) => None,
+        Err(error) => Some(Response::err(
+            ctx.req_id,
+            format!("MutationBatch status lookup failed: {error}"),
+        )),
+    }
+}
+
+/// Reconcile the serving projection to the already-committed `record` and decode
+/// its durable result — the found-a-replay half of
+/// [`commit_mutation_body_replay_check`].
+async fn commit_mutation_body_replay_response(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    record: eg_types::mutation_batch::MutationBatchRecord,
+    prep: &CommitPrep,
+) -> Response {
+    match persistence.read_authoritative_graph_snapshot(fname).await {
+        Ok(Some((snapshot, version))) => {
+            if let Err(error) = ctx.core.install_committed_snapshot(snapshot, version) {
                 return Response::err(
                     ctx.req_id,
-                    format!("authoritative graph staging read failed: {error}"),
-                )
+                    format!("committed projection reconciliation failed: {error}"),
+                );
             }
-        };
+        }
+        Ok(None) => {
+            return Response::err(
+                ctx.req_id,
+                "committed projection reconciliation found no authoritative graph",
+            );
+        }
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("committed projection reconciliation failed: {error}"),
+            )
+        }
+    }
+    let response = record
+        .result_msgpack
+        .as_deref()
+        .ok_or_else(|| "committed MutationBatch has no durable result".to_string())
+        .and_then(|bytes| {
+            eg_types::msgpack::decode_bounded(
+                bytes,
+                eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
+            )
+            .map_err(|_| "committed MutationBatch result is corrupt".to_string())
+        })
+        .map(|payload| Response::ok(ctx.req_id, payload))
+        .unwrap_or_else(|error| Response::err(ctx.req_id, error));
+    if let Some(key) = &prep.dedup_key {
+        idempotency_store().insert(key.clone(), response.clone());
+    }
+    response
+}
+
+/// Compile `methods` into a batch and encode `payload` as its durable result — the
+/// compile+encode pair every commit path performs before its own
+/// `commit_mutation_batch`/`commit_mutation_batch_state` call. Shared by
+/// [`commit_mutation_body_prepublish_fast_path`],
+/// [`commit_mutation_body_commit_staged`], and [`commit_conditional_commit_staged`].
+fn compile_batch_and_encode_result(
+    ctx: &MutationCtx<'_>,
+    compile: crate::server::mutation_batch::CompileBatch<'_>,
+    methods: Vec<Method>,
+    payload: &ResultPayload,
+) -> Result<(crate::mutation_batch::MutationBatch, Vec<u8>), Response> {
+    let batch = match crate::server::mutation_batch::compile_methods(compile, methods) {
+        Ok(batch) => batch,
+        Err(error) => {
+            return Err(Response::err(
+                ctx.req_id,
+                format!("MutationBatch compile failed: {error}"),
+            ))
+        }
+    };
+    let result = match rmp_serde::to_vec_named(payload) {
+        Ok(result) => result,
+        Err(error) => {
+            return Err(Response::err(
+                ctx.req_id,
+                format!("MutationBatch result encode failed: {error}"),
+            ))
+        }
+    };
+    Ok((batch, result))
+}
+
+/// The row-local fast path of [`commit_mutation_body`]: [`prepublish_success`]
+/// already knows the deterministic result, so the compact `Method` itself commits
+/// directly (no staged diff) before `apply` runs against the live projection.
+#[allow(clippy::too_many_arguments)]
+async fn commit_mutation_body_prepublish_fast_path<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    created_at_ms: u64,
+    predicted: ResultPayload,
+    prep: CommitPrep,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
+{
+    let source_version = match crate::server::mutation_batch::authoritative_graph_version(
+        persistence,
+        fname,
+        ctx.core,
+    )
+    .await
+    {
+        Ok(version) => version,
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("authoritative version read failed: {error}"),
+            )
+        }
+    };
+    let (batch, result) = match compile_batch_and_encode_result(
+        ctx,
+        crate::server::mutation_batch::CompileBatch {
+            batch_id,
+            request_id: ctx.req_id,
+            principal: ctx.caller,
+            tenant: ctx.tenant_scope,
+            graph: ctx.graph_name,
+            placement_epoch: 0,
+            idempotency_key: batch_id,
+            expected_graph_version: Some(source_version),
+            fencing_token: None,
+            created_at_ms,
+            default_surface: crate::mutation_batch::MutationSurface::Graph,
+            authoritative_state: None,
+        },
+        vec![method.clone()],
+        &predicted,
+    ) {
+        Ok(pair) => pair,
+        Err(response) => return response,
+    };
+    let committed = match persistence
+        .commit_mutation_batch(fname, &batch, Some(&result), created_at_ms)
+        .await
+    {
+        Ok(committed) => committed,
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("MutationBatch durable commit failed: {error}"),
+            )
+        }
+    };
+    if committed.replayed {
+        return reconcile_replayed_commit(ctx, persistence, fname, predicted).await;
+    }
+    // The coalescing decision (batch this RAM publish with concurrent
+    // siblings vs apply it here inline) is made by the CALLER now —
+    // `commit_coalescable_mutation` for the five coalescable structural
+    // writes, before this function is ever invoked — never here. By the
+    // time `commit_mutation_body` runs, `apply` is simply run directly:
+    // for the ordinary single-call path that's the only thing that ever
+    // happened; for a queued coalescable op the worker already decided to
+    // run this op's own `apply` (never re-enqueuing), so this is still
+    // the only mutation of `core` for this op either way.
+    let response = match apply(ctx.core) {
+        Ok(payload) => Response::ok(ctx.req_id, payload),
+        Err(error) => Response::err(ctx.req_id, error),
+    };
+    let indexes_maintained = preserves_node_derived_indexes(method);
+    commit_finalize(ctx, plan, method, response, prep, true, indexes_maintained).await
+}
+
+/// The runtime-result path of [`commit_mutation_body`]: stage `apply` against an
+/// isolated authoritative image (never the live projection), diff it into a row
+/// delta, and durably commit that delta + terminal result + version/fence + outbox
+/// in one redb commit point before publishing to the live projection.
+#[allow(clippy::too_many_arguments)]
+async fn commit_mutation_body_staged_path<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    created_at_ms: u64,
+    prep: CommitPrep,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
+{
+    let staged = match commit_mutation_body_stage_and_diff(ctx, persistence, fname, apply).await {
+        Ok(staged) => staged,
+        Err(response) => return response,
+    };
+    commit_mutation_body_commit_staged(
+        ctx,
+        plan,
+        method,
+        persistence,
+        fname,
+        batch_id,
+        created_at_ms,
+        prep,
+        staged,
+    )
+    .await
+}
+
+/// The staged apply + diff half of [`commit_mutation_body_staged_path`]: resolve
+/// the authoritative base image, apply the mutation against an isolated staged
+/// core, enforce the native-write integrity policy, and diff staged-vs-base into a
+/// row delta + its serialized/size-checked state blob.
+async fn commit_mutation_body_stage_and_diff<F>(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    apply: F,
+) -> Result<StagedMutation, Response>
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
+{
+    let (base_snapshot, source_version) =
+        resolve_authoritative_base_snapshot(ctx, persistence, fname).await?;
     let base_snapshot_for_delta = base_snapshot.clone();
     let staged = match GraphCore::from_snapshot(base_snapshot, source_version) {
         Ok(staged) => staged,
-        Err(error) => return Response::err(ctx.req_id, format!("graph staging failed: {error}")),
+        Err(error) => {
+            return Err(Response::err(
+                ctx.req_id,
+                format!("graph staging failed: {error}"),
+            ))
+        }
     };
     let payload = match apply(&staged) {
         Ok(payload) => payload,
-        Err(error) => return Response::err(ctx.req_id, error),
+        Err(error) => return Err(Response::err(ctx.req_id, error)),
     };
     // X5-enforce, native writes (W4.13, CONCEPT:EG-KG.ontology.rdf-update-guard): the same
     // registered per-graph integrity policy the RDF write path enforces, extended
@@ -1744,61 +2025,142 @@ where
     if let Err(rejection) =
         crate::server::icv_guard::check_native_write(ctx.graph_name, ctx.core, &staged)
     {
-        return Response::err(
+        return Err(Response::err(
             ctx.req_id,
             format!("mutation rejected by integrity policy: {rejection}"),
-        );
+        ));
     }
     let staged_snapshot = staged.snapshot();
+    let (row_delta, state_msgpack) =
+        diff_and_serialize_staged_mutation(ctx, &base_snapshot_for_delta, &staged_snapshot)?;
+    Ok(StagedMutation {
+        payload,
+        row_delta,
+        state_msgpack,
+        source_version,
+    })
+}
+
+/// Resolve the base authoritative image to stage a mutation against: the
+/// persistence backend's own staged snapshot when it has one, else the live
+/// projection's snapshot at its authoritative version. Shared by
+/// [`commit_mutation_body_stage_and_diff`] and [`commit_conditional_stage_and_diff`].
+async fn resolve_authoritative_base_snapshot(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+) -> Result<(crate::graph::GraphSnapshot, u64), Response> {
+    match persistence.read_authoritative_graph_snapshot(fname).await {
+        Ok(Some(snapshot)) => Ok(snapshot),
+        Ok(None) => match crate::server::mutation_batch::authoritative_graph_version(
+            persistence,
+            fname,
+            ctx.core,
+        )
+        .await
+        {
+            Ok(version) => Ok((ctx.core.snapshot(), version)),
+            Err(error) => Err(Response::err(
+                ctx.req_id,
+                format!("authoritative version read failed: {error}"),
+            )),
+        },
+        Err(error) => Err(Response::err(
+            ctx.req_id,
+            format!("authoritative graph staging read failed: {error}"),
+        )),
+    }
+}
+
+/// Diff `staged_snapshot` against `base_snapshot_for_delta` into a row delta,
+/// serialize it, and enforce the configured size limit. Shared by
+/// [`commit_mutation_body_stage_and_diff`] and [`commit_conditional_stage_and_diff`].
+fn diff_and_serialize_staged_mutation(
+    ctx: &MutationCtx<'_>,
+    base_snapshot_for_delta: &crate::graph::GraphSnapshot,
+    staged_snapshot: &crate::graph::GraphSnapshot,
+) -> Result<(crate::graph_delta::GraphRowDelta, Vec<u8>), Response> {
     let row_delta = match crate::graph_delta::GraphRowDelta::between(
-        &base_snapshot_for_delta,
-        &staged_snapshot,
+        base_snapshot_for_delta,
+        staged_snapshot,
     ) {
         Ok(delta) => delta,
         Err(error) => {
-            return Response::err(ctx.req_id, format!("staged graph delta failed: {error}"))
+            return Err(Response::err(
+                ctx.req_id,
+                format!("staged graph delta failed: {error}"),
+            ))
         }
     };
     let state_msgpack = match row_delta.to_msgpack() {
         Ok(bytes) => bytes,
         Err(error) => {
-            return Response::err(
+            return Err(Response::err(
                 ctx.req_id,
                 format!("staged graph delta serialization failed: {error}"),
-            )
+            ))
         }
     };
     let max_bytes = mutation_snapshot_max_bytes();
     if max_bytes > 0 && state_msgpack.len() > max_bytes {
-        return Response::err(
+        return Err(Response::err(
             ctx.req_id,
             format!(
                 "staged mutation delta is {} bytes, above the configured {} byte limit",
                 state_msgpack.len(),
                 max_bytes
             ),
-        );
+        ));
     }
-    use sha2::{Digest, Sha256};
-    let target_graph_version = match source_version.checked_add(1) {
-        Some(version) => version,
-        None => return Response::err(ctx.req_id, "authoritative graph version overflow"),
+    Ok((row_delta, state_msgpack))
+}
+
+/// The prepared-but-not-yet-committed output of
+/// [`commit_mutation_body_stage_and_diff`], handed to
+/// [`commit_mutation_body_commit_staged`].
+struct StagedMutation {
+    payload: ResultPayload,
+    row_delta: crate::graph_delta::GraphRowDelta,
+    state_msgpack: Vec<u8>,
+    source_version: u64,
+}
+
+/// The durable-commit + publish half of [`commit_mutation_body_staged_path`]:
+/// compile the durable receipt method with the staged delta's
+/// [`crate::mutation_batch::MutationStateDescriptor`], commit it, then either
+/// reconcile from a replay or publish the row delta to the live projection.
+#[allow(clippy::too_many_arguments)]
+async fn commit_mutation_body_commit_staged(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    created_at_ms: u64,
+    prep: CommitPrep,
+    staged: StagedMutation,
+) -> Response {
+    let StagedMutation {
+        payload,
+        row_delta,
+        state_msgpack,
+        source_version,
+    } = staged;
+    let descriptor = match staged_mutation_descriptor(ctx, source_version, &state_msgpack) {
+        Ok(descriptor) => descriptor,
+        Err(response) => return response,
     };
-    let descriptor = crate::mutation_batch::MutationStateDescriptor {
-        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
-        digest: hex::encode(Sha256::digest(&state_msgpack)),
-        source_graph_version: source_version,
-        target_graph_version,
-    };
-    let batch = match crate::server::mutation_batch::compile_methods(
+    let (batch, result) = match compile_batch_and_encode_result(
+        ctx,
         crate::server::mutation_batch::CompileBatch {
-            batch_id: &batch_id,
+            batch_id,
             request_id: ctx.req_id,
             principal: ctx.caller,
             tenant: ctx.tenant_scope,
             graph: ctx.graph_name,
             placement_epoch: 0,
-            idempotency_key: &batch_id,
+            idempotency_key: batch_id,
             expected_graph_version: Some(source_version),
             fencing_token: None,
             created_at_ms,
@@ -1806,24 +2168,14 @@ where
             authoritative_state: Some(descriptor),
         },
         vec![durable_receipt_method(method)],
+        &payload,
     ) {
-        Ok(batch) => batch,
-        Err(error) => {
-            return Response::err(ctx.req_id, format!("MutationBatch compile failed: {error}"))
-        }
-    };
-    let result = match rmp_serde::to_vec_named(&payload) {
-        Ok(result) => result,
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                format!("MutationBatch result encode failed: {error}"),
-            )
-        }
+        Ok(pair) => pair,
+        Err(response) => return response,
     };
     let committed = match persistence
         .commit_mutation_batch_state(
-            &fname,
+            fname,
             &batch,
             state_msgpack,
             Some(&result),
@@ -1845,18 +2197,9 @@ where
         }
     };
     if committed.replayed {
-        return match persistence.read_authoritative_graph_snapshot(&fname).await {
-            Ok(Some((snapshot, version))) => {
-                match ctx.core.install_committed_snapshot(snapshot, version) {
-                    Ok(()) => Response::ok(ctx.req_id, payload),
-                    Err(error) => Response::err(ctx.req_id, error),
-                }
-            }
-            Ok(None) => Response::err(ctx.req_id, "committed graph image is missing"),
-            Err(error) => Response::err(ctx.req_id, error),
-        };
+        return reconcile_replayed_commit(ctx, persistence, fname, payload).await;
     } else if let Err(error) =
-        publish_committed_row_delta(persistence, &fname, ctx.core, &row_delta, source_version).await
+        publish_committed_row_delta(persistence, fname, ctx.core, &row_delta, source_version).await
     {
         return Response::err(
             ctx.req_id,
@@ -1873,6 +2216,56 @@ where
         row_delta.preserves_node_derived_indexes(),
     )
     .await
+}
+
+/// Build the [`crate::mutation_batch::MutationStateDescriptor`] for a staged
+/// row-delta commit: the target version (source + 1, checked) and the delta's
+/// content digest. Shared by [`commit_mutation_body_commit_staged`] and
+/// [`commit_conditional_commit_staged`].
+fn staged_mutation_descriptor(
+    ctx: &MutationCtx<'_>,
+    source_version: u64,
+    state_msgpack: &[u8],
+) -> Result<crate::mutation_batch::MutationStateDescriptor, Response> {
+    use sha2::{Digest, Sha256};
+    let target_graph_version = match source_version.checked_add(1) {
+        Some(version) => version,
+        None => {
+            return Err(Response::err(
+                ctx.req_id,
+                "authoritative graph version overflow",
+            ))
+        }
+    };
+    Ok(crate::mutation_batch::MutationStateDescriptor {
+        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+        digest: hex::encode(Sha256::digest(state_msgpack)),
+        source_graph_version: source_version,
+        target_graph_version,
+    })
+}
+
+/// After a replayed durable commit, reconcile the serving projection to the
+/// now-committed authoritative snapshot and answer with `payload` (the replay's
+/// own — not a fresh — result). Shared by
+/// [`commit_mutation_body_prepublish_fast_path`],
+/// [`commit_mutation_body_commit_staged`], and [`commit_conditional_commit_staged`].
+async fn reconcile_replayed_commit(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    payload: ResultPayload,
+) -> Response {
+    match persistence.read_authoritative_graph_snapshot(fname).await {
+        Ok(Some((snapshot, version))) => {
+            match ctx.core.install_committed_snapshot(snapshot, version) {
+                Ok(()) => Response::ok(ctx.req_id, payload),
+                Err(error) => Response::err(ctx.req_id, error),
+            }
+        }
+        Ok(None) => Response::err(ctx.req_id, "committed graph image is missing"),
+        Err(error) => Response::err(ctx.req_id, error),
+    }
 }
 
 fn preserves_node_derived_indexes(method: &Method) -> bool {
@@ -2099,24 +2492,7 @@ where
     Fut: std::future::Future<Output = Result<ResultPayload, String>>,
 {
     if !mutates_now {
-        // Read-only path: Read-ACL only, apply, and NOTHING durable/audited/
-        // CDC-emitted/cached — exactly what any non-mutating graph read does.
-        if !consensus_apply_is_authorized() {
-            if let Err(denied) = check_graph_access(
-                ctx.isolation,
-                ctx.caller,
-                ctx.graph_name,
-                ctx.graph_type,
-                ctx.owner,
-                AccessLevel::Read,
-            ) {
-                return Response::err(ctx.req_id, denied);
-            }
-        }
-        return match apply(Arc::clone(ctx.core)).await {
-            Ok(payload) => Response::ok(ctx.req_id, payload),
-            Err(e) => Response::err(ctx.req_id, e),
-        };
+        return commit_conditional_read_only(ctx, apply).await;
     }
 
     // Mutating path: stage against a complete authoritative image. Query/RDF
@@ -2148,84 +2524,153 @@ where
         ctx.req_id,
         method,
     );
-    match persistence.read_mutation_batch(&fname, &batch_id).await {
-        Ok(Some(record)) => {
-            if let Ok(Some((snapshot, version))) =
-                persistence.read_authoritative_graph_snapshot(&fname).await
-            {
-                if let Err(error) = ctx.core.install_committed_snapshot(snapshot, version) {
-                    return Response::err(
-                        ctx.req_id,
-                        format!("committed projection reconciliation failed: {error}"),
-                    );
-                }
-            } else {
-                return Response::err(
-                    ctx.req_id,
-                    "committed projection reconciliation found no authoritative graph",
-                );
-            }
-            let response = record
-                .result_msgpack
-                .as_deref()
-                .ok_or_else(|| "committed MutationBatch has no durable result".to_string())
-                .and_then(|bytes| {
-                    eg_types::msgpack::decode_bounded(
-                        bytes,
-                        eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
-                    )
-                    .map_err(|_| "committed MutationBatch result is corrupt".to_string())
-                })
-                .map(|payload| Response::ok(ctx.req_id, payload))
-                .unwrap_or_else(|error| Response::err(ctx.req_id, error));
-            if let Some(key) = prep.dedup_key {
-                idempotency_store().insert(key, response.clone());
-            }
-            return response;
-        }
-        Ok(None) => {}
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                format!("MutationBatch status lookup failed: {error}"),
-            )
-        }
+    if let Some(response) =
+        commit_conditional_replay_check(ctx, persistence, &fname, &batch_id, &prep).await
+    {
+        return response;
     }
 
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
-    let (base_snapshot, source_version) =
-        match persistence.read_authoritative_graph_snapshot(&fname).await {
-            Ok(Some(snapshot)) => snapshot,
-            Ok(None) => match crate::server::mutation_batch::authoritative_graph_version(
-                persistence,
-                &fname,
-                ctx.core,
+    let staged = match commit_conditional_stage_and_diff(ctx, persistence, &fname, apply).await {
+        Ok(staged) => staged,
+        Err(response) => return response,
+    };
+    commit_conditional_commit_staged(
+        ctx,
+        plan,
+        method,
+        persistence,
+        &fname,
+        &batch_id,
+        created_at_ms,
+        prep,
+        staged,
+    )
+    .await
+}
+
+/// The `!mutates_now` arm of [`commit_conditional_mutation_async_inner`]: Read-ACL
+/// only, apply, and NOTHING durable/audited/CDC-emitted/cached — exactly what any
+/// non-mutating graph read does.
+async fn commit_conditional_read_only<F, Fut>(ctx: &MutationCtx<'_>, apply: F) -> Response
+where
+    F: FnOnce(Arc<GraphCore>) -> Fut,
+    Fut: std::future::Future<Output = Result<ResultPayload, String>>,
+{
+    if !consensus_apply_is_authorized() {
+        if let Err(denied) = check_graph_access(
+            ctx.isolation,
+            ctx.caller,
+            ctx.graph_name,
+            ctx.graph_type,
+            ctx.owner,
+            AccessLevel::Read,
+        ) {
+            return Response::err(ctx.req_id, denied);
+        }
+    }
+    match apply(Arc::clone(ctx.core)).await {
+        Ok(payload) => Response::ok(ctx.req_id, payload),
+        Err(e) => Response::err(ctx.req_id, e),
+    }
+}
+
+/// The replay-repair check of [`commit_conditional_mutation_async_inner`]'s durable
+/// path — the async-apply twin of [`commit_mutation_body_replay_check`]. `Some(
+/// response)` is the caller's immediate return; `None` means no prior committed
+/// batch exists.
+async fn commit_conditional_replay_check(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    prep: &CommitPrep,
+) -> Option<Response> {
+    match persistence.read_mutation_batch(fname, batch_id).await {
+        Ok(Some(record)) => {
+            Some(commit_conditional_replay_response(ctx, persistence, fname, record, prep).await)
+        }
+        Ok(None) => None,
+        Err(error) => Some(Response::err(
+            ctx.req_id,
+            format!("MutationBatch status lookup failed: {error}"),
+        )),
+    }
+}
+
+/// Reconcile the serving projection to the already-committed `record` and decode
+/// its durable result — the found-a-replay half of
+/// [`commit_conditional_replay_check`].
+async fn commit_conditional_replay_response(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    record: eg_types::mutation_batch::MutationBatchRecord,
+    prep: &CommitPrep,
+) -> Response {
+    if let Ok(Some((snapshot, version))) =
+        persistence.read_authoritative_graph_snapshot(fname).await
+    {
+        if let Err(error) = ctx.core.install_committed_snapshot(snapshot, version) {
+            return Response::err(
+                ctx.req_id,
+                format!("committed projection reconciliation failed: {error}"),
+            );
+        }
+    } else {
+        return Response::err(
+            ctx.req_id,
+            "committed projection reconciliation found no authoritative graph",
+        );
+    }
+    let response = record
+        .result_msgpack
+        .as_deref()
+        .ok_or_else(|| "committed MutationBatch has no durable result".to_string())
+        .and_then(|bytes| {
+            eg_types::msgpack::decode_bounded(
+                bytes,
+                eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
             )
-            .await
-            {
-                Ok(version) => (ctx.core.snapshot(), version),
-                Err(error) => {
-                    return Response::err(
-                        ctx.req_id,
-                        format!("authoritative version read failed: {error}"),
-                    )
-                }
-            },
-            Err(error) => {
-                return Response::err(
-                    ctx.req_id,
-                    format!("authoritative graph staging read failed: {error}"),
-                )
-            }
-        };
+            .map_err(|_| "committed MutationBatch result is corrupt".to_string())
+        })
+        .map(|payload| Response::ok(ctx.req_id, payload))
+        .unwrap_or_else(|error| Response::err(ctx.req_id, error));
+    if let Some(key) = &prep.dedup_key {
+        idempotency_store().insert(key.clone(), response.clone());
+    }
+    response
+}
+
+/// The staged apply + diff half of [`commit_conditional_mutation_async_inner`]'s
+/// durable path — the async-apply twin of [`commit_mutation_body_stage_and_diff`].
+/// Query handlers never receive the live serving core, so an execution or durable
+/// commit failure cannot leak a partial mutation into RAM.
+async fn commit_conditional_stage_and_diff<F, Fut>(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    apply: F,
+) -> Result<StagedMutation, Response>
+where
+    F: FnOnce(Arc<GraphCore>) -> Fut,
+    Fut: std::future::Future<Output = Result<ResultPayload, String>>,
+{
+    let (base_snapshot, source_version) =
+        resolve_authoritative_base_snapshot(ctx, persistence, fname).await?;
     let base_snapshot_for_delta = base_snapshot.clone();
     let staged = match GraphCore::from_snapshot(base_snapshot, source_version) {
         Ok(staged) => Arc::new(staged),
-        Err(error) => return Response::err(ctx.req_id, format!("graph staging failed: {error}")),
+        Err(error) => {
+            return Err(Response::err(
+                ctx.req_id,
+                format!("graph staging failed: {error}"),
+            ))
+        }
     };
     let payload = match apply(Arc::clone(&staged)).await {
         Ok(payload) => payload,
-        Err(error) => return Response::err(ctx.req_id, error),
+        Err(error) => return Err(Response::err(ctx.req_id, error)),
     };
     // X5-enforce, native writes (W4.13, CONCEPT:EG-KG.ontology.rdf-update-guard): this
     // is the path `CypherQuery` writes actually take (see the doc comment above) —
@@ -2237,66 +2682,63 @@ where
     if let Err(rejection) =
         crate::server::icv_guard::check_native_write(ctx.graph_name, ctx.core, &staged)
     {
-        return Response::err(
+        return Err(Response::err(
             ctx.req_id,
             format!("mutation rejected by integrity policy: {rejection}"),
-        );
+        ));
     }
     let staged_snapshot = staged.snapshot();
-    let row_delta = match crate::graph_delta::GraphRowDelta::between(
-        &base_snapshot_for_delta,
-        &staged_snapshot,
-    ) {
-        Ok(delta) => delta,
-        Err(error) => {
-            return Response::err(ctx.req_id, format!("staged graph delta failed: {error}"))
-        }
-    };
-    let state_msgpack = match row_delta.to_msgpack() {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                format!("staged graph delta serialization failed: {error}"),
-            )
-        }
-    };
-    let max_bytes = mutation_snapshot_max_bytes();
-    if max_bytes > 0 && state_msgpack.len() > max_bytes {
-        return Response::err(
-            ctx.req_id,
-            format!(
-                "staged mutation delta is {} bytes, above the configured {} byte limit",
-                state_msgpack.len(),
-                max_bytes
-            ),
-        );
-    }
-    use sha2::{Digest, Sha256};
-    let target_graph_version = match source_version.checked_add(1) {
-        Some(version) => version,
-        None => return Response::err(ctx.req_id, "authoritative graph version overflow"),
-    };
-    let descriptor = crate::mutation_batch::MutationStateDescriptor {
-        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
-        digest: hex::encode(Sha256::digest(&state_msgpack)),
-        source_graph_version: source_version,
-        target_graph_version,
+    let (row_delta, state_msgpack) =
+        diff_and_serialize_staged_mutation(ctx, &base_snapshot_for_delta, &staged_snapshot)?;
+    Ok(StagedMutation {
+        payload,
+        row_delta,
+        state_msgpack,
+        source_version,
+    })
+}
+
+/// The durable-commit + publish half of
+/// [`commit_conditional_mutation_async_inner`]'s durable path — the async-apply
+/// twin of [`commit_mutation_body_commit_staged`]. The default mutation surface
+/// (RDF vs Query) is derived from `method` since this gateway serves both.
+#[allow(clippy::too_many_arguments)]
+async fn commit_conditional_commit_staged(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    created_at_ms: u64,
+    prep: CommitPrep,
+    staged: StagedMutation,
+) -> Response {
+    let StagedMutation {
+        payload,
+        row_delta,
+        state_msgpack,
+        source_version,
+    } = staged;
+    let descriptor = match staged_mutation_descriptor(ctx, source_version, &state_msgpack) {
+        Ok(descriptor) => descriptor,
+        Err(response) => return response,
     };
     let default_surface = if is_rdf_gateway_method(method) {
         crate::mutation_batch::MutationSurface::Rdf
     } else {
         crate::mutation_batch::MutationSurface::Query
     };
-    let batch = match crate::server::mutation_batch::compile_methods(
+    let (batch, result) = match compile_batch_and_encode_result(
+        ctx,
         crate::server::mutation_batch::CompileBatch {
-            batch_id: &batch_id,
+            batch_id,
             request_id: ctx.req_id,
             principal: ctx.caller,
             tenant: ctx.tenant_scope,
             graph: ctx.graph_name,
             placement_epoch: 0,
-            idempotency_key: &batch_id,
+            idempotency_key: batch_id,
             expected_graph_version: Some(source_version),
             fencing_token: None,
             created_at_ms,
@@ -2304,24 +2746,14 @@ where
             authoritative_state: Some(descriptor),
         },
         vec![method.clone()],
+        &payload,
     ) {
-        Ok(batch) => batch,
-        Err(error) => {
-            return Response::err(ctx.req_id, format!("MutationBatch compile failed: {error}"))
-        }
-    };
-    let result = match rmp_serde::to_vec_named(&payload) {
-        Ok(result) => result,
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                format!("MutationBatch result encode failed: {error}"),
-            )
-        }
+        Ok(pair) => pair,
+        Err(response) => return response,
     };
     let committed = match persistence
         .commit_mutation_batch_state(
-            &fname,
+            fname,
             &batch,
             state_msgpack,
             Some(&result),
@@ -2343,19 +2775,10 @@ where
         }
     };
     if committed.replayed {
-        return match persistence.read_authoritative_graph_snapshot(&fname).await {
-            Ok(Some((snapshot, version))) => {
-                match ctx.core.install_committed_snapshot(snapshot, version) {
-                    Ok(()) => Response::ok(ctx.req_id, payload),
-                    Err(error) => Response::err(ctx.req_id, error),
-                }
-            }
-            Ok(None) => Response::err(ctx.req_id, "committed graph image is missing"),
-            Err(error) => Response::err(ctx.req_id, error),
-        };
+        return reconcile_replayed_commit(ctx, persistence, fname, payload).await;
     }
     if let Err(error) =
-        publish_committed_row_delta(persistence, &fname, ctx.core, &row_delta, source_version).await
+        publish_committed_row_delta(persistence, fname, ctx.core, &row_delta, source_version).await
     {
         return Response::err(
             ctx.req_id,
@@ -2635,8 +3058,7 @@ mod tests {
         ) {
             let method = Method::AddNode {
                 node_id: node_id.to_string(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"v": 1}))
-                    .unwrap(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"v": 1})).unwrap(),
             };
             let plan = MutationPlan::for_method(&method);
             let ctx = MutationCtx {
