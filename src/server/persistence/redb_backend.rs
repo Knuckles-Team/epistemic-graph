@@ -4442,10 +4442,12 @@ fn handle_cmd(
             let res = commit_crossmodal(
                 db,
                 &graph,
-                &methods,
-                &vectors,
-                &blob_refs,
-                &measurements,
+                crate::redb_store::CrossModalStaged {
+                    methods: &methods,
+                    vectors: &vectors,
+                    blob_refs: &blob_refs,
+                    measurements: &measurements,
+                },
                 crypto,
                 // Shares the writer's persistent tail cache (CONCEPT:EG-KG.storage.embedded-store).
                 #[cfg(feature = "security")]
