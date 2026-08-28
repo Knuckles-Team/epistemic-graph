@@ -175,6 +175,20 @@ impl CommitOutcomeBundle {
                 self.schema_version, OUTCOME_BUNDLE_VERSION
             ));
         }
+        self.required_refs_nonempty()?;
+        if self.fence_token == 0 {
+            return Err("fence_token must be non-zero".to_string());
+        }
+        if self.result_ref.is_some() != self.result_digest.is_some() {
+            return Err(
+                "result_ref and result_digest must both be present or both absent".to_string(),
+            );
+        }
+        self.validate_completeness_invariant()
+    }
+
+    /// Every identity/digest/ref field named below must be non-empty (after trimming).
+    fn required_refs_nonempty(&self) -> Result<(), String> {
         for (field, value) in [
             ("work_item_id", &self.work_item_id),
             ("run_id", &self.run_id),
@@ -190,14 +204,12 @@ impl CommitOutcomeBundle {
                 return Err(format!("{field} must not be empty"));
             }
         }
-        if self.fence_token == 0 {
-            return Err("fence_token must be non-zero".to_string());
-        }
-        if self.result_ref.is_some() != self.result_digest.is_some() {
-            return Err(
-                "result_ref and result_digest must both be present or both absent".to_string(),
-            );
-        }
+        Ok(())
+    }
+
+    /// `Complete` must carry no `missing_refs` and must have a `result_ref`;
+    /// `Degraded`/`Reconciling` must name what is missing.
+    fn validate_completeness_invariant(&self) -> Result<(), String> {
         match self.completeness {
             OutcomeCompleteness::Complete => {
                 if !self.missing_refs.is_empty() {
