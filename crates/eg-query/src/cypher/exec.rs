@@ -3000,6 +3000,38 @@ pub fn exec_cypher_write_params(
     }
 }
 
+/// Enrich each binding produced by the leading MATCH's `pattern` with its named
+/// edge variables (`-[r:REL]->`), so a later `DELETE r` can resolve the edge's
+/// endpoints. For each named-edge hop, maps `@edge@r -> "src\0tgt"`.
+fn enrich_edge_bindings(snap: &GraphView, pattern: &Pattern, bindings: &mut [Binding]) {
+    for binding in bindings.iter_mut() {
+        let mut prev_var = node_var(&pattern.start, 0);
+        for (i, (edge, node)) in pattern.hops.iter().enumerate() {
+            let next_var = node_var(node, i + 1);
+            if let Some(evar) = &edge.var {
+                if let (Some(a), Some(b)) = (
+                    binding.get(&prev_var).cloned(),
+                    binding.get(&next_var).cloned(),
+                ) {
+                    let (src, tgt) = match edge.direction {
+                        Direction::Right => (a, b),
+                        Direction::Left => (b, a),
+                        // Undirected: the MATCH that produced this binding only
+                        // proved AN edge exists between `a` and `b` in either
+                        // direction (CONCEPT:EG-KG.query.undirected-relationship-pattern) —
+                        // resolve which one actually exists so a downstream
+                        // `DELETE r`/edge-var reference points at the real
+                        // stored edge, not an endpoint order that may not exist.
+                        Direction::Both => resolve_undirected_endpoints(snap, &a, &b),
+                    };
+                    binding.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
+                }
+            }
+            prev_var = next_var;
+        }
+    }
+}
+
 /// Execute a parsed write statement against `core` (CONCEPT:EG-KG.query.register-each-user-table / EG-061).
 fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<QueryResult, String> {
     // Resolve the leading MATCH (if any) over a snapshot into bindings. No MATCH ⇒
@@ -3046,32 +3078,7 @@ fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<Query
     // Enrich bindings with edge variables (`-[r:REL]->`) so `DELETE r` can resolve the
     // edge endpoints. For each named-edge hop, map `@edge@r -> "src\0tgt"`.
     if let Some(pattern) = &w.match_pattern {
-        for binding in bindings.iter_mut() {
-            let mut prev_var = node_var(&pattern.start, 0);
-            for (i, (edge, node)) in pattern.hops.iter().enumerate() {
-                let next_var = node_var(node, i + 1);
-                if let Some(evar) = &edge.var {
-                    if let (Some(a), Some(b)) = (
-                        binding.get(&prev_var).cloned(),
-                        binding.get(&next_var).cloned(),
-                    ) {
-                        let (src, tgt) = match edge.direction {
-                            Direction::Right => (a, b),
-                            Direction::Left => (b, a),
-                            // Undirected: the MATCH that produced this binding only
-                            // proved AN edge exists between `a` and `b` in either
-                            // direction (CONCEPT:EG-KG.query.undirected-relationship-pattern) —
-                            // resolve which one actually exists so a downstream
-                            // `DELETE r`/edge-var reference points at the real
-                            // stored edge, not an endpoint order that may not exist.
-                            Direction::Both => resolve_undirected_endpoints(&snap, &a, &b),
-                        };
-                        binding.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
-                    }
-                }
-                prev_var = next_var;
-            }
-        }
+        enrich_edge_bindings(&snap, pattern, &mut bindings);
     }
 
     let mut mutated = false;
