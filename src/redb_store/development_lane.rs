@@ -3364,7 +3364,7 @@ fn reserve_policy_mismatch(
 enum ReservePolicyGate {
     Refused(LaneDecision, u64),
     Ready {
-        policy: DurableLanePolicy,
+        policy: Box<DurableLanePolicy>,
         policy_revision: u64,
         global_policy_revision: u64,
     },
@@ -3424,7 +3424,7 @@ fn reserve_policy_gate(
         ));
     }
     Ok(ReservePolicyGate::Ready {
-        policy,
+        policy: Box::new(policy),
         policy_revision,
         global_policy_revision,
     })
@@ -3603,7 +3603,7 @@ fn apply_reserve(
                 policy,
                 policy_revision,
                 global_policy_revision,
-            } => (policy, policy_revision, global_policy_revision),
+            } => (*policy, policy_revision, global_policy_revision),
         };
 
     let derived_hold_id = hold_id(&request.intent);
@@ -4736,7 +4736,7 @@ fn finish_retained_replay(
         .filter(|stored| *stored == requested)
         .filter(|_| terminal_revision_matches)
         .map_or(LaneDecision::InputConflict, |_| LaneDecision::Idempotent);
-    return Ok((finish_result(decision, Some(row), policy_revision)?, false));
+    Ok((finish_result(decision, Some(row), policy_revision)?, false))
 }
 
 /// The finish tail for a still-charged hold: prove the current lifecycle

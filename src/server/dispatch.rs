@@ -7156,7 +7156,7 @@ async fn finish_sparql_commit(
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 enum SparqlForwardOutcome {
     /// This request is finished; the response is final.
-    Settled(Response),
+    Settled(Box<Response>),
     /// The forward commit did not take. Compensate, carrying the parent saga
     /// and the durable compensation marker that pins the direction.
     Compensate(handlers::admin::AdminSaga, handlers::admin::AdminSaga),
@@ -7171,7 +7171,7 @@ async fn try_sparql_forward_commit(
     saga: handlers::admin::AdminSaga,
 ) -> SparqlForwardOutcome {
     if let Err(response) = create_missing_sparql_graphs(coord, plan).await {
-        return SparqlForwardOutcome::Settled(response);
+        return SparqlForwardOutcome::Settled(Box::new(response));
     }
     let forward = handlers::txn::commit_coordinated_graph_methods(
         coord.state,
@@ -7182,7 +7182,9 @@ async fn try_sparql_forward_commit(
     )
     .await;
     if forward.error.is_none() && !matches!(forward.result, Some(ResultPayload::Bool(false))) {
-        return SparqlForwardOutcome::Settled(finish_sparql_commit(coord, saga, plan).await);
+        return SparqlForwardOutcome::Settled(Box::new(
+            finish_sparql_commit(coord, saga, plan).await,
+        ));
     }
     let marker_plan = SparqlRecoveryPlanV1 {
         schema_version: 1,
@@ -7195,7 +7197,7 @@ async fn try_sparql_forward_commit(
         SPARQL_COMPENSATION_EVENT,
     ) {
         Ok(marker) => SparqlForwardOutcome::Compensate(saga, marker),
-        Err(response) => SparqlForwardOutcome::Settled(response),
+        Err(response) => SparqlForwardOutcome::Settled(Box::new(response)),
     }
 }
 
@@ -7333,7 +7335,7 @@ async fn run_coordinated_sparql_http_update(
     let (saga, compensation_saga) = match existing_marker {
         Some(marker) => (saga, Some(marker)),
         None => match try_sparql_forward_commit(coord, &plan, saga).await {
-            SparqlForwardOutcome::Settled(response) => return response,
+            SparqlForwardOutcome::Settled(response) => return *response,
             SparqlForwardOutcome::Compensate(saga, marker) => (saga, Some(marker)),
         },
     };
