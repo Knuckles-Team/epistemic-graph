@@ -3329,52 +3329,62 @@ fn realize_node(
     Ok(id)
 }
 
-/// `MERGE (n:Label {props})`: match a node by label + ALL inline props; create iff
-/// absent. Idempotent. Binds `n` (CONCEPT:EG-KG.query.register-each-user-table).
-fn apply_merge(
+/// `apply_merge`'s point-lookup fast path (CONCEPT:EG-KG.storage.index-manager-seam): the
+/// dominant production shape is `MERGE (m:Label {id: $x}) SET …` — a single-node
+/// point lookup, not a scan. `GraphCore::get_node_properties` is a DIRECT DashMap
+/// read keyed by the node's GRAPH KEY (no property index, no cache, no staleness of
+/// any kind — it reads whatever `core` holds live at this instant, so it is exactly
+/// as fresh as [`merge_scan_match`] and safe to consult even mid-statement, unlike
+/// the general property index; see `exec_write`'s doc on why THAT index is not used
+/// here). A hit is checked against the SAME `label` + `want` conditions
+/// [`merge_scan_match`] checks for one candidate — so a match here is
+/// unconditionally the same match the scan would find, and this returns `true`
+/// (having already bound `node.var`) without ever touching
+/// `get_nodes_by_label`'s O(label-cardinality) scan+decode. A miss (no node at
+/// that graph key, wrong label, or its blob doesn't carry `want` verbatim — e.g. a
+/// non-Cypher-authored node whose blob's own `id` field diverges from its graph
+/// key) returns `false` rather than being treated as "absent": this fast path can
+/// only ever ADD a match, never suppress one the scan would have found.
+fn merge_fast_path(
     core: &GraphCore,
     binding: &mut Binding,
     node: &NodePat,
-    params: &Params,
-    mutated: &mut bool,
-) -> Result<(), String> {
-    let want = props_to_map(node.props.as_deref(), binding, params)?;
-
-    // Fast path (CONCEPT:EG-KG.storage.index-manager-seam): the dominant production shape is
-    // `MERGE (m:Label {id: $x}) SET …` — a single-node point lookup, not a scan.
-    // `GraphCore::get_node_properties` is a DIRECT DashMap read keyed by the node's
-    // GRAPH KEY (no property index, no cache, no staleness of any kind — it reads
-    // whatever `core` holds live at this instant, so it is exactly as fresh as the
-    // full scan below and safe to consult even mid-statement, unlike the general
-    // property index; see `exec_write`'s doc on why THAT index is not used here).
-    // A hit is checked against the SAME `label` + `want` conditions the full-scan
-    // loop below checks for one candidate — so a match here is unconditionally the
-    // same match the loop would find, and it's returned immediately without ever
-    // touching `get_nodes_by_label`'s O(label-cardinality) scan+decode. A miss (no
-    // node at that graph key, wrong label, or its blob doesn't carry `want`
-    // verbatim — e.g. a non-Cypher-authored node whose blob's own `id` field
-    // diverges from its graph key) falls through to the unchanged full scan rather
-    // than being treated as "absent": this fast path can only ever ADD a match,
-    // never suppress one the slow path would have found.
-    if let Some(id_val) = want.get("id").and_then(Value::as_str) {
-        if let Some(blob) = core.get_node_properties(id_val) {
-            let label_ok = node
-                .label
-                .as_deref()
-                .is_none_or(|label| node_has_label(&blob, label));
-            if label_ok {
-                if let Ok(Value::Object(obj)) = eg_types::msgpack::decode_property_value(&blob) {
-                    if want.iter().all(|(k, v)| obj.get(k) == Some(v)) {
-                        if let Some(var) = &node.var {
-                            binding.insert(var.clone(), id_val.to_string());
-                        }
-                        return Ok(());
-                    }
-                }
-            }
-        }
+    want: &serde_json::Map<String, Value>,
+) -> bool {
+    let Some(id_val) = want.get("id").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(blob) = core.get_node_properties(id_val) else {
+        return false;
+    };
+    let label_ok = node
+        .label
+        .as_deref()
+        .is_none_or(|label| node_has_label(&blob, label));
+    if !label_ok {
+        return false;
     }
+    let Ok(Value::Object(obj)) = eg_types::msgpack::decode_property_value(&blob) else {
+        return false;
+    };
+    if !want.iter().all(|(k, v)| obj.get(k) == Some(v)) {
+        return false;
+    }
+    if let Some(var) = &node.var {
+        binding.insert(var.clone(), id_val.to_string());
+    }
+    true
+}
 
+/// `apply_merge`'s full-scan fallback: every label candidate (or every node, when
+/// the pattern carries no label), first-match-wins on ALL of `want`. Returns `true`
+/// (having already bound `node.var`) iff a candidate matched.
+fn merge_scan_match(
+    core: &GraphCore,
+    binding: &mut Binding,
+    node: &NodePat,
+    want: &serde_json::Map<String, Value>,
+) -> bool {
     let candidates: Vec<(String, Vec<u8>)> = match &node.label {
         Some(label) => core.get_nodes_by_label(label, 0),
         None => core.get_nodes(),
@@ -3395,8 +3405,27 @@ fn apply_merge(
             if let Some(var) = &node.var {
                 binding.insert(var.clone(), id.clone());
             }
-            return Ok(());
+            return true;
         }
+    }
+    false
+}
+
+/// `MERGE (n:Label {props})`: match a node by label + ALL inline props; create iff
+/// absent. Idempotent. Binds `n` (CONCEPT:EG-KG.query.register-each-user-table).
+fn apply_merge(
+    core: &GraphCore,
+    binding: &mut Binding,
+    node: &NodePat,
+    params: &Params,
+    mutated: &mut bool,
+) -> Result<(), String> {
+    let want = props_to_map(node.props.as_deref(), binding, params)?;
+    if merge_fast_path(core, binding, node, &want) {
+        return Ok(());
+    }
+    if merge_scan_match(core, binding, node, &want) {
+        return Ok(());
     }
     realize_node(core, binding, node, params, mutated)?;
     Ok(())
