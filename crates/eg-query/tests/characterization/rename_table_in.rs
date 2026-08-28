@@ -38,7 +38,10 @@ fn rename_moves_rows_schema_name_and_carries_the_sequence_forward() {
 
     // Old name is gone, new name has the moved rows and the renamed schema.
     assert!(store.get_schema("widgets").unwrap().is_none());
-    let renamed = store.get_schema("gadgets").unwrap().expect("gadgets schema");
+    let renamed = store
+        .get_schema("gadgets")
+        .unwrap()
+        .expect("gadgets schema");
     assert_eq!(renamed.name, "gadgets");
     let rows = store.scan("gadgets").expect("scan renamed table");
     assert_eq!(rows.len(), 2);
