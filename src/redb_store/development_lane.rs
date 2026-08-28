@@ -685,6 +685,157 @@ fn lifecycle_work_item_owner_matches(
     }
 }
 
+/// The checkpoint's node image, indexed by node id.
+type IncomingNodes<'a> = std::collections::HashMap<&'a str, &'a [u8]>;
+
+/// Index the checkpoint's node set by id, rejecting a duplicate node.
+fn checkpoint_incoming_nodes(
+    incoming_nodes: &[(String, Vec<u8>)],
+) -> Result<IncomingNodes<'_>, String> {
+    let mut incoming = std::collections::HashMap::with_capacity(incoming_nodes.len());
+    for (id, bytes) in incoming_nodes {
+        if incoming.insert(id.as_str(), bytes.as_slice()).is_some() {
+            return Err("checkpoint contains duplicate WorkItem node".to_string());
+        }
+    }
+    Ok(incoming)
+}
+
+/// Does the incoming lifecycle WorkItem carry a different identity/fence tuple
+/// than the retained hold?
+fn checkpoint_lifecycle_fence_mismatch(
+    props: &serde_json::Map<String, serde_json::Value>,
+    status: &str,
+    hold: &DevelopmentLaneHold,
+) -> bool {
+    super::property_string(props, "node_type") != "WorkItem"
+        || super::property_string(props, "tenant") != hold.tenant_ref
+        || super::property_string(props, "kind")
+            != work_item_kind_name(DevelopmentLaneWorkItemKind::Lifecycle)
+        || super::property_u64(props, "attempt") != hold.attempt
+        || super::property_u64(props, "lease_epoch") != hold.lease_epoch
+        || super::property_u64(props, "fencing_token") != hold.fencing_token
+        || super::property_string(props, "work_item_fence") != hold.work_item_fence
+        || !lifecycle_work_item_owner_matches(props, status, &hold.owner_id)
+}
+
+/// The same check for the distinct cleanup WorkItem of a cleaned hold, whose
+/// fence tuple is recorded on the hold rather than shared with the lifecycle
+/// attempt.
+fn checkpoint_cleanup_fence_mismatch(
+    props: &serde_json::Map<String, serde_json::Value>,
+    hold: &DevelopmentLaneHold,
+    attempt: u64,
+    lease_epoch: u64,
+    fencing_token: u64,
+    fence: &str,
+) -> bool {
+    let status = super::property_string(props, "status");
+    let terminal = matches!(status, "succeeded" | "failed" | "cancelled" | "dead_letter");
+    super::property_string(props, "node_type") != "WorkItem"
+        || super::property_string(props, "tenant") != hold.tenant_ref
+        || super::property_string(props, "kind")
+            != work_item_kind_name(DevelopmentLaneWorkItemKind::Cleanup)
+        || super::property_u64(props, "attempt") != attempt
+        || super::property_u64(props, "lease_epoch") != lease_epoch
+        || super::property_u64(props, "fencing_token") != fencing_token
+        || super::property_string(props, "work_item_fence") != fence
+        || (!terminal && !matches!(status, "leased" | "running"))
+}
+
+/// A cleaned hold must still carry its distinct cleanup WorkItem, with the
+/// exact recorded fence tuple and the exact cleanup intent.
+fn validate_checkpoint_cleanup_link(
+    row: &DurableLaneHold,
+    incoming: &IncomingNodes<'_>,
+) -> Result<(), String> {
+    let cleanup_id = row
+        .hold
+        .cleanup_work_item_id
+        .as_deref()
+        .ok_or_else(|| "checkpoint cleaned lane cleanup WorkItem missing".to_string())?;
+    let cleanup_fence = row
+        .hold
+        .cleanup_work_item_fence
+        .as_deref()
+        .ok_or_else(|| "checkpoint cleaned lane cleanup fence missing".to_string())?;
+    let cleanup_attempt = row
+        .hold
+        .cleanup_attempt
+        .ok_or_else(|| "checkpoint cleaned lane cleanup attempt missing".to_string())?;
+    let cleanup_lease_epoch = row
+        .hold
+        .cleanup_lease_epoch
+        .ok_or_else(|| "checkpoint cleaned lane cleanup lease epoch missing".to_string())?;
+    let cleanup_fencing_token = row
+        .hold
+        .cleanup_fencing_token
+        .ok_or_else(|| "checkpoint cleaned lane cleanup fencing token missing".to_string())?;
+    let expected_revision = row
+        .cleanup_expected_hold_revision
+        .ok_or_else(|| "checkpoint cleaned lane cleanup revision missing".to_string())?;
+    let cleanup_bytes = incoming
+        .get(cleanup_id)
+        .ok_or_else(|| "checkpoint would orphan a cleaned lane cleanup WorkItem".to_string())?;
+    let cleanup_props: serde_json::Map<String, serde_json::Value> =
+        decode_durable(cleanup_bytes)
+            .map_err(|_| "checkpoint cleanup WorkItem decode failed".to_string())?;
+    if checkpoint_cleanup_fence_mismatch(
+        &cleanup_props,
+        &row.hold,
+        cleanup_attempt,
+        cleanup_lease_epoch,
+        cleanup_fencing_token,
+        cleanup_fence,
+    ) {
+        return Err("checkpoint cleaned lane cleanup WorkItem fence mismatch".to_string());
+    }
+    let cleanup = lane_cleanup_value(&cleanup_props)
+        .map_err(|_| "checkpoint cleaned lane cleanup intent missing".to_string())?;
+    if cleanup.hold_id != row.hold.hold_id
+        || cleanup.lane_id != row.hold.lane_id
+        || cleanup.expected_hold_revision != expected_revision
+    {
+        return Err("checkpoint cleaned lane cleanup intent mismatch".to_string());
+    }
+    Ok(())
+}
+
+/// One retained hold's link into the incoming checkpoint image: its exact
+/// lifecycle WorkItem, that WorkItem's status/state agreement and intent, and
+/// -- once cleaned -- its distinct cleanup WorkItem.
+fn validate_checkpoint_hold_link(
+    row: &DurableLaneHold,
+    incoming: &IncomingNodes<'_>,
+) -> Result<(), String> {
+    let bytes = incoming
+        .get(row.hold.work_item_id.as_str())
+        .ok_or_else(|| "checkpoint would orphan a development lane hold".to_string())?;
+    let props: serde_json::Map<String, serde_json::Value> =
+        decode_durable(bytes).map_err(|_| "checkpoint WorkItem decode failed".to_string())?;
+    let status = super::property_string(&props, "status");
+    if checkpoint_lifecycle_fence_mismatch(&props, status, &row.hold) {
+        return Err("checkpoint development lane WorkItem fence mismatch".to_string());
+    }
+    if !checkpoint_lifecycle_status_matches(row, status) {
+        return Err("checkpoint development lane WorkItem status/state mismatch".to_string());
+    }
+    let intent = lane_intent_value(&props)
+        .map_err(|_| "checkpoint development lane intent missing".to_string())?;
+    if !lane_intent_matches_hold(
+        Some(&intent),
+        &row.hold,
+        row.ttl_ms,
+        &row.resource_reservation_id,
+    ) {
+        return Err("checkpoint development lane intent mismatch".to_string());
+    }
+    if row.hold.state != DevelopmentLaneHoldState::Cleaned {
+        return Ok(());
+    }
+    validate_checkpoint_cleanup_link(row, incoming)
+}
+
 /// Ordinary checkpoints do not carry lane tables in `GraphDump`; the native
 /// rows therefore remain in place and the replacement image must prove every
 /// retained hold still has its exact immutable/fenced lifecycle WorkItem (and,
@@ -715,12 +866,7 @@ where
     // field before it is ever used as a lookup key into `incoming`. Mirrors
     // `work_item_capability::validate_snapshot_nodes`'s same content-shape-scoped
     // (not id-format-universal) convention for this same checkpoint path.
-    let mut incoming = std::collections::HashMap::with_capacity(incoming_nodes.len());
-    for (id, bytes) in incoming_nodes {
-        if incoming.insert(id.as_str(), bytes.as_slice()).is_some() {
-            return Err("checkpoint contains duplicate WorkItem node".to_string());
-        }
-    }
+    let incoming = checkpoint_incoming_nodes(incoming_nodes)?;
     for row in holds.range((graph, "")..).map_err(|e| e.to_string())? {
         let (key, value) = row.map_err(|e| e.to_string())?;
         let (row_graph, _) = key.value();
@@ -735,93 +881,7 @@ where
         ) {
             continue;
         }
-        let bytes = incoming
-            .get(row.hold.work_item_id.as_str())
-            .ok_or_else(|| "checkpoint would orphan a development lane hold".to_string())?;
-        let props: serde_json::Map<String, serde_json::Value> =
-            decode_durable(bytes).map_err(|_| "checkpoint WorkItem decode failed".to_string())?;
-        let status = super::property_string(&props, "status");
-        if super::property_string(&props, "node_type") != "WorkItem"
-            || super::property_string(&props, "tenant") != row.hold.tenant_ref
-            || super::property_string(&props, "kind")
-                != work_item_kind_name(DevelopmentLaneWorkItemKind::Lifecycle)
-            || super::property_u64(&props, "attempt") != row.hold.attempt
-            || super::property_u64(&props, "lease_epoch") != row.hold.lease_epoch
-            || super::property_u64(&props, "fencing_token") != row.hold.fencing_token
-            || super::property_string(&props, "work_item_fence") != row.hold.work_item_fence
-            || !lifecycle_work_item_owner_matches(&props, status, &row.hold.owner_id)
-        {
-            return Err("checkpoint development lane WorkItem fence mismatch".to_string());
-        }
-        if !checkpoint_lifecycle_status_matches(&row, status) {
-            return Err("checkpoint development lane WorkItem status/state mismatch".to_string());
-        }
-        let intent = lane_intent_value(&props)
-            .map_err(|_| "checkpoint development lane intent missing".to_string())?;
-        if !lane_intent_matches_hold(
-            Some(&intent),
-            &row.hold,
-            row.ttl_ms,
-            &row.resource_reservation_id,
-        ) {
-            return Err("checkpoint development lane intent mismatch".to_string());
-        }
-        if row.hold.state == DevelopmentLaneHoldState::Cleaned {
-            let cleanup_id =
-                row.hold.cleanup_work_item_id.as_deref().ok_or_else(|| {
-                    "checkpoint cleaned lane cleanup WorkItem missing".to_string()
-                })?;
-            let cleanup_fence = row
-                .hold
-                .cleanup_work_item_fence
-                .as_deref()
-                .ok_or_else(|| "checkpoint cleaned lane cleanup fence missing".to_string())?;
-            let cleanup_attempt = row
-                .hold
-                .cleanup_attempt
-                .ok_or_else(|| "checkpoint cleaned lane cleanup attempt missing".to_string())?;
-            let cleanup_lease_epoch = row
-                .hold
-                .cleanup_lease_epoch
-                .ok_or_else(|| "checkpoint cleaned lane cleanup lease epoch missing".to_string())?;
-            let cleanup_fencing_token = row.hold.cleanup_fencing_token.ok_or_else(|| {
-                "checkpoint cleaned lane cleanup fencing token missing".to_string()
-            })?;
-            let expected_revision = row
-                .cleanup_expected_hold_revision
-                .ok_or_else(|| "checkpoint cleaned lane cleanup revision missing".to_string())?;
-            let cleanup_bytes = incoming.get(cleanup_id).ok_or_else(|| {
-                "checkpoint would orphan a cleaned lane cleanup WorkItem".to_string()
-            })?;
-            let cleanup_props: serde_json::Map<String, serde_json::Value> =
-                decode_durable(cleanup_bytes)
-                    .map_err(|_| "checkpoint cleanup WorkItem decode failed".to_string())?;
-            let cleanup_status = super::property_string(&cleanup_props, "status");
-            let cleanup_terminal = matches!(
-                cleanup_status,
-                "succeeded" | "failed" | "cancelled" | "dead_letter"
-            );
-            if super::property_string(&cleanup_props, "node_type") != "WorkItem"
-                || super::property_string(&cleanup_props, "tenant") != row.hold.tenant_ref
-                || super::property_string(&cleanup_props, "kind")
-                    != work_item_kind_name(DevelopmentLaneWorkItemKind::Cleanup)
-                || super::property_u64(&cleanup_props, "attempt") != cleanup_attempt
-                || super::property_u64(&cleanup_props, "lease_epoch") != cleanup_lease_epoch
-                || super::property_u64(&cleanup_props, "fencing_token") != cleanup_fencing_token
-                || super::property_string(&cleanup_props, "work_item_fence") != cleanup_fence
-                || (!cleanup_terminal && !matches!(cleanup_status, "leased" | "running"))
-            {
-                return Err("checkpoint cleaned lane cleanup WorkItem fence mismatch".to_string());
-            }
-            let cleanup = lane_cleanup_value(&cleanup_props)
-                .map_err(|_| "checkpoint cleaned lane cleanup intent missing".to_string())?;
-            if cleanup.hold_id != row.hold.hold_id
-                || cleanup.lane_id != row.hold.lane_id
-                || cleanup.expected_hold_revision != expected_revision
-            {
-                return Err("checkpoint cleaned lane cleanup intent mismatch".to_string());
-            }
-        }
+        validate_checkpoint_hold_link(&row, &incoming)?;
     }
     Ok(())
 }
