@@ -986,6 +986,205 @@ mod consensus_admin_route_tests {
     }
 }
 
+/// The resolved identity and route of one native consensus proposal, shared by
+/// the request builder and the write/coordination helpers below.
+#[cfg(feature = "raft")]
+struct NativeProposal<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    request_id: u64,
+    authority: &'a CarrierAuthority,
+    server_secret: &'a str,
+    graph_name: &'a str,
+    graph_type: crate::protocol::GraphType,
+}
+
+/// Which consensus coordination a committed native command still needs.
+#[cfg(feature = "raft")]
+#[derive(Clone, Copy)]
+enum NativeCoordination {
+    /// The replicated result is already terminal.
+    Terminal,
+    /// A worker job publication: commit on the target group, then finalize on
+    /// the scheduler's control group.
+    #[cfg(feature = "jobs")]
+    JobPublication,
+    /// A transaction commit: prepare/decide/commit/finalize the participant
+    /// fanout.
+    TransactionCommit,
+}
+
+/// Classified BEFORE the command is proposed, in the same order the inline
+/// checks ran: job publication first, then transaction commit.
+#[cfg(feature = "raft")]
+fn native_coordination_for(method: &Method) -> NativeCoordination {
+    #[cfg(feature = "jobs")]
+    if matches!(
+        method,
+        Method::AnalyticsJob {
+            op: eg_types::jobs::JobOp::WorkerPublish { .. }
+        }
+    ) {
+        return NativeCoordination::JobPublication;
+    }
+    if matches!(method, Method::Commit { .. }) {
+        return NativeCoordination::TransactionCommit;
+    }
+    NativeCoordination::Terminal
+}
+
+/// Resolve the consensus route for a native command: the graph whose group
+/// totally orders it, that graph's type (a `CreateGraph` carries its own; every
+/// other method reads the registry, defaulting to `Global`), and the placement
+/// authority — all under ONE read lock.
+#[cfg(feature = "raft")]
+async fn resolve_native_proposal_route(
+    state: &Arc<RwLock<ServerState>>,
+    request_graph: &str,
+    authority: &CarrierAuthority,
+    method: &Method,
+    command: &crate::raft::NativeMutationCommand,
+) -> (
+    String,
+    Option<Arc<crate::raft::multi::MultiRaft>>,
+    crate::protocol::GraphType,
+) {
+    let graph_name = native_route_target(request_graph, authority.tenant_scope(), method, command);
+    let current = timed_read(state).await;
+    let graph_type = match method {
+        Method::CreateGraph { graph_type, .. } => *graph_type,
+        _ => current
+            .registry
+            .get(&graph_name)
+            .map(|entry| entry.graph_type)
+            .unwrap_or(crate::protocol::GraphType::Global),
+    };
+    let multi = current.multi_raft.clone();
+    drop(current);
+    (graph_name, multi, graph_type)
+}
+
+#[cfg(feature = "raft")]
+fn build_native_raft_request(
+    proposal: &NativeProposal<'_>,
+    routed: &crate::raft::multi::RoutedRaftHandle,
+    method: &Method,
+    command: crate::raft::NativeMutationCommand,
+    identity_bootstrap: bool,
+) -> Result<crate::raft::RaftRequest, Response> {
+    let committed_at_ms = authoritative_now_ms();
+    let batch_id = crate::server::mutation_batch::opaque_request_key(
+        "raft-native",
+        proposal.graph_name,
+        proposal.request_id,
+        method,
+    );
+    let mutation = match crate::raft::RaftMutationContext::from_verified_request(
+        batch_id,
+        proposal.request_id,
+        proposal.authority.tenant_scope(),
+        proposal.authority.actor_scope().to_string(),
+        identity_bootstrap,
+        routed.epoch,
+        routed.placed.then_some(routed.group_id),
+        committed_at_ms,
+    ) {
+        Ok(mutation) => mutation,
+        Err(error) => return Err(Response::err(proposal.request_id, error)),
+    };
+    Ok(crate::raft::RaftRequest {
+        graph_fname: crate::persist::sanitize(proposal.graph_name),
+        graph_name: proposal.graph_name.to_string(),
+        graph_type: proposal.graph_type,
+        command: crate::raft::ReplicatedMutation::Native { command },
+        committed_at_ms,
+        mutation,
+    })
+}
+
+/// A committed native command that still owes consensus coordination hands its
+/// prepared payload to the matching coordinator. Any other result — including a
+/// coordination-classified command whose result is NOT a prepared payload — is
+/// already terminal and is returned verbatim.
+#[cfg(feature = "raft")]
+async fn coordinate_native_result(
+    proposal: &NativeProposal<'_>,
+    coordination: NativeCoordination,
+    multi: Arc<crate::raft::multi::MultiRaft>,
+    routed: crate::raft::multi::RoutedRaftHandle,
+    result: ResultPayload,
+) -> Response {
+    match (coordination, result) {
+        #[cfg(feature = "jobs")]
+        (NativeCoordination::JobPublication, ResultPayload::Raw(prepared)) => {
+            execute_consensus_job_publication(
+                proposal.request_id,
+                proposal.authority,
+                proposal.server_secret,
+                multi,
+                routed,
+                proposal.graph_name,
+                proposal.graph_type,
+                &prepared,
+            )
+            .await
+        }
+        (NativeCoordination::TransactionCommit, ResultPayload::Raw(prepared)) => {
+            execute_consensus_transaction(
+                proposal.state,
+                proposal.request_id,
+                proposal.authority,
+                proposal.server_secret,
+                multi,
+                routed,
+                proposal.graph_name,
+                proposal.graph_type,
+                &prepared,
+            )
+            .await
+        }
+        (_, terminal) => Response::ok(proposal.request_id, terminal),
+    }
+}
+
+/// Propose through the routed group's leader and translate its reply. A write
+/// failure is a stale-route redirect (the caller retries against the leader);
+/// a committed entry either carries a deterministic result or is a protocol
+/// violation.
+#[cfg(feature = "raft")]
+async fn dispatch_native_raft_write(
+    proposal: &NativeProposal<'_>,
+    coordination: NativeCoordination,
+    multi: Arc<crate::raft::multi::MultiRaft>,
+    routed: crate::raft::multi::RoutedRaftHandle,
+    request: crate::raft::RaftRequest,
+) -> Response {
+    let request_id = proposal.request_id;
+    let response = match routed.handle.client_write(request).await {
+        Ok(response) => response,
+        Err(error) => {
+            let leader = routed.handle.current_leader().await;
+            return Response::stale_route(
+                request_id,
+                proposal.graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                error,
+            );
+        }
+    };
+    if let Some(error) = response.native_error {
+        return Response::err(request_id, error);
+    }
+    let Some(result) = response.native_result else {
+        return Response::err(
+            request_id,
+            "replicated native command returned no deterministic result",
+        );
+    };
+    coordinate_native_result(proposal, coordination, multi, routed, result).await
+}
+
 #[cfg(feature = "raft")]
 async fn propose_native_mutation(
     state: &Arc<RwLock<ServerState>>,
@@ -1013,14 +1212,7 @@ async fn propose_native_mutation(
         Ok(method) => method,
         Err(error) => return Response::err(request_id, error),
     };
-    let is_transaction_commit = matches!(&method, Method::Commit { .. });
-    #[cfg(feature = "jobs")]
-    let is_job_publication = matches!(
-        &method,
-        Method::AnalyticsJob {
-            op: eg_types::jobs::JobOp::WorkerPublish { .. }
-        }
-    );
+    let coordination = native_coordination_for(&method);
     let server_secret = timed_read(state).await.auth_secret.clone();
     let command = match crate::raft::NativeMutationCommand::from_public_method(
         method.clone(),
@@ -1034,20 +1226,8 @@ async fn propose_native_mutation(
             )
         }
     };
-    let graph_name =
-        native_route_target(request_graph, authority.tenant_scope(), &method, &command);
-    let (multi, graph_type) = {
-        let current = timed_read(state).await;
-        let graph_type = match &method {
-            Method::CreateGraph { graph_type, .. } => *graph_type,
-            _ => current
-                .registry
-                .get(&graph_name)
-                .map(|entry| entry.graph_type)
-                .unwrap_or(crate::protocol::GraphType::Global),
-        };
-        (current.multi_raft.clone(), graph_type)
-    };
+    let (graph_name, multi, graph_type) =
+        resolve_native_proposal_route(state, request_graph, &authority, &method, &command).await;
     let Some(multi) = multi else {
         return Response::err(
             request_id,
@@ -1065,97 +1245,20 @@ async fn propose_native_mutation(
             "authoritative native placement group is not running on this node",
         );
     };
-    let committed_at_ms = authoritative_now_ms();
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
-        "raft-native",
-        &graph_name,
+    let proposal = NativeProposal {
+        state,
         request_id,
-        &method,
-    );
-    let mutation = match crate::raft::RaftMutationContext::from_verified_request(
-        batch_id,
-        request_id,
-        authority.tenant_scope(),
-        authority.actor_scope().to_string(),
-        identity_bootstrap,
-        routed.epoch,
-        routed.placed.then_some(routed.group_id),
-        committed_at_ms,
-    ) {
-        Ok(mutation) => mutation,
-        Err(error) => return Response::err(request_id, error),
-    };
-    let request = crate::raft::RaftRequest {
-        graph_fname: crate::persist::sanitize(&graph_name),
-        graph_name: graph_name.clone(),
+        authority: &authority,
+        server_secret: &server_secret,
+        graph_name: &graph_name,
         graph_type,
-        command: crate::raft::ReplicatedMutation::Native { command },
-        committed_at_ms,
-        mutation,
     };
-    match routed.handle.client_write(request).await {
-        Ok(response) => {
-            if let Some(error) = response.native_error {
-                Response::err(request_id, error)
-            } else if let Some(result) = response.native_result {
-                #[cfg(feature = "jobs")]
-                if is_job_publication {
-                    match result {
-                        ResultPayload::Raw(prepared) => {
-                            return execute_consensus_job_publication(
-                                request_id,
-                                &authority,
-                                &server_secret,
-                                multi,
-                                routed,
-                                &graph_name,
-                                graph_type,
-                                &prepared,
-                            )
-                            .await;
-                        }
-                        terminal => return Response::ok(request_id, terminal),
-                    }
-                }
-                if is_transaction_commit {
-                    match result {
-                        ResultPayload::Raw(prepared) => {
-                            return execute_consensus_transaction(
-                                state,
-                                request_id,
-                                &authority,
-                                &server_secret,
-                                multi,
-                                routed,
-                                &graph_name,
-                                graph_type,
-                                &prepared,
-                            )
-                            .await;
-                        }
-                        terminal => return Response::ok(request_id, terminal),
-                    }
-                }
-                Response::ok(request_id, result)
-            } else {
-                Response::err(
-                    request_id,
-                    "replicated native command returned no deterministic result",
-                )
-            }
-        }
-        Err(error) => {
-            let leader = routed.handle.current_leader().await;
-            Response::stale_route(
-                request_id,
-                &graph_name,
-                routed.group_id,
-                routed.epoch,
-                leader,
-                error,
-            )
-        }
-    }
+    let request =
+        match build_native_raft_request(&proposal, &routed, &method, command, identity_bootstrap) {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
+    dispatch_native_raft_write(&proposal, coordination, multi, routed, request).await
 }
 
 #[cfg(all(feature = "raft", feature = "jobs"))]
