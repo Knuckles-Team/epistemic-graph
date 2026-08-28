@@ -984,6 +984,67 @@ fn resolve_match(
 /// same hop-walking semantics for its inner sub-pattern — a group hop's `edge.group`
 /// dispatches to [`quantified_group_matches`] instead of [`neighbors`]/[`bfs_reachable`];
 /// everything downstream (label/prop/anchor checks, variable binding) is identical.
+/// The per-hop invariants [`expand_group_hop`]/[`expand_simple_hop`] need, held once
+/// per hop iteration instead of re-passed as five separate params (clippy's cap).
+struct HopCtx<'a> {
+    view: &'a GraphView,
+    edge: &'a EdgePat,
+    node: &'a NodePat,
+    preds: &'a [WhereExpr],
+    params: &'a Params,
+}
+
+/// Expand one `(binding, cur-node)` partial across a quantified-path-pattern group
+/// hop (CONCEPT:EG-KG.query.quantified-path-pattern), appending every surviving extension to `next`.
+fn expand_group_hop(
+    ctx: &HopCtx<'_>,
+    group: &QuantifiedGroup,
+    b: &Binding,
+    cur: &str,
+    next: &mut Vec<(Binding, String)>,
+) -> Result<(), String> {
+    for (group_binding, target) in quantified_group_matches(ctx.view, cur, group, b, ctx.params)? {
+        walk_metrics::note_hop_expansion();
+        if let Some(nb) = bind_target_node(ctx.view, ctx.node, &group_binding, &target, ctx.params)
+        {
+            if all_where_hold(ctx.view, &nb, ctx.params, ctx.preds)? {
+                next.push((nb, target));
+            }
+        }
+        if next.len() > MAX_ROWS {
+            return Err(format!(
+                "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Expand one `(binding, cur-node)` partial across a FIXED or variable-length hop,
+/// appending every surviving extension to `next`.
+fn expand_simple_hop(
+    ctx: &HopCtx<'_>,
+    b: &Binding,
+    cur: &str,
+    next: &mut Vec<(Binding, String)>,
+) -> Result<(), String> {
+    let targets = match ctx.edge.var_len {
+        Some((min, max)) => bfs_reachable(ctx.view, cur, ctx.edge, min, max),
+        None => neighbors(ctx.view, cur, ctx.edge, b, ctx.params),
+    };
+    for t in targets {
+        walk_metrics::note_hop_expansion();
+        let Some(mut nb) = bind_target_node(ctx.view, ctx.node, b, &t, ctx.params) else {
+            continue;
+        };
+        bind_edge_var(ctx.view, &mut nb, ctx.edge, cur, &t);
+        if all_where_hold(ctx.view, &nb, ctx.params, ctx.preds)? {
+            next.push((nb, t));
+        }
+    }
+    Ok(())
+}
+
 fn walk_hops(
     view: &GraphView,
     hops: &[(EdgePat, NodePat)],
@@ -1012,41 +1073,19 @@ fn walk_hops(
                 edge.rel_type.as_deref().unwrap_or("")
             ));
         }
+        let ctx = HopCtx {
+            view,
+            edge,
+            node,
+            preds,
+            params,
+        };
         let mut next: Vec<(Binding, String)> = Vec::new();
         for (b, cur) in &partials {
             if let Some(group) = &edge.group {
-                for (group_binding, target) in
-                    quantified_group_matches(view, cur, group, b, params)?
-                {
-                    walk_metrics::note_hop_expansion();
-                    if let Some(nb) = bind_target_node(view, node, &group_binding, &target, params)
-                    {
-                        if all_where_hold(view, &nb, params, preds)? {
-                            next.push((nb, target));
-                        }
-                    }
-                    if next.len() > MAX_ROWS {
-                        return Err(format!(
-                            "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
-                        ));
-                    }
-                }
-                continue;
-            }
-
-            let targets = match edge.var_len {
-                Some((min, max)) => bfs_reachable(view, cur, edge, min, max),
-                None => neighbors(view, cur, edge, b, params),
-            };
-            for t in targets {
-                walk_metrics::note_hop_expansion();
-                let Some(mut nb) = bind_target_node(view, node, b, &t, params) else {
-                    continue;
-                };
-                bind_edge_var(view, &mut nb, edge, cur, &t);
-                if all_where_hold(view, &nb, params, preds)? {
-                    next.push((nb, t));
-                }
+                expand_group_hop(&ctx, group, b, cur, &mut next)?;
+            } else {
+                expand_simple_hop(&ctx, b, cur, &mut next)?;
             }
         }
         partials = next;
@@ -2510,17 +2549,15 @@ fn indexed_inline_props(
 /// declines — the caller then tries the next conjunct, if any, before giving up.
 fn indexed_where_cond(index: Option<IndexSource<'_>>, c: &Condition) -> Option<Vec<String>> {
     let _ = &index; // referenced unconditionally so a `result-cache`-off build doesn't warn
-    // Only a plain `var.prop` condition is ever indexable — `type(r)`/`labels(n)`
-    // have no property-index entry to consult, so they decline here (`None`) and the
-    // caller falls back to the full start-candidate scan, same as any other
-    // non-indexable conjunct.
+                    // Only a plain `var.prop` condition is ever indexable — `type(r)`/`labels(n)`
+                    // have no property-index entry to consult, so they decline here (`None`) and the
+                    // caller falls back to the full start-candidate scan, same as any other
+                    // non-indexable conjunct.
     let Accessor::Prop(prop) = &c.accessor else {
         return None;
     };
     match &c.test {
-        Test::Cmp(CompareOp::Eq, value) if prop == "id" => {
-            Some(vec![value.as_str()?.to_string()])
-        }
+        Test::Cmp(CompareOp::Eq, value) if prop == "id" => Some(vec![value.as_str()?.to_string()]),
         Test::In(values) if !values.is_empty() && prop == "id" => {
             let mut out = Vec::with_capacity(values.len());
             for v in values {
@@ -7299,7 +7336,11 @@ mod tests {
             IndexSource::new(&core, version),
         )
         .unwrap();
-        assert_eq!(r_agg.rows.len(), 39, "its aggregate sibling groups by (s, o)");
+        assert_eq!(
+            r_agg.rows.len(),
+            39,
+            "its aggregate sibling groups by (s, o)"
+        );
     }
 
     #[test]
@@ -7403,7 +7444,11 @@ mod tests {
             IndexSource::new(&core2, version2),
         )
         .unwrap();
-        assert_eq!(r3.rows.len(), 2, "labels(n) is a list, never null, for a bound node");
+        assert_eq!(
+            r3.rows.len(),
+            2,
+            "labels(n) is a list, never null, for a bound node"
+        );
     }
 
     #[test]
