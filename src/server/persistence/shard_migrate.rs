@@ -52,15 +52,25 @@ use super::redb_backend::{ENCRYPTION_CANARY, ENCRYPTION_KEY_BINDING_KEY};
 use crate::redb_layout::{
     discover_indexed_shards, retired_single_shard, shard_filename, validate_shard_count,
 };
+use crate::redb_store::capacity_lease;
+use crate::redb_store::development_lane;
+use crate::redb_store::work_item_capability;
 #[cfg(feature = "compute-dist")]
 use crate::redb_store::MATVIEWS;
+#[cfg(feature = "security")]
+use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
 use crate::redb_store::{
     AUDIT, CHANGE_BLOBS, CHANGE_CURSORS, CHANGE_ENVELOPES, CHANGE_EVIDENCE, CHANGE_FEATURES,
     CHANGE_LINEAGE, CHANGE_POLICIES, CONTENT_VERSIONS, EDGES, GRAPH_META, LEDGER, MUTATION_BATCHES,
     MUTATION_FENCE, MUTATION_GRAPH_VERSION, MUTATION_IDEMPOTENCY, MUTATION_LIFECYCLE_HEAD,
     MUTATION_OUTBOX, MUTATION_OUTBOX_DELIVERY, MUTATION_PROJECTION_CURSOR, NODES, RAFT_LOG,
-    SEMANTIC, XSHARD_DECISION, XSHARD_PREPARE,
+    RESOURCE_ANTI_AFFINITY, RESOURCE_CONCURRENCY, RESOURCE_DISK_POLICIES, RESOURCE_EXCLUSIVITY,
+    RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
+    RESOURCE_RESERVATION_TENANT_INDEX, SEMANTIC, WORK_ITEM_COMMAND_SEQUENCE, XSHARD_DECISION,
+    XSHARD_PREPARE,
 };
+#[cfg(feature = "matview")]
+use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
 
 /// Outcome of a migration run (CONCEPT:EG-KG.sharding.atomic-shard-swap) — totals copied + the layout change.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -85,6 +95,13 @@ pub struct MigrationReport {
     pub auxiliary: u64,
     /// Global rows copied (raft log/meta routed per group; 2PC + matviews on shard 0).
     pub global: u64,
+    /// Rows copied from the tables this lane found missing from migration (BUG-CX-016,
+    /// BUG-CX-054, and the undocumented capacity-lease/work-item-capability gap in the
+    /// same class): provenance anchors, plan-matview definitions/state, every
+    /// `RESOURCE_*` table, every `development_lane_*` table, capacity-lease, and the
+    /// remaining work-item-capability tables. Counted separately from `auxiliary` so a
+    /// migration report makes this coverage independently auditable.
+    pub capability_and_resource: u64,
     /// ADR-2 / W1.2 group-count metadata: the number of Raft groups the destination
     /// layout supports. Under raft, K (redb shards) == N (groups) — raft group `g` owns
     /// shard `g` — so this equals `dest_shards`. Surfaced explicitly in the manifest so the
@@ -246,6 +263,10 @@ fn populate_dest_shard_from_sources(
         // complete materialization independently routable.
         populate_change_authority_core_for_source(&rtx, wtx, dest_idx, new_k, report)?;
         populate_change_authority_side_tables_for_source(&rtx, wtx, dest_idx, new_k, report)?;
+        // BUG-CX-016/BUG-CX-054 + two undocumented gaps in the same class: provenance
+        // anchors, resource reservations, development-lane, capacity-lease and the
+        // remaining work-item-capability tables — see the section below.
+        populate_capability_and_resource_tables_for_source(&rtx, wtx, dest_idx, new_k, report)?;
     }
     Ok(())
 }
@@ -332,6 +353,994 @@ fn populate_change_authority_side_tables_for_source(
     report.auxiliary += copy_change_policies_for_source(rtx, wtx, dest_idx, new_k)?;
     report.auxiliary += copy_change_lineage_for_source(rtx, wtx, dest_idx, new_k)?;
     Ok(())
+}
+
+// ── BUG-CX-016 / BUG-CX-054 / undocumented-gap tables ───────────────────────
+//
+// Everything below was found missing from this file by the mechanical table-vs-migrate
+// inventory this lane ran first (see the lane report): every `TableDefinition`/
+// `MultimapTableDefinition` constant reachable from `redb_store.rs`, `capacity_lease.rs`,
+// `development_lane.rs` and `work_item_capability.rs`, cross-checked against what this
+// file actually routes. `provenance_anchor_members`/`plan_matviews`/`matview_operator_state`
+// (BUG-CX-016), all 9 `RESOURCE_*` tables + `development_lane`'s full 10 + `NATIVE_WORK_ITEMS`
+// (BUG-CX-054), and — not named in any existing bug — the 4 `capacity_lease` tables and the 2
+// remaining `work_item_capability` tables (`CAPABILITIES`/`INVOCATIONS`) are the SAME
+// "a table gets a writer and never gets a migrator" defect class, in two more subsystems.
+// Same per-table-function shape as above, same reason: one function per table keeps every
+// unit under the 10/15 complexity cap even though the aggregate routing is ~30 tables wide.
+/// Every table this lane found missing from `migrate_shards` beyond the pre-existing
+/// core/mutation/change coverage (BUG-CX-016, BUG-CX-054, and two undocumented gaps in
+/// the same class found by the mechanical table inventory: capacity_lease and
+/// work_item_capability). Grouped as its own pass so a reshard/migration cannot drop
+/// provenance-anchor, matview-plan, resource-reservation, development-lane, capacity-lease,
+/// or work-item-capability authority the way it silently did before this fix.
+fn populate_capability_and_resource_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    populate_provenance_and_sequence_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    populate_resource_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    populate_development_lane_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    populate_capacity_lease_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    populate_work_item_capability_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    Ok(())
+}
+
+/// provenance_anchor_members + work_item_command_sequence for ONE source (BUG-CX-016/BUG-CX-054 class).
+fn populate_provenance_and_sequence_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    #[cfg(feature = "security")]
+    {
+        report.capability_and_resource +=
+            copy_provenance_anchor_members_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_work_item_command_sequence_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    Ok(())
+}
+
+/// provenance_anchor_members — (graph, seq) -> Merkle inclusion-proof anchor member blob (BUG-CX-016).
+#[cfg(feature = "security")]
+fn copy_provenance_anchor_members_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_provenance_anchor_members = wtx
+        .open_table(PROVENANCE_ANCHOR_MEMBERS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(PROVENANCE_ANCHOR_MEMBERS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, seq) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_provenance_anchor_members
+                    .insert((graph, seq), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// work_item_command_sequence — graph -> monotonic native WorkItem command sequence (BUG-CX-054 class).
+fn copy_work_item_command_sequence_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_work_item_command_sequence = wtx
+        .open_table(WORK_ITEM_COMMAND_SEQUENCE)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(WORK_ITEM_COMMAND_SEQUENCE) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let graph = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_work_item_command_sequence
+                    .insert(graph, v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// Every RESOURCE_* table for ONE source (BUG-CX-054): reservations, tenant index,
+/// attempts, hosts, exclusivity, fairness, concurrency, anti-affinity, disk policies.
+fn populate_resource_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    populate_resource_core_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    populate_resource_policy_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    Ok(())
+}
+
+/// resource_reservations + tenant_index + attempts + hosts for ONE source (BUG-CX-054).
+fn populate_resource_core_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    {
+        report.capability_and_resource +=
+            copy_resource_reservations_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_resource_reservation_tenant_index_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_resource_reservation_attempts_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_resource_hosts_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    Ok(())
+}
+
+/// resource_reservations — (graph, reservation_id) -> reservation row (BUG-CX-054).
+fn copy_resource_reservations_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_reservations = wtx
+        .open_table(RESOURCE_RESERVATIONS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_RESERVATIONS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, reservation_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_reservations
+                    .insert((graph, reservation_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// resource_reservation_tenant_index — (graph, tenant, index_key) -> reservation_id (BUG-CX-054).
+fn copy_resource_reservation_tenant_index_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_reservation_tenant_index = wtx
+        .open_table(RESOURCE_RESERVATION_TENANT_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, tenant, index_key) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_reservation_tenant_index
+                    .insert((graph, tenant, index_key), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// resource_reservation_attempts — (graph, reservation_id, attempt_seq) -> attempt row (BUG-CX-054).
+fn copy_resource_reservation_attempts_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_reservation_attempts = wtx
+        .open_table(RESOURCE_RESERVATION_ATTEMPTS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_RESERVATION_ATTEMPTS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, reservation_id, attempt_seq) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_reservation_attempts
+                    .insert((graph, reservation_id, attempt_seq), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// resource_hosts — (graph, host_id) -> host row (BUG-CX-054).
+fn copy_resource_hosts_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_hosts = wtx.open_table(RESOURCE_HOSTS).map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_HOSTS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, host_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_hosts
+                    .insert((graph, host_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// resource_exclusivity + fairness + concurrency + anti_affinity + disk_policies for ONE source (BUG-CX-054).
+fn populate_resource_policy_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    {
+        report.capability_and_resource +=
+            copy_resource_exclusivity_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_resource_fairness_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_resource_concurrency_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_resource_anti_affinity_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_resource_disk_policies_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    Ok(())
+}
+
+/// resource_exclusivity — (graph, key) -> holder reservation_id (BUG-CX-054).
+fn copy_resource_exclusivity_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_exclusivity = wtx
+        .open_table(RESOURCE_EXCLUSIVITY)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_EXCLUSIVITY) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, key) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_exclusivity
+                    .insert((graph, key), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// resource_fairness — (graph, key) -> fairness row (BUG-CX-054).
+fn copy_resource_fairness_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_fairness = wtx
+        .open_table(RESOURCE_FAIRNESS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_FAIRNESS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, key) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_fairness
+                    .insert((graph, key), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// resource_concurrency — (graph, key) -> concurrency count (BUG-CX-054).
+fn copy_resource_concurrency_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_concurrency = wtx
+        .open_table(RESOURCE_CONCURRENCY)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_CONCURRENCY) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, key) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_concurrency
+                    .insert((graph, key), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// resource_anti_affinity — (graph, key, reservation_id) -> ts (BUG-CX-054).
+fn copy_resource_anti_affinity_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_anti_affinity = wtx
+        .open_table(RESOURCE_ANTI_AFFINITY)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_ANTI_AFFINITY) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, key, reservation_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_anti_affinity
+                    .insert((graph, key, reservation_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// resource_disk_policies — (graph, key) -> disk policy row (BUG-CX-054).
+fn copy_resource_disk_policies_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_resource_disk_policies = wtx
+        .open_table(RESOURCE_DISK_POLICIES)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(RESOURCE_DISK_POLICIES) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, key) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_resource_disk_policies
+                    .insert((graph, key), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// Every development_lane_* table for ONE source (BUG-CX-054/BUG-CX-096): all 10
+/// lane tables, so a reshard/migration carries the same authority
+/// `open_native_operation_lane_tables`/`clear_native_graph_rows_in_wtx` treat as live.
+fn populate_development_lane_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    populate_lane_core_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    populate_lane_index_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    populate_lane_misc_tables_for_source(rtx, wtx, dest_idx, new_k, report)?;
+    Ok(())
+}
+
+/// development_lane holds + counters + pressure_index + policies for ONE source (BUG-CX-054/096).
+fn populate_lane_core_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    {
+        report.capability_and_resource += copy_holds_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource += copy_lane_counters_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_lane_pressure_index_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource += copy_lane_policies_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    Ok(())
+}
+
+/// development_lane_holds — (graph, hold_id) -> hold row (BUG-CX-054/096).
+fn copy_holds_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_holds = wtx
+        .open_table(development_lane::HOLDS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::HOLDS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, hold_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_holds
+                    .insert((graph, hold_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane_counters — (graph, counter) -> counter blob (BUG-CX-054).
+fn copy_lane_counters_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_lane_counters = wtx
+        .open_table(development_lane::COUNTERS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::COUNTERS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, counter) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_lane_counters
+                    .insert((graph, counter), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane_pressure_index — 6-tuple key -> marker byte (BUG-CX-054).
+fn copy_lane_pressure_index_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_lane_pressure_index = wtx
+        .open_table(development_lane::PRESSURE_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::PRESSURE_INDEX) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, tenant, lane, repository, ts, kind) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_lane_pressure_index
+                    .insert((graph, tenant, lane, repository, ts, kind), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane_policies — (graph, policy_id) -> policy row (BUG-CX-096).
+fn copy_lane_policies_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_lane_policies = wtx
+        .open_table(development_lane::POLICIES)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::POLICIES) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, policy_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_lane_policies
+                    .insert((graph, policy_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane tenant/lane/repository_branch/worktree secondary indexes for ONE source (BUG-CX-096).
+fn populate_lane_index_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    {
+        report.capability_and_resource +=
+            copy_lane_tenant_index_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource += copy_lane_index_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_repository_branch_index_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_worktree_index_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    Ok(())
+}
+
+/// development_lane_tenant_index — (graph, tenant, index_key) -> hold_id (BUG-CX-096).
+fn copy_lane_tenant_index_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_lane_tenant_index = wtx
+        .open_table(development_lane::TENANT_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::TENANT_INDEX) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, tenant, index_key) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_lane_tenant_index
+                    .insert((graph, tenant, index_key), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane_lane_index — (graph, lane, index_key) -> hold_id (BUG-CX-096).
+fn copy_lane_index_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_lane_index = wtx
+        .open_table(development_lane::LANE_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::LANE_INDEX) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, lane, index_key) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_lane_index
+                    .insert((graph, lane, index_key), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane_repository_branch_index — (graph, repository, branch) -> hold_id (BUG-CX-096).
+fn copy_repository_branch_index_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_repository_branch_index = wtx
+        .open_table(development_lane::REPOSITORY_BRANCH_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::REPOSITORY_BRANCH_INDEX) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, repository, branch) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_repository_branch_index
+                    .insert((graph, repository, branch), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane_worktree_index — (graph, worktree) -> hold_id (BUG-CX-096).
+fn copy_worktree_index_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_worktree_index = wtx
+        .open_table(development_lane::WORKTREE_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::WORKTREE_INDEX) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, worktree) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_worktree_index
+                    .insert((graph, worktree), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane work_item_index + invocations for ONE source (BUG-CX-096).
+fn populate_lane_misc_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    {
+        report.capability_and_resource +=
+            copy_work_item_index_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_lane_invocations_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    Ok(())
+}
+
+/// development_lane_work_item_index — (graph, work_item_id, seq) -> hold_id (BUG-CX-096).
+fn copy_work_item_index_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_work_item_index = wtx
+        .open_table(development_lane::WORK_ITEM_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::WORK_ITEM_INDEX) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, work_item_id, seq) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_work_item_index
+                    .insert((graph, work_item_id, seq), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// development_lane_invocations — (graph, hold_id, invocation_id) -> invocation row (BUG-CX-096).
+fn copy_lane_invocations_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_lane_invocations = wtx
+        .open_table(development_lane::INVOCATIONS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(development_lane::INVOCATIONS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, hold_id, invocation_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_lane_invocations
+                    .insert((graph, hold_id, invocation_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// capacity_cells + leases + usage + idempotency for ONE source (undocumented BUG-CX-054-class gap).
+fn populate_capacity_lease_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    {
+        report.capability_and_resource +=
+            copy_capacity_cells_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_capacity_leases_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_capacity_usage_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_capacity_idempotency_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    Ok(())
+}
+
+/// capacity_cells — (graph, cell_id) -> cell row (BUG-CX-054 class, undocumented).
+fn copy_capacity_cells_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_capacity_cells = wtx
+        .open_table(capacity_lease::CELLS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(capacity_lease::CELLS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, cell_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_capacity_cells
+                    .insert((graph, cell_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// capacity_leases — (graph, lease_id) -> lease row (BUG-CX-054 class, undocumented).
+fn copy_capacity_leases_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_capacity_leases = wtx
+        .open_table(capacity_lease::LEASES)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(capacity_lease::LEASES) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, lease_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_capacity_leases
+                    .insert((graph, lease_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// capacity_usage — (graph, cell_id) -> usage row (BUG-CX-054 class, undocumented).
+fn copy_capacity_usage_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_capacity_usage = wtx
+        .open_table(capacity_lease::USAGE)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(capacity_lease::USAGE) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, cell_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_capacity_usage
+                    .insert((graph, cell_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// capacity_idempotency — (graph, tenant, key) -> replay row (BUG-CX-054 class, undocumented).
+fn copy_capacity_idempotency_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_capacity_idempotency = wtx
+        .open_table(capacity_lease::IDEMPOTENCY)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(capacity_lease::IDEMPOTENCY) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, tenant, key) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_capacity_idempotency
+                    .insert((graph, tenant, key), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// work_item_claim_capabilities + invocations + native_work_item_authority for ONE source (BUG-CX-054 + undocumented gap).
+fn populate_work_item_capability_tables_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+    report: &mut MigrationReport,
+) -> Result<(), String> {
+    {
+        report.capability_and_resource +=
+            copy_capability_capabilities_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_capability_invocations_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    {
+        report.capability_and_resource +=
+            copy_native_work_items_for_source(rtx, wtx, dest_idx, new_k)?;
+    }
+    Ok(())
+}
+
+/// work_item_claim_capabilities — (graph, digest) -> private capability row (BUG-CX-054 class, undocumented).
+fn copy_capability_capabilities_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_capability_capabilities = wtx
+        .open_table(work_item_capability::CAPABILITIES)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(work_item_capability::CAPABILITIES) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, digest) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_capability_capabilities
+                    .insert((graph, digest), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// work_item_claim_capability_invocations — (graph, digest) -> invocation row (BUG-CX-054 class, undocumented).
+fn copy_capability_invocations_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_capability_invocations = wtx
+        .open_table(work_item_capability::INVOCATIONS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(work_item_capability::INVOCATIONS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, digest) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_capability_invocations
+                    .insert((graph, digest), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// native_work_item_authority — (graph, work_item_id) -> claim-authority row (BUG-CX-054).
+fn copy_native_work_items_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    dest_idx: usize,
+    new_k: usize,
+) -> Result<u64, String> {
+    let mut d_native_work_items = wtx
+        .open_table(work_item_capability::NATIVE_WORK_ITEMS)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(work_item_capability::NATIVE_WORK_ITEMS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let (graph, work_item_id) = k.value();
+            if shard_index(graph, new_k) == dest_idx {
+                d_native_work_items
+                    .insert((graph, work_item_id), v.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
 }
 
 // ── per-table, per-source copy steps ────────────────────────────────────────
@@ -805,9 +1814,7 @@ fn copy_change_features_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_features = wtx
-        .open_table(CHANGE_FEATURES)
-        .map_err(|e| e.to_string())?;
+    let mut d_change_features = wtx.open_table(CHANGE_FEATURES).map_err(|e| e.to_string())?;
     let mut count = 0u64;
     if let Ok(t) = rtx.open_table(CHANGE_FEATURES) {
         for row in t.iter().map_err(|e| e.to_string())? {
@@ -831,9 +1838,7 @@ fn copy_change_evidence_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_evidence = wtx
-        .open_table(CHANGE_EVIDENCE)
-        .map_err(|e| e.to_string())?;
+    let mut d_change_evidence = wtx.open_table(CHANGE_EVIDENCE).map_err(|e| e.to_string())?;
     let mut count = 0u64;
     if let Ok(t) = rtx.open_table(CHANGE_EVIDENCE) {
         for row in t.iter().map_err(|e| e.to_string())? {
@@ -857,9 +1862,7 @@ fn copy_change_policies_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_policies = wtx
-        .open_table(CHANGE_POLICIES)
-        .map_err(|e| e.to_string())?;
+    let mut d_change_policies = wtx.open_table(CHANGE_POLICIES).map_err(|e| e.to_string())?;
     let mut count = 0u64;
     if let Ok(t) = rtx.open_table(CHANGE_POLICIES) {
         for row in t.iter().map_err(|e| e.to_string())? {
@@ -1116,6 +2119,58 @@ fn copy_shard_zero_only_tables(
         {
             count += copy_matviews_for_source(&rtx, wtx)?;
         }
+        #[cfg(feature = "matview")]
+        {
+            // BUG-CX-016: disjoint from `MATVIEWS` (definitions vs plan-backed
+            // definitions/incremental-operator-state), but the SAME shard0() home —
+            // `init_canonical_misc_tables`/`copy_matviews_for_source`'s own doc comment.
+            count += copy_plan_matviews_for_source(&rtx, wtx)?;
+            count += copy_matview_operator_state_for_source(&rtx, wtx)?;
+        }
+    }
+    Ok(count)
+}
+
+/// plan_matviews — name -> serialized plan-backed matview definition, shard-0 only
+/// (BUG-CX-016; disjoint table from `MATVIEWS`, same shard0() home).
+#[cfg(feature = "matview")]
+fn copy_plan_matviews_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+) -> Result<u64, String> {
+    let mut d_plan_matviews = wtx.open_table(PLAN_MATVIEWS).map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(PLAN_MATVIEWS) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            d_plan_matviews
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+/// matview_operator_state — name -> incremental-matview operator-state snapshot,
+/// shard-0 only (BUG-CX-016).
+#[cfg(feature = "matview")]
+fn copy_matview_operator_state_for_source(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+) -> Result<u64, String> {
+    let mut d_matview_operator_state = wtx
+        .open_table(MATVIEW_OPERATOR_STATE)
+        .map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(t) = rtx.open_table(MATVIEW_OPERATOR_STATE) {
+        for row in t.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            d_matview_operator_state
+                .insert(k.value(), v.value())
+                .map_err(|e| e.to_string())?;
+            count += 1;
+        }
     }
     Ok(count)
 }
@@ -1228,12 +2283,12 @@ mod tests {
     use super::*;
     use crate::durability::DurabilityPolicy;
     use crate::protocol::{GraphType, Method};
-    use crate::server::persistence::redb_backend::RedbBackend;
-    use crate::server::persistence::PersistenceBackend;
     #[cfg(feature = "security")]
     use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
     #[cfg(feature = "matview")]
     use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
+    use crate::server::persistence::redb_backend::RedbBackend;
+    use crate::server::persistence::PersistenceBackend;
 
     fn props(v: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&v).unwrap()
@@ -1833,16 +2888,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// CX-EG-10 BUG PIN (do not "fix" by widening -- see BUGS FOUND in
+    /// BUG-CX-016, FIXED (was a CX-EG-10 BUG PIN -- see BUGS FOUND in
     /// `plans/complex/lane-reports/CX-EG-10.md`): `provenance_anchor_members`
     /// (graph-scoped, feature `security`) and `plan_matviews` /
     /// `matview_operator_state` (global, `shard0()`-homed, feature `matview`) live
-    /// in the SAME `graph-<n>.redb` shard files as `nodes`/`audit_chain`, but
-    /// `migrate_shards`/`copy_global_tables` never import or route them, so a
-    /// K-shard migration silently drops them while every table the function DOES
-    /// know about survives. `NODES` is asserted as the differential control.
+    /// in the SAME `graph-<n>.redb` shard files as `nodes`/`audit_chain`.
+    /// `migrate_shards`/`copy_global_tables` now route all three (WD3-BUG-01:
+    /// `copy_provenance_anchor_members_for_source` +
+    /// `copy_plan_matviews_for_source`/`copy_matview_operator_state_for_source`), so a
+    /// K-shard migration carries them across exactly like `nodes`/`audit_chain` do.
+    /// `NODES` stays asserted as the differential control. Confirmed FAILING before this
+    /// fix (`anchors_after`/`plan_matviews_after`/`matview_state_after` were all `0`,
+    /// the assertions below now-inverted) against the unmodified `migrate_shards`.
     #[tokio::test(flavor = "multi_thread")]
-    async fn migration_silently_drops_provenance_anchor_and_matview_state() {
+    async fn migration_preserves_provenance_anchor_and_matview_state() {
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -1932,7 +2991,10 @@ mod tests {
         let nodes_after: usize = (0..2)
             .map(|i| table_row_count(&dst.join(format!("graph-{i}.redb")), NODES))
             .sum();
-        assert_eq!(nodes_after, 1, "node survives the migration (known-good table)");
+        assert_eq!(
+            nodes_after, 1,
+            "node survives the migration (known-good table)"
+        );
 
         #[cfg(feature = "security")]
         {
@@ -1945,8 +3007,8 @@ mod tests {
                 })
                 .sum();
             assert_eq!(
-                anchors_after, 0,
-                "BUG: provenance_anchor_members is silently dropped by migrate_shards"
+                anchors_after, 1,
+                "FIXED (BUG-CX-016): provenance_anchor_members now survives migrate_shards"
             );
         }
         #[cfg(feature = "matview")]
@@ -1955,22 +3017,151 @@ mod tests {
                 .map(|i| table_row_count(&dst.join(format!("graph-{i}.redb")), PLAN_MATVIEWS))
                 .sum();
             assert_eq!(
-                plan_matviews_after, 0,
-                "BUG: plan_matviews is silently dropped by migrate_shards / copy_global_tables"
+                plan_matviews_after, 1,
+                "FIXED (BUG-CX-016): plan_matviews now survives migrate_shards / copy_global_tables"
             );
             let matview_state_after: usize = (0..2)
                 .map(|i| {
-                    table_row_count(
-                        &dst.join(format!("graph-{i}.redb")),
-                        MATVIEW_OPERATOR_STATE,
-                    )
+                    table_row_count(&dst.join(format!("graph-{i}.redb")), MATVIEW_OPERATOR_STATE)
                 })
                 .sum();
             assert_eq!(
-                matview_state_after, 0,
-                "BUG: matview_operator_state is silently dropped by migrate_shards / copy_global_tables"
+                matview_state_after, 1,
+                "FIXED (BUG-CX-016): matview_operator_state now survives migrate_shards / copy_global_tables"
             );
         }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Insert one raw row directly into `table` for `graph`, bypassing every request/
+    /// validation path — the same "seed the durable table, not the API" technique
+    /// `table_row_count` already uses for reads. `key_tail` is whatever the table's key
+    /// needs after the leading graph element (a 2-tuple key passes `&[]`, more elements
+    /// are simulated by folding extra `&str` segments into one synthetic component,
+    /// since every routing decision this test cares about only inspects the FIRST key
+    /// element — the same contract `shard_index` and every `copy_*_for_source` function
+    /// in this file relies on).
+    fn seed_raw_two_tuple_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<(&str, &str), &[u8]>,
+        graph: &str,
+        second_key: &str,
+        value: &[u8],
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert((graph, second_key), value)
+                .expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
+    }
+
+    /// BUG-CX-054 (RESOURCE_*/development_lane/NATIVE_WORK_ITEMS) plus the two
+    /// undocumented gaps this lane's mechanical table inventory found in the SAME
+    /// class (capacity_lease, the remaining work_item_capability tables): one
+    /// representative table per subsystem, seeded directly (raw redb, bypassing the
+    /// request APIs those subsystems would otherwise require), migrated K=1 -> K=2, and
+    /// confirmed present afterward. Each of these tables has its own dedicated
+    /// `copy_*_for_source` unit and is exercised individually by `cargo check`'s type
+    /// checking (a key-shape or table-name transcription error fails to compile), but a
+    /// wrong FIELD ORDER within a correctly-typed tuple would still compile — this test
+    /// is the semantic check compilation cannot provide, across all four new subsystems
+    /// in one migration run.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn migration_preserves_resource_lane_capacity_and_capability_tables() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "eg-migrate-cx054-tables-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("src");
+        let dst = root.join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+        let src_s = src.to_string_lossy().to_string();
+
+        let backend = RedbBackend::open(src_s.clone(), DurabilityPolicy::Each, 256)
+            .expect("open K=1 backend");
+        backend
+            .register_graph("g", "g", GraphType::Global)
+            .await
+            .expect("register");
+        backend.shutdown();
+
+        let shard0 = src.join("graph-0.redb");
+        seed_raw_two_tuple_row(&shard0, RESOURCE_RESERVATIONS, "g", "r1", b"reservation");
+        seed_raw_two_tuple_row(&shard0, development_lane::HOLDS, "g", "h1", b"hold");
+        seed_raw_two_tuple_row(&shard0, capacity_lease::CELLS, "g", "c1", b"cell");
+        seed_raw_two_tuple_row(
+            &shard0,
+            work_item_capability::CAPABILITIES,
+            "g",
+            "digest1",
+            b"capability",
+        );
+        seed_raw_two_tuple_row(
+            &shard0,
+            work_item_capability::NATIVE_WORK_ITEMS,
+            "g",
+            "wi1",
+            b"native-work-item",
+        );
+
+        // Sanity: every seeded row landed in the source before migration.
+        assert_eq!(table_row_count(&shard0, RESOURCE_RESERVATIONS), 1);
+        assert_eq!(table_row_count(&shard0, development_lane::HOLDS), 1);
+        assert_eq!(table_row_count(&shard0, capacity_lease::CELLS), 1);
+        assert_eq!(
+            table_row_count(&shard0, work_item_capability::CAPABILITIES),
+            1
+        );
+        assert_eq!(
+            table_row_count(&shard0, work_item_capability::NATIVE_WORK_ITEMS),
+            1
+        );
+
+        let report = migrate_shards(&src, &dst, 2).expect("migrate K=1 -> K=2");
+        assert_eq!(report.graphs, 1);
+        assert_eq!(
+            report.capability_and_resource, 5,
+            "all 5 seeded rows counted under the new coverage bucket"
+        );
+
+        let after = |def: redb::TableDefinition<(&str, &str), &[u8]>| -> usize {
+            (0..2)
+                .map(|i| table_row_count(&dst.join(format!("graph-{i}.redb")), def))
+                .sum()
+        };
+        assert_eq!(
+            after(RESOURCE_RESERVATIONS),
+            1,
+            "resource_reservations survives migrate_shards (BUG-CX-054)"
+        );
+        assert_eq!(
+            after(development_lane::HOLDS),
+            1,
+            "development_lane_holds survives migrate_shards (BUG-CX-054)"
+        );
+        assert_eq!(
+            after(capacity_lease::CELLS),
+            1,
+            "capacity_cells survives migrate_shards (undocumented gap, same class as BUG-CX-054)"
+        );
+        assert_eq!(
+            after(work_item_capability::CAPABILITIES),
+            1,
+            "work_item_claim_capabilities survives migrate_shards (undocumented gap, same class as BUG-CX-054)"
+        );
+        assert_eq!(
+            after(work_item_capability::NATIVE_WORK_ITEMS),
+            1,
+            "native_work_item_authority survives migrate_shards (BUG-CX-054)"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

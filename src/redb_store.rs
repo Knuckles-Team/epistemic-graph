@@ -806,6 +806,14 @@ fn init_canonical_mutation_tables(wtx: &redb::WriteTransaction) -> Result<(), St
 fn init_canonical_resource_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     wtx.open_table(RESOURCE_RESERVATIONS)
         .map_err(|error| error.to_string())?;
+    // Was missing before this fix: every other RESOURCE_* table is pre-warmed here,
+    // but this one (the tenant secondary index `clear_resource_rows` clears alongside
+    // it) was not, so `RESOURCE_RESERVATION_TENANT_INDEX` only ever existed after its
+    // first write. redb creates a table lazily anyway, so this was latent, not a data
+    // loss bug — restoring it for consistency with the rest of this function's exhaustive
+    // pre-warm contract (found by the mechanical table inventory for BUG-CX-054).
+    wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX)
+        .map_err(|error| error.to_string())?;
     wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS)
         .map_err(|error| error.to_string())?;
     wtx.open_table(RESOURCE_HOSTS)
