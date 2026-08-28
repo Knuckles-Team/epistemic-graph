@@ -115,7 +115,12 @@ async fn create_graph(state: &Arc<RwLock<ServerState>>, id: u64, name: &str) -> 
     .await
 }
 
-async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str, node_id: &str) -> Response {
+async fn add_node(
+    state: &Arc<RwLock<ServerState>>,
+    id: u64,
+    graph: &str,
+    node_id: &str,
+) -> Response {
     Box::pin(dispatch(
         state,
         req(
@@ -298,7 +303,11 @@ async fn t04_replayed_add_node_request_is_not_double_applied() {
         ),
     ))
     .await;
-    assert!(edge.error.is_none(), "AddEdge after replay: {:?}", edge.error);
+    assert!(
+        edge.error.is_none(),
+        "AddEdge after replay: {:?}",
+        edge.error
+    );
 }
 
 /// Exercises the generic `apply_method_rows` catch-all arm's error path

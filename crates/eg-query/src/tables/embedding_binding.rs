@@ -523,10 +523,7 @@ pub fn decode_binding(bytes: &[u8], schema: &TableSchema) -> Result<EmbeddingBin
 
 /// Validate a durable record against the current schema.  Called on CREATE and
 /// on EVERY read, so a stale, tampered, or half-migrated record fails closed.
-pub fn validate_binding(
-    binding: &EmbeddingBinding,
-    schema: &TableSchema,
-) -> Result<(), String> {
+pub fn validate_binding(binding: &EmbeddingBinding, schema: &TableSchema) -> Result<(), String> {
     schema.validate()?;
     validate_binding_identity(binding)?;
     validate_binding_schema_bond(binding, schema)?;
@@ -578,10 +575,7 @@ fn validate_binding_schema_bond(
     Ok(())
 }
 
-fn validate_binding_source(
-    binding: &EmbeddingBinding,
-    schema: &TableSchema,
-) -> Result<(), String> {
+fn validate_binding_source(binding: &EmbeddingBinding, schema: &TableSchema) -> Result<(), String> {
     let Some(column) = binding.source.sql_column() else {
         // A `SqlExpr` reads several columns; its projection is checked by the
         // planner that compiles it, not by the catalog record.
@@ -603,10 +597,7 @@ fn validate_binding_source(
     Ok(())
 }
 
-fn validate_binding_target(
-    binding: &EmbeddingBinding,
-    schema: &TableSchema,
-) -> Result<(), String> {
+fn validate_binding_target(binding: &EmbeddingBinding, schema: &TableSchema) -> Result<(), String> {
     validate_identifier(&binding.target.column, "embedding binding target column")?;
     if binding.target.dim != binding.model.dim {
         return Err(format!(
@@ -736,9 +727,18 @@ mod embedding_binding_tests {
     #[test]
     fn digest_changes_with_every_pinned_field() {
         let base = model().digest;
-        assert_ne!(base, model_digest("bge-base-en-v1.5", "rev-abc123", 4, true));
-        assert_ne!(base, model_digest("bge-small-en-v1.5", "rev-def456", 4, true));
-        assert_ne!(base, model_digest("bge-small-en-v1.5", "rev-abc123", 8, true));
+        assert_ne!(
+            base,
+            model_digest("bge-base-en-v1.5", "rev-abc123", 4, true)
+        );
+        assert_ne!(
+            base,
+            model_digest("bge-small-en-v1.5", "rev-def456", 4, true)
+        );
+        assert_ne!(
+            base,
+            model_digest("bge-small-en-v1.5", "rev-abc123", 8, true)
+        );
         assert_ne!(
             base,
             model_digest("bge-small-en-v1.5", "rev-abc123", 4, false)
@@ -884,7 +884,10 @@ mod embedding_binding_tests {
         let schema = items_schema();
         let req = BindingRequest::sql_column("items", "sku", model(), VectorMetric::Cosine);
         let error = EmbeddingBinding::bind(SCOPE, req, &schema).unwrap_err();
-        assert!(error.contains("only TEXT and JSON carry language"), "{error}");
+        assert!(
+            error.contains("only TEXT and JSON carry language"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1014,7 +1017,10 @@ mod embedding_binding_tests {
     #[test]
     fn an_oversized_expression_is_rejected_but_a_bounded_one_is_not() {
         let schema = items_schema();
-        for (len, ok) in [(MAX_EMBEDDING_SOURCE_EXPR_BYTES, true), (MAX_EMBEDDING_SOURCE_EXPR_BYTES + 1, false)] {
+        for (len, ok) in [
+            (MAX_EMBEDDING_SOURCE_EXPR_BYTES, true),
+            (MAX_EMBEDDING_SOURCE_EXPR_BYTES + 1, false),
+        ] {
             let req = BindingRequest {
                 name: "items.blurb@bge-small-en-v1.5".into(),
                 source: SourceSelector::SqlExpr {

@@ -53,8 +53,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eg_viz_graph_tiles::contract::{
-    ChildClusterRef, ClusterExpansion, ClusterLevel, ClusterSummary, GraphSource,
-    InterClusterEdge, TileEdge, TileNode,
+    ChildClusterRef, ClusterExpansion, ClusterLevel, ClusterSummary, GraphSource, InterClusterEdge,
+    TileEdge, TileNode,
 };
 
 use crate::algorithms::{format_cluster_id, ClusterHierarchyResult};
@@ -355,7 +355,10 @@ mod tests {
         let total: u32 = level1.clusters.iter().map(|c| c.node_count).sum();
         assert_eq!(total as usize, all_ids.len());
         for c in &level1.clusters {
-            assert!(c.centroid.is_none(), "no layout computed -- must never fabricate one");
+            assert!(
+                c.centroid.is_none(),
+                "no layout computed -- must never fabricate one"
+            );
             assert_eq!(c.top_node_types, vec!["Doc".to_string()]);
         }
     }

@@ -106,7 +106,12 @@ async fn create_graph(state: &Arc<RwLock<ServerState>>, id: u64, name: &str) -> 
     .await
 }
 
-async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str, node_id: &str) -> Response {
+async fn add_node(
+    state: &Arc<RwLock<ServerState>>,
+    id: u64,
+    graph: &str,
+    node_id: &str,
+) -> Response {
     call(
         state,
         id,
@@ -149,7 +154,10 @@ async fn t02_add_node_then_get_edges_roundtrip() {
 #[tokio::test]
 async fn t03_sql_select_over_empty_graph() {
     let state = state();
-    assert!(create_graph(&state, 1, "cx06-op-sql1").await.error.is_none());
+    assert!(create_graph(&state, 1, "cx06-op-sql1")
+        .await
+        .error
+        .is_none());
     let resp = call(
         &state,
         2,
@@ -187,12 +195,18 @@ async fn t04_cypher_read_query_over_empty_graph() {
 #[tokio::test]
 async fn t05_audit_verify_over_fresh_graph() {
     let state = state();
-    assert!(create_graph(&state, 1, "cx06-op-audit1").await.error.is_none());
+    assert!(create_graph(&state, 1, "cx06-op-audit1")
+        .await
+        .error
+        .is_none());
     let resp = call(&state, 2, "cx06-op-audit1", Method::AuditVerify).await;
     // OBSERVED: pin whatever the audit-verify surface reports for a freshly
     // created graph with no mutations beyond CreateGraph itself.
     let _ = resp.error.is_some();
-    assert!(resp.result.is_some() || resp.error.is_some(), "AuditVerify must return something");
+    assert!(
+        resp.result.is_some() || resp.error.is_some(),
+        "AuditVerify must return something"
+    );
 }
 
 // ── Time-series (`tsdb` feature) — TsListSeries is a pure read, no fields.
@@ -220,10 +234,19 @@ async fn t06_ts_list_series_without_a_configured_store_fails_cleanly() {
 #[tokio::test]
 async fn t07_unregistered_caller_denied_before_graph_op() {
     let state = state();
-    assert!(create_graph(&state, 1, "cx06-op-acl1").await.error.is_none());
+    assert!(create_graph(&state, 1, "cx06-op-acl1")
+        .await
+        .error
+        .is_none());
     let resp = Box::pin(dispatch(
         &state,
-        common::signed_request_as(SECRET, 2, "cx06-op-acl1", "cx06-unregistered-caller", Method::GetEdges),
+        common::signed_request_as(
+            SECRET,
+            2,
+            "cx06-op-acl1",
+            "cx06-unregistered-caller",
+            Method::GetEdges,
+        ),
     ))
     .await;
     assert!(
@@ -239,9 +262,18 @@ async fn t07_unregistered_caller_denied_before_graph_op() {
 #[tokio::test]
 async fn t08_add_edge_then_get_edges_returns_the_edge() {
     let state = state();
-    assert!(create_graph(&state, 1, "cx06-op-edge1").await.error.is_none());
-    assert!(add_node(&state, 2, "cx06-op-edge1", "a").await.error.is_none());
-    assert!(add_node(&state, 3, "cx06-op-edge1", "b").await.error.is_none());
+    assert!(create_graph(&state, 1, "cx06-op-edge1")
+        .await
+        .error
+        .is_none());
+    assert!(add_node(&state, 2, "cx06-op-edge1", "a")
+        .await
+        .error
+        .is_none());
+    assert!(add_node(&state, 3, "cx06-op-edge1", "b")
+        .await
+        .error
+        .is_none());
     let edge = call(
         &state,
         4,
