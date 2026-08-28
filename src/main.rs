@@ -9,7 +9,6 @@
 
 use clap::Parser;
 use std::net::SocketAddr;
-#[cfg(feature = "security")]
 use std::sync::Arc;
 #[cfg(feature = "security")]
 use tokio::sync::RwLock;
@@ -27,7 +26,6 @@ use epistemic_graph::isolation::IsolationLayer;
 #[cfg(feature = "security")]
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server;
-#[cfg(feature = "security")]
 use epistemic_graph::server::ServerState;
 
 #[cfg(feature = "full")]
