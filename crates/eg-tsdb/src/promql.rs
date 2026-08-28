@@ -1896,6 +1896,20 @@ fn count_values(
 /// CONCEPT:EG-KG.query.bottomk-selection — the `<agg>_over_time` family over a range vector. All drop the
 /// metric name EXCEPT `last_over_time`, which preserves the series' labels verbatim
 /// (Prometheus semantics).
+fn over_time_value(func: &str, vals: &[f64]) -> f64 {
+    match func {
+        "sum_over_time" => vals.iter().sum(),
+        "avg_over_time" => vals.iter().sum::<f64>() / vals.len() as f64,
+        "min_over_time" => vals.iter().copied().fold(f64::INFINITY, f64::min),
+        "max_over_time" => vals.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        "count_over_time" => vals.len() as f64,
+        "stddev_over_time" => variance(vals).sqrt(),
+        "stdvar_over_time" => variance(vals),
+        "last_over_time" => *vals.last().unwrap(),
+        _ => unreachable!("over_time_family called with {func}"),
+    }
+}
+
 fn over_time_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> {
     let mut out = Vec::new();
     for s in series {
@@ -1903,17 +1917,7 @@ fn over_time_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> 
             continue;
         }
         let vals: Vec<f64> = s.points.iter().map(|p| p.1).collect();
-        let value = match func {
-            "sum_over_time" => vals.iter().sum(),
-            "avg_over_time" => vals.iter().sum::<f64>() / vals.len() as f64,
-            "min_over_time" => vals.iter().copied().fold(f64::INFINITY, f64::min),
-            "max_over_time" => vals.iter().copied().fold(f64::NEG_INFINITY, f64::max),
-            "count_over_time" => vals.len() as f64,
-            "stddev_over_time" => variance(&vals).sqrt(),
-            "stdvar_over_time" => variance(&vals),
-            "last_over_time" => *vals.last().unwrap(),
-            _ => unreachable!("over_time_family called with {func}"),
-        };
+        let value = over_time_value(func, &vals);
         let mut labels = s.labels.clone();
         if func != "last_over_time" {
             labels.remove(METRIC_NAME);
@@ -2190,42 +2194,32 @@ fn parse_le(v: &str) -> Option<f64> {
     }
 }
 
-fn quantile_from_buckets(phi: f64, buckets: &[(f64, f64)]) -> f64 {
+/// The degenerate cases of [`quantile_from_buckets`], checked in their original
+/// order: empty input, phi below range, phi above range, a missing `+Inf`
+/// bucket, then a zero total count. `None` means "carry on and interpolate".
+fn quantile_bucket_guard(phi: f64, buckets: &[(f64, f64)]) -> Option<f64> {
     if buckets.is_empty() {
-        return f64::NAN;
+        return Some(f64::NAN);
     }
     if phi < 0.0 {
-        return f64::NEG_INFINITY;
+        return Some(f64::NEG_INFINITY);
     }
     if phi > 1.0 {
-        return f64::INFINITY;
+        return Some(f64::INFINITY);
     }
     // The last bucket must be +Inf (total count).
     let last = buckets[buckets.len() - 1];
     if !last.0.is_infinite() {
-        return f64::NAN;
+        return Some(f64::NAN);
     }
-    let total = last.1;
-    if total == 0.0 {
-        return f64::NAN;
+    if last.1 == 0.0 {
+        return Some(f64::NAN);
     }
-    let rank = phi * total;
-    // Find the first bucket whose cumulative count >= rank.
-    let mut b = 0usize;
-    while b < buckets.len() && buckets[b].1 < rank {
-        b += 1;
-    }
-    if b == buckets.len() {
-        return last.0;
-    }
-    if b == buckets.len() - 1 && buckets[b].0.is_infinite() {
-        // rank falls in the +Inf bucket → return the highest finite bound.
-        return if buckets.len() >= 2 {
-            buckets[buckets.len() - 2].0
-        } else {
-            f64::INFINITY
-        };
-    }
+    None
+}
+
+/// Linearly interpolate `rank` inside bucket `b`.
+fn interpolate_bucket(buckets: &[(f64, f64)], b: usize, rank: f64) -> f64 {
     let bucket_end = buckets[b].0;
     let (bucket_start, count_before) = if b == 0 {
         (0.0, 0.0)
@@ -2242,6 +2236,31 @@ fn quantile_from_buckets(phi: f64, buckets: &[(f64, f64)]) -> f64 {
         bucket_start
     };
     start + (bucket_end - start) * ((rank - count_before) / count_in_bucket)
+}
+
+fn quantile_from_buckets(phi: f64, buckets: &[(f64, f64)]) -> f64 {
+    if let Some(degenerate) = quantile_bucket_guard(phi, buckets) {
+        return degenerate;
+    }
+    let last = buckets[buckets.len() - 1];
+    let rank = phi * last.1;
+    // Find the first bucket whose cumulative count >= rank.
+    let mut b = 0usize;
+    while b < buckets.len() && buckets[b].1 < rank {
+        b += 1;
+    }
+    if b == buckets.len() {
+        return last.0;
+    }
+    if b == buckets.len() - 1 && buckets[b].0.is_infinite() {
+        // rank falls in the +Inf bucket → return the highest finite bound.
+        return if buckets.len() >= 2 {
+            buckets[buckets.len() - 2].0
+        } else {
+            f64::INFINITY
+        };
+    }
+    interpolate_bucket(buckets, b, rank)
 }
 
 // ───────────────────────────── binary ops ─────────────────────────────
@@ -2298,6 +2317,35 @@ fn eval_binary(
 }
 
 /// vector `op` scalar (or scalar `op` vector when `scalar_lhs`).
+/// One `vector op scalar` sample. A comparison either filters the sample out
+/// (keeping its original value and metric name) or, under `bool`, rewrites it to
+/// 0/1; anything else is arithmetic. Both rewriting paths drop the metric name.
+fn scalar_binary_sample(
+    op: BinOp,
+    mut sample: InstantSample,
+    l: f64,
+    r: f64,
+    bool_modifier: bool,
+) -> Option<InstantSample> {
+    if !op.is_comparison() {
+        sample.value = apply_arith(op, l, r);
+        sample.labels.remove(METRIC_NAME);
+        return Some(sample);
+    }
+    let keep = apply_cmp(op, l, r);
+    if bool_modifier {
+        sample.value = if keep { 1.0 } else { 0.0 };
+        sample.labels.remove(METRIC_NAME);
+        return Some(sample);
+    }
+    // filter: keep the original sample value + labels (metric name kept).
+    if keep {
+        Some(sample)
+    } else {
+        None
+    }
+}
+
 fn vector_scalar(
     op: BinOp,
     samples: Vec<InstantSample>,
@@ -2306,58 +2354,152 @@ fn vector_scalar(
     scalar_lhs: bool,
 ) -> Vec<InstantSample> {
     let mut out = Vec::new();
-    for mut sample in samples {
+    for sample in samples {
         let (l, r) = if scalar_lhs {
             (s, sample.value)
         } else {
             (sample.value, s)
         };
-        if op.is_comparison() {
-            let keep = apply_cmp(op, l, r);
-            if bool_modifier {
-                sample.value = if keep { 1.0 } else { 0.0 };
-                sample.labels.remove(METRIC_NAME);
-                out.push(sample);
-            } else if keep {
-                // filter: keep the original sample value + labels (metric name kept).
-                out.push(sample);
-            }
-        } else {
-            sample.value = apply_arith(op, l, r);
-            sample.labels.remove(METRIC_NAME);
-            out.push(sample);
+        if let Some(kept) = scalar_binary_sample(op, sample, l, r, bool_modifier) {
+            out.push(kept);
         }
     }
     out
 }
 
 /// The match key for vector↔vector matching under an optional on/ignoring modifier.
-fn match_labels(labels: &Labels, matching: Option<&VectorMatching>) -> Labels {
+/// `on(...)`: the key is exactly the listed labels, where present.
+fn keep_only_labels(labels: &Labels, keep: &[String]) -> Labels {
     let mut out = Labels::new();
+    for l in keep {
+        if let Some(v) = labels.get(l) {
+            out.insert(l.clone(), v.clone());
+        }
+    }
+    out
+}
+
+/// `ignoring(...)`, and the unmodified default (an empty `ignore` list): every
+/// label except `__name__` and the ignored ones.
+fn drop_labels(labels: &Labels, ignore: &[String]) -> Labels {
+    let mut out = Labels::new();
+    for (k, v) in labels {
+        if k == METRIC_NAME || ignore.iter().any(|l| l == k) {
+            continue;
+        }
+        out.insert(k.clone(), v.clone());
+    }
+    out
+}
+
+fn match_labels(labels: &Labels, matching: Option<&VectorMatching>) -> Labels {
     match matching {
-        Some(m) if m.on => {
-            for l in &m.labels {
-                if let Some(v) = labels.get(l) {
-                    out.insert(l.clone(), v.clone());
-                }
-            }
+        Some(m) if m.on => keep_only_labels(labels, &m.labels),
+        Some(m) => drop_labels(labels, &m.labels),
+        None => drop_labels(labels, &[]),
+    }
+}
+
+/// The set of (on/ignoring) match keys of a sample list.
+fn match_key_set(
+    samples: &[InstantSample],
+    matching: Option<&VectorMatching>,
+) -> std::collections::HashSet<String> {
+    samples
+        .iter()
+        .map(|s| label_key(&match_labels(&s.labels, matching)))
+        .collect()
+}
+
+/// `and` (`keep_matching = true`) and `unless` (`false`): keep the `lhs` samples
+/// whose match key is (or is not) present in `rhs`.
+fn set_filter(
+    lhs: Vec<InstantSample>,
+    rhs: &[InstantSample],
+    matching: Option<&VectorMatching>,
+    keep_matching: bool,
+) -> Vec<InstantSample> {
+    let keys = match_key_set(rhs, matching);
+    lhs.into_iter()
+        .filter(|s| keys.contains(&label_key(&match_labels(&s.labels, matching))) == keep_matching)
+        .collect()
+}
+
+/// `or`: all of `lhs`, plus every `rhs` sample whose match key is absent from `lhs`.
+fn set_union(
+    lhs: Vec<InstantSample>,
+    rhs: Vec<InstantSample>,
+    matching: Option<&VectorMatching>,
+) -> Vec<InstantSample> {
+    let lkeys = match_key_set(&lhs, matching);
+    let mut out = lhs;
+    for s in rhs {
+        if !lkeys.contains(&label_key(&match_labels(&s.labels, matching))) {
+            out.push(s);
         }
-        Some(m) => {
-            // ignoring
-            for (k, v) in labels {
-                if k == METRIC_NAME || m.labels.iter().any(|l| l == k) {
-                    continue;
-                }
-                out.insert(k.clone(), v.clone());
-            }
-        }
-        None => {
-            for (k, v) in labels {
-                if k == METRIC_NAME {
-                    continue;
-                }
-                out.insert(k.clone(), v.clone());
-            }
+    }
+    out
+}
+
+/// One matched `lhs`/`rhs` pair. A comparison either filters the pair out
+/// (keeping the `lhs` value) or, under `bool`, yields 0/1; anything else is
+/// arithmetic. `labels` is already the match key.
+fn paired_binary_sample(
+    op: BinOp,
+    labels: Labels,
+    l: f64,
+    r: f64,
+    bool_modifier: bool,
+) -> Option<InstantSample> {
+    if !op.is_comparison() {
+        return Some(InstantSample {
+            labels,
+            value: apply_arith(op, l, r),
+        });
+    }
+    let keep = apply_cmp(op, l, r);
+    if bool_modifier {
+        return Some(InstantSample {
+            labels,
+            value: if keep { 1.0 } else { 0.0 },
+        });
+    }
+    if keep {
+        Some(InstantSample { labels, value: l })
+    } else {
+        None
+    }
+}
+
+/// Arithmetic / comparison: one-to-one match on the (on/ignoring) key.
+fn one_to_one_binary(
+    op: BinOp,
+    lhs: Vec<InstantSample>,
+    rhs: Vec<InstantSample>,
+    bool_modifier: bool,
+    matching: Option<&VectorMatching>,
+) -> Vec<InstantSample> {
+    let mut rhs_by: BTreeMap<String, &InstantSample> = BTreeMap::new();
+    for s in &rhs {
+        rhs_by.insert(label_key(&match_labels(&s.labels, matching)), s);
+    }
+    let mut out = Vec::new();
+    for lsample in &lhs {
+        let key = label_key(&match_labels(&lsample.labels, matching));
+        let Some(rsample) = rhs_by.get(&key) else {
+            continue;
+        };
+        // The result label set is the match key (Prometheus drops __name__ and, under
+        // ignoring, only the shared/kept labels survive).
+        let result_labels = match_labels(&lsample.labels, matching);
+        if let Some(sample) = paired_binary_sample(
+            op,
+            result_labels,
+            lsample.value,
+            rsample.value,
+            bool_modifier,
+        ) {
+            out.push(sample);
         }
     }
     out
@@ -2372,80 +2514,18 @@ fn vector_vector(
 ) -> Result<Value, PromqlError> {
     // Set operators.
     match op {
-        BinOp::And => {
-            let keys: std::collections::HashSet<String> = rhs
-                .iter()
-                .map(|s| label_key(&match_labels(&s.labels, matching)))
-                .collect();
-            return Ok(Value::Instant(
-                lhs.into_iter()
-                    .filter(|s| keys.contains(&label_key(&match_labels(&s.labels, matching))))
-                    .collect(),
-            ));
-        }
-        BinOp::Unless => {
-            let keys: std::collections::HashSet<String> = rhs
-                .iter()
-                .map(|s| label_key(&match_labels(&s.labels, matching)))
-                .collect();
-            return Ok(Value::Instant(
-                lhs.into_iter()
-                    .filter(|s| !keys.contains(&label_key(&match_labels(&s.labels, matching))))
-                    .collect(),
-            ));
-        }
-        BinOp::Or => {
-            let lkeys: std::collections::HashSet<String> = lhs
-                .iter()
-                .map(|s| label_key(&match_labels(&s.labels, matching)))
-                .collect();
-            let mut out = lhs.clone();
-            for s in rhs {
-                if !lkeys.contains(&label_key(&match_labels(&s.labels, matching))) {
-                    out.push(s);
-                }
-            }
-            return Ok(Value::Instant(out));
-        }
+        BinOp::And => return Ok(Value::Instant(set_filter(lhs, &rhs, matching, true))),
+        BinOp::Unless => return Ok(Value::Instant(set_filter(lhs, &rhs, matching, false))),
+        BinOp::Or => return Ok(Value::Instant(set_union(lhs, rhs, matching))),
         _ => {}
     }
-
-    // Arithmetic / comparison: one-to-one match on the (on/ignoring) key.
-    let mut rhs_by: BTreeMap<String, &InstantSample> = BTreeMap::new();
-    for s in &rhs {
-        rhs_by.insert(label_key(&match_labels(&s.labels, matching)), s);
-    }
-    let mut out = Vec::new();
-    for lsample in &lhs {
-        let key = label_key(&match_labels(&lsample.labels, matching));
-        let Some(rsample) = rhs_by.get(&key) else {
-            continue;
-        };
-        let (l, r) = (lsample.value, rsample.value);
-        // The result label set is the match key (Prometheus drops __name__ and, under
-        // ignoring, only the shared/kept labels survive).
-        let result_labels = match_labels(&lsample.labels, matching);
-        if op.is_comparison() {
-            let keep = apply_cmp(op, l, r);
-            if bool_modifier {
-                out.push(InstantSample {
-                    labels: result_labels,
-                    value: if keep { 1.0 } else { 0.0 },
-                });
-            } else if keep {
-                out.push(InstantSample {
-                    labels: result_labels,
-                    value: l,
-                });
-            }
-        } else {
-            out.push(InstantSample {
-                labels: result_labels,
-                value: apply_arith(op, l, r),
-            });
-        }
-    }
-    Ok(Value::Instant(out))
+    Ok(Value::Instant(one_to_one_binary(
+        op,
+        lhs,
+        rhs,
+        bool_modifier,
+        matching,
+    )))
 }
 
 // ───────────────────────────── anchored regex (=~ / !~) ─────────────────────────────
