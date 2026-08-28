@@ -3,7 +3,13 @@
 
 from __future__ import annotations
 
+import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rust_callgraph import reachable_source, top_level_fns
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -15,6 +21,60 @@ def read(relative: str) -> str:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(f"P2 architecture gate failed: {message}")
+
+
+def call_offset(body: str, name: str) -> int:
+    """Offset of a call to `name` in `body`, or -1.
+
+    Word-boundary matched on purpose: a plain `find` for
+    `gate_graph_op_under_lock(` also matches
+    `renamed_gate_graph_op_under_lock(`, so renaming the ACL gate away would
+    have satisfied the ordering check below. Found by planting exactly that.
+    """
+
+    hit = re.search(rf"\b{name}\(", body)
+    return hit.start() if hit else -1
+
+
+def require_graph_dispatch_ordering(dispatch: str) -> None:
+    """Graph ACL, then placement, then KnowledgeStream -- as an order of CALLS.
+
+    That has always been the property. It used to be checkable as an order of
+    byte offsets inside one enormous `dispatch_graph_op_inner`; the complexity
+    program decomposed that function, moving the ACL check into
+    `check_graph_op_access` (via `gate_graph_op_under_lock`), placement into
+    `resolve_routed_raft`, and the KnowledgeStream arm into a post-lock router
+    DEFINED LATER IN THE FILE. The offsets then said the ordering was violated
+    while it held exactly -- the failure mode that gets a gate weakened rather
+    than a bug fixed. See scripts/rust_callgraph.py.
+    """
+
+    fns = top_level_fns(dispatch)
+    inner = fns.get("dispatch_graph_op_inner", "")
+    require(inner != "", "dispatch_graph_op_inner is absent from dispatch.rs")
+    acl = call_offset(inner, "gate_graph_op_under_lock")
+    placement = call_offset(inner, "resolve_routed_raft")
+    routing = call_offset(inner, "route_graph_op_method")
+    require(
+        acl >= 0 and placement > acl and routing > placement,
+        "KnowledgeStream is routed before graph ACL/placement semantics",
+    )
+    # ...and each delegate still does what its name claims. Without these, the
+    # ordering above could be satisfied by three helpers that check nothing.
+    require(
+        "check_graph_access(" in fns.get("check_graph_op_access", ""),
+        "the graph ACL gate no longer performs the graph ACL check",
+    )
+    ks_arm = "if matches!(&method, Method::KnowledgeStream"
+    ks_routers = [name for name, body in fns.items() if ks_arm in body]
+    post_lock = reachable_source(dispatch, "route_graph_op_method")
+    require(
+        ks_routers != []
+        and all(fns[name] in post_lock for name in ks_routers)
+        and "dispatch_graph_op_inner" not in ks_routers,
+        "KnowledgeStream is routed outside the post-lock router, so it no "
+        "longer sits behind graph ACL and placement resolution",
+    )
 
 
 def main() -> None:
@@ -222,16 +282,7 @@ def main() -> None:
         "query/result identifiers are not privacy-safe keyed references",
     )
     dispatch = read("src/server/dispatch.rs")
-    graph_dispatch = dispatch[dispatch.find("async fn dispatch_graph_op_inner") :]
-    acl = graph_dispatch.find("if let Err(denied) = check_graph_access")
-    placement = graph_dispatch.find("let routed_raft")
-    knowledge_stream = graph_dispatch.find(
-        "if matches!(&method, Method::KnowledgeStream"
-    )
-    require(
-        acl >= 0 and placement > acl and knowledge_stream > placement,
-        "KnowledgeStream is routed before graph ACL/placement semantics",
-    )
+    require_graph_dispatch_ordering(dispatch)
 
     served = read("crates/eg-modality/src/served.rs")
     require("UnsafePayload" in served, "served modalities do not reject unsafe payloads")
@@ -406,11 +457,17 @@ def main() -> None:
         and "AUTHORITATIVE_STATE_MUTATION|sha256:" in raft,
         "Raft privacy test does not cover MutationBatch, audit, and outbox surfaces",
     )
-    modality_dispatch = dispatch[
-        dispatch.find("async fn replicate_served_modality(") : dispatch.find(
-            "// ── Raft write-routing barrier"
-        )
-    ]
+    # Same repair as the ordering check above: `replicate_served_modality` was
+    # decomposed into `decode_modality_replication_inputs` ->
+    # `build_modality_raft_command` -> `submit_modality_replication`, all
+    # DEFINED ABOVE it, so a slice running forward from its header found none
+    # of the five tokens below. Resolving by call graph keeps the assertion
+    # scoped to the replication path and reads it through the extraction.
+    modality_dispatch = reachable_source(dispatch, "replicate_served_modality")
+    require(
+        modality_dispatch != "",
+        "replicate_served_modality is absent from dispatch.rs",
+    )
     require(
         "durable_receipt_method(&method)" in modality_dispatch
         and "let Method::ServedModality { op } = method else" in modality_dispatch
@@ -429,7 +486,12 @@ def main() -> None:
     raft_store = read("src/raft/store.rs")
     require(
         "NativeMutationCommand::ServedModality { command }" in raft_store
-        and "command.validate(&server_secret)?;" in raft_store
+        # `&server_secret` or `server_secret`: WB1-EG-01 extracted this into
+        # `validate_modality_command`, whose parameter is already `&str`, so
+        # the borrow moved to the call site. The property is that the replica
+        # validates the command before committing it.
+        and re.search(r"command\.validate\(&?server_secret\)\?;", raft_store)
+        is not None
         and "command.sealed_runtime_state.clone()" in raft_store
         and "command.result_msgpack.clone()" in raft_store
         and ".map(super::SanitizedModalityRaftCommand::receipt_method)" in raft_store,
