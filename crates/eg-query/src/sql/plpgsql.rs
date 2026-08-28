@@ -239,108 +239,191 @@ impl Tok {
 /// Tokenize a plpgsql body: identifiers, numbers, `'…'` strings (kept whole), the
 /// multi-char operators `:=` and `..`, and single punctuation chars. `--` line comments
 /// and `/* … */` block comments are skipped.
+/// Skip whitespace or a `--`/`/* */` comment starting at `i`. Split out of
+/// `tokenize` (extract-method, cx/wD8) — same terms, same order as before.
+/// Returns the index to resume at, or `None` if `b[i]` is neither.
+/// Skip a `--` line comment starting at `i` (`b[i] == '-'`). Split out of
+/// `skip_tokenize_trivia` (extract-method, cx/wD8) — same terms, same order
+/// as before.
+fn skip_line_comment(b: &[u8], i: usize) -> usize {
+    let mut j = i;
+    while j < b.len() && b[j] != b'\n' {
+        j += 1;
+    }
+    j
+}
+
+/// Skip a `/* */` block comment starting at `i` (`b[i] == '/'`). Split out
+/// of `skip_tokenize_trivia` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn skip_block_comment(b: &[u8], i: usize) -> usize {
+    let mut j = i + 2;
+    while j < b.len() && !(b[j] == b'*' && b.get(j + 1) == Some(&b'/')) {
+        j += 1;
+    }
+    (j + 2).min(b.len())
+}
+
+fn skip_tokenize_trivia(b: &[u8], i: usize) -> Option<usize> {
+    let c = b[i];
+    if c.is_ascii_whitespace() {
+        return Some(i + 1);
+    }
+    if c == b'-' && b.get(i + 1) == Some(&b'-') {
+        return Some(skip_line_comment(b, i));
+    }
+    if c == b'/' && b.get(i + 1) == Some(&b'*') {
+        return Some(skip_block_comment(b, i));
+    }
+    None
+}
+
+/// Tokenize a single-quoted string literal (Postgres `''` escape) starting
+/// at `i`, kept as one token including quotes. Split out of `tokenize`
+/// (extract-method, cx/wD8) — same terms, same order as before. `Ok(None)`
+/// means `b[i]` isn't a `'`.
+fn tokenize_string_literal(
+    src: &str,
+    b: &[u8],
+    i: usize,
+) -> Result<Option<(Tok, usize)>, String> {
+    if b[i] != b'\'' {
+        return Ok(None);
+    }
+    let start = i;
+    let mut j = i + 1;
+    loop {
+        if j >= b.len() {
+            return Err("unterminated string literal in plpgsql body".to_string());
+        }
+        if b[j] == b'\'' {
+            if b.get(j + 1) == Some(&b'\'') {
+                j += 2;
+                continue;
+            }
+            j += 1;
+            break;
+        }
+        j += 1;
+    }
+    Ok(Some((
+        Tok {
+            text: src[start..j].to_string(),
+            start,
+            end: j,
+        },
+        j,
+    )))
+}
+
+/// Tokenize an identifier/keyword starting at `i`. Split out of `tokenize`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn tokenize_identifier(src: &str, b: &[u8], i: usize) -> Option<(Tok, usize)> {
+    let c = b[i];
+    if !(c.is_ascii_alphabetic() || c == b'_') {
+        return None;
+    }
+    let start = i;
+    let mut j = i + 1;
+    while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_') {
+        j += 1;
+    }
+    Some((
+        Tok {
+            text: src[start..j].to_string(),
+            start,
+            end: j,
+        },
+        j,
+    ))
+}
+
+/// Tokenize an integer/float literal starting at `i` (a leading-dot number
+/// is rare in bodies, handled as punct). Split out of `tokenize`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn tokenize_number(src: &str, b: &[u8], i: usize) -> Option<(Tok, usize)> {
+    let c = b[i];
+    if !c.is_ascii_digit() {
+        return None;
+    }
+    let start = i;
+    let mut j = i + 1;
+    while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'.') {
+        // Stop before the `..` range operator.
+        if b[j] == b'.' && b.get(j + 1) == Some(&b'.') {
+            break;
+        }
+        j += 1;
+    }
+    Some((
+        Tok {
+            text: src[start..j].to_string(),
+            start,
+            end: j,
+        },
+        j,
+    ))
+}
+
+/// Tokenize the `:=` or `..` multi-char operators starting at `i`. Split out
+/// of `tokenize` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn tokenize_multichar_operator(b: &[u8], i: usize) -> Option<(Tok, usize)> {
+    let c = b[i];
+    if c == b':' && b.get(i + 1) == Some(&b'=') {
+        return Some((
+            Tok {
+                text: ":=".to_string(),
+                start: i,
+                end: i + 2,
+            },
+            i + 2,
+        ));
+    }
+    if c == b'.' && b.get(i + 1) == Some(&b'.') {
+        return Some((
+            Tok {
+                text: "..".to_string(),
+                start: i,
+                end: i + 2,
+            },
+            i + 2,
+        ));
+    }
+    None
+}
+
 fn tokenize(src: &str) -> Result<Vec<Tok>, String> {
     let b = src.as_bytes();
     let mut toks = Vec::new();
     let mut i = 0usize;
     while i < b.len() {
-        let c = b[i];
-        if c.is_ascii_whitespace() {
-            i += 1;
+        if let Some(next) = skip_tokenize_trivia(b, i) {
+            i = next;
             continue;
         }
-        // Comments.
-        if c == b'-' && b.get(i + 1) == Some(&b'-') {
-            while i < b.len() && b[i] != b'\n' {
-                i += 1;
-            }
+        if let Some((tok, next)) = tokenize_string_literal(src, b, i)? {
+            toks.push(tok);
+            i = next;
             continue;
         }
-        if c == b'/' && b.get(i + 1) == Some(&b'*') {
-            i += 2;
-            while i < b.len() && !(b[i] == b'*' && b.get(i + 1) == Some(&b'/')) {
-                i += 1;
-            }
-            i = (i + 2).min(b.len());
+        if let Some((tok, next)) = tokenize_identifier(src, b, i) {
+            toks.push(tok);
+            i = next;
             continue;
         }
-        // Single-quoted string (Postgres `''` escape) — kept as one token, quotes included.
-        if c == b'\'' {
-            let start = i;
-            i += 1;
-            loop {
-                if i >= b.len() {
-                    return Err("unterminated string literal in plpgsql body".to_string());
-                }
-                if b[i] == b'\'' {
-                    if b.get(i + 1) == Some(&b'\'') {
-                        i += 2;
-                        continue;
-                    }
-                    i += 1;
-                    break;
-                }
-                i += 1;
-            }
-            toks.push(Tok {
-                text: src[start..i].to_string(),
-                start,
-                end: i,
-            });
+        if let Some((tok, next)) = tokenize_number(src, b, i) {
+            toks.push(tok);
+            i = next;
             continue;
         }
-        // Identifier / keyword.
-        if c.is_ascii_alphabetic() || c == b'_' {
-            let start = i;
-            i += 1;
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
-                i += 1;
-            }
-            toks.push(Tok {
-                text: src[start..i].to_string(),
-                start,
-                end: i,
-            });
-            continue;
-        }
-        // Number (integer/float; a leading-dot number is rare in bodies, handled as punct).
-        if c.is_ascii_digit() {
-            let start = i;
-            i += 1;
-            while i < b.len() && (b[i].is_ascii_digit() || b[i] == b'.') {
-                // Stop before the `..` range operator.
-                if b[i] == b'.' && b.get(i + 1) == Some(&b'.') {
-                    break;
-                }
-                i += 1;
-            }
-            toks.push(Tok {
-                text: src[start..i].to_string(),
-                start,
-                end: i,
-            });
-            continue;
-        }
-        // Multi-char operators.
-        if c == b':' && b.get(i + 1) == Some(&b'=') {
-            toks.push(Tok {
-                text: ":=".to_string(),
-                start: i,
-                end: i + 2,
-            });
-            i += 2;
-            continue;
-        }
-        if c == b'.' && b.get(i + 1) == Some(&b'.') {
-            toks.push(Tok {
-                text: "..".to_string(),
-                start: i,
-                end: i + 2,
-            });
-            i += 2;
+        if let Some((tok, next)) = tokenize_multichar_operator(b, i) {
+            toks.push(tok);
+            i = next;
             continue;
         }
         // Any other single punctuation char.
+        let c = b[i];
         toks.push(Tok {
             text: (c as char).to_string(),
             start: i,
