@@ -888,6 +888,14 @@ fn checkpoint_lifecycle_status_matches(row: &DurableLaneHold, status: &str) -> b
 /// redb or a pressure index.  Reconciliation and graph lifecycle therefore
 /// fail closed on the same bounded vocabulary as fresh requests.
 fn durable_hold_bounds(row: &DurableLaneHold) -> Result<(), String> {
+    durable_hold_text_bounds(row)?;
+    durable_hold_quota_bounds(row)?;
+    durable_hold_fence_bounds(row)?;
+    durable_hold_terminal_bounds(row)
+}
+
+/// Bounded text identity, fingerprints, and host placement of a stored hold.
+fn durable_hold_text_bounds(row: &DurableLaneHold) -> Result<(), String> {
     bounded_texts(&[
         (&row.hold.hold_id, "stored hold"),
         (&row.hold.lane_id, "stored lane"),
@@ -931,6 +939,11 @@ fn durable_hold_bounds(row: &DurableLaneHold) -> Result<(), String> {
     ) {
         return Err("stored lane host target does not match its alias".to_string());
     }
+    Ok(())
+}
+
+/// Quota charge magnitudes recorded on a stored hold.
+fn durable_hold_quota_bounds(row: &DurableLaneHold) -> Result<(), String> {
     for (value, name) in [
         (row.hold.predicted_disk_bytes, "stored predicted disk"),
         (row.hold.observed_disk_bytes, "stored observed disk"),
@@ -987,21 +1000,37 @@ fn durable_hold_bounds(row: &DurableLaneHold) -> Result<(), String> {
     {
         return Err("stored lane quota revision exceeds native bound".to_string());
     }
+    Ok(())
+}
+
+/// Every stored fence/revision counter, checked as two bounded tables rather
+/// than one eleven-term disjunction: the lease tuple must be a non-zero
+/// counter, the revisions merely bounded.
+fn durable_hold_fence_out_of_bounds(row: &DurableLaneHold) -> bool {
+    let lease_counters = [
+        row.hold.attempt,
+        row.hold.lease_epoch,
+        row.hold.fencing_token,
+    ];
+    let revisions = [
+        row.observation_revision,
+        row.hold.hold_revision,
+        row.hold.lifecycle_revision,
+        row.hold.allocation_revision,
+        row.hold.cleanup_revision,
+    ];
+    lease_counters
+        .into_iter()
+        .any(|value| !(1..=MAX_COUNT).contains(&value))
+        || revisions.into_iter().any(|value| value > MAX_COUNT)
+}
+
+/// TTL, fence and observation-timestamp bounds of a stored hold.
+fn durable_hold_fence_bounds(row: &DurableLaneHold) -> Result<(), String> {
     if row.ttl_ms == 0 || row.ttl_ms > MAX_TTL_MS {
         return Err("stored lane TTL exceeds native bound".to_string());
     }
-    if row.observation_revision > MAX_COUNT
-        || row.hold.attempt == 0
-        || row.hold.attempt > MAX_COUNT
-        || row.hold.lease_epoch == 0
-        || row.hold.lease_epoch > MAX_COUNT
-        || row.hold.fencing_token == 0
-        || row.hold.fencing_token > MAX_COUNT
-        || row.hold.hold_revision > MAX_COUNT
-        || row.hold.lifecycle_revision > MAX_COUNT
-        || row.hold.allocation_revision > MAX_COUNT
-        || row.hold.cleanup_revision > MAX_COUNT
-    {
+    if durable_hold_fence_out_of_bounds(row) {
         return Err("stored lane fence is invalid".to_string());
     }
     if row.hold.last_renewed_at_ms > row.hold.expires_at_ms
@@ -1011,30 +1040,11 @@ fn durable_hold_bounds(row: &DurableLaneHold) -> Result<(), String> {
     {
         return Err("stored lane observation timestamp is invalid".to_string());
     }
-    if let Some(value) = row.terminal_state.as_deref() {
-        text(value, "stored terminal state").map_err(|decision| {
-            format!("stored development lane hold: {}", decision_name(decision))
-        })?;
-        if !matches!(value, "succeeded" | "failed" | "cancelled" | "dead_letter") {
-            return Err("stored development lane terminal state is invalid".to_string());
-        }
-    }
-    for (value, name) in [
-        (
-            row.hold.cleanup_work_item_id.as_deref(),
-            "stored cleanup WorkItem",
-        ),
-        (
-            row.hold.cleanup_work_item_fence.as_deref(),
-            "stored cleanup fence",
-        ),
-    ] {
-        if let Some(value) = value {
-            text(value, name).map_err(|decision| {
-                format!("stored development lane hold: {}", decision_name(decision))
-            })?;
-        }
-    }
+    Ok(())
+}
+
+/// Optional cleanup fence counters and terminal replay revisions.
+fn durable_hold_optional_counter_bounds(row: &DurableLaneHold) -> Result<(), String> {
     for (value, name) in [
         (row.hold.cleanup_attempt, "stored cleanup attempt"),
         (row.hold.cleanup_lease_epoch, "stored cleanup lease epoch"),
@@ -1069,6 +1079,37 @@ fn durable_hold_bounds(row: &DurableLaneHold) -> Result<(), String> {
             }
         }
     }
+    Ok(())
+}
+
+/// The optional terminal outcome, cleanup correlation, and terminal-source
+/// replay tuple of a stored hold.
+fn durable_hold_terminal_bounds(row: &DurableLaneHold) -> Result<(), String> {
+    if let Some(value) = row.terminal_state.as_deref() {
+        text(value, "stored terminal state").map_err(|decision| {
+            format!("stored development lane hold: {}", decision_name(decision))
+        })?;
+        if !matches!(value, "succeeded" | "failed" | "cancelled" | "dead_letter") {
+            return Err("stored development lane terminal state is invalid".to_string());
+        }
+    }
+    for (value, name) in [
+        (
+            row.hold.cleanup_work_item_id.as_deref(),
+            "stored cleanup WorkItem",
+        ),
+        (
+            row.hold.cleanup_work_item_fence.as_deref(),
+            "stored cleanup fence",
+        ),
+    ] {
+        if let Some(value) = value {
+            text(value, name).map_err(|decision| {
+                format!("stored development lane hold: {}", decision_name(decision))
+            })?;
+        }
+    }
+    durable_hold_optional_counter_bounds(row)?;
     if let Some(value) = row.cleanup_removal_proof_ref.as_deref() {
         text(value, "stored cleanup removal proof").map_err(|decision| {
             format!("stored development lane hold: {}", decision_name(decision))
@@ -2243,127 +2284,171 @@ fn bounded_texts(values: &[(&str, &str)]) -> Result<(), LaneDecision> {
 /// consulting an index.  The individual transaction functions repeat the
 /// checks needed for their typed decision, but this early gate prevents an
 /// oversized opaque key/fence from reaching redb at all.
+/// Bounds for the reserve request, including its lane intent.
+fn validate_reserve_bounds(request: &DevelopmentLaneReserveRequest) -> Result<(), LaneDecision> {
+    intent_validate(&request.intent)?;
+    bounded_texts(&[
+        (&request.tenant_ref, "reserve tenant"),
+        (&request.work_item_id, "reserve WorkItem"),
+        (&request.owner_id, "reserve owner"),
+        (&request.work_item_fence, "reserve fence"),
+        (&request.idempotency_key, "reserve invocation"),
+    ])?;
+    if request.attempt == 0 || request.lease_epoch == 0 || request.fencing_token == 0 {
+        return Err(LaneDecision::Invalid);
+    }
+    Ok(())
+}
+
+/// Bounds for the renew request, including its replacement TTL.
+fn validate_renew_bounds(request: &DevelopmentLaneRenewRequest) -> Result<(), LaneDecision> {
+    bounded_texts(&[
+        (&request.tenant_ref, "renew tenant"),
+        (&request.work_item_id, "renew WorkItem"),
+        (&request.owner_id, "renew owner"),
+        (&request.work_item_fence, "renew fence"),
+        (&request.hold_id, "renew hold"),
+        (&request.idempotency_key, "renew invocation"),
+    ])?;
+    if request.attempt == 0
+        || request.lease_epoch == 0
+        || request.fencing_token == 0
+        || request.ttl_ms == 0
+        || request.ttl_ms > MAX_TTL_MS
+    {
+        return Err(LaneDecision::Invalid);
+    }
+    Ok(())
+}
+
+/// Bounds for the observe request, including the replacement footprint.
+fn validate_observe_bounds(request: &DevelopmentLaneObserveRequest) -> Result<(), LaneDecision> {
+    bounded_texts(&[
+        (&request.tenant_ref, "observe tenant"),
+        (&request.work_item_id, "observe WorkItem"),
+        (&request.owner_id, "observe owner"),
+        (&request.work_item_fence, "observe fence"),
+        (&request.hold_id, "observe hold"),
+        (&request.idempotency_key, "observe invocation"),
+    ])?;
+    if request.attempt == 0
+        || request.lease_epoch == 0
+        || request.fencing_token == 0
+        || request.observed_disk_bytes > MAX_DISK_BYTES
+    {
+        return Err(LaneDecision::Invalid);
+    }
+    Ok(())
+}
+
+/// Bounds for the finish request.
+fn validate_finish_bounds(request: &DevelopmentLaneFinishRequest) -> Result<(), LaneDecision> {
+    bounded_texts(&[
+        (&request.tenant_ref, "finish tenant"),
+        (&request.work_item_id, "finish WorkItem"),
+        (&request.owner_id, "finish owner"),
+        (&request.work_item_fence, "finish fence"),
+        (&request.hold_id, "finish hold"),
+        (&request.idempotency_key, "finish invocation"),
+    ])?;
+    if request.attempt == 0 || request.lease_epoch == 0 || request.fencing_token == 0 {
+        return Err(LaneDecision::Invalid);
+    }
+    Ok(())
+}
+
+/// Bounds for the cleanup-complete request, which carries a second (cleanup)
+/// WorkItem fence tuple beside the lifecycle one.
+fn validate_cleanup_bounds(
+    request: &DevelopmentLaneCleanupCompleteRequest,
+) -> Result<(), LaneDecision> {
+    bounded_texts(&[
+        (&request.tenant_ref, "cleanup tenant"),
+        (&request.work_item_id, "cleanup lifecycle WorkItem"),
+        (&request.owner_id, "cleanup owner"),
+        (&request.work_item_fence, "cleanup lifecycle fence"),
+        (&request.cleanup_work_item_id, "cleanup WorkItem"),
+        (&request.cleanup_work_item_fence, "cleanup fence"),
+        (&request.hold_id, "cleanup hold"),
+        (&request.removal_proof_ref, "cleanup proof"),
+        (&request.idempotency_key, "cleanup invocation"),
+    ])?;
+    if request.attempt == 0
+        || request.lease_epoch == 0
+        || request.fencing_token == 0
+        || request.cleanup_attempt == 0
+        || request.cleanup_lease_epoch == 0
+        || request.cleanup_fencing_token == 0
+    {
+        return Err(LaneDecision::Invalid);
+    }
+    Ok(())
+}
+
+/// Bounds for the quota-policy update request.
+fn validate_quota_update_bounds(
+    request: &DevelopmentLaneQuotaUpdateRequest,
+) -> Result<(), LaneDecision> {
+    text(&request.tenant_ref, "quota tenant")?;
+    text(&request.idempotency_key, "quota invocation")?;
+    if let Some(version) = request.expected_policy_version.as_deref() {
+        text(version, "quota expected policy version")?;
+    }
+    policy_validate(&request.policy)?;
+    Ok(())
+}
+
+/// Bounds for the exact single-hold read.
+fn validate_query_bounds(request: &DevelopmentLaneQueryRequest) -> Result<(), LaneDecision> {
+    bounded_texts(&[
+        (&request.tenant_ref, "query tenant"),
+        (&request.hold_id, "query hold"),
+    ])?;
+    Ok(())
+}
+
+/// Bounds for the bounded status page and its optional filters/cursor.
+fn validate_status_bounds(request: &DevelopmentLaneStatusRequest) -> Result<(), LaneDecision> {
+    text(&request.tenant_ref, "status tenant")?;
+    if !(1..=MAX_STATUS_LIMIT).contains(&request.limit) {
+        return Err(LaneDecision::Invalid);
+    }
+    if let Some(value) = request.hold_id.as_deref() {
+        text(value, "status hold")?;
+    }
+    if let Some(value) = request.lane_id.as_deref() {
+        text(value, "status lane")?;
+    }
+    if let Some(value) = request.work_item_id.as_deref() {
+        text(value, "status WorkItem")?;
+    }
+    if let Some(value) = request.cursor.as_deref() {
+        text(value, "status cursor")?;
+    }
+    Ok(())
+}
+
+/// Cleanup, quota update, and the two reads.  Split out of
+/// `validate_method_bounds` so neither dispatch outgrows the complexity cap.
+fn validate_lane_tail_bounds(method: &Method) -> Result<(), LaneDecision> {
+    match method {
+        Method::CleanupDevelopmentLane { request } => validate_cleanup_bounds(request),
+        Method::UpdateDevelopmentLaneQuota { request } => validate_quota_update_bounds(request),
+        Method::QueryDevelopmentLane { request } => validate_query_bounds(request),
+        Method::DevelopmentLaneStatus { request } => validate_status_bounds(request),
+        _ => Ok(()),
+    }
+}
+
 fn validate_method_bounds(graph: &str, method: &Method) -> Result<(), LaneDecision> {
     text(graph, "lane graph")?;
     match method {
-        Method::ReserveDevelopmentLane { request } => {
-            intent_validate(&request.intent)?;
-            bounded_texts(&[
-                (&request.tenant_ref, "reserve tenant"),
-                (&request.work_item_id, "reserve WorkItem"),
-                (&request.owner_id, "reserve owner"),
-                (&request.work_item_fence, "reserve fence"),
-                (&request.idempotency_key, "reserve invocation"),
-            ])?;
-            if request.attempt == 0 || request.lease_epoch == 0 || request.fencing_token == 0 {
-                return Err(LaneDecision::Invalid);
-            }
-        }
-        Method::RenewDevelopmentLane { request } => {
-            bounded_texts(&[
-                (&request.tenant_ref, "renew tenant"),
-                (&request.work_item_id, "renew WorkItem"),
-                (&request.owner_id, "renew owner"),
-                (&request.work_item_fence, "renew fence"),
-                (&request.hold_id, "renew hold"),
-                (&request.idempotency_key, "renew invocation"),
-            ])?;
-            if request.attempt == 0
-                || request.lease_epoch == 0
-                || request.fencing_token == 0
-                || request.ttl_ms == 0
-                || request.ttl_ms > MAX_TTL_MS
-            {
-                return Err(LaneDecision::Invalid);
-            }
-        }
-        Method::ObserveDevelopmentLane { request } => {
-            bounded_texts(&[
-                (&request.tenant_ref, "observe tenant"),
-                (&request.work_item_id, "observe WorkItem"),
-                (&request.owner_id, "observe owner"),
-                (&request.work_item_fence, "observe fence"),
-                (&request.hold_id, "observe hold"),
-                (&request.idempotency_key, "observe invocation"),
-            ])?;
-            if request.attempt == 0
-                || request.lease_epoch == 0
-                || request.fencing_token == 0
-                || request.observed_disk_bytes > MAX_DISK_BYTES
-            {
-                return Err(LaneDecision::Invalid);
-            }
-        }
-        Method::FinishDevelopmentLane { request } => {
-            bounded_texts(&[
-                (&request.tenant_ref, "finish tenant"),
-                (&request.work_item_id, "finish WorkItem"),
-                (&request.owner_id, "finish owner"),
-                (&request.work_item_fence, "finish fence"),
-                (&request.hold_id, "finish hold"),
-                (&request.idempotency_key, "finish invocation"),
-            ])?;
-            if request.attempt == 0 || request.lease_epoch == 0 || request.fencing_token == 0 {
-                return Err(LaneDecision::Invalid);
-            }
-        }
-        Method::CleanupDevelopmentLane { request } => {
-            bounded_texts(&[
-                (&request.tenant_ref, "cleanup tenant"),
-                (&request.work_item_id, "cleanup lifecycle WorkItem"),
-                (&request.owner_id, "cleanup owner"),
-                (&request.work_item_fence, "cleanup lifecycle fence"),
-                (&request.cleanup_work_item_id, "cleanup WorkItem"),
-                (&request.cleanup_work_item_fence, "cleanup fence"),
-                (&request.hold_id, "cleanup hold"),
-                (&request.removal_proof_ref, "cleanup proof"),
-                (&request.idempotency_key, "cleanup invocation"),
-            ])?;
-            if request.attempt == 0
-                || request.lease_epoch == 0
-                || request.fencing_token == 0
-                || request.cleanup_attempt == 0
-                || request.cleanup_lease_epoch == 0
-                || request.cleanup_fencing_token == 0
-            {
-                return Err(LaneDecision::Invalid);
-            }
-        }
-        Method::UpdateDevelopmentLaneQuota { request } => {
-            text(&request.tenant_ref, "quota tenant")?;
-            text(&request.idempotency_key, "quota invocation")?;
-            if let Some(version) = request.expected_policy_version.as_deref() {
-                text(version, "quota expected policy version")?;
-            }
-            policy_validate(&request.policy)?;
-        }
-        Method::QueryDevelopmentLane { request } => {
-            bounded_texts(&[
-                (&request.tenant_ref, "query tenant"),
-                (&request.hold_id, "query hold"),
-            ])?;
-        }
-        Method::DevelopmentLaneStatus { request } => {
-            text(&request.tenant_ref, "status tenant")?;
-            if !(1..=MAX_STATUS_LIMIT).contains(&request.limit) {
-                return Err(LaneDecision::Invalid);
-            }
-            if let Some(value) = request.hold_id.as_deref() {
-                text(value, "status hold")?;
-            }
-            if let Some(value) = request.lane_id.as_deref() {
-                text(value, "status lane")?;
-            }
-            if let Some(value) = request.work_item_id.as_deref() {
-                text(value, "status WorkItem")?;
-            }
-            if let Some(value) = request.cursor.as_deref() {
-                text(value, "status cursor")?;
-            }
-        }
-        _ => {}
+        Method::ReserveDevelopmentLane { request } => validate_reserve_bounds(request),
+        Method::RenewDevelopmentLane { request } => validate_renew_bounds(request),
+        Method::ObserveDevelopmentLane { request } => validate_observe_bounds(request),
+        Method::FinishDevelopmentLane { request } => validate_finish_bounds(request),
+        other => validate_lane_tail_bounds(other),
     }
-    Ok(())
 }
 
 fn request_digest(method: &Method) -> Result<String, String> {
