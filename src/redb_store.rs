@@ -9624,6 +9624,171 @@ fn apply_cas_work_item_metadata_row(
     )
 }
 
+/// The lease fence a `CommitWorkItemResult` must satisfy: the caller owns the
+/// lease, the item is live, and the lease has not expired.
+fn commit_work_item_lease_is_valid(
+    props: &serde_json::Map<String, serde_json::Value>,
+    worker_id: &str,
+    lease_epoch: u64,
+    fencing_token: u64,
+    now_ms: u64,
+) -> bool {
+    property_string(props, "lease_owner") == worker_id
+        && matches!(property_string(props, "status"), "leased" | "running")
+        && property_u64(props, "lease_epoch") == lease_epoch
+        && property_u64(props, "fencing_token") == fencing_token
+        && property_f64(props, "lease_expires_at") >= now_ms as f64 / 1000.0
+}
+
+/// The three short-circuit responses of a commit, in their original order:
+/// a tenant mismatch reads as `missing`, an already-terminal item as `noop`,
+/// and a failed lease fence as `fenced`.  `Ok(None)` means the commit proceeds.
+fn commit_work_item_result_precheck(
+    props: &serde_json::Map<String, serde_json::Value>,
+    work_item_id: &str,
+    tenant: &str,
+    worker_id: &str,
+    lease_epoch: u64,
+    fencing_token: u64,
+    now_ms: u64,
+) -> Option<crate::protocol::ResultPayload> {
+    if property_string(props, "tenant") != tenant {
+        return Some(crate::protocol::ResultPayload::Json(
+            serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
+        ));
+    }
+    if matches!(
+        property_string(props, "status"),
+        "succeeded" | "failed" | "cancelled" | "dead_letter"
+    ) {
+        return Some(crate::protocol::ResultPayload::Json(serde_json::json!({
+            "status": "noop",
+            "work_item_id": work_item_id,
+            "changed_work_item_ids": [],
+        })));
+    }
+    if !commit_work_item_lease_is_valid(props, worker_id, lease_epoch, fencing_token, now_ms) {
+        return Some(crate::protocol::ResultPayload::Json(serde_json::json!({
+            "status": "fenced",
+            "work_item_id": work_item_id,
+            "changed_work_item_ids": [],
+        })));
+    }
+    None
+}
+
+/// Write the committed status into `props` and report it.  A retryable failure
+/// below the attempt ceiling reschedules (`ready` + backoff + bumped fence) and
+/// reports `retry_scheduled`; otherwise the item goes terminal (`dead_letter`
+/// for an exhausted retryable failure, else the outcome verb itself).
+fn commit_work_item_apply_status<'o>(
+    props: &mut serde_json::Map<String, serde_json::Value>,
+    outcome: &'o str,
+    retryable: bool,
+    lease_epoch: u64,
+    fencing_token: u64,
+    now_s: f64,
+) -> &'o str {
+    let attempts = property_u64(props, "attempt");
+    let max_attempts = property_u64(props, "max_attempts").max(1);
+    if outcome == "failed" && retryable && attempts < max_attempts {
+        let backoff = property_f64(props, "backoff_base_s").max(1.0)
+            * 2f64.powi(attempts.saturating_sub(1).min(31) as i32);
+        props.insert("status".into(), serde_json::Value::String("ready".into()));
+        props.insert(
+            "next_retry_at".into(),
+            serde_json::Value::from(now_s + backoff),
+        );
+        props.insert(
+            "lease_epoch".into(),
+            serde_json::Value::from((lease_epoch).saturating_add(1)),
+        );
+        props.insert(
+            "fencing_token".into(),
+            serde_json::Value::from((fencing_token).saturating_add(1)),
+        );
+        return "retry_scheduled";
+    }
+    let terminal = if outcome == "failed" && retryable {
+        "dead_letter"
+    } else {
+        outcome
+    };
+    props.insert("status".into(), serde_json::Value::String(terminal.into()));
+    props.insert("completed_at".into(), serde_json::Value::from(now_s));
+    terminal
+}
+
+/// Record the commit's lease/result bookkeeping on the item.
+fn commit_work_item_record_result_refs(
+    props: &mut serde_json::Map<String, serde_json::Value>,
+    worker_id: &str,
+    result_ref: &Option<String>,
+    error_ref: &Option<String>,
+    now_s: f64,
+) {
+    props.insert(
+        "result_ref".into(),
+        result_ref
+            .clone()
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null),
+    );
+    props.insert(
+        "error_ref".into(),
+        error_ref
+            .clone()
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null),
+    );
+    props.insert("lease_owner".into(), serde_json::Value::Null);
+    props.insert(
+        "last_lease_owner".into(),
+        serde_json::Value::String(worker_id.to_string()),
+    );
+    props.insert("lease_expires_at".into(), serde_json::Value::Null);
+    props.insert("updated_at".into(), serde_json::Value::from(now_s));
+}
+
+/// Decrement each downstream child's dependency count after a successful
+/// commit, releasing a child to `ready` once its last dependency clears.
+/// Children that no longer exist are skipped, as before.
+fn commit_work_item_release_downstream(
+    graph: &str,
+    props: &serde_json::Map<String, serde_json::Value>,
+    now_s: f64,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+    changed: &mut Vec<String>,
+) -> Result<(), String> {
+    let downstream = props
+        .get("downstream_ids")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for child in downstream.iter().filter_map(serde_json::Value::as_str) {
+        let child_bytes = nodes
+            .get((graph, child))
+            .map_err(|e| e.to_string())?
+            .map(|value| crypto.unseal(value.value()))
+            .transpose()?;
+        let Some(child_bytes) = child_bytes else {
+            continue;
+        };
+        let mut child_props: serde_json::Map<String, serde_json::Value> =
+            decode_durable(&child_bytes)?;
+        let count = property_u64(&child_props, "dep_count").saturating_sub(1);
+        child_props.insert("dep_count".into(), serde_json::Value::from(count));
+        if count == 0 && property_string(&child_props, "status") == "submitted" {
+            child_props.insert("status".into(), serde_json::Value::String("ready".into()));
+        }
+        child_props.insert("updated_at".into(), serde_json::Value::from(now_s));
+        write_work_item_props(nodes, graph, child, &child_props, crypto)?;
+        changed.push(child.to_string());
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_commit_work_item_result_row(
     graph: &str,
@@ -9645,9 +9810,6 @@ fn apply_commit_work_item_result_row(
     policies: &redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
-    let decode = |bytes: &[u8]| -> Result<serde_json::Map<String, serde_json::Value>, String> {
-        decode_durable(bytes)
-    };
     let current = nodes
         .get((graph, work_item_id.as_str()))
         .map_err(|e| e.to_string())?
@@ -9658,100 +9820,46 @@ fn apply_commit_work_item_result_row(
             serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
         )));
     };
-    let mut props = decode(&bytes)?;
+    let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
     let pre_props = props.clone();
-    if property_string(&props, "tenant") != tenant {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
-        )));
-    }
-    if matches!(
-        property_string(&props, "status"),
-        "succeeded" | "failed" | "cancelled" | "dead_letter"
+    if let Some(payload) = commit_work_item_result_precheck(
+        &props,
+        work_item_id.as_str(),
+        tenant.as_str(),
+        worker_id.as_str(),
+        lease_epoch,
+        fencing_token,
+        now_ms,
     ) {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({
-                "status": "noop",
-                "work_item_id": work_item_id,
-                "changed_work_item_ids": [],
-            }),
-        )));
-    }
-    let valid = property_string(&props, "lease_owner") == worker_id
-        && matches!(property_string(&props, "status"), "leased" | "running")
-        && property_u64(&props, "lease_epoch") == lease_epoch
-        && property_u64(&props, "fencing_token") == fencing_token
-        && property_f64(&props, "lease_expires_at") >= now_ms as f64 / 1000.0;
-    if !valid {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({
-                "status": "fenced",
-                "work_item_id": work_item_id,
-                "changed_work_item_ids": [],
-            }),
-        )));
+        return Ok(Some(payload));
     }
     if !matches!(outcome.as_str(), "succeeded" | "failed" | "cancelled") {
         return Err("CommitWorkItemResult outcome must be succeeded, failed, or cancelled".into());
     }
     let now_s = now_ms as f64 / 1000.0;
-    let attempts = property_u64(&props, "attempt");
-    let max_attempts = property_u64(&props, "max_attempts").max(1);
     // Phase-1 mirror inputs: pre-status (leased|running, validated above) + the
     // DLQ-threshold POLICY boolean (`retryable && attempt < max_attempts`) the
     // chart reads as a pre-computed guard input — see `work_item_statechart`.
     #[cfg(feature = "statechart")]
     let pre_status = property_string(&props, "status").to_string();
     #[cfg(feature = "statechart")]
-    let commit_retry_eligible = attempts < max_attempts;
-    let committed_status = if outcome == "failed" && retryable && attempts < max_attempts {
-        let backoff = property_f64(&props, "backoff_base_s").max(1.0)
-            * 2f64.powi(attempts.saturating_sub(1).min(31) as i32);
-        props.insert("status".into(), serde_json::Value::String("ready".into()));
-        props.insert(
-            "next_retry_at".into(),
-            serde_json::Value::from(now_s + backoff),
-        );
-        props.insert(
-            "lease_epoch".into(),
-            serde_json::Value::from((lease_epoch).saturating_add(1)),
-        );
-        props.insert(
-            "fencing_token".into(),
-            serde_json::Value::from((fencing_token).saturating_add(1)),
-        );
-        "retry_scheduled"
-    } else {
-        let terminal = if outcome == "failed" && retryable {
-            "dead_letter"
-        } else {
-            outcome.as_str()
-        };
-        props.insert("status".into(), serde_json::Value::String(terminal.into()));
-        props.insert("completed_at".into(), serde_json::Value::from(now_s));
-        terminal
-    };
-    props.insert(
-        "result_ref".into(),
-        result_ref
-            .clone()
-            .map(serde_json::Value::String)
-            .unwrap_or(serde_json::Value::Null),
+    let commit_retry_eligible =
+        property_u64(&props, "attempt") < property_u64(&props, "max_attempts").max(1);
+    let committed_status = commit_work_item_apply_status(
+        &mut props,
+        outcome.as_str(),
+        retryable,
+        lease_epoch,
+        fencing_token,
+        now_s,
     );
-    props.insert(
-        "error_ref".into(),
-        error_ref
-            .clone()
-            .map(serde_json::Value::String)
-            .unwrap_or(serde_json::Value::Null),
+    commit_work_item_record_result_refs(
+        &mut props,
+        worker_id.as_str(),
+        result_ref,
+        error_ref,
+        now_s,
     );
-    props.insert("lease_owner".into(), serde_json::Value::Null);
-    props.insert(
-        "last_lease_owner".into(),
-        serde_json::Value::String(worker_id.clone()),
-    );
-    props.insert("lease_expires_at".into(), serde_json::Value::Null);
-    props.insert("updated_at".into(), serde_json::Value::from(now_s));
     development_lane::transition_work_item_terminal_hold(
         graph,
         &pre_props,
@@ -9798,30 +9906,7 @@ fn apply_commit_work_item_result_row(
 
     let mut changed = vec![work_item_id.clone()];
     if committed_status == "succeeded" {
-        let downstream = props
-            .get("downstream_ids")
-            .and_then(serde_json::Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        for child in downstream.iter().filter_map(serde_json::Value::as_str) {
-            let child_bytes = nodes
-                .get((graph, child))
-                .map_err(|e| e.to_string())?
-                .map(|value| crypto.unseal(value.value()))
-                .transpose()?;
-            let Some(child_bytes) = child_bytes else {
-                continue;
-            };
-            let mut child_props = decode(&child_bytes)?;
-            let count = property_u64(&child_props, "dep_count").saturating_sub(1);
-            child_props.insert("dep_count".into(), serde_json::Value::from(count));
-            if count == 0 && property_string(&child_props, "status") == "submitted" {
-                child_props.insert("status".into(), serde_json::Value::String("ready".into()));
-            }
-            child_props.insert("updated_at".into(), serde_json::Value::from(now_s));
-            write_work_item_props(nodes, graph, child, &child_props, crypto)?;
-            changed.push(child.to_string());
-        }
+        commit_work_item_release_downstream(graph, &props, now_s, nodes, crypto, &mut changed)?;
     }
     Ok(Some(crate::protocol::ResultPayload::Json(
         serde_json::json!({
