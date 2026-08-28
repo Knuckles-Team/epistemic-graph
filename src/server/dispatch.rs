@@ -3608,6 +3608,30 @@ async fn teardown_deleted_graph_in_memory(
     }
 }
 
+/// Stable wire names for the server index manifest. Kept as their own
+/// mappings so the manifest projection below stays a single expression.
+fn index_kind_label(kind: crate::index::IndexKind) -> &'static str {
+    match kind {
+        crate::index::IndexKind::Text => "text",
+        crate::index::IndexKind::Temporal => "temporal",
+        crate::index::IndexKind::DerivedOwl => "derived_owl",
+        crate::index::IndexKind::Spatial => "spatial",
+        crate::index::IndexKind::Label => "label",
+        crate::index::IndexKind::Property => "property",
+        crate::index::IndexKind::Ontology => "ontology",
+        crate::index::IndexKind::Vector => "vector",
+    }
+}
+
+fn index_validity_label(validity: crate::index::IndexValidity) -> &'static str {
+    match validity {
+        crate::index::IndexValidity::Building => "building",
+        crate::index::IndexValidity::Valid => "valid",
+        crate::index::IndexValidity::Stale => "stale",
+        crate::index::IndexValidity::Failed => "failed",
+    }
+}
+
 async fn dispatch_case_13_list_graphs(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -3648,24 +3672,8 @@ async fn dispatch_case_13_list_graphs(
                             .server_manifests()
                             .into_iter()
                             .map(|(kind, manifest)| {
-                                let kind = match kind {
-                                    crate::index::IndexKind::Text => "text",
-                                    crate::index::IndexKind::Temporal => "temporal",
-                                    crate::index::IndexKind::DerivedOwl => "derived_owl",
-                                    crate::index::IndexKind::Spatial => "spatial",
-                                    crate::index::IndexKind::Label => "label",
-                                    crate::index::IndexKind::Property => "property",
-                                    crate::index::IndexKind::Ontology => "ontology",
-                                    crate::index::IndexKind::Vector => "vector",
-                                };
-                                let validity = match manifest.validity {
-                                    crate::index::IndexValidity::Building => "building",
-                                    crate::index::IndexValidity::Valid => "valid",
-                                    crate::index::IndexValidity::Stale => "stale",
-                                    crate::index::IndexValidity::Failed => "failed",
-                                };
                                 serde_json::json!({
-                                    "kind": kind,
+                                    "kind": index_kind_label(kind),
                                     "source_snapshot_version": manifest.source_snapshot_version,
                                     "build_version": manifest.build_version,
                                     "completeness_cursor": {
@@ -3673,7 +3681,7 @@ async fn dispatch_case_13_list_graphs(
                                         "edges": manifest.completeness.edges,
                                         "complete": manifest.completeness.complete,
                                     },
-                                    "validity": validity,
+                                    "validity": index_validity_label(manifest.validity),
                                 })
                             })
                             .collect::<Vec<_>>()
