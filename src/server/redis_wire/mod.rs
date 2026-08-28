@@ -977,50 +977,74 @@ impl PubSub {
     /// gone away but not yet unregistered) simply isn't counted.
     fn publish(&self, scope: &str, channel: &str, payload: &[u8]) -> i64 {
         let g = self.inner.lock();
-        let mut count = 0i64;
         // Share one immutable payload allocation across every bounded subscriber
         // mailbox.  Cloning a full payload per subscriber lets one large PUBLISH
         // amplify memory linearly with fan-out even when each mailbox is bounded.
         let payload: Arc<[u8]> = Arc::from(payload);
         let wire_channel: Arc<str> = Arc::from(channel);
         let scoped_channel = scoped_pubsub_key(scope, channel);
-        if let Some(ids) = g.channels.get(&scoped_channel) {
-            for id in ids {
-                if let Some(tx) = g.conns.get(id) {
-                    let msg = PubMessage::Channel {
-                        channel: Arc::clone(&wire_channel),
-                        payload: Arc::clone(&payload),
-                    };
-                    if tx.try_send(msg).is_ok() {
-                        count += 1;
-                    }
-                }
-            }
-        }
-        let scope_prefix = format!("{scope}\0");
-        for (pat, ids) in g.patterns.iter() {
-            if !glob_match(pat, &scoped_channel) {
-                continue;
-            }
-            let Some(wire_pattern) = pat.strip_prefix(&scope_prefix) else {
-                continue;
-            };
-            let pattern: Arc<str> = Arc::from(wire_pattern);
-            for id in ids {
-                if let Some(tx) = g.conns.get(id) {
-                    let msg = PubMessage::Pattern {
-                        pattern: Arc::clone(&pattern),
-                        channel: Arc::clone(&wire_channel),
-                        payload: Arc::clone(&payload),
-                    };
-                    if tx.try_send(msg).is_ok() {
-                        count += 1;
-                    }
-                }
-            }
-        }
-        count
+        publish_to_channel_subscribers(&g, &scoped_channel, &wire_channel, &payload)
+            + publish_to_pattern_subscribers(&g, scope, &scoped_channel, &wire_channel, &payload)
     }
+}
+
+/// Fan `payload` out to every EXACT subscriber of `scoped_channel`.
+fn publish_to_channel_subscribers(
+    g: &PubSubInner,
+    scoped_channel: &str,
+    wire_channel: &Arc<str>,
+    payload: &Arc<[u8]>,
+) -> i64 {
+    let mut count = 0i64;
+    if let Some(ids) = g.channels.get(scoped_channel) {
+        for id in ids {
+            if let Some(tx) = g.conns.get(id) {
+                let msg = PubMessage::Channel {
+                    channel: Arc::clone(wire_channel),
+                    payload: Arc::clone(payload),
+                };
+                if tx.try_send(msg).is_ok() {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
+}
+
+/// Fan `payload` out to every glob-PATTERN subscriber whose pattern matches
+/// `scoped_channel`.
+fn publish_to_pattern_subscribers(
+    g: &PubSubInner,
+    scope: &str,
+    scoped_channel: &str,
+    wire_channel: &Arc<str>,
+    payload: &Arc<[u8]>,
+) -> i64 {
+    let mut count = 0i64;
+    let scope_prefix = format!("{scope}\0");
+    for (pat, ids) in g.patterns.iter() {
+        if !glob_match(pat, scoped_channel) {
+            continue;
+        }
+        let Some(wire_pattern) = pat.strip_prefix(&scope_prefix) else {
+            continue;
+        };
+        let pattern: Arc<str> = Arc::from(wire_pattern);
+        for id in ids {
+            if let Some(tx) = g.conns.get(id) {
+                let msg = PubMessage::Pattern {
+                    pattern: Arc::clone(&pattern),
+                    channel: Arc::clone(wire_channel),
+                    payload: Arc::clone(payload),
+                };
+                if tx.try_send(msg).is_ok() {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
 }
 
 fn scoped_pubsub_key(scope: &str, name: &str) -> String {
@@ -1081,77 +1105,78 @@ impl Resp {
                 out.extend_from_slice(b);
                 out.extend_from_slice(b"\r\n");
             }
-            Resp::Bulk(None) | Resp::Null => {
-                if proto >= 3 {
-                    out.extend_from_slice(b"_\r\n");
-                } else {
-                    out.extend_from_slice(b"$-1\r\n");
-                }
-            }
-            Resp::Array(Some(items)) => {
-                out.push(b'*');
-                out.extend_from_slice(items.len().to_string().as_bytes());
-                out.extend_from_slice(b"\r\n");
-                for it in items {
-                    it.encode(proto, out);
-                }
-            }
-            Resp::Array(None) => {
-                if proto >= 3 {
-                    out.extend_from_slice(b"_\r\n");
-                } else {
-                    out.extend_from_slice(b"*-1\r\n");
-                }
-            }
-            Resp::Map(pairs) => {
-                if proto >= 3 {
-                    out.push(b'%');
-                    out.extend_from_slice(pairs.len().to_string().as_bytes());
-                    out.extend_from_slice(b"\r\n");
-                } else {
-                    // RESP2: a flat array of 2N elements.
-                    out.push(b'*');
-                    out.extend_from_slice((pairs.len() * 2).to_string().as_bytes());
-                    out.extend_from_slice(b"\r\n");
-                }
-                for (k, v) in pairs {
-                    k.encode(proto, out);
-                    v.encode(proto, out);
-                }
-            }
-            Resp::Set(items) => {
-                out.push(if proto >= 3 { b'~' } else { b'*' });
-                out.extend_from_slice(items.len().to_string().as_bytes());
-                out.extend_from_slice(b"\r\n");
-                for it in items {
-                    it.encode(proto, out);
-                }
-            }
-            Resp::Push(items) => {
-                out.push(if proto >= 3 { b'>' } else { b'*' });
-                out.extend_from_slice(items.len().to_string().as_bytes());
-                out.extend_from_slice(b"\r\n");
-                for it in items {
-                    it.encode(proto, out);
-                }
-            }
-            Resp::Double(d) => {
-                if proto >= 3 {
-                    out.push(b',');
-                    out.extend_from_slice(fmt_double(*d).as_bytes());
-                    out.extend_from_slice(b"\r\n");
-                } else {
-                    Resp::bulk_str(fmt_double(*d)).encode(proto, out);
-                }
-            }
-            Resp::Bool(b) => {
-                if proto >= 3 {
-                    out.extend_from_slice(if *b { b"#t\r\n" } else { b"#f\r\n" });
-                } else {
-                    Resp::Int(if *b { 1 } else { 0 }).encode(proto, out);
-                }
-            }
+            Resp::Bulk(None) | Resp::Null => encode_null_bulk(proto, out),
+            Resp::Array(Some(items)) => encode_aggregate(b'*', items, proto, out),
+            Resp::Array(None) => encode_null_array(proto, out),
+            Resp::Map(pairs) => encode_map(pairs, proto, out),
+            Resp::Set(items) => encode_aggregate(b'~', items, proto, out),
+            Resp::Push(items) => encode_aggregate(b'>', items, proto, out),
+            Resp::Double(d) => encode_double(*d, proto, out),
+            Resp::Bool(b) => encode_bool(*b, proto, out),
         }
+    }
+}
+
+fn encode_null_bulk(proto: u8, out: &mut Vec<u8>) {
+    if proto >= 3 {
+        out.extend_from_slice(b"_\r\n");
+    } else {
+        out.extend_from_slice(b"$-1\r\n");
+    }
+}
+
+fn encode_null_array(proto: u8, out: &mut Vec<u8>) {
+    if proto >= 3 {
+        out.extend_from_slice(b"_\r\n");
+    } else {
+        out.extend_from_slice(b"*-1\r\n");
+    }
+}
+
+fn encode_map(pairs: &[(Resp, Resp)], proto: u8, out: &mut Vec<u8>) {
+    if proto >= 3 {
+        out.push(b'%');
+        out.extend_from_slice(pairs.len().to_string().as_bytes());
+        out.extend_from_slice(b"\r\n");
+    } else {
+        // RESP2: a flat array of 2N elements.
+        out.push(b'*');
+        out.extend_from_slice((pairs.len() * 2).to_string().as_bytes());
+        out.extend_from_slice(b"\r\n");
+    }
+    for (k, v) in pairs {
+        k.encode(proto, out);
+        v.encode(proto, out);
+    }
+}
+
+/// `Set`/`Push` share the same shape on the wire: a RESP3-typed aggregate
+/// (`~`/`>`) that downgrades to a plain array (`*`) on RESP2 — the RESP2 wire
+/// has no distinct set/push type, exactly how real Redis behaves.
+fn encode_aggregate(resp3_prefix: u8, items: &[Resp], proto: u8, out: &mut Vec<u8>) {
+    out.push(if proto >= 3 { resp3_prefix } else { b'*' });
+    out.extend_from_slice(items.len().to_string().as_bytes());
+    out.extend_from_slice(b"\r\n");
+    for it in items {
+        it.encode(proto, out);
+    }
+}
+
+fn encode_double(d: f64, proto: u8, out: &mut Vec<u8>) {
+    if proto >= 3 {
+        out.push(b',');
+        out.extend_from_slice(fmt_double(d).as_bytes());
+        out.extend_from_slice(b"\r\n");
+    } else {
+        Resp::bulk_str(fmt_double(d)).encode(proto, out);
+    }
+}
+
+fn encode_bool(b: bool, proto: u8, out: &mut Vec<u8>) {
+    if proto >= 3 {
+        out.extend_from_slice(if b { b"#t\r\n" } else { b"#f\r\n" });
+    } else {
+        Resp::Int(if b { 1 } else { 0 }).encode(proto, out);
     }
 }
 
@@ -1297,57 +1322,92 @@ fn parse_array_command(buf: &[u8]) -> CommandParse {
     let mut args = Vec::with_capacity(count);
     let mut aggregate_bytes = 0usize;
     for _ in 0..count {
-        let (blen_line, after_len) = match read_crlf_line(buf, pos) {
-            Some(v) => v,
-            None if buf.len().saturating_sub(pos) > MAX_RESP_LINE_BYTES => {
-                return Err("ERR Protocol error: bulk header too large".into());
+        match parse_one_bulk_argument(buf, pos, &mut aggregate_bytes)? {
+            Some((bytes, new_pos)) => {
+                args.push(bytes);
+                pos = new_pos;
             }
-            None => return Ok(None),
-        };
-        if blen_line.len() > MAX_RESP_LINE_BYTES {
-            return Err("ERR Protocol error: bulk header too large".into());
+            None => return Ok(None), // bytes + trailing CRLF not all here yet
         }
-        if blen_line.first() != Some(&b'$') {
-            return Err("ERR Protocol error: expected '$'".into());
-        }
-        let blen: i64 = std::str::from_utf8(&blen_line[1..])
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| "ERR Protocol error: invalid bulk length".to_string())?;
-        if blen == -1 {
-            args.push(Vec::new());
-            pos = after_len;
-            continue;
-        }
-        if blen < -1 {
-            return Err("ERR Protocol error: invalid bulk length".into());
-        }
-        let blen = usize::try_from(blen)
-            .map_err(|_| "ERR Protocol error: invalid bulk length".to_string())?;
-        if blen > MAX_RESP_BULK_BYTES {
-            return Err("ERR Protocol error: bulk request too large".into());
-        }
-        aggregate_bytes = aggregate_bytes
-            .checked_add(blen)
-            .filter(|total| *total <= MAX_REDIS_REQUEST_BYTES)
-            .ok_or_else(|| "ERR Protocol error: request too large".to_string())?;
-        let start = after_len;
-        let end = start
-            .checked_add(blen)
-            .ok_or_else(|| "ERR Protocol error: bulk length overflow".to_string())?;
-        let framed_end = end
-            .checked_add(2)
-            .ok_or_else(|| "ERR Protocol error: bulk length overflow".to_string())?;
-        if buf.len() < framed_end {
-            return Ok(None); // bytes + trailing CRLF not all here yet
-        }
-        if &buf[end..framed_end] != b"\r\n" {
-            return Err("ERR Protocol error: invalid bulk terminator".into());
-        }
-        args.push(buf[start..end].to_vec());
-        pos = end + 2; // skip the value + CRLF
     }
     Ok(Some((args, pos)))
+}
+
+/// Parse one `$<len>\r\n<bytes>\r\n` bulk argument starting at `pos`, tracking
+/// the running `aggregate_bytes` across the whole multibulk command against
+/// `MAX_REDIS_REQUEST_BYTES`. `Ok(None)` means the buffer doesn't yet hold the
+/// complete argument (the connection driver should read more and retry).
+fn parse_one_bulk_argument(
+    buf: &[u8],
+    pos: usize,
+    aggregate_bytes: &mut usize,
+) -> Result<Option<(Vec<u8>, usize)>, String> {
+    let Some((blen, after_len)) = parse_bulk_length(buf, pos)? else {
+        return Ok(None);
+    };
+    if blen == -1 {
+        return Ok(Some((Vec::new(), after_len)));
+    }
+    if blen < -1 {
+        return Err("ERR Protocol error: invalid bulk length".into());
+    }
+    let blen =
+        usize::try_from(blen).map_err(|_| "ERR Protocol error: invalid bulk length".to_string())?;
+    read_bulk_payload(buf, after_len, blen, aggregate_bytes)
+}
+
+/// Parse a bulk argument's `$<len>\r\n` length header. `Ok(None)` means the
+/// header itself hasn't fully arrived yet.
+fn parse_bulk_length(buf: &[u8], pos: usize) -> Result<Option<(i64, usize)>, String> {
+    let (blen_line, after_len) = match read_crlf_line(buf, pos) {
+        Some(v) => v,
+        None if buf.len().saturating_sub(pos) > MAX_RESP_LINE_BYTES => {
+            return Err("ERR Protocol error: bulk header too large".into());
+        }
+        None => return Ok(None),
+    };
+    if blen_line.len() > MAX_RESP_LINE_BYTES {
+        return Err("ERR Protocol error: bulk header too large".into());
+    }
+    if blen_line.first() != Some(&b'$') {
+        return Err("ERR Protocol error: expected '$'".into());
+    }
+    let blen: i64 = std::str::from_utf8(&blen_line[1..])
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| "ERR Protocol error: invalid bulk length".to_string())?;
+    Ok(Some((blen, after_len)))
+}
+
+/// Read a bulk argument's `blen`-byte payload plus its trailing CRLF, starting
+/// at `start`, and fold `blen` into the running `aggregate_bytes` bound.
+/// `Ok(None)` means the payload + terminator hasn't fully arrived yet.
+fn read_bulk_payload(
+    buf: &[u8],
+    start: usize,
+    blen: usize,
+    aggregate_bytes: &mut usize,
+) -> Result<Option<(Vec<u8>, usize)>, String> {
+    if blen > MAX_RESP_BULK_BYTES {
+        return Err("ERR Protocol error: bulk request too large".into());
+    }
+    *aggregate_bytes = aggregate_bytes
+        .checked_add(blen)
+        .filter(|total| *total <= MAX_REDIS_REQUEST_BYTES)
+        .ok_or_else(|| "ERR Protocol error: request too large".to_string())?;
+    let end = start
+        .checked_add(blen)
+        .ok_or_else(|| "ERR Protocol error: bulk length overflow".to_string())?;
+    let framed_end = end
+        .checked_add(2)
+        .ok_or_else(|| "ERR Protocol error: bulk length overflow".to_string())?;
+    if buf.len() < framed_end {
+        return Ok(None);
+    }
+    if &buf[end..framed_end] != b"\r\n" {
+        return Err("ERR Protocol error: invalid bulk terminator".into());
+    }
+    Ok(Some((buf[start..end].to_vec(), end + 2)))
 }
 
 // ── command dispatch (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────────────
@@ -1431,25 +1491,8 @@ fn execute(store: &RedisStore, args: &[Vec<u8>], conn: &mut ConnState, auth_secr
     let cmd = upper(&args[0]);
 
     // Only authentication and disconnect are available before identity binding.
-    match cmd.as_str() {
-        "QUIT" => {
-            conn.quit = true;
-            return Resp::Simple("OK".into());
-        }
-        "HELLO" => return hello(args, conn, auth_secret),
-        "AUTH" => {
-            if args.len() != 3 {
-                return Resp::Error("ERR AUTH requires principal and credential".into());
-            }
-            return match authenticate_redis_principal(auth_secret, &args[1], &args[2]) {
-                Some(scope) => {
-                    conn.actor_scope = Some(scope);
-                    Resp::Simple("OK".into())
-                }
-                None => Resp::Error("WRONGPASS invalid username-password pair".into()),
-            };
-        }
-        _ => {}
+    if let Some(resp) = execute_preauth(&cmd, args, conn, auth_secret) {
+        return resp;
     }
 
     let scope = match conn.authenticated_scope() {
@@ -1457,29 +1500,67 @@ fn execute(store: &RedisStore, args: &[Vec<u8>], conn: &mut ConnState, auth_secr
         Err(error) => return error,
     };
 
-    match cmd.as_str() {
-        "PING" => {
-            return match args.get(1) {
-                Some(msg) => Resp::Bulk(Some(msg.clone())),
-                None => Resp::Simple("PONG".into()),
-            };
-        }
-        "ECHO" => {
-            return match args.get(1) {
-                Some(msg) => Resp::Bulk(Some(msg.clone())),
-                None => Resp::Error("ERR wrong number of arguments for 'echo'".into()),
-            };
-        }
-        "SELECT" => return Resp::Simple("OK".into()),
-        "COMMAND" | "CONFIG" => return Resp::Array(Some(Vec::new())),
-        "CLIENT" => return Resp::Simple("OK".into()),
-        _ => {}
+    if let Some(resp) = execute_quick_verb(&cmd, args) {
+        return resp;
     }
 
     let scoped_store = store.scoped(scope);
     match execute_data(&scoped_store, &cmd, args, conn.proto) {
         Ok(r) => r,
         Err(e) => Resp::Error(e),
+    }
+}
+
+/// The verbs available before identity binding: `QUIT`, `HELLO`, and `AUTH`.
+/// `None` means the caller should fall through to the authenticated path.
+fn execute_preauth(
+    cmd: &str,
+    args: &[Vec<u8>],
+    conn: &mut ConnState,
+    auth_secret: &str,
+) -> Option<Resp> {
+    match cmd {
+        "QUIT" => {
+            conn.quit = true;
+            Some(Resp::Simple("OK".into()))
+        }
+        "HELLO" => Some(hello(args, conn, auth_secret)),
+        "AUTH" => {
+            if args.len() != 3 {
+                return Some(Resp::Error(
+                    "ERR AUTH requires principal and credential".into(),
+                ));
+            }
+            Some(
+                match authenticate_redis_principal(auth_secret, &args[1], &args[2]) {
+                    Some(scope) => {
+                        conn.actor_scope = Some(scope);
+                        Resp::Simple("OK".into())
+                    }
+                    None => Resp::Error("WRONGPASS invalid username-password pair".into()),
+                },
+            )
+        }
+        _ => None,
+    }
+}
+
+/// Verbs answered directly without touching the data store. `None` means the
+/// caller should fall through to [`execute_data`].
+fn execute_quick_verb(cmd: &str, args: &[Vec<u8>]) -> Option<Resp> {
+    match cmd {
+        "PING" => Some(match args.get(1) {
+            Some(msg) => Resp::Bulk(Some(msg.clone())),
+            None => Resp::Simple("PONG".into()),
+        }),
+        "ECHO" => Some(match args.get(1) {
+            Some(msg) => Resp::Bulk(Some(msg.clone())),
+            None => Resp::Error("ERR wrong number of arguments for 'echo'".into()),
+        }),
+        "SELECT" => Some(Resp::Simple("OK".into())),
+        "COMMAND" | "CONFIG" => Some(Resp::Array(Some(Vec::new()))),
+        "CLIENT" => Some(Resp::Simple("OK".into())),
+        _ => None,
     }
 }
 
@@ -1495,32 +1576,61 @@ fn authenticate_redis_principal(
     crate::server::pseudonymous_broker_actor(auth_secret, principal).ok()
 }
 
-/// The `HELLO` handshake upgrades RESP and performs mandatory identity binding
-/// before returning server metadata.
-fn hello(args: &[Vec<u8>], conn: &mut ConnState, auth_secret: &str) -> Resp {
-    let mut i = 1;
-    if let Some(v) = args.get(1) {
-        // The protover is the first arg when it parses as a number.
-        if let Ok(p) = std::str::from_utf8(v).unwrap_or_default().parse::<u8>() {
-            if p != 2 && p != 3 {
-                return Resp::Error("NOPROTO unsupported protocol version".into());
-            }
-            conn.proto = p;
-            i = 2;
-        }
+/// If `args[1]` parses as a protocol version number, validate and apply it
+/// (advancing `*i` past it). A non-numeric or absent `args[1]` is not a
+/// protover at all — leaves `*i` untouched so it's parsed as a `HELLO` option
+/// instead, matching real Redis's argument-shape sniffing.
+fn hello_apply_protover(args: &[Vec<u8>], conn: &mut ConnState, i: &mut usize) -> Option<Resp> {
+    let value = args.get(1)?;
+    let p: u8 = std::str::from_utf8(value)
+        .unwrap_or_default()
+        .parse()
+        .ok()?;
+    if p != 2 && p != 3 {
+        return Some(Resp::Error("NOPROTO unsupported protocol version".into()));
     }
-    // `HELLO ... AUTH <principal> <credential>` binds a fresh connection. An
-    // already-authenticated connection may renegotiate only the RESP version.
+    conn.proto = p;
+    *i = 2;
+    None
+}
+
+/// Apply every remaining `HELLO` option starting at `i` (today, only
+/// `AUTH <principal> <credential>`). `None` means all options were valid.
+fn hello_apply_options(
+    args: &[Vec<u8>],
+    mut i: usize,
+    conn: &mut ConnState,
+    auth_secret: &str,
+) -> Option<Resp> {
     while i < args.len() {
         if upper(&args[i]) == "AUTH" && i + 2 < args.len() {
             match authenticate_redis_principal(auth_secret, &args[i + 1], &args[i + 2]) {
                 Some(scope) => conn.actor_scope = Some(scope),
-                None => return Resp::Error("WRONGPASS invalid username-password pair".into()),
+                None => {
+                    return Some(Resp::Error(
+                        "WRONGPASS invalid username-password pair".into(),
+                    ))
+                }
             }
             i += 3;
         } else {
-            return Resp::Error("ERR invalid HELLO option".into());
+            return Some(Resp::Error("ERR invalid HELLO option".into()));
         }
+    }
+    None
+}
+
+/// The `HELLO` handshake upgrades RESP and performs mandatory identity binding
+/// before returning server metadata.
+fn hello(args: &[Vec<u8>], conn: &mut ConnState, auth_secret: &str) -> Resp {
+    let mut i = 1;
+    if let Some(resp) = hello_apply_protover(args, conn, &mut i) {
+        return resp;
+    }
+    // `HELLO ... AUTH <principal> <credential>` binds a fresh connection. An
+    // already-authenticated connection may renegotiate only the RESP version.
+    if let Some(resp) = hello_apply_options(args, i, conn, auth_secret) {
+        return resp;
     }
     if conn.actor_scope.is_none() {
         return Resp::Error("NOAUTH Authentication required.".into());
@@ -1830,7 +1940,9 @@ fn cmd_llen(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, Str
 }
 
 fn cmd_type(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
-    Ok(Resp::Simple(store.type_of(&redis_key(args, cmd, 1)?)?.into()))
+    Ok(Resp::Simple(
+        store.type_of(&redis_key(args, cmd, 1)?)?.into(),
+    ))
 }
 
 fn execute_data(
@@ -1961,39 +2073,7 @@ fn dispatch(
 
     // Queue everything (except control verbs) while inside MULTI.
     if conn.in_multi && !is_multi_control(&cmd) {
-        if !is_known_command(&cmd) && !allowed_in_subscribe(&cmd) {
-            conn.multi_dirty = true;
-            return vec![Resp::Error(format!(
-                "ERR unknown command '{}'",
-                cmd.to_ascii_lowercase()
-            ))];
-        }
-        // SUBSCRIBE-family commands are not allowed inside a transaction.
-        if matches!(
-            cmd.as_str(),
-            "SUBSCRIBE" | "UNSUBSCRIBE" | "PSUBSCRIBE" | "PUNSUBSCRIBE"
-        ) {
-            conn.multi_dirty = true;
-            return vec![Resp::Error(format!(
-                "ERR {} is not allowed in transactions",
-                cmd
-            ))];
-        }
-        let command_bytes = args
-            .iter()
-            .try_fold(0usize, |total, value| total.checked_add(value.len()));
-        let next_bytes = command_bytes.and_then(|size| conn.queued_bytes.checked_add(size));
-        if conn.queued.len() >= MAX_MULTI_COMMANDS
-            || next_bytes.is_none_or(|size| size > MAX_MULTI_BYTES)
-        {
-            conn.multi_dirty = true;
-            return vec![Resp::Error(
-                "ERR transaction exceeds resource limits".into(),
-            )];
-        }
-        conn.queued_bytes = next_bytes.unwrap_or(0);
-        conn.queued.push(args.to_vec());
-        return vec![Resp::Simple("QUEUED".into())];
+        return queue_in_multi(&cmd, args, conn);
     }
 
     // Enforce the RESP2 subscriber-mode command gate.
@@ -2007,69 +2087,130 @@ fn dispatch(
         ))];
     }
 
-    match cmd.as_str() {
-        "MULTI" => {
-            if conn.in_multi {
-                vec![Resp::Error("ERR MULTI calls can not be nested".into())]
-            } else {
-                conn.in_multi = true;
-                conn.queued.clear();
-                conn.queued_bytes = 0;
-                conn.multi_dirty = false;
-                vec![Resp::Simple("OK".into())]
-            }
-        }
-        "DISCARD" => {
-            if !conn.in_multi {
-                vec![Resp::Error("ERR DISCARD without MULTI".into())]
-            } else {
-                conn.in_multi = false;
-                conn.queued.clear();
-                conn.queued_bytes = 0;
-                conn.multi_dirty = false;
-                vec![Resp::Simple("OK".into())]
-            }
-        }
+    dispatch_command(store, pubsub, &cmd, args, conn, auth_secret)
+}
+
+/// The per-command dispatch table [`dispatch`] falls into once the
+/// auth/MULTI-queue/subscriber-mode gates have all passed. A plain exhaustive
+/// match (not a lookup table) so the compiler keeps proving every handled verb
+/// routes somewhere and an unrecognized one falls through to [`execute`].
+fn dispatch_command(
+    store: &RedisStore,
+    pubsub: &PubSub,
+    cmd: &str,
+    args: &[Vec<u8>],
+    conn: &mut ConnState,
+    auth_secret: &str,
+) -> Vec<Resp> {
+    match cmd {
+        "MULTI" => handle_multi_cmd(conn),
+        "DISCARD" => handle_discard_cmd(conn),
         "EXEC" => exec_transaction(store, conn, auth_secret),
         "SUBSCRIBE" | "PSUBSCRIBE" => subscribe(pubsub, conn, &args[1..], cmd == "PSUBSCRIBE"),
         "UNSUBSCRIBE" | "PUNSUBSCRIBE" => {
             unsubscribe(pubsub, conn, &args[1..], cmd == "PUNSUBSCRIBE")
         }
-        "PUBLISH" => {
-            let Some(scope) = conn.actor_scope.as_deref() else {
-                return vec![Resp::Error("NOAUTH Authentication required.".into())];
-            };
-            match (args.get(1), args.get(2)) {
-                (Some(chan), Some(payload)) => match utf8_argument(chan, MAX_REDIS_CHANNEL_BYTES) {
-                    Ok(channel) => vec![Resp::Int(pubsub.publish(scope, &channel, payload))],
-                    Err(error) => vec![Resp::Error(error)],
-                },
-                _ => vec![Resp::Error(
-                    "ERR wrong number of arguments for 'publish'".into(),
-                )],
-            }
-        }
-        "RESET" => {
-            let Some(scope) = conn.actor_scope.clone() else {
-                return vec![Resp::Error("NOAUTH Authentication required.".into())];
-            };
-            for c in conn.sub_channels.drain().collect::<Vec<_>>() {
-                pubsub.unsubscribe(conn.id, &scope, &c);
-            }
-            for p in conn.sub_patterns.drain().collect::<Vec<_>>() {
-                pubsub.punsubscribe(conn.id, &scope, &p);
-            }
-            conn.in_multi = false;
-            conn.queued.clear();
-            conn.queued_bytes = 0;
-            conn.multi_dirty = false;
-            conn.sub_bytes = 0;
-            conn.proto = 2;
-            conn.actor_scope = None;
-            vec![Resp::Simple("RESET".into())]
-        }
+        "PUBLISH" => handle_publish_cmd(pubsub, conn, args),
+        "RESET" => reset_connection(pubsub, conn),
         _ => vec![execute(store, args, conn, auth_secret)],
     }
+}
+
+/// Queue one command inside an open `MULTI` block (CONCEPT:EG-KG.txn.pubsub-transactions), rejecting an
+/// unknown command, a SUBSCRIBE-family command, or a queue that would exceed
+/// resource limits — all of which taint the transaction (`multi_dirty`) so the
+/// eventual `EXEC` aborts.
+fn queue_in_multi(cmd: &str, args: &[Vec<u8>], conn: &mut ConnState) -> Vec<Resp> {
+    if !is_known_command(cmd) && !allowed_in_subscribe(cmd) {
+        conn.multi_dirty = true;
+        return vec![Resp::Error(format!(
+            "ERR unknown command '{}'",
+            cmd.to_ascii_lowercase()
+        ))];
+    }
+    // SUBSCRIBE-family commands are not allowed inside a transaction.
+    if matches!(
+        cmd,
+        "SUBSCRIBE" | "UNSUBSCRIBE" | "PSUBSCRIBE" | "PUNSUBSCRIBE"
+    ) {
+        conn.multi_dirty = true;
+        return vec![Resp::Error(format!(
+            "ERR {} is not allowed in transactions",
+            cmd
+        ))];
+    }
+    let command_bytes = args
+        .iter()
+        .try_fold(0usize, |total, value| total.checked_add(value.len()));
+    let next_bytes = command_bytes.and_then(|size| conn.queued_bytes.checked_add(size));
+    if conn.queued.len() >= MAX_MULTI_COMMANDS
+        || next_bytes.is_none_or(|size| size > MAX_MULTI_BYTES)
+    {
+        conn.multi_dirty = true;
+        return vec![Resp::Error(
+            "ERR transaction exceeds resource limits".into(),
+        )];
+    }
+    conn.queued_bytes = next_bytes.unwrap_or(0);
+    conn.queued.push(args.to_vec());
+    vec![Resp::Simple("QUEUED".into())]
+}
+
+fn handle_multi_cmd(conn: &mut ConnState) -> Vec<Resp> {
+    if conn.in_multi {
+        return vec![Resp::Error("ERR MULTI calls can not be nested".into())];
+    }
+    conn.in_multi = true;
+    conn.queued.clear();
+    conn.queued_bytes = 0;
+    conn.multi_dirty = false;
+    vec![Resp::Simple("OK".into())]
+}
+
+fn handle_discard_cmd(conn: &mut ConnState) -> Vec<Resp> {
+    if !conn.in_multi {
+        return vec![Resp::Error("ERR DISCARD without MULTI".into())];
+    }
+    conn.in_multi = false;
+    conn.queued.clear();
+    conn.queued_bytes = 0;
+    conn.multi_dirty = false;
+    vec![Resp::Simple("OK".into())]
+}
+
+fn handle_publish_cmd(pubsub: &PubSub, conn: &ConnState, args: &[Vec<u8>]) -> Vec<Resp> {
+    let Some(scope) = conn.actor_scope.as_deref() else {
+        return vec![Resp::Error("NOAUTH Authentication required.".into())];
+    };
+    match (args.get(1), args.get(2)) {
+        (Some(chan), Some(payload)) => match utf8_argument(chan, MAX_REDIS_CHANNEL_BYTES) {
+            Ok(channel) => vec![Resp::Int(pubsub.publish(scope, &channel, payload))],
+            Err(error) => vec![Resp::Error(error)],
+        },
+        _ => vec![Resp::Error(
+            "ERR wrong number of arguments for 'publish'".into(),
+        )],
+    }
+}
+
+fn reset_connection(pubsub: &PubSub, conn: &mut ConnState) -> Vec<Resp> {
+    let Some(scope) = conn.actor_scope.clone() else {
+        return vec![Resp::Error("NOAUTH Authentication required.".into())];
+    };
+    for c in conn.sub_channels.drain().collect::<Vec<_>>() {
+        pubsub.unsubscribe(conn.id, &scope, &c);
+    }
+    for p in conn.sub_patterns.drain().collect::<Vec<_>>() {
+        pubsub.punsubscribe(conn.id, &scope, &p);
+    }
+    conn.in_multi = false;
+    conn.queued.clear();
+    conn.queued_bytes = 0;
+    conn.multi_dirty = false;
+    conn.sub_bytes = 0;
+    conn.proto = 2;
+    conn.actor_scope = None;
+    vec![Resp::Simple("RESET".into())]
 }
 
 /// Execute a queued `MULTI` transaction atomically (CONCEPT:EG-KG.txn.pubsub-transactions): run every
@@ -2125,49 +2266,54 @@ fn subscribe(pubsub: &PubSub, conn: &mut ConnState, chans: &[Vec<u8>], pattern: 
                 continue;
             }
         };
-        let already_subscribed = if pattern {
-            conn.sub_patterns.contains(&name)
-        } else {
-            conn.sub_channels.contains(&name)
-        };
-        let next_sub_bytes = conn.sub_bytes.checked_add(name.len());
-        if !already_subscribed
-            && (conn.sub_count() as usize >= MAX_REDIS_SUBSCRIPTIONS
-                || next_sub_bytes.is_none_or(|bytes| bytes > MAX_REDIS_SUBSCRIPTION_BYTES))
-        {
-            out.push(Resp::Error(
-                "ERR subscription resource limit exceeded".into(),
-            ));
-            continue;
-        }
-        if pattern {
-            if !already_subscribed {
-                if !pubsub.psubscribe(conn.id, &scope, &name) {
-                    out.push(Resp::Error(
-                        "ERR global subscription resource limit exceeded".into(),
-                    ));
-                    continue;
-                }
-                conn.sub_patterns.insert(name.clone());
-                conn.sub_bytes = next_sub_bytes.unwrap_or(conn.sub_bytes);
-            }
-        } else if !already_subscribed {
-            if !pubsub.subscribe(conn.id, &scope, &name) {
-                out.push(Resp::Error(
-                    "ERR global subscription resource limit exceeded".into(),
-                ));
-                continue;
-            }
-            conn.sub_channels.insert(name.clone());
-            conn.sub_bytes = next_sub_bytes.unwrap_or(conn.sub_bytes);
-        }
-        out.push(Resp::Push(vec![
-            Resp::bulk_str(kind),
-            Resp::bulk_str(name.into_bytes()),
-            Resp::Int(conn.sub_count()),
-        ]));
+        out.push(subscribe_one(pubsub, conn, &scope, kind, pattern, name));
     }
     out
+}
+
+/// Subscribe `conn` to one already-decoded channel/pattern `name`, enforcing
+/// the per-connection and global subscription resource limits, and return
+/// its confirmation push (or the resource-limit error in its place).
+fn subscribe_one(
+    pubsub: &PubSub,
+    conn: &mut ConnState,
+    scope: &str,
+    kind: &str,
+    pattern: bool,
+    name: String,
+) -> Resp {
+    let already_subscribed = if pattern {
+        conn.sub_patterns.contains(&name)
+    } else {
+        conn.sub_channels.contains(&name)
+    };
+    let next_sub_bytes = conn.sub_bytes.checked_add(name.len());
+    if !already_subscribed
+        && (conn.sub_count() as usize >= MAX_REDIS_SUBSCRIPTIONS
+            || next_sub_bytes.is_none_or(|bytes| bytes > MAX_REDIS_SUBSCRIPTION_BYTES))
+    {
+        return Resp::Error("ERR subscription resource limit exceeded".into());
+    }
+    if pattern {
+        if !already_subscribed {
+            if !pubsub.psubscribe(conn.id, scope, &name) {
+                return Resp::Error("ERR global subscription resource limit exceeded".into());
+            }
+            conn.sub_patterns.insert(name.clone());
+            conn.sub_bytes = next_sub_bytes.unwrap_or(conn.sub_bytes);
+        }
+    } else if !already_subscribed {
+        if !pubsub.subscribe(conn.id, scope, &name) {
+            return Resp::Error("ERR global subscription resource limit exceeded".into());
+        }
+        conn.sub_channels.insert(name.clone());
+        conn.sub_bytes = next_sub_bytes.unwrap_or(conn.sub_bytes);
+    }
+    Resp::Push(vec![
+        Resp::bulk_str(kind),
+        Resp::bulk_str(name.into_bytes()),
+        Resp::Int(conn.sub_count()),
+    ])
 }
 
 /// `UNSUBSCRIBE` / `PUNSUBSCRIBE` (CONCEPT:EG-KG.txn.pubsub-transactions): drop the named channels (or ALL
@@ -2187,21 +2333,9 @@ fn unsubscribe(
     let Some(scope) = conn.actor_scope.clone() else {
         return vec![Resp::Error("NOAUTH Authentication required.".into())];
     };
-    let targets: Vec<String> = if chans.is_empty() {
-        if pattern {
-            conn.sub_patterns.iter().cloned().collect()
-        } else {
-            conn.sub_channels.iter().cloned().collect()
-        }
-    } else {
-        let mut targets = Vec::with_capacity(chans.len());
-        for channel in chans {
-            match utf8_argument(channel, MAX_REDIS_CHANNEL_BYTES) {
-                Ok(channel) => targets.push(channel),
-                Err(error) => return vec![Resp::Error(error)],
-            }
-        }
-        targets
+    let targets = match unsubscribe_targets(conn, chans, pattern) {
+        Ok(targets) => targets,
+        Err(resp) => return vec![resp],
     };
     if targets.is_empty() {
         return vec![Resp::Push(vec![
@@ -2212,25 +2346,63 @@ fn unsubscribe(
     }
     let mut out = Vec::with_capacity(targets.len());
     for name in targets {
-        let removed = if pattern {
-            let removed = conn.sub_patterns.remove(&name);
-            pubsub.punsubscribe(conn.id, &scope, &name);
-            removed
-        } else {
-            let removed = conn.sub_channels.remove(&name);
-            pubsub.unsubscribe(conn.id, &scope, &name);
-            removed
-        };
-        if removed {
-            conn.sub_bytes = conn.sub_bytes.saturating_sub(name.len());
-        }
-        out.push(Resp::Push(vec![
-            Resp::bulk_str(kind),
-            Resp::bulk_str(name.into_bytes()),
-            Resp::Int(conn.sub_count()),
-        ]));
+        out.push(unsubscribe_one(pubsub, conn, &scope, kind, pattern, name));
     }
     out
+}
+
+/// Resolve which channels/patterns an `UNSUBSCRIBE`/`PUNSUBSCRIBE` targets:
+/// every currently-subscribed one of that kind when `chans` is empty,
+/// otherwise the explicitly named (and UTF-8-decoded) ones.
+fn unsubscribe_targets(
+    conn: &ConnState,
+    chans: &[Vec<u8>],
+    pattern: bool,
+) -> Result<Vec<String>, Resp> {
+    if chans.is_empty() {
+        return Ok(if pattern {
+            conn.sub_patterns.iter().cloned().collect()
+        } else {
+            conn.sub_channels.iter().cloned().collect()
+        });
+    }
+    let mut targets = Vec::with_capacity(chans.len());
+    for channel in chans {
+        match utf8_argument(channel, MAX_REDIS_CHANNEL_BYTES) {
+            Ok(channel) => targets.push(channel),
+            Err(error) => return Err(Resp::Error(error)),
+        }
+    }
+    Ok(targets)
+}
+
+/// Unsubscribe `conn` from one already-resolved channel/pattern `name` and
+/// return its confirmation push.
+fn unsubscribe_one(
+    pubsub: &PubSub,
+    conn: &mut ConnState,
+    scope: &str,
+    kind: &str,
+    pattern: bool,
+    name: String,
+) -> Resp {
+    let removed = if pattern {
+        let removed = conn.sub_patterns.remove(&name);
+        pubsub.punsubscribe(conn.id, scope, &name);
+        removed
+    } else {
+        let removed = conn.sub_channels.remove(&name);
+        pubsub.unsubscribe(conn.id, scope, &name);
+        removed
+    };
+    if removed {
+        conn.sub_bytes = conn.sub_bytes.saturating_sub(name.len());
+    }
+    Resp::Push(vec![
+        Resp::bulk_str(kind),
+        Resp::bulk_str(name.into_bytes()),
+        Resp::Int(conn.sub_count()),
+    ])
 }
 
 // ── the per-connection driver + listener ──────────────────────────────────────────
@@ -2259,6 +2431,62 @@ where
     result
 }
 
+/// Parse and execute every complete command already in `buf`, writing each
+/// reply out. Parses by offset and compacts `buf` once so a pipeline of tiny
+/// commands cannot force a full-tail memmove after every command (quadratic
+/// CPU work). Returns `Ok(true)` if the connection should close now (a
+/// protocol error was already written, or the client sent `QUIT`).
+async fn drain_and_execute<S>(
+    s: &mut S,
+    store: &Arc<RedisStore>,
+    pubsub: &Arc<PubSub>,
+    conn: &mut ConnState,
+    buf: &mut Vec<u8>,
+    auth_secret: &str,
+) -> std::io::Result<bool>
+where
+    S: AsyncWrite + Unpin,
+{
+    let mut consumed_total = 0usize;
+    loop {
+        let (args, consumed) = match try_parse_command(&buf[consumed_total..]) {
+            Ok(Some(v)) => v,
+            Ok(None) => break,
+            Err(e) => {
+                let mut out = Vec::new();
+                Resp::Error(e).encode(conn.proto, &mut out);
+                s.write_all(&out).await?;
+                return Ok(true);
+            }
+        };
+        consumed_total = consumed_total
+            .checked_add(consumed)
+            .filter(|consumed| *consumed <= buf.len())
+            .ok_or_else(|| invalid_data("invalid RESP command length"))?;
+        if args.is_empty() {
+            continue;
+        }
+        let replies = dispatch(store, pubsub, &args, conn, auth_secret);
+        let mut out = Vec::new();
+        if responses_within_budget(&replies) {
+            for reply in &replies {
+                reply.encode(conn.proto, &mut out);
+            }
+        } else {
+            Resp::Error("ERR response exceeds resource limits".into()).encode(conn.proto, &mut out);
+        }
+        s.write_all(&out).await?;
+        if conn.quit {
+            let _ = s.shutdown().await;
+            return Ok(true);
+        }
+    }
+    if consumed_total > 0 {
+        buf.drain(..consumed_total);
+    }
+    Ok(false)
+}
+
 /// The inner connection loop (split out so [`handle_connection`] can guarantee the
 /// [`PubSub`] unregister runs on every exit path). `select!`s between the socket and
 /// this connection's subscriber mailbox: buffered client commands are executed
@@ -2279,45 +2507,8 @@ where
     let mut tmp = [0u8; 8192];
     loop {
         // Drain and execute every complete command already in the buffer.
-        // Parse by offset and compact once so a pipeline of tiny commands cannot
-        // force a full-tail memmove after every command (quadratic CPU work).
-        let mut consumed_total = 0usize;
-        loop {
-            let (args, consumed) = match try_parse_command(&buf[consumed_total..]) {
-                Ok(Some(v)) => v,
-                Ok(None) => break,
-                Err(e) => {
-                    let mut out = Vec::new();
-                    Resp::Error(e).encode(conn.proto, &mut out);
-                    s.write_all(&out).await?;
-                    return Ok(());
-                }
-            };
-            consumed_total = consumed_total
-                .checked_add(consumed)
-                .filter(|consumed| *consumed <= buf.len())
-                .ok_or_else(|| invalid_data("invalid RESP command length"))?;
-            if args.is_empty() {
-                continue;
-            }
-            let replies = dispatch(store, pubsub, &args, conn, auth_secret);
-            let mut out = Vec::new();
-            if responses_within_budget(&replies) {
-                for reply in &replies {
-                    reply.encode(conn.proto, &mut out);
-                }
-            } else {
-                Resp::Error("ERR response exceeds resource limits".into())
-                    .encode(conn.proto, &mut out);
-            }
-            s.write_all(&out).await?;
-            if conn.quit {
-                let _ = s.shutdown().await;
-                return Ok(());
-            }
-        }
-        if consumed_total > 0 {
-            buf.drain(..consumed_total);
+        if drain_and_execute(s, store, pubsub, conn, &mut buf, auth_secret).await? {
+            return Ok(());
         }
         // Nothing more to parse: wait for either new bytes or a published message.
         tokio::select! {
@@ -2709,7 +2900,12 @@ mod tests {
             Resp::Simple("OK".into())
         );
         assert_eq!(
-            execute(&store, &a(&["MGET", "k1", "k2", "nope"]), &mut c, TEST_SECRET),
+            execute(
+                &store,
+                &a(&["MGET", "k1", "k2", "nope"]),
+                &mut c,
+                TEST_SECRET
+            ),
             Resp::Array(Some(vec![
                 Resp::Bulk(Some(b"v1".to_vec())),
                 Resp::Bulk(Some(b"v2".to_vec())),
@@ -2766,7 +2962,12 @@ mod tests {
             other => panic!("unexpected SCAN reply: {other:?}"),
         }
         assert!(matches!(
-            execute(&store, &a(&["SCAN", "0", "MATCH", "al*"]), &mut c, TEST_SECRET),
+            execute(
+                &store,
+                &a(&["SCAN", "0", "MATCH", "al*"]),
+                &mut c,
+                TEST_SECRET
+            ),
             Resp::Array(Some(_))
         ));
         assert!(matches!(
@@ -2780,19 +2981,34 @@ mod tests {
         let store = mem_store();
         let mut c = conn3();
         assert_eq!(
-            execute(&store, &a(&["SET", "k", "v", "EX", "100"]), &mut c, TEST_SECRET),
+            execute(
+                &store,
+                &a(&["SET", "k", "v", "EX", "100"]),
+                &mut c,
+                TEST_SECRET
+            ),
             Resp::Simple("OK".into())
         );
         assert!(
             matches!(execute(&store, &a(&["TTL", "k"]), &mut c, TEST_SECRET), Resp::Int(t) if t > 0 && t <= 100)
         );
         assert_eq!(
-            execute(&store, &a(&["SET", "k2", "v", "PX", "100000"]), &mut c, TEST_SECRET),
+            execute(
+                &store,
+                &a(&["SET", "k2", "v", "PX", "100000"]),
+                &mut c,
+                TEST_SECRET
+            ),
             Resp::Simple("OK".into())
         );
         // Unknown SET option is a syntax error.
         assert!(matches!(
-            execute(&store, &a(&["SET", "k3", "v", "BOGUS"]), &mut c, TEST_SECRET),
+            execute(
+                &store,
+                &a(&["SET", "k3", "v", "BOGUS"]),
+                &mut c,
+                TEST_SECRET
+            ),
             Resp::Error(_)
         ));
     }
@@ -2802,7 +3018,12 @@ mod tests {
         let store = mem_store();
         let mut c = conn3();
         assert!(matches!(
-            execute(&store, &a(&["ZADD", "z", "1", "a", "2"]), &mut c, TEST_SECRET),
+            execute(
+                &store,
+                &a(&["ZADD", "z", "1", "a", "2"]),
+                &mut c,
+                TEST_SECRET
+            ),
             Resp::Error(_)
         ));
         execute(&store, &a(&["ZADD", "z", "1", "a"]), &mut c, TEST_SECRET);
@@ -2821,7 +3042,6 @@ mod tests {
             Resp::Null
         );
     }
-
 
     #[test]
     fn eg174_wrongtype_is_reported() {
