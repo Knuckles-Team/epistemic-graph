@@ -18,6 +18,14 @@
 //!   MutationBatch replay/outbox/fence rows and governed ChangeEnvelope content,
 //!   cursor, policy, evidence, feature, blob, and lineage rows are moved row for
 //!   row, value blob unchanged — so encryption-at-rest blobs survive WITHOUT the key.
+//! * Every RESOURCE_*, development_lane_*, and capacity_lease_* table, plus
+//!   provenance-anchor-member rows and the WorkItem command sequence, move with the
+//!   graph too (WD5-BUG-04 — the same class of gap BUG-CX-016/BUG-CX-054 were in
+//!   `shard_migrate.rs`'s offline tool). NOT moved: `PLAN_MATVIEWS`/
+//!   `MATVIEW_OPERATOR_STATE` (GLOBAL, shard-0-homed, no graph key — moving them
+//!   per-graph would be its own corruption), and the `work_item_capability` trio
+//!   (`CAPABILITIES`/`INVOCATIONS`/`NATIVE_WORK_ITEMS`), which is deliberately
+//!   purged rather than copied — see below.
 //! * Native WorkItem capability bytes, invocation idempotency, and claim
 //!   provenance are intentionally NOT part of the raw image.  Destination raw
 //!   and delta imports purge those private tables in the same transaction, so a
@@ -57,6 +65,23 @@ use crate::redb_store::{
     CHANGE_LINEAGE, CHANGE_POLICIES, CONTENT_VERSIONS, EDGES, GRAPH_META, LEDGER, MUTATION_BATCHES,
     MUTATION_FENCE, MUTATION_GRAPH_VERSION, MUTATION_IDEMPOTENCY, MUTATION_LIFECYCLE_HEAD,
     MUTATION_OUTBOX, MUTATION_OUTBOX_DELIVERY, MUTATION_PROJECTION_CURSOR, NODES, SEMANTIC,
+};
+// BUG-CX-016/BUG-CX-054 class, same 25-of-30-table gap WD3-BUG-01 fixed offline in
+// `shard_migrate.rs` and this lane fixed in `backup.rs`: an online reshard moves ONE
+// graph, so it needs every PER-GRAPH table below, routed with the graph — but NOT
+// `PLAN_MATVIEWS`/`MATVIEW_OPERATOR_STATE` (global, shard-0-homed, no graph key at
+// all) and NOT the `work_item_capability` trio (`CAPABILITIES`/`INVOCATIONS`/
+// `NATIVE_WORK_ITEMS`), which this module already deliberately excludes from the raw
+// image by design (see the module doc + `import_graph_raw`/`import_graph_delta`'s
+// `work_item_capability::clear_graph_rows_in_wtx` purge) — see this lane's report for
+// the full per-table per-graph-vs-global classification.
+use crate::redb_store::{capacity_lease, development_lane};
+#[cfg(feature = "security")]
+use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+use crate::redb_store::{
+    RESOURCE_ANTI_AFFINITY, RESOURCE_CONCURRENCY, RESOURCE_DISK_POLICIES, RESOURCE_EXCLUSIVITY,
+    RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
+    RESOURCE_RESERVATION_TENANT_INDEX, WORK_ITEM_COMMAND_SEQUENCE,
 };
 
 /// Deserialize an explicitly present nullable field in the current raw-row
@@ -103,6 +128,50 @@ pub(crate) struct RawChangeRows {
     pub lineage: Vec<(String, String, Vec<u8>)>,
 }
 
+/// RESOURCE_* rows for ONE graph, captured verbatim (BUG-CX-054 class — the same
+/// gap `shard_migrate.rs`'s `MigrationReport::capability_and_resource` fixed offline;
+/// see this module's own doc comment for why an online move needs it too).
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawResourceRows {
+    pub reservations: Vec<(String, Vec<u8>)>,
+    pub reservation_tenant_index: Vec<(String, String, String)>,
+    pub reservation_attempts: Vec<(String, u64, String)>,
+    pub hosts: Vec<(String, Vec<u8>)>,
+    pub exclusivity: Vec<(String, String)>,
+    pub fairness: Vec<(String, Vec<u8>)>,
+    pub concurrency: Vec<(String, u64)>,
+    pub anti_affinity: Vec<(String, String, u64)>,
+    pub disk_policies: Vec<(String, Vec<u8>)>,
+}
+
+/// development_lane_* rows for ONE graph, captured verbatim (BUG-CX-054/096 class).
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawDevelopmentLaneRows {
+    pub holds: Vec<(String, Vec<u8>)>,
+    pub tenant_index: Vec<(String, String, String)>,
+    pub lane_index: Vec<(String, String, String)>,
+    pub repository_branch_index: Vec<(String, String, String)>,
+    pub worktree_index: Vec<(String, String)>,
+    pub work_item_index: Vec<(String, u64, String)>,
+    pub counters: Vec<(String, Vec<u8>)>,
+    pub pressure_index: Vec<(String, String, String, u64, String, u8)>,
+    pub policies: Vec<(String, Vec<u8>)>,
+    pub invocations: Vec<(String, String, Vec<u8>)>,
+}
+
+/// capacity_lease_* rows for ONE graph, captured verbatim (undocumented gap in the
+/// same class as BUG-CX-054, found by this lane's mechanical table inventory).
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawCapacityLeaseRows {
+    pub cells: Vec<(String, Vec<u8>)>,
+    pub leases: Vec<(String, Vec<u8>)>,
+    pub usage: Vec<(String, Vec<u8>)>,
+    pub idempotency: Vec<(String, String, Vec<u8>)>,
+}
+
 /// One graph's durable rows captured VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve).
 /// Value blobs are the raw on-disk bytes (encrypted if encryption-at-rest is on, the
 /// audit chain untouched) so re-inserting them on the destination shard preserves both
@@ -135,6 +204,20 @@ pub(crate) struct RawGraphRows {
     pub mutation: RawMutationRows,
     /// Governed external-change material and typed version/cursor rows.
     pub change: RawChangeRows,
+    /// Every RESOURCE_* row for this graph (BUG-CX-054 class — see this module's
+    /// doc comment's classification note).
+    pub resource: RawResourceRows,
+    /// Every development_lane_* row for this graph (BUG-CX-054/096 class).
+    pub development_lane: RawDevelopmentLaneRows,
+    /// Every capacity_lease_* row for this graph (undocumented gap, same class).
+    pub capacity_lease: RawCapacityLeaseRows,
+    /// `(seq, anchor_member_blob)` — Merkle inclusion-proof anchor members
+    /// (BUG-CX-016 class), copied verbatim like `audit`.
+    #[cfg(feature = "security")]
+    pub provenance_anchor_members: Vec<(u64, Vec<u8>)>,
+    /// The graph's monotonic native WorkItem command sequence, if any (BUG-CX-054 class).
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub work_item_command_sequence: Option<u64>,
 }
 
 impl Default for RawGraphRows {
@@ -150,6 +233,12 @@ impl Default for RawGraphRows {
             audit: Vec::new(),
             mutation: RawMutationRows::default(),
             change: RawChangeRows::default(),
+            resource: RawResourceRows::default(),
+            development_lane: RawDevelopmentLaneRows::default(),
+            capacity_lease: RawCapacityLeaseRows::default(),
+            #[cfg(feature = "security")]
+            provenance_anchor_members: Vec::new(),
+            work_item_command_sequence: None,
         }
     }
 }
@@ -182,20 +271,60 @@ impl RawGraphRows {
         }
 
         #[cfg(feature = "security")]
-        let has_audit = !self.audit.is_empty();
+        let has_audit_or_provenance =
+            !self.audit.is_empty() || !self.provenance_anchor_members.is_empty();
         #[cfg(not(feature = "security"))]
-        let has_audit = false;
+        let has_audit_or_provenance = false;
         let has_authority = !self.nodes.is_empty()
             || !self.edges.is_empty()
             || !self.ledger.is_empty()
             || self.semantic.is_some()
-            || has_audit
+            || has_audit_or_provenance
             || self.mutation != RawMutationRows::default()
-            || self.change != RawChangeRows::default();
+            || self.change != RawChangeRows::default()
+            || self.resource != RawResourceRows::default()
+            || self.development_lane != RawDevelopmentLaneRows::default()
+            || self.capacity_lease != RawCapacityLeaseRows::default()
+            || self.work_item_command_sequence.is_some();
         if has_authority {
             return Err("raw graph rows contain authority without durable identity".to_string());
         }
         Ok(None)
+    }
+
+    /// Total rows across every WD5-BUG-04 table (RESOURCE_*, development_lane_*,
+    /// capacity_lease_*, provenance-anchor-members, WorkItem command sequence) —
+    /// the `ReshardReport::capability_and_resource` source.
+    fn capability_and_resource_row_count(&self) -> u64 {
+        let mut count = self.resource.reservations.len()
+            + self.resource.reservation_tenant_index.len()
+            + self.resource.reservation_attempts.len()
+            + self.resource.hosts.len()
+            + self.resource.exclusivity.len()
+            + self.resource.fairness.len()
+            + self.resource.concurrency.len()
+            + self.resource.anti_affinity.len()
+            + self.resource.disk_policies.len()
+            + self.development_lane.holds.len()
+            + self.development_lane.tenant_index.len()
+            + self.development_lane.lane_index.len()
+            + self.development_lane.repository_branch_index.len()
+            + self.development_lane.worktree_index.len()
+            + self.development_lane.work_item_index.len()
+            + self.development_lane.counters.len()
+            + self.development_lane.pressure_index.len()
+            + self.development_lane.policies.len()
+            + self.development_lane.invocations.len()
+            + self.capacity_lease.cells.len()
+            + self.capacity_lease.leases.len()
+            + self.capacity_lease.usage.len()
+            + self.capacity_lease.idempotency.len();
+        #[cfg(feature = "security")]
+        {
+            count += self.provenance_anchor_members.len();
+        }
+        count += self.work_item_command_sequence.is_some() as usize;
+        count as u64
     }
 }
 
@@ -216,6 +345,13 @@ pub struct ReshardReport {
     /// << nodes + edges` is the proof the snapshot+delta path shrank the pause.
     pub delta_nodes: u64,
     pub delta_edges: u64,
+    /// Rows copied from the tables this lane found missing from the online move
+    /// (WD5-BUG-04, same class as `shard_migrate.rs`'s `MigrationReport::
+    /// capability_and_resource`): every RESOURCE_*, development_lane_*, and
+    /// capacity_lease_* row, plus provenance-anchor-member rows and the WorkItem
+    /// command sequence — counted separately so a reshard report makes this
+    /// coverage independently auditable.
+    pub capability_and_resource: u64,
     /// `true` when the graph already routed to the target shard (nothing moved).
     pub no_op: bool,
 }
@@ -247,6 +383,7 @@ impl ReshardReport {
             audit: 0,
             delta_nodes: 0,
             delta_edges: 0,
+            capability_and_resource: rows.capability_and_resource_row_count(),
             no_op: false,
         }
     }
@@ -278,6 +415,17 @@ pub(crate) struct RawGraphDelta {
     /// when any changed during bulk copy, replace the graph's set atomically.
     pub replace_mutation: Option<Box<RawMutationRows>>,
     pub replace_change: Option<Box<RawChangeRows>>,
+    /// WD5-BUG-04: the same "replace the whole set atomically when anything in it
+    /// changed" strategy as `replace_mutation`/`replace_change`, extended to the
+    /// tables this lane found missing from the online move.
+    pub replace_resource: Option<Box<RawResourceRows>>,
+    pub replace_development_lane: Option<Box<RawDevelopmentLaneRows>>,
+    pub replace_capacity_lease: Option<Box<RawCapacityLeaseRows>>,
+    #[cfg(feature = "security")]
+    pub replace_provenance_anchor_members: Option<Vec<(u64, Vec<u8>)>>,
+    /// `Some(Some(seq))` = re-write; `Some(None)` = it was cleared; `None` = unchanged.
+    #[allow(clippy::option_option)]
+    pub work_item_command_sequence: Option<Option<u64>>,
 }
 
 impl RawGraphDelta {
@@ -372,8 +520,38 @@ pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGr
     if bulk.change != latest.change {
         delta.replace_change = Some(Box::new(latest.change.clone()));
     }
+    compute_capability_and_resource_delta(bulk, latest, &mut delta);
 
     delta
+}
+
+/// WD5-BUG-04: the same "replace the whole set atomically when anything in it
+/// changed" diff as `compute_delta`'s mutation/change checks above, extended to the
+/// tables this lane found missing from the online move (RESOURCE_*,
+/// development_lane_*, capacity_lease_*, provenance-anchor-members, WorkItem
+/// command sequence). Split out so `compute_delta` itself stays under the
+/// complexity cap.
+fn compute_capability_and_resource_delta(
+    bulk: &RawGraphRows,
+    latest: &RawGraphRows,
+    delta: &mut RawGraphDelta,
+) {
+    if bulk.resource != latest.resource {
+        delta.replace_resource = Some(Box::new(latest.resource.clone()));
+    }
+    if bulk.development_lane != latest.development_lane {
+        delta.replace_development_lane = Some(Box::new(latest.development_lane.clone()));
+    }
+    if bulk.capacity_lease != latest.capacity_lease {
+        delta.replace_capacity_lease = Some(Box::new(latest.capacity_lease.clone()));
+    }
+    #[cfg(feature = "security")]
+    if bulk.provenance_anchor_members != latest.provenance_anchor_members {
+        delta.replace_provenance_anchor_members = Some(latest.provenance_anchor_members.clone());
+    }
+    if bulk.work_item_command_sequence != latest.work_item_command_sequence {
+        delta.work_item_command_sequence = Some(latest.work_item_command_sequence);
+    }
 }
 
 // D-P0-U04: the scan-and-remove logic for MUTATION_IDEMPOTENCY/MUTATION_BATCHES/
@@ -634,8 +812,1581 @@ pub(crate) fn import_graph_delta(
         if let Some(rows) = &delta.replace_change {
             import_change_rows(&wtx, graph, rows)?;
         }
+        apply_capability_and_resource_delta(&wtx, graph, delta)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Apply the WD5-BUG-04 delta pieces (RESOURCE_*, development_lane_*,
+/// capacity_lease_*, provenance-anchor-members, WorkItem command sequence) inside
+/// the caller's already-open write transaction — the same "only touch what
+/// `compute_delta` marked changed" contract as `import_mutation_rows`/
+/// `import_change_rows` above. Split out of `import_graph_delta` so that function
+/// stays under the complexity cap.
+fn apply_capability_and_resource_delta(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    delta: &RawGraphDelta,
+) -> Result<(), String> {
+    if let Some(rows) = &delta.replace_resource {
+        import_resource_rows(wtx, graph, rows)?;
+    }
+    if let Some(rows) = &delta.replace_development_lane {
+        import_development_lane_rows(wtx, graph, rows)?;
+    }
+    if let Some(rows) = &delta.replace_capacity_lease {
+        import_capacity_lease_rows(wtx, graph, rows)?;
+    }
+    #[cfg(feature = "security")]
+    if let Some(rows) = &delta.replace_provenance_anchor_members {
+        clear_provenance_anchor_members_rows_raw(wtx, graph)?;
+        insert_provenance_anchor_members_rows(wtx, graph, rows)?;
+    }
+    if let Some(seq) = delta.work_item_command_sequence {
+        import_work_item_command_sequence(wtx, graph, seq)?;
+    }
+    Ok(())
+}
+
+// ── WD5-BUG-04: per-table raw export/clear/insert + group wrappers for the
+// 25 per-graph tables (RESOURCE_*, development_lane_*, capacity_lease_*,
+// provenance_anchor_members, work_item_command_sequence) this lane found missing
+// from the online reshard raw image — same defect class as BUG-CX-016/BUG-CX-054
+// in `shard_migrate.rs`, following its proven one-table-per-function template.
+// Deliberately excludes PLAN_MATVIEWS/MATVIEW_OPERATOR_STATE (global, no graph
+// key) and the work_item_capability trio (already deliberately purged-not-copied
+// by this module's design — see the import functions' own doc comments).
+
+// ── RESOURCE_* per-table raw export/clear/insert (BUG-CX-054 class, online reshard) ──
+
+fn export_resource_reservations_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_RESERVATIONS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, reservation_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((reservation_id.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_reservations_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_RESERVATIONS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, reservation_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(reservation_id.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_reservations_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_RESERVATIONS).map_err(|e| e.to_string())?;
+    for (reservation_id, value) in rows {
+        table
+            .insert((graph, reservation_id.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_resource_reservation_tenant_index_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String, String)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, tenant, index_key) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((tenant.to_string(), index_key.to_string(), v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_reservation_tenant_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, tenant, index_key) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((tenant.to_string(), index_key.to_string()));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_reservation_tenant_index_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String, String)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).map_err(|e| e.to_string())?;
+    for (tenant, index_key, value) in rows {
+        table
+            .insert((graph, tenant.as_str(), index_key.as_str()), value.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_resource_reservation_attempts_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, u64, String)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_RESERVATION_ATTEMPTS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, reservation_id, attempt_seq) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((reservation_id.to_string(), attempt_seq, v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_reservation_attempts_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, u64)> = Vec::new();
+    for row in table.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, reservation_id, attempt_seq) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((reservation_id.to_string(), attempt_seq));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_reservation_attempts_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, u64, String)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).map_err(|e| e.to_string())?;
+    for (reservation_id, attempt_seq, value) in rows {
+        table
+            .insert((graph, reservation_id.as_str(), *attempt_seq), value.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_resource_hosts_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_HOSTS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, host_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((host_id.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_hosts_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_HOSTS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, host_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(host_id.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_hosts_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_HOSTS).map_err(|e| e.to_string())?;
+    for (host_id, value) in rows {
+        table
+            .insert((graph, host_id.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_resource_exclusivity_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_EXCLUSIVITY) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, key) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((key.to_string(), v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_exclusivity_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_EXCLUSIVITY).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, key) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(key.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_exclusivity_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_EXCLUSIVITY).map_err(|e| e.to_string())?;
+    for (key, value) in rows {
+        table
+            .insert((graph, key.as_str()), value.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_resource_fairness_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_FAIRNESS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, key) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((key.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_fairness_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_FAIRNESS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, key) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(key.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_fairness_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_FAIRNESS).map_err(|e| e.to_string())?;
+    for (key, value) in rows {
+        table
+            .insert((graph, key.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_resource_concurrency_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, u64)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_CONCURRENCY) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, key) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((key.to_string(), v.value()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_concurrency_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_CONCURRENCY).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, key) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(key.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_concurrency_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, u64)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_CONCURRENCY).map_err(|e| e.to_string())?;
+    for (key, value) in rows {
+        table
+            .insert((graph, key.as_str()), *value)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_resource_anti_affinity_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String, u64)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_ANTI_AFFINITY) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, key, reservation_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((key.to_string(), reservation_id.to_string(), v.value()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_anti_affinity_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_ANTI_AFFINITY).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, key, reservation_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((key.to_string(), reservation_id.to_string()));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_anti_affinity_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String, u64)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_ANTI_AFFINITY).map_err(|e| e.to_string())?;
+    for (key, reservation_id, value) in rows {
+        table
+            .insert((graph, key.as_str(), reservation_id.as_str()), *value)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_resource_disk_policies_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(RESOURCE_DISK_POLICIES) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, key) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((key.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_resource_disk_policies_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_DISK_POLICIES).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, key) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(key.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_resource_disk_policies_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(RESOURCE_DISK_POLICIES).map_err(|e| e.to_string())?;
+    for (key, value) in rows {
+        table
+            .insert((graph, key.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// ── development_lane_* per-table raw export/clear/insert (BUG-CX-054/096 class, online reshard) ──
+
+fn export_lane_holds_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::HOLDS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, hold_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((hold_id.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_holds_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::HOLDS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, hold_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(hold_id.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_holds_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::HOLDS).map_err(|e| e.to_string())?;
+    for (hold_id, value) in rows {
+        table
+            .insert((graph, hold_id.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_tenant_index_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String, String)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::TENANT_INDEX) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, tenant, index_key) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((tenant.to_string(), index_key.to_string(), v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_tenant_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::TENANT_INDEX).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, tenant, index_key) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((tenant.to_string(), index_key.to_string()));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_tenant_index_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String, String)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::TENANT_INDEX).map_err(|e| e.to_string())?;
+    for (tenant, index_key, value) in rows {
+        table
+            .insert((graph, tenant.as_str(), index_key.as_str()), value.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_index_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String, String)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::LANE_INDEX) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, lane, index_key) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((lane.to_string(), index_key.to_string(), v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::LANE_INDEX).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, lane, index_key) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((lane.to_string(), index_key.to_string()));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_index_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String, String)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::LANE_INDEX).map_err(|e| e.to_string())?;
+    for (lane, index_key, value) in rows {
+        table
+            .insert((graph, lane.as_str(), index_key.as_str()), value.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_repository_branch_index_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String, String)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::REPOSITORY_BRANCH_INDEX) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, repository, branch) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((repository.to_string(), branch.to_string(), v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_repository_branch_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::REPOSITORY_BRANCH_INDEX).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, repository, branch) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((repository.to_string(), branch.to_string()));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_repository_branch_index_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String, String)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::REPOSITORY_BRANCH_INDEX).map_err(|e| e.to_string())?;
+    for (repository, branch, value) in rows {
+        table
+            .insert((graph, repository.as_str(), branch.as_str()), value.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_worktree_index_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::WORKTREE_INDEX) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, worktree) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((worktree.to_string(), v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_worktree_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::WORKTREE_INDEX).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, worktree) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(worktree.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_worktree_index_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::WORKTREE_INDEX).map_err(|e| e.to_string())?;
+    for (worktree, value) in rows {
+        table
+            .insert((graph, worktree.as_str()), value.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_work_item_index_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, u64, String)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::WORK_ITEM_INDEX) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, work_item_id, seq) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((work_item_id.to_string(), seq, v.value().to_string()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_work_item_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::WORK_ITEM_INDEX).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, u64)> = Vec::new();
+    for row in table.range((graph, "", 0u64)..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, work_item_id, seq) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((work_item_id.to_string(), seq));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_work_item_index_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, u64, String)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::WORK_ITEM_INDEX).map_err(|e| e.to_string())?;
+    for (work_item_id, seq, value) in rows {
+        table
+            .insert((graph, work_item_id.as_str(), *seq), value.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_counters_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::COUNTERS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, counter) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((counter.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_counters_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::COUNTERS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, counter) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(counter.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_counters_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::COUNTERS).map_err(|e| e.to_string())?;
+    for (counter, value) in rows {
+        table
+            .insert((graph, counter.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_pressure_index_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String, String, u64, String, u8)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::PRESSURE_INDEX) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", "", "", 0u64, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, tenant, lane, repository, ts, kind) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((tenant.to_string(), lane.to_string(), repository.to_string(), ts, kind.to_string(), v.value()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_pressure_index_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::PRESSURE_INDEX).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, String, String, u64, String)> = Vec::new();
+    for row in table.range((graph, "", "", "", 0u64, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, tenant, lane, repository, ts, kind) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((tenant.to_string(), lane.to_string(), repository.to_string(), ts, kind.to_string()));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1.as_str(), key_val.2.as_str(), key_val.3, key_val.4.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_pressure_index_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String, String, u64, String, u8)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::PRESSURE_INDEX).map_err(|e| e.to_string())?;
+    for (tenant, lane, repository, ts, kind, value) in rows {
+        table
+            .insert((graph, tenant.as_str(), lane.as_str(), repository.as_str(), *ts, kind.as_str()), *value)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_policies_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::POLICIES) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, policy_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((policy_id.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_policies_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::POLICIES).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, policy_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(policy_id.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_policies_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::POLICIES).map_err(|e| e.to_string())?;
+    for (policy_id, value) in rows {
+        table
+            .insert((graph, policy_id.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_lane_invocations_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(development_lane::INVOCATIONS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, hold_id, invocation_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((hold_id.to_string(), invocation_id.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_lane_invocations_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::INVOCATIONS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, hold_id, invocation_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((hold_id.to_string(), invocation_id.to_string()));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_lane_invocations_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(development_lane::INVOCATIONS).map_err(|e| e.to_string())?;
+    for (hold_id, invocation_id, value) in rows {
+        table
+            .insert((graph, hold_id.as_str(), invocation_id.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// ── capacity_lease_* per-table raw export/clear/insert (undocumented BUG-CX-054-class gap, online reshard) ──
+
+fn export_capacity_cells_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(capacity_lease::CELLS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, cell_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((cell_id.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_capacity_cells_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(capacity_lease::CELLS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, cell_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(cell_id.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_capacity_cells_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(capacity_lease::CELLS).map_err(|e| e.to_string())?;
+    for (cell_id, value) in rows {
+        table
+            .insert((graph, cell_id.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_capacity_leases_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(capacity_lease::LEASES) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, lease_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((lease_id.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_capacity_leases_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(capacity_lease::LEASES).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, lease_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(lease_id.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_capacity_leases_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(capacity_lease::LEASES).map_err(|e| e.to_string())?;
+    for (lease_id, value) in rows {
+        table
+            .insert((graph, lease_id.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_capacity_usage_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(capacity_lease::USAGE) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, cell_id) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((cell_id.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_capacity_usage_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(capacity_lease::USAGE).map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = Vec::new();
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, cell_id) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(cell_id.to_string());
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_capacity_usage_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(capacity_lease::USAGE).map_err(|e| e.to_string())?;
+    for (cell_id, value) in rows {
+        table
+            .insert((graph, cell_id.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn export_capacity_idempotency_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(String, String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(capacity_lease::IDEMPOTENCY) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, tenant, key) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((tenant.to_string(), key.to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+fn clear_capacity_idempotency_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(capacity_lease::IDEMPOTENCY).map_err(|e| e.to_string())?;
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, tenant, key) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push((tenant.to_string(), key.to_string()));
+    }
+    for key_val in keys {
+        table.remove((graph, key_val.0.as_str(), key_val.1.as_str())).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn insert_capacity_idempotency_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(String, String, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(capacity_lease::IDEMPOTENCY).map_err(|e| e.to_string())?;
+    for (tenant, key, value) in rows {
+        table
+            .insert((graph, tenant.as_str(), key.as_str()), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// ── provenance_anchor_members per-table raw export/clear/insert (BUG-CX-016 class, online reshard) ──
+
+#[cfg(feature = "security")]
+fn export_provenance_anchor_members_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Vec<(u64, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(PROVENANCE_ANCHOR_MEMBERS) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, 0u64)..).map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (g, seq) = k.value();
+        if g != graph {
+            break;
+        }
+        out.push((seq, v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+#[cfg(feature = "security")]
+fn clear_provenance_anchor_members_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(PROVENANCE_ANCHOR_MEMBERS).map_err(|e| e.to_string())?;
+    let mut keys: Vec<u64> = Vec::new();
+    for row in table.range((graph, 0u64)..).map_err(|e| e.to_string())? {
+        let (k, _v) = row.map_err(|e| e.to_string())?;
+        let (g, seq) = k.value();
+        if g != graph {
+            break;
+        }
+        keys.push(seq);
+    }
+    for key_val in keys {
+        table.remove((graph, key_val)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "security")]
+fn insert_provenance_anchor_members_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &[(u64, Vec<u8>)],
+) -> Result<(), String> {
+    let mut table = wtx.open_table(PROVENANCE_ANCHOR_MEMBERS).map_err(|e| e.to_string())?;
+    for (seq, value) in rows {
+        table
+            .insert((graph, *seq), value.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+// ── RESOURCE_* group wrappers (BUG-CX-054 class; same gap as shard_migrate.rs's
+// `populate_resource_tables_for_source`/`populate_resource_core_tables_for_source`/
+// `populate_resource_policy_tables_for_source` split, mirrored here so an ONLINE move
+// carries the same reservation/host/policy authority the OFFLINE tool now does) ──
+
+fn export_resource_core_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    out: &mut RawResourceRows,
+) -> Result<(), String> {
+    out.reservations = export_resource_reservations_for_graph(rtx, graph)?;
+    out.reservation_tenant_index = export_resource_reservation_tenant_index_for_graph(rtx, graph)?;
+    out.reservation_attempts = export_resource_reservation_attempts_for_graph(rtx, graph)?;
+    out.hosts = export_resource_hosts_for_graph(rtx, graph)?;
+    Ok(())
+}
+
+fn export_resource_policy_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    out: &mut RawResourceRows,
+) -> Result<(), String> {
+    out.exclusivity = export_resource_exclusivity_for_graph(rtx, graph)?;
+    out.fairness = export_resource_fairness_for_graph(rtx, graph)?;
+    out.concurrency = export_resource_concurrency_for_graph(rtx, graph)?;
+    out.anti_affinity = export_resource_anti_affinity_for_graph(rtx, graph)?;
+    out.disk_policies = export_resource_disk_policies_for_graph(rtx, graph)?;
+    Ok(())
+}
+
+/// Every RESOURCE_* table for ONE graph (BUG-CX-054 class): reservations, tenant
+/// index, attempts, hosts, exclusivity, fairness, concurrency, anti-affinity, disk
+/// policies. Same tables `shard_migrate.rs::populate_resource_tables_for_source`
+/// routes offline; an online reshard must carry them too or a moved graph loses its
+/// resource-reservation authority.
+fn export_resource_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<RawResourceRows, String> {
+    let mut out = RawResourceRows::default();
+    export_resource_core_rows_for_graph(rtx, graph, &mut out)?;
+    export_resource_policy_rows_for_graph(rtx, graph, &mut out)?;
+    Ok(out)
+}
+
+fn clear_resource_core_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    clear_resource_reservations_rows_raw(wtx, graph)?;
+    clear_resource_reservation_tenant_index_rows_raw(wtx, graph)?;
+    clear_resource_reservation_attempts_rows_raw(wtx, graph)?;
+    clear_resource_hosts_rows_raw(wtx, graph)?;
+    Ok(())
+}
+
+fn clear_resource_policy_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    clear_resource_exclusivity_rows_raw(wtx, graph)?;
+    clear_resource_fairness_rows_raw(wtx, graph)?;
+    clear_resource_concurrency_rows_raw(wtx, graph)?;
+    clear_resource_anti_affinity_rows_raw(wtx, graph)?;
+    clear_resource_disk_policies_rows_raw(wtx, graph)?;
+    Ok(())
+}
+
+/// Raw range-scan-and-remove every RESOURCE_* row for ONE graph (no crypto — these
+/// are opaque bytes to this module, same "verbatim, never decode" contract as the
+/// rest of `online_reshard.rs`). NOT `redb_store::clear_resource_rows`: that shared
+/// helper decrypts rows to enforce the "no active reservation" invariant for a
+/// graph DELETE, which is the wrong contract for a MOVE (a graph with a live
+/// reservation must still reshard — the reservation moves with it).
+fn clear_resource_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    clear_resource_core_rows_raw(wtx, graph)?;
+    clear_resource_policy_rows_raw(wtx, graph)?;
+    Ok(())
+}
+
+fn import_resource_core_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawResourceRows,
+) -> Result<(), String> {
+    insert_resource_reservations_rows(wtx, graph, &rows.reservations)?;
+    insert_resource_reservation_tenant_index_rows(wtx, graph, &rows.reservation_tenant_index)?;
+    insert_resource_reservation_attempts_rows(wtx, graph, &rows.reservation_attempts)?;
+    insert_resource_hosts_rows(wtx, graph, &rows.hosts)?;
+    Ok(())
+}
+
+fn import_resource_policy_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawResourceRows,
+) -> Result<(), String> {
+    insert_resource_exclusivity_rows(wtx, graph, &rows.exclusivity)?;
+    insert_resource_fairness_rows(wtx, graph, &rows.fairness)?;
+    insert_resource_concurrency_rows(wtx, graph, &rows.concurrency)?;
+    insert_resource_anti_affinity_rows(wtx, graph, &rows.anti_affinity)?;
+    insert_resource_disk_policies_rows(wtx, graph, &rows.disk_policies)?;
+    Ok(())
+}
+
+/// Replace, don't merely upsert: clear every RESOURCE_* row for `graph` first, then
+/// insert the incoming raw set — matches `import_mutation_rows`/`import_change_rows`'s
+/// existing "retried move never duplicates" contract.
+fn import_resource_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawResourceRows,
+) -> Result<(), String> {
+    clear_resource_rows_raw(wtx, graph)?;
+    import_resource_core_rows(wtx, graph, rows)?;
+    import_resource_policy_rows(wtx, graph, rows)?;
+    Ok(())
+}
+
+// ── development_lane_* group wrappers (BUG-CX-054/096 class; mirrors
+// `shard_migrate.rs`'s `populate_lane_core_tables_for_source`/
+// `populate_lane_index_tables_for_source`/`populate_lane_misc_tables_for_source` split) ──
+
+fn export_lane_core_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    out: &mut RawDevelopmentLaneRows,
+) -> Result<(), String> {
+    out.holds = export_lane_holds_for_graph(rtx, graph)?;
+    out.counters = export_lane_counters_for_graph(rtx, graph)?;
+    out.pressure_index = export_lane_pressure_index_for_graph(rtx, graph)?;
+    out.policies = export_lane_policies_for_graph(rtx, graph)?;
+    Ok(())
+}
+
+fn export_lane_index_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    out: &mut RawDevelopmentLaneRows,
+) -> Result<(), String> {
+    out.tenant_index = export_lane_tenant_index_for_graph(rtx, graph)?;
+    out.lane_index = export_lane_index_for_graph(rtx, graph)?;
+    out.repository_branch_index = export_lane_repository_branch_index_for_graph(rtx, graph)?;
+    out.worktree_index = export_lane_worktree_index_for_graph(rtx, graph)?;
+    Ok(())
+}
+
+fn export_lane_misc_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    out: &mut RawDevelopmentLaneRows,
+) -> Result<(), String> {
+    out.work_item_index = export_lane_work_item_index_for_graph(rtx, graph)?;
+    out.invocations = export_lane_invocations_for_graph(rtx, graph)?;
+    Ok(())
+}
+
+/// Every development_lane_* table for ONE graph (BUG-CX-054/BUG-CX-096 class): all
+/// 10 lane tables, the same set `shard_migrate.rs::populate_development_lane_tables_for_source`
+/// routes offline and `redb_store::purge_graph_rows` already clears unconditionally
+/// after a graph is deleted OR (via this module's own `Cmd::PurgeGraph` step) after
+/// it MOVES — so before this fix, an online reshard silently dropped every
+/// in-flight development-lane hold/counter/policy for the moved graph.
+fn export_development_lane_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<RawDevelopmentLaneRows, String> {
+    let mut out = RawDevelopmentLaneRows::default();
+    export_lane_core_rows_for_graph(rtx, graph, &mut out)?;
+    export_lane_index_rows_for_graph(rtx, graph, &mut out)?;
+    export_lane_misc_rows_for_graph(rtx, graph, &mut out)?;
+    Ok(out)
+}
+
+fn clear_lane_core_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    clear_lane_holds_rows_raw(wtx, graph)?;
+    clear_lane_counters_rows_raw(wtx, graph)?;
+    clear_lane_pressure_index_rows_raw(wtx, graph)?;
+    clear_lane_policies_rows_raw(wtx, graph)?;
+    Ok(())
+}
+
+fn clear_lane_index_group_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    clear_lane_tenant_index_rows_raw(wtx, graph)?;
+    clear_lane_index_rows_raw(wtx, graph)?;
+    clear_lane_repository_branch_index_rows_raw(wtx, graph)?;
+    clear_lane_worktree_index_rows_raw(wtx, graph)?;
+    Ok(())
+}
+
+fn clear_lane_misc_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    clear_lane_work_item_index_rows_raw(wtx, graph)?;
+    clear_lane_invocations_rows_raw(wtx, graph)?;
+    Ok(())
+}
+
+/// Raw range-scan-and-remove every development_lane_* row for ONE graph (no
+/// crypto — same "verbatim, never decode" contract as the rest of this module; NOT
+/// `development_lane::clear_native_graph_rows_in_wtx`, which decrypts rows to
+/// enforce delete-time invariants that do not apply to a MOVE).
+fn clear_development_lane_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    clear_lane_core_rows_raw(wtx, graph)?;
+    clear_lane_index_group_rows_raw(wtx, graph)?;
+    clear_lane_misc_rows_raw(wtx, graph)?;
+    Ok(())
+}
+
+fn import_lane_core_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawDevelopmentLaneRows,
+) -> Result<(), String> {
+    insert_lane_holds_rows(wtx, graph, &rows.holds)?;
+    insert_lane_counters_rows(wtx, graph, &rows.counters)?;
+    insert_lane_pressure_index_rows(wtx, graph, &rows.pressure_index)?;
+    insert_lane_policies_rows(wtx, graph, &rows.policies)?;
+    Ok(())
+}
+
+fn import_lane_index_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawDevelopmentLaneRows,
+) -> Result<(), String> {
+    insert_lane_tenant_index_rows(wtx, graph, &rows.tenant_index)?;
+    insert_lane_index_rows(wtx, graph, &rows.lane_index)?;
+    insert_lane_repository_branch_index_rows(wtx, graph, &rows.repository_branch_index)?;
+    insert_lane_worktree_index_rows(wtx, graph, &rows.worktree_index)?;
+    Ok(())
+}
+
+fn import_lane_misc_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawDevelopmentLaneRows,
+) -> Result<(), String> {
+    insert_lane_work_item_index_rows(wtx, graph, &rows.work_item_index)?;
+    insert_lane_invocations_rows(wtx, graph, &rows.invocations)?;
+    Ok(())
+}
+
+/// Replace, don't merely upsert (see `import_resource_rows`'s doc for why).
+fn import_development_lane_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawDevelopmentLaneRows,
+) -> Result<(), String> {
+    clear_development_lane_rows_raw(wtx, graph)?;
+    import_lane_core_rows(wtx, graph, rows)?;
+    import_lane_index_rows(wtx, graph, rows)?;
+    import_lane_misc_rows(wtx, graph, rows)?;
+    Ok(())
+}
+
+// ── capacity_lease_* group wrappers (undocumented BUG-CX-054-class gap; mirrors
+// `shard_migrate.rs::populate_capacity_lease_tables_for_source`) ──
+
+/// capacity_cells + leases + usage + idempotency for ONE graph.
+fn export_capacity_lease_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<RawCapacityLeaseRows, String> {
+    Ok(RawCapacityLeaseRows {
+        cells: export_capacity_cells_for_graph(rtx, graph)?,
+        leases: export_capacity_leases_for_graph(rtx, graph)?,
+        usage: export_capacity_usage_for_graph(rtx, graph)?,
+        idempotency: export_capacity_idempotency_for_graph(rtx, graph)?,
+    })
+}
+
+/// Raw range-scan-and-remove every capacity_lease_* row for ONE graph (no crypto —
+/// NOT `capacity_lease::clear_graph_rows`, which is the delete-time helper; a move
+/// carries this authority forward instead of draining it).
+fn clear_capacity_lease_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    clear_capacity_cells_rows_raw(wtx, graph)?;
+    clear_capacity_leases_rows_raw(wtx, graph)?;
+    clear_capacity_usage_rows_raw(wtx, graph)?;
+    clear_capacity_idempotency_rows_raw(wtx, graph)?;
+    Ok(())
+}
+
+/// Replace, don't merely upsert (see `import_resource_rows`'s doc for why).
+fn import_capacity_lease_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawCapacityLeaseRows,
+) -> Result<(), String> {
+    clear_capacity_lease_rows_raw(wtx, graph)?;
+    insert_capacity_cells_rows(wtx, graph, &rows.cells)?;
+    insert_capacity_leases_rows(wtx, graph, &rows.leases)?;
+    insert_capacity_usage_rows(wtx, graph, &rows.usage)?;
+    insert_capacity_idempotency_rows(wtx, graph, &rows.idempotency)?;
+    Ok(())
+}
+
+/// work_item_command_sequence — graph -> monotonic native WorkItem command sequence
+/// (BUG-CX-054 class). A single value per graph, unlike every other table in this
+/// lane's scope.
+fn export_work_item_command_sequence_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+) -> Result<Option<u64>, String> {
+    let Ok(table) = rtx.open_table(WORK_ITEM_COMMAND_SEQUENCE) else {
+        return Ok(None);
+    };
+    Ok(table
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|v| v.value()))
+}
+
+/// Replace the graph's `WORK_ITEM_COMMAND_SEQUENCE` row: clear then write `seq` if
+/// `Some`; clear only if `None`.
+fn import_work_item_command_sequence(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    seq: Option<u64>,
+) -> Result<(), String> {
+    let mut table = wtx
+        .open_table(WORK_ITEM_COMMAND_SEQUENCE)
+        .map_err(|e| e.to_string())?;
+    table.remove(graph).map_err(|e| e.to_string())?;
+    if let Some(seq) = seq {
+        table.insert(graph, seq).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -860,7 +2611,48 @@ pub(crate) fn export_graph_raw(db: &Database, graph: &str) -> Result<RawGraphRow
         }
     }
 
+    populate_wd5_bug04_rows_for_graph(&rtx, graph, &mut out)?;
+
     Ok(out)
+}
+
+/// Populate the WD5-BUG-04 fields (RESOURCE_*, development_lane_*, capacity_lease_*,
+/// provenance_anchor_members, work_item_command_sequence) of `out` for ONE graph.
+/// Split out of `export_graph_raw` so that function's own complexity does not grow.
+fn populate_wd5_bug04_rows_for_graph(
+    rtx: &redb::ReadTransaction,
+    graph: &str,
+    out: &mut RawGraphRows,
+) -> Result<(), String> {
+    out.resource = export_resource_rows_for_graph(rtx, graph)?;
+    out.development_lane = export_development_lane_rows_for_graph(rtx, graph)?;
+    out.capacity_lease = export_capacity_lease_rows_for_graph(rtx, graph)?;
+    #[cfg(feature = "security")]
+    {
+        out.provenance_anchor_members = export_provenance_anchor_members_for_graph(rtx, graph)?;
+    }
+    out.work_item_command_sequence = export_work_item_command_sequence_for_graph(rtx, graph)?;
+    Ok(())
+}
+
+/// Replace, don't merely upsert, every WD5-BUG-04 table for ONE graph inside the
+/// caller's already-open write transaction — same contract as `import_mutation_rows`/
+/// `import_change_rows`. Split out of `import_graph_raw` for the same reason.
+fn import_wd5_bug04_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawGraphRows,
+) -> Result<(), String> {
+    import_resource_rows(wtx, graph, &rows.resource)?;
+    import_development_lane_rows(wtx, graph, &rows.development_lane)?;
+    import_capacity_lease_rows(wtx, graph, &rows.capacity_lease)?;
+    #[cfg(feature = "security")]
+    {
+        clear_provenance_anchor_members_rows_raw(wtx, graph)?;
+        insert_provenance_anchor_members_rows(wtx, graph, &rows.provenance_anchor_members)?;
+    }
+    import_work_item_command_sequence(wtx, graph, rows.work_item_command_sequence)?;
+    Ok(())
 }
 
 /// Insert ONE graph's verbatim rows into a destination `Database` in ONE durable
@@ -949,6 +2741,7 @@ pub(crate) fn import_graph_raw(
         }
         import_mutation_rows(&wtx, graph, &rows.mutation)?;
         import_change_rows(&wtx, graph, &rows.change)?;
+        import_wd5_bug04_rows(&wtx, graph, rows)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
