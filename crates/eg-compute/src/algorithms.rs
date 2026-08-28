@@ -208,6 +208,121 @@ pub fn degree_centrality_all(core: &GraphView) -> Vec<(String, f64)> {
 /// (Phase C-D). Each source's contribution is computed in parallel; the partials
 /// are then summed back in SOURCE ORDER, so the floating-point result is bit-for-bit
 /// identical to the sequential version (determinism preserved).
+/// (visit-order stack, predecessor DAG, shortest-path counts `sigma`) — the
+/// result of one BFS shortest-path count pass. `#[allow(clippy::type_complexity)]`-
+/// avoiding alias for [`bfs_shortest_path_counts`] (cx/wD8).
+type BfsShortestPathCounts = (
+    Vec<NodeIndex>,
+    HashMap<NodeIndex, Vec<NodeIndex>>,
+    HashMap<NodeIndex, f64>,
+);
+
+/// Single-source BFS shortest-path counting (the forward pass of Brandes'
+/// algorithm). Split out of `betweenness_centrality`'s `source_contribution`
+/// closure (extract-method, cx/wD8) — same terms, same arithmetic order as
+/// before. Returns the visit order stack, the predecessor DAG, and the
+/// shortest-path counts `sigma`.
+fn bfs_shortest_path_counts(
+    core: &GraphView,
+    nodes: &[NodeIndex],
+    source: NodeIndex,
+) -> BfsShortestPathCounts {
+    let mut stack = Vec::new();
+    let mut predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
+    let mut sigma: HashMap<NodeIndex, f64> = HashMap::new();
+    let mut dist: HashMap<NodeIndex, i64> = HashMap::new();
+
+    for &v in nodes {
+        predecessors.insert(v, Vec::new());
+        sigma.insert(v, 0.0);
+        dist.insert(v, -1);
+    }
+    sigma.insert(source, 1.0);
+    dist.insert(source, 0);
+
+    let mut queue = VecDeque::new();
+    queue.push_back(source);
+
+    while let Some(v) = queue.pop_front() {
+        stack.push(v);
+        let v_dist = dist[&v];
+        bfs_relax_neighbors(
+            core,
+            v,
+            v_dist,
+            &mut queue,
+            &mut dist,
+            &mut sigma,
+            &mut predecessors,
+        );
+    }
+    (stack, predecessors, sigma)
+}
+
+/// Relax `v`'s out-neighbors for one BFS-frontier step. Split out of
+/// `bfs_shortest_path_counts` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before.
+#[allow(clippy::too_many_arguments)]
+fn bfs_relax_neighbors(
+    core: &GraphView,
+    v: NodeIndex,
+    v_dist: i64,
+    queue: &mut VecDeque<NodeIndex>,
+    dist: &mut HashMap<NodeIndex, i64>,
+    sigma: &mut HashMap<NodeIndex, f64>,
+    predecessors: &mut HashMap<NodeIndex, Vec<NodeIndex>>,
+) {
+    for neighbor in core.graph.neighbors(v) {
+        if dist[&neighbor] < 0 {
+            queue.push_back(neighbor);
+            dist.insert(neighbor, v_dist + 1);
+        }
+        if dist[&neighbor] == v_dist + 1 {
+            let sigma_v = sigma[&v];
+            if let Some(s) = sigma.get_mut(&neighbor) {
+                *s += sigma_v;
+            }
+            if let Some(p) = predecessors.get_mut(&neighbor) {
+                p.push(v);
+            }
+        }
+    }
+}
+
+/// Single-source dependency accumulation (the backward pass of Brandes'
+/// algorithm). Split out of `betweenness_centrality`'s `source_contribution`
+/// closure (extract-method, cx/wD8) — same terms, same arithmetic order as
+/// before, including the exact `(sigma[v] / sigma[w]) * (1.0 + delta[w])`
+/// evaluation order.
+fn accumulate_betweenness_dependencies(
+    nodes: &[NodeIndex],
+    mut stack: Vec<NodeIndex>,
+    predecessors: &HashMap<NodeIndex, Vec<NodeIndex>>,
+    sigma: &HashMap<NodeIndex, f64>,
+    source: NodeIndex,
+) -> Vec<(NodeIndex, f64)> {
+    let mut delta: HashMap<NodeIndex, f64> = HashMap::new();
+    for &v in nodes {
+        delta.insert(v, 0.0);
+    }
+
+    let mut contrib = Vec::new();
+    while let Some(w) = stack.pop() {
+        if sigma[&w] > 0.0 {
+            for &v in &predecessors[&w] {
+                let d = (sigma[&v] / sigma[&w]) * (1.0 + delta[&w]);
+                if let Some(dv) = delta.get_mut(&v) {
+                    *dv += d;
+                }
+            }
+        }
+        if w != source && delta[&w] != 0.0 {
+            contrib.push((w, delta[&w]));
+        }
+    }
+    contrib
+}
+
 pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
     use rayon::prelude::*;
 
@@ -217,62 +332,8 @@ pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
     // One independent single-source dependency accumulation. Returns (w, delta[w])
     // for every w != source — the partial betweenness this source contributes.
     let source_contribution = |source: NodeIndex| -> Vec<(NodeIndex, f64)> {
-        let mut stack = Vec::new();
-        let mut predecessors: HashMap<NodeIndex, Vec<NodeIndex>> = HashMap::new();
-        let mut sigma: HashMap<NodeIndex, f64> = HashMap::new();
-        let mut dist: HashMap<NodeIndex, i64> = HashMap::new();
-
-        for &v in &nodes {
-            predecessors.insert(v, Vec::new());
-            sigma.insert(v, 0.0);
-            dist.insert(v, -1);
-        }
-        sigma.insert(source, 1.0);
-        dist.insert(source, 0);
-
-        let mut queue = VecDeque::new();
-        queue.push_back(source);
-
-        while let Some(v) = queue.pop_front() {
-            stack.push(v);
-            let v_dist = dist[&v];
-            for neighbor in core.graph.neighbors(v) {
-                if dist[&neighbor] < 0 {
-                    queue.push_back(neighbor);
-                    dist.insert(neighbor, v_dist + 1);
-                }
-                if dist[&neighbor] == v_dist + 1 {
-                    let sigma_v = sigma[&v];
-                    if let Some(s) = sigma.get_mut(&neighbor) {
-                        *s += sigma_v;
-                    }
-                    if let Some(p) = predecessors.get_mut(&neighbor) {
-                        p.push(v);
-                    }
-                }
-            }
-        }
-
-        let mut delta: HashMap<NodeIndex, f64> = HashMap::new();
-        for &v in &nodes {
-            delta.insert(v, 0.0);
-        }
-
-        let mut contrib = Vec::new();
-        while let Some(w) = stack.pop() {
-            if sigma[&w] > 0.0 {
-                for &v in &predecessors[&w] {
-                    let d = (sigma[&v] / sigma[&w]) * (1.0 + delta[&w]);
-                    if let Some(dv) = delta.get_mut(&v) {
-                        *dv += d;
-                    }
-                }
-            }
-            if w != source && delta[&w] != 0.0 {
-                contrib.push((w, delta[&w]));
-            }
-        }
-        contrib
+        let (stack, predecessors, sigma) = bfs_shortest_path_counts(core, &nodes, source);
+        accumulate_betweenness_dependencies(&nodes, stack, &predecessors, &sigma, source)
     };
 
     // Compute every source's contribution in parallel; collect preserves source
@@ -364,6 +425,44 @@ pub fn pagerank(core: &GraphView, damping: f64, iterations: usize) -> Vec<(Strin
 // ── Component / Community Algorithms ─────────────────────────────────────
 
 /// Weakly connected components (treats directed edges as undirected).
+/// BFS-collect the weakly-connected component containing `start`, marking
+/// every visited node in `visited`. Split out of `connected_components`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn collect_weakly_connected_component(
+    core: &GraphView,
+    start: NodeIndex,
+    visited: &mut HashSet<NodeIndex>,
+) -> Vec<String> {
+    let mut component = Vec::new();
+    let mut queue = VecDeque::new();
+    queue.push_back(start);
+    visited.insert(start);
+
+    while let Some(curr) = queue.pop_front() {
+        component.push(core.graph[curr].clone());
+        // Traverse both directions (weakly connected)
+        for edge in core
+            .graph
+            .edges_directed(curr, petgraph::Direction::Outgoing)
+        {
+            let neighbor = edge.target();
+            if visited.insert(neighbor) {
+                queue.push_back(neighbor);
+            }
+        }
+        for edge in core
+            .graph
+            .edges_directed(curr, petgraph::Direction::Incoming)
+        {
+            let neighbor = edge.source();
+            if visited.insert(neighbor) {
+                queue.push_back(neighbor);
+            }
+        }
+    }
+    component
+}
+
 pub fn connected_components(core: &GraphView) -> Vec<Vec<String>> {
     let mut visited: HashSet<NodeIndex> = HashSet::new();
     let mut components: Vec<Vec<String>> = Vec::new();
@@ -372,36 +471,11 @@ pub fn connected_components(core: &GraphView) -> Vec<Vec<String>> {
         if visited.contains(&start) {
             continue;
         }
-
-        let mut component = Vec::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(start);
-        visited.insert(start);
-
-        while let Some(curr) = queue.pop_front() {
-            component.push(core.graph[curr].clone());
-            // Traverse both directions (weakly connected)
-            for edge in core
-                .graph
-                .edges_directed(curr, petgraph::Direction::Outgoing)
-            {
-                let neighbor = edge.target();
-                if visited.insert(neighbor) {
-                    queue.push_back(neighbor);
-                }
-            }
-            for edge in core
-                .graph
-                .edges_directed(curr, petgraph::Direction::Incoming)
-            {
-                let neighbor = edge.source();
-                if visited.insert(neighbor) {
-                    queue.push_back(neighbor);
-                }
-            }
-        }
-
-        components.push(component);
+        components.push(collect_weakly_connected_component(
+            core,
+            start,
+            &mut visited,
+        ));
     }
 
     components
@@ -682,13 +756,18 @@ fn top_types(counts: &HashMap<String, usize>, limit: usize) -> Vec<(String, usiz
 /// moving never improves) still gets a level 1 — synthesized as one singleton
 /// cluster per node — so `ClusterHierarchyClusters`/`Expand` always have
 /// something to serve rather than erroring on a small graph.
-pub fn cluster_hierarchy(
+/// Project the filtered node id list + directed adjacency over dense indices.
+/// Split out of `cluster_hierarchy` step 1 (extract-method, cx/wD8) — same
+/// terms, same order as before.
+fn project_cluster_graph(
     view: &GraphView,
     label: Option<&str>,
-    resolution: f64,
-    seed: u64,
-) -> ClusterHierarchyResult {
-    // 1) Project: filtered node id list + directed adjacency over dense indices.
+) -> (
+    Vec<String>,
+    Vec<String>,
+    crate::graph_algos::AdjacencyGraph<usize>,
+    usize,
+) {
     let mut ids: Vec<String> = view.node_map.keys().cloned().collect();
     if let Some(want) = label {
         ids.retain(|id| {
@@ -700,7 +779,11 @@ pub fn cluster_hierarchy(
         });
     }
     ids.sort_unstable();
-    let index: HashMap<&str, usize> = ids.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
+    let index: HashMap<&str, usize> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
     let node_types: Vec<String> = ids
         .iter()
         .map(|id| {
@@ -721,11 +804,93 @@ pub fn cluster_hierarchy(
             base_edge_count += 1;
         }
     }
-    let base_node_count = ids.len();
     let graph: crate::graph_algos::AdjacencyGraph<usize> =
-        crate::graph_algos::AdjacencyGraph::from_adjacency(
-            adjacency.into_iter().enumerate(),
-        );
+        crate::graph_algos::AdjacencyGraph::from_adjacency(adjacency.into_iter().enumerate());
+    (ids, node_types, graph, base_edge_count)
+}
+
+/// Build one cluster-hierarchy level's result + this level's node->cluster
+/// membership. Split out of `cluster_hierarchy`'s per-level loop body
+/// (extract-method, cx/wD8) — same terms, same arithmetic order as before
+/// (the `internal_weight`/`inter` accumulation loop is untouched).
+#[allow(clippy::too_many_arguments)]
+fn build_cluster_level(
+    level: usize,
+    communities: &[Vec<usize>],
+    parent: &[Option<usize>],
+    graph: &crate::graph_algos::AdjacencyGraph<usize>,
+    node_types: &[String],
+    base_node_count: usize,
+) -> (ClusterLevelResult, Vec<u32>) {
+    // Local orig_idx -> this-level-cluster-local-idx, for the O(E) edge pass.
+    let mut membership: Vec<u32> = vec![0u32; base_node_count];
+    for (c, members) in communities.iter().enumerate() {
+        for &m in members {
+            membership[m] = c as u32;
+        }
+    }
+
+    let mut internal_weight = vec![0.0f64; communities.len()];
+    let mut inter: HashMap<(u32, u32), f64> = HashMap::new();
+    for i in 0..base_node_count {
+        let ci = membership[i];
+        for &(j, w) in graph.out_edges(i) {
+            let cj = membership[j];
+            if ci == cj {
+                internal_weight[ci as usize] += w;
+            } else {
+                *inter.entry((ci, cj)).or_insert(0.0) += w;
+            }
+        }
+    }
+    let mut inter_cluster_edges: Vec<(u32, u32, f64)> =
+        inter.into_iter().map(|((s, d), w)| (s, d, w)).collect();
+    inter_cluster_edges.sort_unstable_by_key(|&(s, d, _)| (s, d));
+
+    let clusters: Vec<ClusterMeta> = communities
+        .iter()
+        .enumerate()
+        .map(|(c, members)| {
+            let mut type_counts: HashMap<String, usize> = HashMap::new();
+            for &m in members {
+                *type_counts.entry(node_types[m].clone()).or_insert(0) += 1;
+            }
+            let top = top_types(&type_counts, 5);
+            let id = format_cluster_id(level, c);
+            let label = top
+                .first()
+                .map(|(t, _)| format!("{t} cluster ({c})"))
+                .unwrap_or_else(|| id.clone());
+            ClusterMeta {
+                id,
+                label,
+                node_count: members.len(),
+                edge_count: internal_weight[c],
+                parent_id: parent[c].map(|p| format_cluster_id(level + 1, p)),
+                top_node_types: top,
+            }
+        })
+        .collect();
+
+    (
+        ClusterLevelResult {
+            level,
+            clusters,
+            inter_cluster_edges,
+        },
+        membership,
+    )
+}
+
+pub fn cluster_hierarchy(
+    view: &GraphView,
+    label: Option<&str>,
+    resolution: f64,
+    seed: u64,
+) -> ClusterHierarchyResult {
+    // 1) Project: filtered node id list + directed adjacency over dense indices.
+    let (ids, node_types, graph, base_edge_count) = project_cluster_graph(view, label);
+    let base_node_count = ids.len();
 
     // 2) Cluster: the tested, connectivity-guaranteeing hierarchical kernel.
     let cfg = crate::graph_algos::LeidenConfig {
@@ -751,7 +916,10 @@ pub fn cluster_hierarchy(
         let level = level_idx + 1;
         let (communities, parent): (Vec<Vec<usize>>, Vec<Option<usize>>) =
             if synthetic_singleton_level {
-                ((0..base_node_count).map(|i| vec![i]).collect(), vec![None; base_node_count])
+                (
+                    (0..base_node_count).map(|i| vec![i]).collect(),
+                    vec![None; base_node_count],
+                )
             } else {
                 (
                     raw.levels[level_idx].communities.clone(),
@@ -759,13 +927,14 @@ pub fn cluster_hierarchy(
                 )
             };
 
-        // Local orig_idx -> this-level-cluster-local-idx, for the O(E) edge pass.
-        let mut membership: Vec<u32> = vec![0u32; base_node_count];
-        for (c, members) in communities.iter().enumerate() {
-            for &m in members {
-                membership[m] = c as u32;
-            }
-        }
+        let (level_result, membership) = build_cluster_level(
+            level,
+            &communities,
+            &parent,
+            &graph,
+            &node_types,
+            base_node_count,
+        );
         if level == 1 {
             leaf_membership = ids
                 .iter()
@@ -773,54 +942,7 @@ pub fn cluster_hierarchy(
                 .map(|(i, id)| (id.clone(), membership[i]))
                 .collect();
         }
-
-        let mut internal_weight = vec![0.0f64; communities.len()];
-        let mut inter: HashMap<(u32, u32), f64> = HashMap::new();
-        for i in 0..base_node_count {
-            let ci = membership[i];
-            for &(j, w) in graph.out_edges(i) {
-                let cj = membership[j];
-                if ci == cj {
-                    internal_weight[ci as usize] += w;
-                } else {
-                    *inter.entry((ci, cj)).or_insert(0.0) += w;
-                }
-            }
-        }
-        let mut inter_cluster_edges: Vec<(u32, u32, f64)> =
-            inter.into_iter().map(|((s, d), w)| (s, d, w)).collect();
-        inter_cluster_edges.sort_unstable_by_key(|&(s, d, _)| (s, d));
-
-        let clusters: Vec<ClusterMeta> = communities
-            .iter()
-            .enumerate()
-            .map(|(c, members)| {
-                let mut type_counts: HashMap<String, usize> = HashMap::new();
-                for &m in members {
-                    *type_counts.entry(node_types[m].clone()).or_insert(0) += 1;
-                }
-                let top = top_types(&type_counts, 5);
-                let id = format_cluster_id(level, c);
-                let label = top
-                    .first()
-                    .map(|(t, _)| format!("{t} cluster ({c})"))
-                    .unwrap_or_else(|| id.clone());
-                ClusterMeta {
-                    id,
-                    label,
-                    node_count: members.len(),
-                    edge_count: internal_weight[c],
-                    parent_id: parent[c].map(|p| format_cluster_id(level + 1, p)),
-                    top_node_types: top,
-                }
-            })
-            .collect();
-
-        levels.push(ClusterLevelResult {
-            level,
-            clusters,
-            inter_cluster_edges,
-        });
+        levels.push(level_result);
     }
 
     ClusterHierarchyResult {
@@ -1096,6 +1218,61 @@ pub fn compute_exponential_decay(values: &[f64], alpha: f64) -> Vec<f64> {
 }
 
 /// Order book matching simulation.
+/// Match a buy order against the resting ask book. Split out of
+/// `simulate_order_matching` (extract-method, cx/wD8) — same terms, same
+/// fill-volume arithmetic order (`remaining_vol.min(ask.1)` then subtract
+/// from both sides) as before.
+fn match_order_against_asks(
+    ask_book: &mut [(f64, f64)],
+    order_id: &str,
+    price: f64,
+    mut remaining_vol: f64,
+) -> Vec<HashMap<String, String>> {
+    let mut matches = Vec::new();
+    for ask in ask_book {
+        let ask_price = ask.0;
+        if ask_price <= price && remaining_vol > 0.0 && ask.1 > 0.0 {
+            let fill_vol = remaining_vol.min(ask.1);
+            remaining_vol -= fill_vol;
+            ask.1 -= fill_vol;
+
+            let mut m = HashMap::new();
+            m.insert("order_id".to_string(), order_id.to_string());
+            m.insert("match_price".to_string(), ask_price.to_string());
+            m.insert("match_volume".to_string(), fill_vol.to_string());
+            matches.push(m);
+        }
+    }
+    matches
+}
+
+/// Match a sell order against the resting bid book. Split out of
+/// `simulate_order_matching` (extract-method, cx/wD8) — same terms, same
+/// fill-volume arithmetic order as before.
+fn match_order_against_bids(
+    bid_book: &mut [(f64, f64)],
+    order_id: &str,
+    price: f64,
+    mut remaining_vol: f64,
+) -> Vec<HashMap<String, String>> {
+    let mut matches = Vec::new();
+    for bid in bid_book {
+        let bid_price = bid.0;
+        if bid_price >= price && remaining_vol > 0.0 && bid.1 > 0.0 {
+            let fill_vol = remaining_vol.min(bid.1);
+            remaining_vol -= fill_vol;
+            bid.1 -= fill_vol;
+
+            let mut m = HashMap::new();
+            m.insert("order_id".to_string(), order_id.to_string());
+            m.insert("match_price".to_string(), bid_price.to_string());
+            m.insert("match_volume".to_string(), fill_vol.to_string());
+            matches.push(m);
+        }
+    }
+    matches
+}
+
 pub fn simulate_order_matching(
     bids: Vec<(f64, f64)>,
     asks: Vec<(f64, f64)>,
@@ -1109,38 +1286,20 @@ pub fn simulate_order_matching(
     ask_book.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
     for (order_id, side, price, volume) in orders {
-        let mut remaining_vol = volume;
-
         if side.to_lowercase() == "buy" {
-            for ask in &mut ask_book {
-                let ask_price = ask.0;
-                if ask_price <= price && remaining_vol > 0.0 && ask.1 > 0.0 {
-                    let fill_vol = remaining_vol.min(ask.1);
-                    remaining_vol -= fill_vol;
-                    ask.1 -= fill_vol;
-
-                    let mut m = HashMap::new();
-                    m.insert("order_id".to_string(), order_id.clone());
-                    m.insert("match_price".to_string(), ask_price.to_string());
-                    m.insert("match_volume".to_string(), fill_vol.to_string());
-                    matches.push(m);
-                }
-            }
+            matches.extend(match_order_against_asks(
+                &mut ask_book,
+                &order_id,
+                price,
+                volume,
+            ));
         } else {
-            for bid in &mut bid_book {
-                let bid_price = bid.0;
-                if bid_price >= price && remaining_vol > 0.0 && bid.1 > 0.0 {
-                    let fill_vol = remaining_vol.min(bid.1);
-                    remaining_vol -= fill_vol;
-                    bid.1 -= fill_vol;
-
-                    let mut m = HashMap::new();
-                    m.insert("order_id".to_string(), order_id.clone());
-                    m.insert("match_price".to_string(), bid_price.to_string());
-                    m.insert("match_volume".to_string(), fill_vol.to_string());
-                    matches.push(m);
-                }
-            }
+            matches.extend(match_order_against_bids(
+                &mut bid_book,
+                &order_id,
+                price,
+                volume,
+            ));
         }
     }
 
@@ -1284,17 +1443,14 @@ pub struct MergeProposal {
 ///      ontology layer downstream).
 ///
 /// Returns proposals only — applying them is the client's decision.
-pub fn resolve_candidates(
+/// (id, embedding, node_type) for embedded nodes, optionally type-filtered.
+/// Split out of `resolve_candidates` (extract-method, cx/wD8) — same terms,
+/// same order as before.
+fn collect_embedded_nodes(
     core: &GraphView,
-    sim_threshold: f64,
-    merge_threshold: f64,
     node_type: Option<&str>,
-) -> Vec<MergeProposal> {
-    use rayon::prelude::*;
-
-    // (id, embedding, node_type) for embedded nodes, optionally type-filtered.
-    let nodes: Vec<(String, Vec<f64>, String)> = core
-        .node_properties
+) -> Vec<(String, Vec<f64>, String)> {
+    core.node_properties
         .iter()
         .filter_map(|(node_id, props_json)| {
             let val: serde_json::Value = serde_json::from_slice(props_json).ok()?;
@@ -1315,14 +1471,18 @@ pub fn resolve_candidates(
             }
             Some((node_id.clone(), vec, nt))
         })
-        .collect();
+        .collect()
+}
 
-    if nodes.len() < 2 {
-        return Vec::new();
-    }
-
-    // All-pairs cosine ≥ sim_threshold (the candidate floor).
-    let pairs: Vec<(usize, usize, f64)> = (0..nodes.len())
+/// All-pairs cosine ≥ `sim_threshold` (the candidate floor). Split out of
+/// `resolve_candidates` (extract-method, cx/wD8) — same terms, same order as
+/// before.
+fn compute_candidate_pairs(
+    nodes: &[(String, Vec<f64>, String)],
+    sim_threshold: f64,
+) -> Vec<(usize, usize, f64)> {
+    use rayon::prelude::*;
+    (0..nodes.len())
         .into_par_iter()
         .flat_map(|i| {
             let mut local = Vec::new();
@@ -1334,23 +1494,36 @@ pub fn resolve_candidates(
             }
             local
         })
-        .collect();
-    if pairs.is_empty() {
-        return Vec::new();
-    }
+        .collect()
+}
 
-    // Union-find over SAME-TYPE pairs ≥ merge_threshold (the same_as bar).
-    let mut parent: Vec<usize> = (0..nodes.len()).collect();
-    fn find(parent: &mut [usize], mut x: usize) -> usize {
-        while parent[x] != x {
-            parent[x] = parent[parent[x]];
-            x = parent[x];
-        }
-        x
+/// Union-find path-halving root lookup. Split out of `resolve_candidates`
+/// (extract-method, cx/wD8) — was a nested `fn` there, unchanged.
+fn find(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
     }
+    x
+}
+
+/// (parent, degree, extends_pairs) — the union-find result of
+/// [`build_same_as_clusters`]. `#[allow(clippy::type_complexity)]`-avoiding
+/// alias (cx/wD8).
+type SameAsClusters = (Vec<usize>, Vec<usize>, Vec<(usize, usize, f64)>);
+
+/// Union-find over SAME-TYPE pairs ≥ `merge_threshold` (the same_as bar).
+/// Split out of `resolve_candidates` (extract-method, cx/wD8) — same terms,
+/// same order as before. Returns (parent, degree, extends_pairs).
+fn build_same_as_clusters(
+    nodes: &[(String, Vec<f64>, String)],
+    pairs: &[(usize, usize, f64)],
+    merge_threshold: f64,
+) -> SameAsClusters {
+    let mut parent: Vec<usize> = (0..nodes.len()).collect();
     let mut degree = vec![0usize; nodes.len()];
     let mut extends_pairs: Vec<(usize, usize, f64)> = Vec::new();
-    for &(i, j, s) in &pairs {
+    for &(i, j, s) in pairs {
         degree[i] += 1;
         degree[j] += 1;
         if s >= merge_threshold && nodes[i].2 == nodes[j].2 {
@@ -1363,12 +1536,23 @@ pub fn resolve_candidates(
             extends_pairs.push((i, j, s));
         }
     }
+    (parent, degree, extends_pairs)
+}
 
-    // same_as clusters
+/// Build `same_as` merge proposals from the union-find clusters. Split out of
+/// `resolve_candidates` (extract-method, cx/wD8) — same terms, same order as
+/// before, including the write-only `clustered` set (kept as-is; see the
+/// lane report).
+fn build_same_as_proposals(
+    nodes: &[(String, Vec<f64>, String)],
+    pairs: &[(usize, usize, f64)],
+    parent: &mut [usize],
+    degree: &[usize],
+) -> Vec<MergeProposal> {
     let mut clusters: std::collections::HashMap<usize, Vec<usize>> =
         std::collections::HashMap::new();
     for idx in 0..nodes.len() {
-        let root = find(&mut parent, idx);
+        let root = find(parent, idx);
         clusters.entry(root).or_default().push(idx);
     }
     let mut proposals: Vec<MergeProposal> = Vec::new();
@@ -1397,10 +1581,20 @@ pub fn resolve_candidates(
             kind: "same_as".to_string(),
         });
     }
+    proposals
+}
 
-    // extends proposals (cross-type / weak high-sim pairs not already merged)
-    for &(i, j, s) in &extends_pairs {
-        if find(&mut parent, i) == find(&mut parent, j) {
+/// Build `extends` merge proposals for cross-type / weak high-sim pairs not
+/// already merged into a `same_as` cluster. Split out of `resolve_candidates`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn build_extends_proposals(
+    nodes: &[(String, Vec<f64>, String)],
+    extends_pairs: &[(usize, usize, f64)],
+    parent: &mut [usize],
+) -> Vec<MergeProposal> {
+    let mut proposals = Vec::new();
+    for &(i, j, s) in extends_pairs {
+        if find(parent, i) == find(parent, j) {
             continue; // already in one same_as cluster
         }
         proposals.push(MergeProposal {
@@ -1410,7 +1604,32 @@ pub fn resolve_candidates(
             kind: "extends".to_string(),
         });
     }
+    proposals
+}
 
+pub fn resolve_candidates(
+    core: &GraphView,
+    sim_threshold: f64,
+    merge_threshold: f64,
+    node_type: Option<&str>,
+) -> Vec<MergeProposal> {
+    // (id, embedding, node_type) for embedded nodes, optionally type-filtered.
+    let nodes = collect_embedded_nodes(core, node_type);
+    if nodes.len() < 2 {
+        return Vec::new();
+    }
+
+    // All-pairs cosine ≥ sim_threshold (the candidate floor).
+    let pairs = compute_candidate_pairs(&nodes, sim_threshold);
+    if pairs.is_empty() {
+        return Vec::new();
+    }
+
+    let (mut parent, degree, extends_pairs) =
+        build_same_as_clusters(&nodes, &pairs, merge_threshold);
+
+    let mut proposals = build_same_as_proposals(&nodes, &pairs, &mut parent, &degree);
+    proposals.extend(build_extends_proposals(&nodes, &extends_pairs, &mut parent));
     proposals
 }
 
@@ -1432,47 +1651,62 @@ fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
 ///
 /// Examines node properties for `created_at` (epoch seconds) and `score` fields.
 /// Nodes older than `max_age_secs` or with score below `min_score` are removed.
-pub fn prune_by_lifecycle(
-    core: &GraphCore,
+/// Collect the node ids past `max_age_secs` or below `min_score` (skipping
+/// already archived/compacted nodes). Split out of `prune_by_lifecycle`
+/// (extract-method, cx/wD8) — same terms, same order as before. Returns
+/// (to_remove, archived_count).
+/// Whether one node's decoded properties make it eligible for lifecycle
+/// pruning. Split out of `collect_lifecycle_removals` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn node_should_be_pruned(
+    val: &serde_json::Value,
+    now: u64,
     max_age_secs: u64,
     min_score: f64,
-) -> crate::types::PruneStats {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+) -> bool {
+    let created_at = val.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
+    let score = val.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let lifecycle = val
+        .get("lifecycle_state")
+        .and_then(|v| v.as_str())
+        .unwrap_or("active");
 
+    // Skip already archived/compacted
+    if lifecycle == "archived" || lifecycle == "compacted" {
+        return false;
+    }
+
+    let age = if created_at > 0 { now - created_at } else { 0 };
+    (max_age_secs > 0 && age > max_age_secs) || score < min_score
+}
+
+fn collect_lifecycle_removals(
+    core: &GraphCore,
+    now: u64,
+    max_age_secs: u64,
+    min_score: f64,
+) -> (Vec<String>, usize) {
     let mut to_remove: Vec<String> = Vec::new();
     let mut archived = 0usize;
 
     for entry in core.node_properties.iter() {
         let (node_id, props_json) = (entry.key(), entry.value());
         if let Ok(val) = serde_json::from_slice::<serde_json::Value>(props_json.as_slice()) {
-            let created_at = val.get("created_at").and_then(|v| v.as_u64()).unwrap_or(0);
-            let score = val.get("score").and_then(|v| v.as_f64()).unwrap_or(1.0);
-            let lifecycle = val
-                .get("lifecycle_state")
-                .and_then(|v| v.as_str())
-                .unwrap_or("active");
-
-            // Skip already archived/compacted
-            if lifecycle == "archived" || lifecycle == "compacted" {
-                continue;
-            }
-
-            let age = if created_at > 0 { now - created_at } else { 0 };
-
-            if (max_age_secs > 0 && age > max_age_secs) || score < min_score {
+            if node_should_be_pruned(&val, now, max_age_secs, min_score) {
                 to_remove.push(node_id.clone());
                 archived += 1;
             }
         }
     }
+    (to_remove, archived)
+}
 
-    let nodes_removed = to_remove.len();
+/// Remove every node in `to_remove` from `core`, counting the edges dropped
+/// along with them. Split out of `prune_by_lifecycle` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn remove_pruned_nodes(core: &GraphCore, to_remove: &[String]) -> usize {
     let mut edges_removed = 0usize;
-
-    for node_id in &to_remove {
+    for node_id in to_remove {
         // Count edges that will be removed
         let edge_keys: Vec<(String, String)> = core
             .edge_properties
@@ -1483,6 +1717,22 @@ pub fn prune_by_lifecycle(
         edges_removed += edge_keys.len();
         core.remove_node(node_id.clone());
     }
+    edges_removed
+}
+
+pub fn prune_by_lifecycle(
+    core: &GraphCore,
+    max_age_secs: u64,
+    min_score: f64,
+) -> crate::types::PruneStats {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let (to_remove, archived) = collect_lifecycle_removals(core, now, max_age_secs, min_score);
+    let nodes_removed = to_remove.len();
+    let edges_removed = remove_pruned_nodes(core, &to_remove);
 
     crate::types::PruneStats {
         nodes_removed,
@@ -1690,6 +1940,42 @@ pub fn merge_batch_node_properties(current: &[u8], updates: &[u8]) -> Result<Vec
 /// Malformed MessagePack, missing fields, unknown operations, non-object properties,
 /// and invalid embeddings are terminal errors. Callers must never reinterpret an
 /// opaque or partially decoded payload as an empty successful batch.
+/// Decode one `add_embedding` batch operation. Split out of
+/// `decode_batch_operations` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn decode_batch_embedding_op(
+    operation: &serde_json::Value,
+    index: usize,
+) -> Result<BatchOperation, String> {
+    let id = required_batch_id(operation, index, "id")?;
+    let values = operation
+        .get("embedding")
+        .and_then(serde_json::Value::as_array)
+        .filter(|values| !values.is_empty())
+        .ok_or_else(|| {
+            format!("BatchUpdate op[{index}] 'embedding' must be a non-empty number array")
+        })?;
+    if values.len() > MAX_EMBEDDING_DIMENSION {
+        return Err(format!(
+            "BatchUpdate op[{index}] embedding exceeds the dimension limit"
+        ));
+    }
+    let mut embedding = Vec::with_capacity(values.len());
+    for value in values {
+        let number = value
+            .as_f64()
+            .ok_or_else(|| format!("BatchUpdate op[{index}] embedding contains a non-number"))?;
+        let component = number as f32;
+        if !number.is_finite() || !component.is_finite() {
+            return Err(format!(
+                "BatchUpdate op[{index}] embedding contains a non-finite component"
+            ));
+        }
+        embedding.push(component);
+    }
+    Ok(BatchOperation::AddEmbedding { id, embedding })
+}
+
 pub fn decode_batch_operations(operations_msgpack: &[u8]) -> Result<Vec<BatchOperation>, String> {
     let operations: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
         operations_msgpack,
@@ -1724,42 +2010,105 @@ pub fn decode_batch_operations(operations_msgpack: &[u8]) -> Result<Vec<BatchOpe
                 source: required_batch_id(operation, index, "source")?,
                 target: required_batch_id(operation, index, "target")?,
             },
-            "add_embedding" => {
-                let id = required_batch_id(operation, index, "id")?;
-                let values = operation
-                    .get("embedding")
-                    .and_then(serde_json::Value::as_array)
-                    .filter(|values| !values.is_empty())
-                    .ok_or_else(|| {
-                        format!(
-                            "BatchUpdate op[{index}] 'embedding' must be a non-empty number array"
-                        )
-                    })?;
-                if values.len() > MAX_EMBEDDING_DIMENSION {
-                    return Err(format!(
-                        "BatchUpdate op[{index}] embedding exceeds the dimension limit"
-                    ));
-                }
-                let mut embedding = Vec::with_capacity(values.len());
-                for value in values {
-                    let number = value.as_f64().ok_or_else(|| {
-                        format!("BatchUpdate op[{index}] embedding contains a non-number")
-                    })?;
-                    let component = number as f32;
-                    if !number.is_finite() || !component.is_finite() {
-                        return Err(format!(
-                            "BatchUpdate op[{index}] embedding contains a non-finite component"
-                        ));
-                    }
-                    embedding.push(component);
-                }
-                BatchOperation::AddEmbedding { id, embedding }
-            }
+            "add_embedding" => decode_batch_embedding_op(operation, index)?,
             _ => return Err(format!("BatchUpdate op[{index}] has an unknown operation")),
         };
         decoded.push(decoded_operation);
     }
     Ok(decoded)
+}
+
+/// Prepare one `AddNode`/`upsert_node` op — merging cumulative properties for
+/// a repeated id within the batch. Split out of `prepare_batch_operations_with`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn prepare_add_node_op(
+    index: usize,
+    id: &str,
+    properties_msgpack: &mut Vec<u8>,
+    upsert: bool,
+    node_state: &mut HashMap<String, Option<Vec<u8>>>,
+    node_exists: &mut impl FnMut(&str) -> bool,
+    node_properties: &mut impl FnMut(&str) -> Option<Vec<u8>>,
+) -> Result<(), String> {
+    if upsert {
+        let current = match node_state.get(id) {
+            Some(properties) => properties.clone(),
+            None => match node_properties(id) {
+                Some(properties) => Some(properties),
+                None if node_exists(id) => {
+                    return Err(format!(
+                        "BatchUpdate op[{index}] node '{id}' has no property document"
+                    ));
+                }
+                None => None,
+            },
+        };
+        if let Some(current) = current {
+            *properties_msgpack = merge_batch_node_properties(&current, properties_msgpack)
+                .map_err(|reason| {
+                    format!("BatchUpdate op[{index}] cannot upsert node '{id}': {reason}")
+                })?;
+        }
+    }
+    node_state.insert(id.to_string(), Some(properties_msgpack.clone()));
+    Ok(())
+}
+
+/// Prepare one `AddEdge` op — endpoints must exist at that point in the
+/// batch. Split out of `prepare_batch_operations_with` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn prepare_add_edge_op(
+    index: usize,
+    source: &str,
+    target: &str,
+    node_state: &HashMap<String, Option<Vec<u8>>>,
+    node_exists: &mut impl FnMut(&str) -> bool,
+) -> Result<(), String> {
+    let source_exists = node_state
+        .get(source)
+        .map(Option::is_some)
+        .unwrap_or_else(|| node_exists(source));
+    let target_exists = node_state
+        .get(target)
+        .map(Option::is_some)
+        .unwrap_or_else(|| node_exists(target));
+    if !source_exists || !target_exists {
+        return Err(format!(
+            "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
+        ));
+    }
+    Ok(())
+}
+
+/// Prepare one `AddEmbedding` op — validates the node exists and the
+/// embedding's dimension against `expected_embedding_dim`. Split out of
+/// `prepare_batch_operations_with` (extract-method, cx/wD8) — same terms,
+/// same order as before. Returns the (possibly newly-established) expected
+/// dimension.
+fn prepare_add_embedding_op(
+    index: usize,
+    id: &str,
+    embedding: &[f32],
+    expected_embedding_dim: usize,
+    node_state: &HashMap<String, Option<Vec<u8>>>,
+    node_exists: &mut impl FnMut(&str) -> bool,
+) -> Result<usize, String> {
+    let exists = node_state
+        .get(id)
+        .map(Option::is_some)
+        .unwrap_or_else(|| node_exists(id));
+    if !exists {
+        return Err(format!(
+            "BatchUpdate op[{index}] embedding node '{id}' does not exist"
+        ));
+    }
+    // Same guard as the arena/map chokepoint (`SemanticStore::add_embedding`),
+    // run for EVERY embedding op in the batch up front so a
+    // mixed-dimension OR non-finite-component batch (e.g. op[2] matches
+    // the store, op[5] doesn't, or op[5] contains a NaN) is rejected as a
+    // whole, before `batch_update` applies op[0]/op[1] to the live store.
+    eg_core::compute::semantic::check_embedding_dimension(embedding, expected_embedding_dim)
+        .map_err(|error| format!("BatchUpdate op[{index}] {error}"))
 }
 
 fn prepare_batch_operations_with(
@@ -1786,70 +2135,32 @@ fn prepare_batch_operations_with(
                 properties_msgpack,
                 upsert,
             } => {
-                if *upsert {
-                    let current = match node_state.get(id) {
-                        Some(properties) => properties.clone(),
-                        None => match node_properties(id) {
-                            Some(properties) => Some(properties),
-                            None if node_exists(id) => {
-                                return Err(format!(
-                                    "BatchUpdate op[{index}] node '{id}' has no property document"
-                                ));
-                            }
-                            None => None,
-                        },
-                    };
-                    if let Some(current) = current {
-                        *properties_msgpack = merge_batch_node_properties(
-                            &current,
-                            properties_msgpack,
-                        )
-                        .map_err(|reason| {
-                            format!("BatchUpdate op[{index}] cannot upsert node '{id}': {reason}")
-                        })?;
-                    }
-                }
-                node_state.insert(id.clone(), Some(properties_msgpack.clone()));
+                prepare_add_node_op(
+                    index,
+                    id,
+                    properties_msgpack,
+                    *upsert,
+                    &mut node_state,
+                    &mut node_exists,
+                    &mut node_properties,
+                )?;
             }
             BatchOperation::RemoveNode { id } => {
                 node_state.insert(id.clone(), None);
             }
             BatchOperation::AddEdge { source, target, .. } => {
-                let source_exists = node_state
-                    .get(source)
-                    .map(Option::is_some)
-                    .unwrap_or_else(|| node_exists(source));
-                let target_exists = node_state
-                    .get(target)
-                    .map(Option::is_some)
-                    .unwrap_or_else(|| node_exists(target));
-                if !source_exists || !target_exists {
-                    return Err(format!(
-                        "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
-                    ));
-                }
+                prepare_add_edge_op(index, source, target, &node_state, &mut node_exists)?;
             }
             BatchOperation::RemoveEdge { .. } => {}
             BatchOperation::AddEmbedding { id, embedding } => {
-                let node_exists = node_state
-                    .get(id)
-                    .map(Option::is_some)
-                    .unwrap_or_else(|| node_exists(id));
-                if !node_exists {
-                    return Err(format!(
-                        "BatchUpdate op[{index}] embedding node '{id}' does not exist"
-                    ));
-                }
-                // Same guard as the arena/map chokepoint (`SemanticStore::add_embedding`),
-                // run for EVERY embedding op in the batch up front so a
-                // mixed-dimension OR non-finite-component batch (e.g. op[2] matches
-                // the store, op[5] doesn't, or op[5] contains a NaN) is rejected as a
-                // whole, before `batch_update` applies op[0]/op[1] to the live store.
-                expected_embedding_dim = eg_core::compute::semantic::check_embedding_dimension(
+                expected_embedding_dim = prepare_add_embedding_op(
+                    index,
+                    id,
                     embedding,
                     expected_embedding_dim,
-                )
-                .map_err(|error| format!("BatchUpdate op[{index}] {error}"))?;
+                    &node_state,
+                    &mut node_exists,
+                )?;
             }
         }
     }
@@ -1912,6 +2223,72 @@ pub fn batch_update_preview(
 /// Supported operations are `add_node`, `upsert_node`, `remove_node`, `add_edge`,
 /// `upsert_edge`, `remove_edge`, and `add_embedding`. Nodes use `id`; edges use
 /// `source` and `target`; embeddings use `id` plus a non-empty `embedding` array.
+/// One pending change to `core.semantic_store`, applied after the topology
+/// `txn` commits. Split out of `batch_update` (extract-method, cx/wD8) — was
+/// a local `enum` there, unchanged.
+enum SemanticAction {
+    Upsert(String, Vec<f32>),
+    Remove(String),
+}
+
+/// Apply one decoded `BatchOperation` to the in-flight `txn`/changeset state.
+/// Split out of `batch_update`'s operation loop (extract-method, cx/wD8) —
+/// same terms, same order as before.
+#[allow(clippy::too_many_arguments)]
+fn apply_batch_operation(
+    operation: BatchOperation,
+    capture_content: bool,
+    node_upserts: &mut BTreeMap<String, Vec<u8>>,
+    node_removals: &mut BTreeSet<String>,
+    change: &mut eg_core::index::ChangeSet,
+    semantic_actions: &mut Vec<SemanticAction>,
+    txn: &mut eg_core::graph::GraphTxn<'_>,
+) -> Result<(), String> {
+    match operation {
+        BatchOperation::AddNode {
+            id,
+            properties_msgpack,
+            ..
+        } => {
+            if capture_content {
+                node_removals.remove(&id);
+                node_upserts.insert(id.clone(), properties_msgpack.clone());
+            } else {
+                node_removals.remove(&id);
+                node_upserts.insert(id.clone(), Vec::new());
+            }
+            txn.add_node(id, properties_msgpack);
+        }
+        BatchOperation::RemoveNode { id } => {
+            node_upserts.remove(&id);
+            node_removals.insert(id.clone());
+            txn.remove_node(id.clone());
+            semantic_actions.push(SemanticAction::Remove(id));
+        }
+        BatchOperation::AddEdge {
+            source,
+            target,
+            properties_msgpack,
+            upsert,
+        } => {
+            if upsert {
+                txn.remove_edge(source.clone(), target.clone());
+                change.record_remove_edge(source.clone(), target.clone());
+            }
+            txn.add_edge(source.clone(), target.clone(), properties_msgpack)?;
+            change.record_add_edge(source, target);
+        }
+        BatchOperation::RemoveEdge { source, target } => {
+            txn.remove_edge(source.clone(), target.clone());
+            change.record_remove_edge(source, target);
+        }
+        BatchOperation::AddEmbedding { id, embedding } => {
+            semantic_actions.push(SemanticAction::Upsert(id, embedding));
+        }
+    }
+    Ok(())
+}
+
 pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
     let mut operations = decode_batch_operations(operations_msgpack)?;
     let summary = batch_summary(&operations);
@@ -1919,11 +2296,6 @@ pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u
     let mut node_upserts = BTreeMap::<String, Vec<u8>>::new();
     let mut node_removals = BTreeSet::<String>::new();
     let mut change = eg_core::index::ChangeSet::new();
-
-    enum SemanticAction {
-        Upsert(String, Vec<f32>),
-        Remove(String),
-    }
     let mut semantic_actions = Vec::new();
 
     // ONE topology guard makes every structural operation atomic to graph readers.
@@ -1945,48 +2317,15 @@ pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u
     )?;
     let source_version = core.version();
     for operation in operations {
-        match operation {
-            BatchOperation::AddNode {
-                id,
-                properties_msgpack,
-                ..
-            } => {
-                if capture_content {
-                    node_removals.remove(&id);
-                    node_upserts.insert(id.clone(), properties_msgpack.clone());
-                } else {
-                    node_removals.remove(&id);
-                    node_upserts.insert(id.clone(), Vec::new());
-                }
-                txn.add_node(id, properties_msgpack);
-            }
-            BatchOperation::RemoveNode { id } => {
-                node_upserts.remove(&id);
-                node_removals.insert(id.clone());
-                txn.remove_node(id.clone());
-                semantic_actions.push(SemanticAction::Remove(id));
-            }
-            BatchOperation::AddEdge {
-                source,
-                target,
-                properties_msgpack,
-                upsert,
-            } => {
-                if upsert {
-                    txn.remove_edge(source.clone(), target.clone());
-                    change.record_remove_edge(source.clone(), target.clone());
-                }
-                txn.add_edge(source.clone(), target.clone(), properties_msgpack)?;
-                change.record_add_edge(source, target);
-            }
-            BatchOperation::RemoveEdge { source, target } => {
-                txn.remove_edge(source.clone(), target.clone());
-                change.record_remove_edge(source, target);
-            }
-            BatchOperation::AddEmbedding { id, embedding } => {
-                semantic_actions.push(SemanticAction::Upsert(id, embedding));
-            }
-        }
+        apply_batch_operation(
+            operation,
+            capture_content,
+            &mut node_upserts,
+            &mut node_removals,
+            &mut change,
+            &mut semantic_actions,
+            &mut txn,
+        )?;
     }
 
     // Preserve operation order: remove→re-add→embedding and embedding→remove
@@ -2076,6 +2415,66 @@ pub fn compute_metrics(core: &GraphView) -> crate::types::GraphMetrics {
 ///
 /// Similar to standard PageRank but the random walker teleports to seed
 /// nodes weighted by their seed score instead of uniformly.
+/// Build the teleport vector: seed-weighted if any seed carries positive
+/// weight, else uniform. Split out of `personalized_pagerank`
+/// (extract-method, cx/wD8) — same terms, same arithmetic order as before.
+fn build_pagerank_teleport(
+    core: &GraphView,
+    seed_nodes: &[(String, f64)],
+    nodes: &[NodeIndex],
+    n: usize,
+) -> HashMap<NodeIndex, f64> {
+    let mut teleport: HashMap<NodeIndex, f64> = HashMap::new();
+    let total_seed_weight: f64 = seed_nodes.iter().map(|(_, w)| w).sum();
+
+    if total_seed_weight > 0.0 {
+        for (seed_id, weight) in seed_nodes {
+            if let Some(&idx) = core.node_map.get(seed_id) {
+                teleport.insert(idx, weight / total_seed_weight);
+            }
+        }
+    } else {
+        // Uniform teleport if no seeds
+        let uniform = 1.0 / n as f64;
+        for &node in nodes {
+            teleport.insert(node, uniform);
+        }
+    }
+    teleport
+}
+
+/// One personalized-PageRank power-iteration step. Split out of
+/// `personalized_pagerank` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before, including the exact
+/// `(1.0 - damping) * tp + damping * rank_sum` evaluation order.
+fn pagerank_iteration(
+    core: &GraphView,
+    nodes: &[NodeIndex],
+    scores: &HashMap<NodeIndex, f64>,
+    teleport: &HashMap<NodeIndex, f64>,
+    out_degree: &HashMap<NodeIndex, usize>,
+    damping: f64,
+) -> HashMap<NodeIndex, f64> {
+    let mut new_scores: HashMap<NodeIndex, f64> = HashMap::new();
+
+    for &node in nodes {
+        let mut rank_sum = 0.0;
+        for edge in core
+            .graph
+            .edges_directed(node, petgraph::Direction::Incoming)
+        {
+            let src = edge.source();
+            let src_out = *out_degree.get(&src).unwrap_or(&1);
+            if src_out > 0 {
+                rank_sum += scores[&src] / src_out as f64;
+            }
+        }
+        let tp = teleport.get(&node).copied().unwrap_or(0.0);
+        new_scores.insert(node, (1.0 - damping) * tp + damping * rank_sum);
+    }
+    new_scores
+}
+
 pub fn personalized_pagerank(
     core: &GraphView,
     seed_nodes: &[(String, f64)],
@@ -2094,23 +2493,7 @@ pub fn personalized_pagerank(
         scores.insert(node, initial);
     }
 
-    // Build teleport vector
-    let mut teleport: HashMap<NodeIndex, f64> = HashMap::new();
-    let total_seed_weight: f64 = seed_nodes.iter().map(|(_, w)| w).sum();
-
-    if total_seed_weight > 0.0 {
-        for (seed_id, weight) in seed_nodes {
-            if let Some(&idx) = core.node_map.get(seed_id) {
-                teleport.insert(idx, weight / total_seed_weight);
-            }
-        }
-    } else {
-        // Uniform teleport if no seeds
-        let uniform = 1.0 / n as f64;
-        for &node in &nodes {
-            teleport.insert(node, uniform);
-        }
-    }
+    let teleport = build_pagerank_teleport(core, seed_nodes, &nodes, n);
 
     // Pre-compute out-degree
     let mut out_degree: HashMap<NodeIndex, usize> = HashMap::new();
@@ -2124,25 +2507,7 @@ pub fn personalized_pagerank(
     }
 
     for _ in 0..iterations {
-        let mut new_scores: HashMap<NodeIndex, f64> = HashMap::new();
-
-        for &node in &nodes {
-            let mut rank_sum = 0.0;
-            for edge in core
-                .graph
-                .edges_directed(node, petgraph::Direction::Incoming)
-            {
-                let src = edge.source();
-                let src_out = *out_degree.get(&src).unwrap_or(&1);
-                if src_out > 0 {
-                    rank_sum += scores[&src] / src_out as f64;
-                }
-            }
-            let tp = teleport.get(&node).copied().unwrap_or(0.0);
-            new_scores.insert(node, (1.0 - damping) * tp + damping * rank_sum);
-        }
-
-        scores = new_scores;
+        scores = pagerank_iteration(core, &nodes, &scores, &teleport, &out_degree, damping);
     }
 
     scores
@@ -2658,7 +3023,8 @@ mod cluster_hierarchy_tests {
             g.add_node((*id).to_string(), p(ty));
         }
         for (s, t) in edges {
-            g.add_edge((*s).to_string(), (*t).to_string(), p("_")).unwrap();
+            g.add_edge((*s).to_string(), (*t).to_string(), p("_"))
+                .unwrap();
         }
         g.analysis_snapshot()
     }
@@ -2699,7 +3065,10 @@ mod cluster_hierarchy_tests {
             let upper_ids: std::collections::BTreeSet<&str> =
                 upper.clusters.iter().map(|c| c.id.as_str()).collect();
             for c in &lower.clusters {
-                let parent = c.parent_id.as_deref().expect("non-root cluster needs a parent");
+                let parent = c
+                    .parent_id
+                    .as_deref()
+                    .expect("non-root cluster needs a parent");
                 assert!(upper_ids.contains(parent), "dangling parent {parent}");
             }
         }
