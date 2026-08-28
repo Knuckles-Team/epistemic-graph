@@ -9126,6 +9126,9 @@ struct ClaimWorkItemScan {
 /// Returns `true` when the attempt ceiling was reached and the item was retired
 /// to `dead_letter`; `false` when it was reclaimed back to `ready`.  Either way
 /// the update is still private to the held transaction.
+// `node_id`/`status` feed the statechart mirror only; a slim build without that
+// feature still needs them in the signature.
+#[cfg_attr(not(feature = "statechart"), allow(unused_variables))]
 fn claim_reclaim_expired_lease(
     props: &mut serde_json::Map<String, serde_json::Value>,
     node_id: &str,
