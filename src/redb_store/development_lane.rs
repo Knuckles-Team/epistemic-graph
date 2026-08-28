@@ -312,28 +312,14 @@ pub(crate) fn initialize_tables(wtx: &WriteTransaction) -> Result<(), String> {
     Ok(())
 }
 
-/// Clear every native lane row for a graph as part of the graph lifecycle
-/// transaction.  A live or retained-unpruned hold is an authority, not cache
-/// data, so ClearGraph/DeleteGraph must fail closed until its fenced cleanup is
-/// complete.  Once all holds are terminally cleaned (or an explicitly aborted
-/// tombstone), every lane table/index/counter/policy/replay row is removed in
-/// the same write transaction; a same-name recreation cannot inherit it.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn clear_native_graph_rows(
+/// Every hold row for `graph` must already be terminally drained.  A live or
+/// retained-unpruned hold is an authority, not cache data, so the graph
+/// lifecycle fails closed here rather than deleting it.
+fn drain_lane_holds(
     graph: &str,
     holds: &mut redb::Table<(&str, &str), &[u8]>,
-    tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
-    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
-    branch_index: &mut redb::Table<(&str, &str, &str), &str>,
-    worktree_index: &mut redb::Table<(&str, &str), &str>,
-    work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
-    counters: &mut redb::Table<(&str, &str), &[u8]>,
-    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
-    policies: &mut redb::Table<(&str, &str), &[u8]>,
-    invocations: &mut redb::Table<(&str, &str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    text(graph, "lane graph").map_err(|_| "development lane graph key is invalid".to_string())?;
     let mut hold_keys = Vec::new();
     for row in holds.range((graph, "")..).map_err(|e| e.to_string())? {
         let (key, value) = row.map_err(|e| e.to_string())?;
@@ -363,7 +349,18 @@ pub(crate) fn clear_native_graph_rows(
             .remove((graph, hold_id.as_str()))
             .map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
 
+/// Remove every lane identity/exclusivity index row for `graph`.
+fn clear_lane_identity_indexes(
+    graph: &str,
+    tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
+    branch_index: &mut redb::Table<(&str, &str, &str), &str>,
+    worktree_index: &mut redb::Table<(&str, &str), &str>,
+    work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+) -> Result<(), String> {
     let tenant_keys: Vec<(String, String)> = tenant_index
         .range((graph, "", "")..)
         .map_err(|e| e.to_string())?
@@ -454,6 +451,18 @@ pub(crate) fn clear_native_graph_rows(
             .remove((graph, work_item_id.as_str(), attempt))
             .map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// Remove every lane counter, pressure-index, policy and replay row for
+/// `graph`, so a same-name recreation cannot inherit any of them.
+fn clear_lane_quota_and_replay_rows(
+    graph: &str,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &mut redb::Table<(&str, &str), &[u8]>,
+    invocations: &mut redb::Table<(&str, &str, &str), &[u8]>,
+) -> Result<(), String> {
     let counter_keys: Vec<String> = counters
         .range((graph, "")..)
         .map_err(|e| e.to_string())?
@@ -547,6 +556,40 @@ pub(crate) fn clear_native_graph_rows(
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Clear every native lane row for a graph as part of the graph lifecycle
+/// transaction.  A live or retained-unpruned hold is an authority, not cache
+/// data, so ClearGraph/DeleteGraph must fail closed until its fenced cleanup is
+/// complete.  Once all holds are terminally cleaned (or an explicitly aborted
+/// tombstone), every lane table/index/counter/policy/replay row is removed in
+/// the same write transaction; a same-name recreation cannot inherit it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clear_native_graph_rows(
+    graph: &str,
+    holds: &mut redb::Table<(&str, &str), &[u8]>,
+    tenant_index: &mut redb::Table<(&str, &str, &str), &str>,
+    lane_index: &mut redb::Table<(&str, &str, &str), &str>,
+    branch_index: &mut redb::Table<(&str, &str, &str), &str>,
+    worktree_index: &mut redb::Table<(&str, &str), &str>,
+    work_item_index: &mut redb::Table<(&str, &str, u64), &str>,
+    counters: &mut redb::Table<(&str, &str), &[u8]>,
+    pressure_index: &mut redb::Table<(&str, &str, &str, &str, u64, &str), u8>,
+    policies: &mut redb::Table<(&str, &str), &[u8]>,
+    invocations: &mut redb::Table<(&str, &str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    text(graph, "lane graph").map_err(|_| "development lane graph key is invalid".to_string())?;
+    drain_lane_holds(graph, holds, crypto)?;
+    clear_lane_identity_indexes(
+        graph,
+        tenant_index,
+        lane_index,
+        branch_index,
+        worktree_index,
+        work_item_index,
+    )?;
+    clear_lane_quota_and_replay_rows(graph, counters, pressure_index, policies, invocations)
 }
 
 /// Write-transaction adapter used by graph Clear/Delete/checkpoint paths.  It
