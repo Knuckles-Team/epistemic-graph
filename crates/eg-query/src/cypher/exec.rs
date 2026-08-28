@@ -825,6 +825,162 @@ fn reverse_pattern(pattern: &Pattern) -> Pattern {
 /// and when `budget` is `Some(k)` (a single `MATCH … LIMIT k` with no blocking op —
 /// see [`row_budget`]) the walk is DEPTH-FIRST and stops once `k` rows are produced
 /// ([`walk_hops_dfs`]), so a `LIMIT` touches O(k · degree) work instead of every match.
+/// Resolve the start-position candidate node ids for [`resolve_match`]: the
+/// anchored id if the start var is already bound; else, when unbound (labeled OR
+/// unlabeled — an otherwise whole-graph or whole-label scan), try narrowing
+/// through the bounded property index (CONCEPT:EG-KG.storage.index-manager-seam)
+/// via an indexable inline-prop or start-position WHERE equality/IN predicate;
+/// else the label set (or the whole graph, unlabeled). The returned `bool` is
+/// `from_label_scan` — did the set come from a whole-label enumeration
+/// (`label_candidates`, which already paid to build/consult the memoized
+/// whole-graph `label_index_memo`) rather than something small and known ahead
+/// of any index (a bound anchor id, or `indexed_start_candidates`'/
+/// `warm_label_candidates`' id fast paths)? [`filter_start_ids`] uses it to pick
+/// between [`node_has_label_id`] (reuse the already-built index, free) and
+/// [`node_has_label_point`] (avoid PAYING to build it — an O(V) decode of every
+/// node's property blob — just to answer a handful of point checks; see that
+/// function's doc).
+///
+/// `indexed_start_candidates` returning `None` (no `IndexSource`, no usable
+/// predicate, or the index/version-race guard declined) is NOT the same as an
+/// empty candidate set — it means "fall back to the full scan", so it is never
+/// conflated with `Some(vec![])` (a real, indexed, zero-match answer).
+/// `warm_label_candidates` is tried first for a labeled start (GraphCore's
+/// PERSISTENT, write-path-maintained `label_index`, built once and kept warm
+/// across every later query — see its own doc for why its semantics differ from
+/// the memoized index and why [`filter_start_ids`]'s re-verification keeps this
+/// result-identical) before falling back to `label_candidates`.
+fn resolve_start_candidates(
+    view: &GraphView,
+    pattern: &Pattern,
+    anchor: &Binding,
+    index: Option<IndexSource<'_>>,
+    start_preds: &[WhereExpr],
+    params: &Params,
+) -> (Vec<String>, bool) {
+    let anchored_id = pattern.start.var.as_ref().and_then(|v| anchor.get(v));
+    match anchored_id {
+        Some(id) => (vec![id.clone()], false),
+        None => {
+            match indexed_start_candidates(index, &pattern.start, start_preds, anchor, params) {
+                Some(ids) => (ids, false),
+                None => match pattern
+                    .start
+                    .label
+                    .as_deref()
+                    .and_then(|label| warm_label_candidates(index, label))
+                {
+                    Some(ids) => (ids, false),
+                    None => (label_candidates(view, &pattern.start), true),
+                },
+            }
+        }
+    }
+}
+
+/// Re-enforce `pattern.start`'s `:Label`/inline props on `resolve_start_candidates`'
+/// output — the label-index candidate set only pre-filters the un-anchored case
+/// (CONCEPT:EG-KG.query.cypher-planning lets a CALL/YIELD node id flow into a
+/// labelled MATCH), so an ANCHORED start still needs this. The `view.node_map`
+/// membership check is a no-op for `label_candidates` (already built from `view`,
+/// can't return anything else) but is load-bearing for an INDEXED candidate: the
+/// index answers off LIVE core state (CONCEPT:EG-KG.storage.index-manager-seam), so an id
+/// it returns that this exact point-in-time `view` doesn't have (RLS-filtered, or
+/// added/removed by a write that raced the snapshot) is dropped here rather than
+/// trusted — every downstream WHERE/prop read only ever consults `view`, never
+/// `index`.
+fn filter_start_ids(
+    view: &GraphView,
+    pattern: &Pattern,
+    anchor: &Binding,
+    params: &Params,
+    start_candidates: Vec<String>,
+    from_label_scan: bool,
+) -> Vec<String> {
+    start_candidates
+        .into_iter()
+        .filter(|id| {
+            view.node_map.contains_key(id)
+                && pattern.start.label.as_ref().is_none_or(|l| {
+                    if from_label_scan {
+                        node_has_label_id(view, id, l)
+                    } else {
+                        node_has_label_point(view, id, l)
+                    }
+                })
+                && node_props_match(view, id, &pattern.start, anchor, params)
+        })
+        .collect()
+}
+
+/// The invariants [`resolve_match_dfs`]/[`resolve_match_bfs_seed`] need, held once
+/// per `resolve_match` call instead of re-passed as eight separate params.
+struct MatchCtx<'a> {
+    view: &'a GraphView,
+    pattern: &'a Pattern,
+    hop_preds: &'a [Vec<WhereExpr>],
+    final_preds: &'a [WhereExpr],
+    params: &'a Params,
+    anchor: &'a Binding,
+    start_preds: &'a [WhereExpr],
+}
+
+/// The DEPTH-FIRST budgeted walk — the LIMIT short-circuit (see [`resolve_match`]'s
+/// doc): stops once `k` complete matches are produced instead of materializing
+/// every one.
+fn resolve_match_dfs(
+    ctx: &MatchCtx<'_>,
+    start_ids: Vec<String>,
+    k: usize,
+) -> Result<Vec<Binding>, String> {
+    let mut out: Vec<Binding> = Vec::new();
+    for sid in start_ids {
+        if out.len() >= k {
+            break;
+        }
+        let mut b = ctx.anchor.clone();
+        if let Some(v) = &ctx.pattern.start.var {
+            b.insert(v.clone(), sid.clone());
+        }
+        if !all_where_hold(ctx.view, &b, ctx.params, ctx.start_preds)? {
+            continue;
+        }
+        walk_metrics::note_start();
+        DfsWalk {
+            view: ctx.view,
+            hops: &ctx.pattern.hops,
+            hop_preds: ctx.hop_preds,
+            final_preds: ctx.final_preds,
+            params: ctx.params,
+            budget: k,
+        }
+        .run(&b, &sid, 0, &mut out)?;
+    }
+    Ok(out)
+}
+
+/// Seed the BREADTH-FIRST `(binding, current-node-id)` partials from `start_ids`,
+/// dropping any candidate the start-node WHERE conjuncts reject before ANY hop
+/// expands from it.
+fn resolve_match_bfs_seed(
+    ctx: &MatchCtx<'_>,
+    start_ids: Vec<String>,
+) -> Result<Vec<(Binding, String)>, String> {
+    let mut partials: Vec<(Binding, String)> = Vec::new();
+    for sid in start_ids {
+        let mut b = ctx.anchor.clone();
+        if let Some(v) = &ctx.pattern.start.var {
+            b.insert(v.clone(), sid.clone());
+        }
+        if !all_where_hold(ctx.view, &b, ctx.params, ctx.start_preds)? {
+            continue;
+        }
+        walk_metrics::note_start();
+        partials.push((b, sid));
+    }
+    Ok(partials)
+}
+
 fn resolve_match(
     view: &GraphView,
     pattern: &Pattern,
@@ -845,128 +1001,36 @@ fn resolve_match(
         final_preds,
     } = partition_where(pattern, anchor, where_clause);
 
-    // Start candidates: the anchored id if the start var is bound; else, when unbound
-    // (labeled OR unlabeled — an otherwise whole-graph or whole-label scan), try
-    // narrowing through the bounded property index (CONCEPT:EG-KG.storage.index-manager-seam) via an
-    // indexable inline-prop or start-position WHERE equality/IN predicate; else the
-    // label set (or the whole graph, unlabeled). `indexed_start_candidates` returning
-    // `None` (no `IndexSource`, no usable predicate, or the index/version-race guard
-    // declined) is NOT the same as an empty candidate set — it means "fall back to the
-    // full scan", so it is never conflated with `Some(vec![])` (a real, indexed,
-    // zero-match answer) here. The `.filter(...)` below re-enforces `node`'s label (and
-    // any other inline props) on whichever candidate source answered, so an indexed
-    // labeled start can't bypass label enforcement.
-    // Did the candidate set come from a whole-label enumeration (`label_candidates`,
-    // which ALREADY paid to build/consult the memoized whole-graph `label_index_memo`
-    // to produce it), or from something small and known ahead of any index — a bound
-    // `anchor` id, or `indexed_start_candidates`' id fast path? The distinction drives
-    // which of [`node_has_label_id`]/[`node_has_label_point`] the filter below uses:
-    // reusing the already-built index is free in the first case, but PAYING to build
-    // it (an O(V) decode of every node's property blob) just to answer a handful of
-    // point checks in the second case would silently reintroduce the exact
-    // whole-graph-scan cost the id fast path exists to eliminate — see
-    // `node_has_label_point`'s doc.
-    let anchored_id = pattern.start.var.as_ref().and_then(|v| anchor.get(v));
-    let (start_candidates, from_label_scan): (Vec<String>, bool) = match anchored_id {
-        Some(id) => (vec![id.clone()], false),
-        None => match indexed_start_candidates(index, &pattern.start, &start_preds, anchor, params)
-        {
-            Some(ids) => (ids, false),
-            // No inline-prop/WHERE equality to index — but a LABELED start can still
-            // avoid `label_candidates`' cold, per-VIEW `label_index_memo` build (an
-            // O(V) msgpack-decode-every-node pass that starts over on every fresh
-            // snapshot, see that memo's doc) by first trying `GraphCore`'s PERSISTENT,
-            // write-path-maintained `label_index` through `warm_label_candidates` —
-            // built once and incrementally kept warm across every later query, not
-            // just this one. `false` here (not `from_label_scan`) is deliberate and
-            // matches `indexed_start_candidates`' own candidates just above: the warm
-            // index is a hint that only NARROWS the set, so the filter below must
-            // still re-verify Cypher's narrower label predicate per candidate via
-            // `node_has_label_point` rather than trusting it outright — see
-            // `warm_label_candidates`'s doc for why the two indexes' semantics differ
-            // and why that re-verification is what keeps this result-identical.
-            None => match pattern
-                .start
-                .label
-                .as_deref()
-                .and_then(|label| warm_label_candidates(index, label))
-            {
-                Some(ids) => (ids, false),
-                None => (label_candidates(view, &pattern.start), true),
-            },
-        },
+    let (start_candidates, from_label_scan) =
+        resolve_start_candidates(view, pattern, anchor, index, &start_preds, params);
+    let start_ids = filter_start_ids(
+        view,
+        pattern,
+        anchor,
+        params,
+        start_candidates,
+        from_label_scan,
+    );
+
+    let ctx = MatchCtx {
+        view,
+        pattern,
+        hop_preds: &hop_preds,
+        final_preds: &final_preds,
+        params,
+        anchor,
+        start_preds: &start_preds,
     };
-    let start_ids: Vec<String> = start_candidates
-        .into_iter()
-        // An ANCHORED start node still has its `:Label`/inline props enforced here — the
-        // label-index candidate set only pre-filters the un-anchored case (CONCEPT:EG-KG.query.cypher-planning
-        // lets a CALL/YIELD node id flow into a labelled MATCH). The `view.node_map`
-        // membership check is a no-op for `label_candidates` (which is already built from
-        // `view` and can't return anything else) but is load-bearing for an INDEXED
-        // candidate: the index answers off LIVE core state (CONCEPT:EG-KG.storage.index-manager-seam), so
-        // an id it returns that this exact point-in-time `view` doesn't have (RLS-filtered,
-        // or added/removed by a write that raced the snapshot) is dropped here rather than
-        // trusted — every downstream WHERE/prop read only ever consults `view`, never `index`.
-        .filter(|id| {
-            view.node_map.contains_key(id)
-                && pattern.start.label.as_ref().is_none_or(|l| {
-                    if from_label_scan {
-                        node_has_label_id(view, id, l)
-                    } else {
-                        node_has_label_point(view, id, l)
-                    }
-                })
-                && node_props_match(view, id, &pattern.start, anchor, params)
-        })
-        .collect();
 
     // The DEPTH-FIRST budgeted walk is the LIMIT short-circuit; it does not expand
     // quantified groups, so a pattern with a group hop keeps the breadth-first walk.
     let dfs_budget = budget.filter(|_| pattern.hops.iter().all(|(e, _)| e.group.is_none()));
-
     if let Some(k) = dfs_budget {
-        let mut out: Vec<Binding> = Vec::new();
-        for sid in start_ids {
-            if out.len() >= k {
-                break;
-            }
-            let mut b = anchor.clone();
-            if let Some(v) = &pattern.start.var {
-                b.insert(v.clone(), sid.clone());
-            }
-            if !all_where_hold(view, &b, params, &start_preds)? {
-                continue;
-            }
-            walk_metrics::note_start();
-            DfsWalk {
-                view,
-                hops: &pattern.hops,
-                hop_preds: &hop_preds,
-                final_preds: &final_preds,
-                params,
-                budget: k,
-            }
-            .run(&b, &sid, 0, &mut out)?;
-        }
-        return Ok(out);
+        return resolve_match_dfs(&ctx, start_ids, k);
     }
 
-    // (binding, current-node-id) partials, extended hop by hop.
-    let mut partials: Vec<(Binding, String)> = Vec::new();
-    for sid in start_ids {
-        let mut b = anchor.clone();
-        if let Some(v) = &pattern.start.var {
-            b.insert(v.clone(), sid.clone());
-        }
-        // Start-node WHERE conjuncts drop a candidate before ANY hop expands from it.
-        if !all_where_hold(view, &b, params, &start_preds)? {
-            continue;
-        }
-        walk_metrics::note_start();
-        partials.push((b, sid));
-    }
-
-    partials = walk_hops(view, &pattern.hops, &hop_preds, partials, params)?;
+    let partials = resolve_match_bfs_seed(&ctx, start_ids)?;
+    let partials = walk_hops(view, &pattern.hops, &hop_preds, partials, params)?;
 
     let mut out: Vec<Binding> = Vec::new();
     for (b, _) in partials {
