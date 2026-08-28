@@ -466,10 +466,13 @@ def main() -> int:
 
     docs = _read("docs/operations/exact-release-campaigns.md")
     nav = _read("mkdocs.yml")
-    # rust-ci.yml was folded into the two-workflow release model (advisory.yml +
-    # release.yml); the architecture/doc-contract gates -- this one included --
-    # now live in advisory.yml. See advisory.yml's header comment.
-    workflow = _read(".github/workflows/advisory.yml")
+    # rust-ci.yml was originally folded into a two-workflow release model
+    # (advisory.yml, report-only + release.yml, blocking); advisory.yml was
+    # retired 2026-08-28 (wD9-CIGATE, continue-on-error is a ratchet by this
+    # project's definition) and every architecture/doc-contract gate --
+    # this one included -- now lives in release.yml's `lint-and-architecture`
+    # job, release-blocking. See release.yml's header comment.
+    workflow = _read(".github/workflows/release.yml")
     _require(
         docs,
         {
@@ -485,17 +488,13 @@ def main() -> int:
     if "operations/exact-release-campaigns.md" not in nav:
         errors.append("MkDocs navigation omits the exact release campaign guide")
     if workflow.count("scripts/check_exact_release_campaigns.py") < 1:
-        errors.append("Advisory CI does not run the exact campaign gate")
-    # The former per-file path filters (listed once for push, once for
-    # pull_request) were consolidated into a single broad 'scripts/**' filter
-    # covering every script including certify_exact_*.py -- verify that
-    # broader filter is present on both triggers instead of the literal
-    # per-file glob it replaced.
-    if workflow.count("'scripts/**'") != 2:
-        errors.append(
-            "Advisory CI path filters omit scripts/** on push and pull_request "
-            "(exact campaign or shared-helper changes would not retrigger the gate)"
-        )
+        errors.append("Release CI does not run the exact campaign gate")
+    # release.yml (unlike the retired advisory.yml) carries no path filters at
+    # all on push/pull_request -- it always triggered on every push/PR/tag
+    # directly (see this file's own header comment), so there is no
+    # 'scripts/**' filter to verify presence of anymore; the former check
+    # here was asserting an advisory.yml-specific trigger-scoping detail that
+    # no longer exists as a design, not a residual gap.
 
     if errors:
         print("exact release campaign architecture gate: FAIL")
