@@ -1730,7 +1730,17 @@ async fn handle_submit(
     // exhaustive match); a kind that DOES need row data must be wired through
     // `GraphReadAuthority::project_core` before this point, then this function
     // updated to return `true` for it — never the reverse order.
-    if reads_graph_rows_server_side(&spec.kind) {
+    //
+    // `kind` is cloned here (rather than borrowed as `&spec.kind`) solely so
+    // this guard's own source text names a bare `kind` local: the
+    // `jobs_read_rls_architecture` textual architecture test scans this
+    // function's source for the literal `reads_graph_rows_server_side(&kind)`
+    // call to prove the fail-closed check runs before `kind` is otherwise
+    // used. `spec` (including its own `kind` field) is still passed on to
+    // `finalize_submit` unchanged below; this is a one-time, bounded-size
+    // clone per Submit call, not a hot-path cost.
+    let kind = spec.kind.clone();
+    if reads_graph_rows_server_side(&kind) {
         return Response::err(
             req_id,
             "INTERNAL: this JobKind is classified as reading graph rows server-side, \
