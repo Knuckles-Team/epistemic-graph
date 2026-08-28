@@ -237,6 +237,166 @@ impl ForeignSource for RemoteEngineSource<'_> {
     }
 }
 
+/// None of `principal`/`tenant`/`audience`/`agent_id`/`policy_version` may be
+/// empty (after trimming).
+fn check_context_fields_nonempty(
+    context: &eg_types::acl::RequestContextClaims,
+) -> Result<(), String> {
+    for (name, value) in [
+        ("principal", context.principal.as_str()),
+        ("tenant", context.tenant.as_str()),
+        ("audience", context.audience.as_str()),
+        ("agent_id", context.agent_id.as_str()),
+        ("policy_version", context.policy_version.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!(
+                "federation: remote engine v2 context {name} must not be empty"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// None of `roles`/`scopes`/`delegation` may contain an empty or duplicated
+/// entry.
+fn check_context_lists_valid(context: &eg_types::acl::RequestContextClaims) -> Result<(), String> {
+    for (name, values) in [
+        ("role", context.roles.as_slice()),
+        ("scope", context.scopes.as_slice()),
+        ("delegation subject", context.delegation.as_slice()),
+    ] {
+        let mut seen = std::collections::HashSet::new();
+        if values
+            .iter()
+            .any(|value| value.trim().is_empty() || !seen.insert(value.as_str()))
+        {
+            return Err(format!(
+                "federation: remote engine v2 context contains an invalid {name}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A non-delegated context (`principal == agent_id`) must carry an empty
+/// delegation path; a delegated one must bind `principal` → … → `agent_id`
+/// through at least two hops.
+fn check_delegation_chain(context: &eg_types::acl::RequestContextClaims) -> Result<(), String> {
+    if context.principal == context.agent_id {
+        if !context.delegation.is_empty() {
+            return Err(
+                "federation: non-delegated remote context must have an empty delegation path"
+                    .to_string(),
+            );
+        }
+    } else if context.delegation.first() != Some(&context.principal)
+        || context.delegation.last() != Some(&context.agent_id)
+        || context.delegation.len() < 2
+    {
+        return Err(
+            "federation: remote context delegation must bind principal to effective agent"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Resolve, connect (loopback-only — native remote-engine TCP requires a
+/// local verified-TLS tunnel), and configure I/O timeouts for a remote-engine
+/// endpoint.
+fn connect_remote_engine(endpoint: &str) -> Result<std::net::TcpStream, String> {
+    use std::net::{TcpStream, ToSocketAddrs};
+
+    if endpoint.is_empty() || endpoint.len() > MAX_REMOTE_ENGINE_ENDPOINT_BYTES {
+        return Err("federation: invalid remote engine endpoint".to_string());
+    }
+    let addresses: Vec<_> = endpoint
+        .to_socket_addrs()
+        .map_err(|_| "federation: unable to resolve remote engine endpoint".to_string())?
+        .take(8)
+        .collect();
+    if addresses.is_empty() || addresses.iter().any(|address| !address.ip().is_loopback()) {
+        return Err(
+            "federation: native remote-engine TCP requires a local verified-TLS tunnel".to_string(),
+        );
+    }
+    let mut stream = None;
+    for address in addresses {
+        if let Ok(candidate) = TcpStream::connect_timeout(&address, REMOTE_ENGINE_CONNECT_TIMEOUT) {
+            stream = Some(candidate);
+            break;
+        }
+    }
+    let stream =
+        stream.ok_or_else(|| "federation: unable to connect to remote engine".to_string())?;
+    stream
+        .set_read_timeout(Some(REMOTE_ENGINE_IO_TIMEOUT))
+        .and_then(|()| stream.set_write_timeout(Some(REMOTE_ENGINE_IO_TIMEOUT)))
+        .map_err(|_| "federation: unable to configure remote engine transport".to_string())?;
+    Ok(stream)
+}
+
+/// Encode and write one length-prefixed request frame.
+fn write_remote_request(
+    stream: &mut std::net::TcpStream,
+    request: &eg_types::protocol::Request,
+) -> Result<(), String> {
+    use std::io::Write;
+    let body = rmp_serde::to_vec_named(request)
+        .map_err(|_| "federation: encode request failed".to_string())?;
+    if body.is_empty() || body.len() > MAX_REMOTE_ENGINE_FRAME_BYTES {
+        return Err("federation: remote engine request exceeds limit".to_string());
+    }
+    let len = u32::try_from(body.len())
+        .map_err(|_| "federation: remote engine request exceeds limit".to_string())?
+        .to_be_bytes();
+    stream
+        .write_all(&len)
+        .and_then(|()| stream.write_all(&body))
+        .map_err(|_| "federation: remote engine write failed".to_string())
+}
+
+/// Read one length-prefixed response frame, bounded-decode it, and extract
+/// its result bytes.
+fn read_remote_response(stream: &mut std::net::TcpStream) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut len_buf = [0u8; 4];
+    stream
+        .read_exact(&mut len_buf)
+        .map_err(|_| "federation: remote engine response header failed".to_string())?;
+    let resp_len = u32::from_be_bytes(len_buf) as usize;
+    if resp_len == 0 || resp_len > MAX_REMOTE_ENGINE_FRAME_BYTES {
+        return Err("federation: remote engine response exceeds limit".to_string());
+    }
+    let mut resp_buf = vec![0u8; resp_len];
+    stream
+        .read_exact(&mut resp_buf)
+        .map_err(|_| "federation: remote engine response body failed".to_string())?;
+    let resp: eg_types::protocol::Response = eg_types::msgpack::decode_bounded(
+        &resp_buf,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_REMOTE_ENGINE_FRAME_BYTES,
+            MAX_REMOTE_ENGINE_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "federation: invalid remote engine response".to_string())?;
+    if resp.error.is_some() {
+        return Err("federation: remote engine returned an error".to_string());
+    }
+    // `ResultPayload::raw()` and `PropertiesMsgpack` are the SAME msgpack `bin` on
+    // the wire; the untagged decoder picks `PropertiesMsgpack` (it is declared
+    // first), so accept either — both carry the msgpack body we re-decode.
+    match resp.result {
+        Some(
+            eg_types::protocol::ResultPayload::Raw(bytes)
+            | eg_types::protocol::ResultPayload::PropertiesMsgpack(bytes),
+        ) => Ok(bytes),
+        _ => Err("federation: remote engine returned an unexpected result".to_string()),
+    }
+}
+
 impl RemoteEngineSource<'_> {
     fn validate_request_context(&self) -> Result<(), String> {
         if self.secret.is_empty() || self.secret.len() > 64 * 1024 {
@@ -245,51 +405,9 @@ impl RemoteEngineSource<'_> {
                     .to_string(),
             );
         }
-        for (name, value) in [
-            ("principal", self.context.principal.as_str()),
-            ("tenant", self.context.tenant.as_str()),
-            ("audience", self.context.audience.as_str()),
-            ("agent_id", self.context.agent_id.as_str()),
-            ("policy_version", self.context.policy_version.as_str()),
-        ] {
-            if value.trim().is_empty() {
-                return Err(format!(
-                    "federation: remote engine v2 context {name} must not be empty"
-                ));
-            }
-        }
-        for (name, values) in [
-            ("role", self.context.roles.as_slice()),
-            ("scope", self.context.scopes.as_slice()),
-            ("delegation subject", self.context.delegation.as_slice()),
-        ] {
-            let mut seen = std::collections::HashSet::new();
-            if values
-                .iter()
-                .any(|value| value.trim().is_empty() || !seen.insert(value.as_str()))
-            {
-                return Err(format!(
-                    "federation: remote engine v2 context contains an invalid {name}"
-                ));
-            }
-        }
-        if self.context.principal == self.context.agent_id {
-            if !self.context.delegation.is_empty() {
-                return Err(
-                    "federation: non-delegated remote context must have an empty delegation path"
-                        .to_string(),
-                );
-            }
-        } else if self.context.delegation.first() != Some(&self.context.principal)
-            || self.context.delegation.last() != Some(&self.context.agent_id)
-            || self.context.delegation.len() < 2
-        {
-            return Err(
-                "federation: remote context delegation must bind principal to effective agent"
-                    .to_string(),
-            );
-        }
-        Ok(())
+        check_context_fields_nonempty(self.context)?;
+        check_context_lists_valid(self.context)?;
+        check_delegation_chain(self.context)
     }
 
     /// Build the fail-secure `eg2.` token accepted by the remote engine. This is
@@ -365,86 +483,9 @@ impl RemoteEngineSource<'_> {
     /// payload bytes (or the remote's error). Blocking — the executor runs it on the
     /// blocking pool, exactly like the local SQL leg.
     fn round_trip(&self, request: &eg_types::protocol::Request) -> Result<Vec<u8>, String> {
-        use std::io::{Read, Write};
-        use std::net::{TcpStream, ToSocketAddrs};
-
-        if self.endpoint.is_empty() || self.endpoint.len() > MAX_REMOTE_ENGINE_ENDPOINT_BYTES {
-            return Err("federation: invalid remote engine endpoint".to_string());
-        }
-        let addresses: Vec<_> = self
-            .endpoint
-            .to_socket_addrs()
-            .map_err(|_| "federation: unable to resolve remote engine endpoint".to_string())?
-            .take(8)
-            .collect();
-        if addresses.is_empty() || addresses.iter().any(|address| !address.ip().is_loopback()) {
-            return Err(
-                "federation: native remote-engine TCP requires a local verified-TLS tunnel"
-                    .to_string(),
-            );
-        }
-        let mut stream = None;
-        for address in addresses {
-            if let Ok(candidate) =
-                TcpStream::connect_timeout(&address, REMOTE_ENGINE_CONNECT_TIMEOUT)
-            {
-                stream = Some(candidate);
-                break;
-            }
-        }
-        let mut stream =
-            stream.ok_or_else(|| "federation: unable to connect to remote engine".to_string())?;
-        stream
-            .set_read_timeout(Some(REMOTE_ENGINE_IO_TIMEOUT))
-            .and_then(|()| stream.set_write_timeout(Some(REMOTE_ENGINE_IO_TIMEOUT)))
-            .map_err(|_| "federation: unable to configure remote engine transport".to_string())?;
-        let body = rmp_serde::to_vec_named(request)
-            .map_err(|_| "federation: encode request failed".to_string())?;
-        if body.is_empty() || body.len() > MAX_REMOTE_ENGINE_FRAME_BYTES {
-            return Err("federation: remote engine request exceeds limit".to_string());
-        }
-        let len = u32::try_from(body.len())
-            .map_err(|_| "federation: remote engine request exceeds limit".to_string())?
-            .to_be_bytes();
-        stream
-            .write_all(&len)
-            .and_then(|()| stream.write_all(&body))
-            .map_err(|_| "federation: remote engine write failed".to_string())?;
-
-        let mut len_buf = [0u8; 4];
-        stream
-            .read_exact(&mut len_buf)
-            .map_err(|_| "federation: remote engine response header failed".to_string())?;
-        let resp_len = u32::from_be_bytes(len_buf) as usize;
-        if resp_len == 0 || resp_len > MAX_REMOTE_ENGINE_FRAME_BYTES {
-            return Err("federation: remote engine response exceeds limit".to_string());
-        }
-        let mut resp_buf = vec![0u8; resp_len];
-        stream
-            .read_exact(&mut resp_buf)
-            .map_err(|_| "federation: remote engine response body failed".to_string())?;
-        let resp: eg_types::protocol::Response = eg_types::msgpack::decode_bounded(
-            &resp_buf,
-            eg_types::msgpack::MsgpackLimits::new(
-                MAX_REMOTE_ENGINE_FRAME_BYTES,
-                MAX_REMOTE_ENGINE_ITEMS,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
-            ),
-        )
-        .map_err(|_| "federation: invalid remote engine response".to_string())?;
-        if resp.error.is_some() {
-            return Err("federation: remote engine returned an error".to_string());
-        }
-        // `ResultPayload::raw()` and `PropertiesMsgpack` are the SAME msgpack `bin` on
-        // the wire; the untagged decoder picks `PropertiesMsgpack` (it is declared
-        // first), so accept either — both carry the msgpack body we re-decode.
-        match resp.result {
-            Some(
-                eg_types::protocol::ResultPayload::Raw(bytes)
-                | eg_types::protocol::ResultPayload::PropertiesMsgpack(bytes),
-            ) => Ok(bytes),
-            _ => Err("federation: remote engine returned an unexpected result".to_string()),
-        }
+        let mut stream = connect_remote_engine(self.endpoint)?;
+        write_remote_request(&mut stream, request)?;
+        read_remote_response(&mut stream)
     }
 
     /// UQL path: the remote runs the query through its own unified planner and returns
@@ -641,26 +682,9 @@ struct ValidatedHttpJsonTarget {
 /// allowlist. Explicitly allowlisted internal endpoints may use HTTP for a local trusted
 /// tunnel/test service; HTTP to a public destination remains forbidden.
 fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTarget, String> {
-    use std::net::ToSocketAddrs;
+    validate_http_json_url_shape(url)?;
 
-    if url.is_empty()
-        || url.len() > MAX_HTTP_JSON_URL_BYTES
-        || url.trim() != url
-        || url
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || byte == b'\\')
-        || url.contains('#')
-    {
-        return Err("federation: invalid HTTP JSON URL".to_string());
-    }
-
-    let (is_https, rest) = if let Some(rest) = url.strip_prefix("https://") {
-        (true, rest)
-    } else if let Some(rest) = url.strip_prefix("http://") {
-        (false, rest)
-    } else {
-        return Err("federation: HTTP JSON source requires HTTPS".to_string());
-    };
+    let (is_https, rest) = split_http_scheme(url)?;
     let authority = rest.split(['/', '?']).next().unwrap_or_default();
     if authority.is_empty() || authority.contains('@') || authority.contains('%') {
         return Err("federation: invalid HTTP JSON URL authority".to_string());
@@ -671,7 +695,47 @@ fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTarget, Strin
     let host = normalize_http_host(host)?;
     let allowlisted = http_json_target_allowlisted(&host, port, is_https);
 
-    let mut addresses: Vec<_> = (host.as_str(), port)
+    let addresses = resolve_http_json_addresses(&host, port)?;
+    check_http_json_ssrf(&addresses, allowlisted, is_https)?;
+
+    Ok(ValidatedHttpJsonTarget {
+        addresses,
+        https_only: is_https,
+    })
+}
+
+/// Reject a URL with disallowed bytes/shape before any scheme/authority
+/// parsing runs.
+fn validate_http_json_url_shape(url: &str) -> Result<(), String> {
+    if url.is_empty()
+        || url.len() > MAX_HTTP_JSON_URL_BYTES
+        || url.trim() != url
+        || url
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte == b'\\')
+        || url.contains('#')
+    {
+        return Err("federation: invalid HTTP JSON URL".to_string());
+    }
+    Ok(())
+}
+
+/// Split a validated URL into `(is_https, rest-after-scheme)`; any scheme
+/// other than `http://`/`https://` is rejected.
+fn split_http_scheme(url: &str) -> Result<(bool, &str), String> {
+    if let Some(rest) = url.strip_prefix("https://") {
+        Ok((true, rest))
+    } else if let Some(rest) = url.strip_prefix("http://") {
+        Ok((false, rest))
+    } else {
+        Err("federation: HTTP JSON source requires HTTPS".to_string())
+    }
+}
+
+/// Resolve `host:port`, bounding and deduplicating the address set.
+fn resolve_http_json_addresses(host: &str, port: u16) -> Result<Vec<std::net::SocketAddr>, String> {
+    use std::net::ToSocketAddrs;
+    let mut addresses: Vec<_> = (host, port)
         .to_socket_addrs()
         .map_err(|_| "federation: unable to resolve HTTP JSON source".to_string())?
         .take(MAX_HTTP_JSON_ADDRESSES + 1)
@@ -681,7 +745,17 @@ fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTarget, Strin
     if addresses.is_empty() || addresses.len() > MAX_HTTP_JSON_ADDRESSES {
         return Err("federation: invalid HTTP JSON source resolution".to_string());
     }
+    Ok(addresses)
+}
 
+/// Enforce the SSRF policy: a sensitive resolved address requires the
+/// destination be explicitly allowlisted, and a non-HTTPS source is only
+/// ever permitted for an allowlisted sensitive destination.
+fn check_http_json_ssrf(
+    addresses: &[std::net::SocketAddr],
+    allowlisted: bool,
+    is_https: bool,
+) -> Result<(), String> {
     let has_sensitive_address = addresses
         .iter()
         .any(|address| is_ssrf_sensitive_ip(address.ip()));
@@ -691,11 +765,7 @@ fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTarget, Strin
     if !(is_https || has_sensitive_address && allowlisted) {
         return Err("federation: HTTP JSON source requires HTTPS".to_string());
     }
-
-    Ok(ValidatedHttpJsonTarget {
-        addresses,
-        https_only: is_https,
-    })
+    Ok(())
 }
 
 fn parse_http_authority(authority: &str, default_port: u16) -> Result<(&str, u16), String> {
@@ -793,41 +863,79 @@ fn http_json_target_allowlisted(host: &str, port: u16, is_https: bool) -> bool {
 /// opt an exact host/origin into this set's exceptions.
 fn is_ssrf_sensitive_ip(ip: std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(address) => {
-            let [a, b, c, _] = address.octets();
-            address.is_loopback()
-                || address.is_unspecified()
-                || address.is_private()
-                || address.is_link_local()
-                || address.is_multicast()
-                || address.is_broadcast()
-                || address.is_documentation()
-                || a == 0
-                || a >= 240
-                || (a == 100 && (64..=127).contains(&b)) // carrier-grade NAT
-                || (a == 192 && b == 0 && c == 0) // IETF protocol assignments
-                || (a == 192 && b == 88 && c == 99) // deprecated 6to4 relay anycast
-                || (a == 198 && (b == 18 || b == 19)) // benchmark networks
-        }
-        std::net::IpAddr::V6(address) => {
-            if let Some(mapped) = address.to_ipv4() {
-                return is_ssrf_sensitive_ip(std::net::IpAddr::V4(mapped));
-            }
-            let segments = address.segments();
-            address.is_loopback()
-                || address.is_unspecified()
-                || address.is_multicast()
-                || (segments[0] & 0xfe00) == 0xfc00 // unique-local fc00::/7
-                || (segments[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
-                || (segments[0] & 0xffc0) == 0xfec0 // deprecated site-local fec0::/10
-                || (segments[0] == 0x0064 && segments[1] == 0xff9b) // NAT64 translation
-                || segments[0] == 0x2002 // 6to4 embeds an IPv4 target
-                || (segments[0] == 0x2001 && segments[1] == 0x0000) // Teredo
-                || (segments[0] == 0x2001 && segments[1] == 0x0db8) // documentation
-                || (segments[0] == 0x2001 && (segments[1] & 0xfff0) == 0x0020) // ORCHID
-                || (segments[0] == 0x0100 && segments[1..4] == [0, 0, 0]) // discard-only
-        }
+        std::net::IpAddr::V4(address) => is_ssrf_sensitive_ipv4(address),
+        std::net::IpAddr::V6(address) => is_ssrf_sensitive_ipv6(address),
     }
+}
+
+fn is_ssrf_sensitive_ipv4(address: std::net::Ipv4Addr) -> bool {
+    is_ssrf_std_range_v4(address) || is_ssrf_custom_range_v4(address)
+}
+
+/// The IPv4 ranges the standard library already classifies as non-public.
+fn is_ssrf_std_range_v4(address: std::net::Ipv4Addr) -> bool {
+    address.is_loopback()
+        || address.is_unspecified()
+        || address.is_private()
+        || address.is_link_local()
+        || address.is_multicast()
+        || address.is_broadcast()
+        || address.is_documentation()
+}
+
+/// IPv4 ranges the standard library does NOT classify as non-public but that
+/// still can address a non-public/transition service.
+fn is_ssrf_custom_range_v4(address: std::net::Ipv4Addr) -> bool {
+    let [a, b, c, _] = address.octets();
+    is_ssrf_custom_range_v4_reserved(a, b) || is_ssrf_custom_range_v4_special(a, b, c)
+}
+
+/// The all-zero, reserved-future-use, and carrier-grade-NAT ranges.
+fn is_ssrf_custom_range_v4_reserved(a: u8, b: u8) -> bool {
+    a == 0 || a >= 240 || (a == 100 && (64..=127).contains(&b)) // carrier-grade NAT
+}
+
+/// The IETF-protocol-assignment, deprecated-6to4-relay, and benchmark ranges.
+fn is_ssrf_custom_range_v4_special(a: u8, b: u8, c: u8) -> bool {
+    (a == 192 && b == 0 && c == 0) // IETF protocol assignments
+        || (a == 192 && b == 88 && c == 99) // deprecated 6to4 relay anycast
+        || (a == 198 && (b == 18 || b == 19)) // benchmark networks
+}
+
+fn is_ssrf_sensitive_ipv6(address: std::net::Ipv6Addr) -> bool {
+    if let Some(mapped) = address.to_ipv4() {
+        return is_ssrf_sensitive_ipv4(mapped);
+    }
+    is_ssrf_std_range_v6(address) || is_ssrf_custom_range_v6(address)
+}
+
+/// The IPv6 ranges the standard library already classifies as non-public.
+fn is_ssrf_std_range_v6(address: std::net::Ipv6Addr) -> bool {
+    address.is_loopback() || address.is_unspecified() || address.is_multicast()
+}
+
+/// IPv6 ranges the standard library does NOT classify as non-public but that
+/// still can address a non-public/transition/documentation service.
+fn is_ssrf_custom_range_v6(address: std::net::Ipv6Addr) -> bool {
+    let segments = address.segments();
+    is_ssrf_custom_range_v6_local(segments) || is_ssrf_custom_range_v6_transition(segments)
+}
+
+/// unique-local / link-local / deprecated site-local / discard-only ranges.
+fn is_ssrf_custom_range_v6_local(segments: [u16; 8]) -> bool {
+    (segments[0] & 0xfe00) == 0xfc00 // unique-local fc00::/7
+        || (segments[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
+        || (segments[0] & 0xffc0) == 0xfec0 // deprecated site-local fec0::/10
+        || (segments[0] == 0x0100 && segments[1..4] == [0, 0, 0]) // discard-only
+}
+
+/// NAT64 / 6to4 / Teredo / documentation / ORCHID transition ranges.
+fn is_ssrf_custom_range_v6_transition(segments: [u16; 8]) -> bool {
+    (segments[0] == 0x0064 && segments[1] == 0xff9b) // NAT64 translation
+        || segments[0] == 0x2002 // 6to4 embeds an IPv4 target
+        || (segments[0] == 0x2001 && segments[1] == 0x0000) // Teredo
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8) // documentation
+        || (segments[0] == 0x2001 && (segments[1] & 0xfff0) == 0x0020) // ORCHID
 }
 
 /// Allocation-free resource preflight. `serde_json` remains the grammar authority; this
@@ -836,46 +944,79 @@ fn validate_json_shape(bytes: &[u8]) -> Result<(), String> {
     if bytes.len() > MAX_HTTP_JSON_BODY_BYTES {
         return Err("federation: HTTP JSON response exceeds limit".to_string());
     }
-    let mut depth = 0usize;
-    let mut items = usize::from(!bytes.is_empty());
-    let mut in_string = false;
-    let mut escaped = false;
+    let mut scan = JsonShapeScan::new(!bytes.is_empty());
     for byte in bytes.iter().copied() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                in_string = false;
-            }
-            continue;
+        scan.step(byte)?;
+    }
+    if scan.in_string || scan.depth != 0 {
+        return Err("federation: invalid HTTP JSON response".to_string());
+    }
+    Ok(())
+}
+
+/// Running state for [`validate_json_shape`]'s single-pass, allocation-free
+/// JSON structural scan: brace/bracket nesting depth, aggregate item count,
+/// and whether the scan is currently inside a (possibly escaped) string.
+#[derive(Default)]
+struct JsonShapeScan {
+    depth: usize,
+    items: usize,
+    in_string: bool,
+    escaped: bool,
+}
+
+impl JsonShapeScan {
+    fn new(bytes_nonempty: bool) -> Self {
+        Self {
+            items: usize::from(bytes_nonempty),
+            ..Self::default()
         }
+    }
+
+    /// Advance the scan by one byte, enforcing the nesting/item-count bounds.
+    fn step(&mut self, byte: u8) -> Result<(), String> {
+        if self.in_string {
+            self.step_in_string(byte);
+            return Ok(());
+        }
+        self.step_structural(byte)?;
+        if self.items > MAX_HTTP_JSON_ITEMS {
+            return Err("federation: HTTP JSON item count exceeds limit".to_string());
+        }
+        Ok(())
+    }
+
+    fn step_in_string(&mut self, byte: u8) {
+        if self.escaped {
+            self.escaped = false;
+        } else if byte == b'\\' {
+            self.escaped = true;
+        } else if byte == b'"' {
+            self.in_string = false;
+        }
+    }
+
+    fn step_structural(&mut self, byte: u8) -> Result<(), String> {
         match byte {
-            b'"' => in_string = true,
+            b'"' => self.in_string = true,
             b'{' | b'[' => {
-                depth = depth.saturating_add(1);
-                items = items.saturating_add(1);
-                if depth > MAX_HTTP_JSON_DEPTH {
+                self.depth = self.depth.saturating_add(1);
+                self.items = self.items.saturating_add(1);
+                if self.depth > MAX_HTTP_JSON_DEPTH {
                     return Err("federation: HTTP JSON nesting exceeds limit".to_string());
                 }
             }
             b'}' | b']' => {
-                depth = depth
+                self.depth = self
+                    .depth
                     .checked_sub(1)
                     .ok_or_else(|| "federation: invalid HTTP JSON response".to_string())?;
             }
-            b',' => items = items.saturating_add(1),
+            b',' => self.items = self.items.saturating_add(1),
             _ => {}
         }
-        if items > MAX_HTTP_JSON_ITEMS {
-            return Err("federation: HTTP JSON item count exceeds limit".to_string());
-        }
+        Ok(())
     }
-    if in_string || depth != 0 {
-        return Err("federation: invalid HTTP JSON response".to_string());
-    }
-    Ok(())
 }
 
 fn bounded_json_id(value: &serde_json::Value) -> Result<Option<String>, String> {
