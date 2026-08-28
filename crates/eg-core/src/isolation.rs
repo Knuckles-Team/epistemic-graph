@@ -2044,8 +2044,10 @@ mod tests {
                 let mut v = GraphView::default();
                 let idx = v.graph.add_node(case.name.to_string());
                 v.node_map.insert(case.name.to_string(), idx);
-                v.node_properties
-                    .insert(case.name.to_string(), std::sync::Arc::new(case.blob.clone()));
+                v.node_properties.insert(
+                    case.name.to_string(),
+                    std::sync::Arc::new(case.blob.clone()),
+                );
                 v
             }
 

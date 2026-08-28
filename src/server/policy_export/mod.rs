@@ -331,9 +331,7 @@ pub fn generate_bundle(input: &GenerateBundleInput) -> Result<PolicyBundle, Stri
 
     for (subject, roles) in &input.principals {
         if subject.trim().is_empty() {
-            return Err(
-                "policy bundle generation rejects an empty principal subject".to_string(),
-            );
+            return Err("policy bundle generation rejects an empty principal subject".to_string());
         }
         for role in roles {
             if role.trim().is_empty() {
@@ -408,7 +406,10 @@ fn compute_epoch(
 /// `server::dispatch`'s generic `Method` gate entirely and therefore needs its
 /// own explicit check; `Method::PolicyExport` relies on that generic gate
 /// (`policy:export` authz_action, see this module's doc) instead.
-fn is_admin_claims(roles: &std::collections::HashSet<String>, scopes: &std::collections::HashSet<String>) -> bool {
+fn is_admin_claims(
+    roles: &std::collections::HashSet<String>,
+    scopes: &std::collections::HashSet<String>,
+) -> bool {
     const ADMIN_TOKENS: [&str; 2] = ["*", "kg:admin"];
     ADMIN_TOKENS
         .iter()
@@ -448,10 +449,7 @@ mod http {
         let mut buf = Vec::new();
         let mut tmp = [0u8; 4096];
         let header_end = loop {
-            if let Some(pos) = buf
-                .windows(4)
-                .position(|window| window == b"\r\n\r\n")
-            {
+            if let Some(pos) = buf.windows(4).position(|window| window == b"\r\n\r\n") {
                 break pos;
             }
             let n = stream.read(&mut tmp).await.ok()?;
@@ -509,10 +507,11 @@ mod http {
         let _ = stream.shutdown().await;
     }
 
-    async fn handle(stream: &mut TcpStream, validator: Option<Arc<crate::server::oidc::JwtValidator>>) {
-        let Ok(Some(req)) =
-            tokio::time::timeout(READ_TIMEOUT, read_request(stream)).await
-        else {
+    async fn handle(
+        stream: &mut TcpStream,
+        validator: Option<Arc<crate::server::oidc::JwtValidator>>,
+    ) {
+        let Ok(Some(req)) = tokio::time::timeout(READ_TIMEOUT, read_request(stream)).await else {
             return;
         };
         if req.method != "GET" || req.path != "/policy/export" {
@@ -723,7 +722,10 @@ mod tests {
             bundle.principals.get("svc:planner").cloned(),
             Some(vec!["kg:read".to_string(), "kg:write".to_string()])
         );
-        let entry = bundle.markings.get("confidential").expect("marking present");
+        let entry = bundle
+            .markings
+            .get("confidential")
+            .expect("marking present");
         let predicate: MarkingPredicate =
             serde_json::from_str(&entry.predicate).expect("predicate decodes");
         assert_eq!(
@@ -890,7 +892,10 @@ mod tests {
             let mut keys = HashMap::new();
             let n = hex::decode(TEST_RSA_MODULUS_HEX).expect("modulus hex");
             let e = hex::decode(TEST_RSA_EXPONENT_HEX).expect("exponent hex");
-            keys.insert(KID.to_string(), DecodingKey::from_rsa_raw_components(&n, &e));
+            keys.insert(
+                KID.to_string(),
+                DecodingKey::from_rsa_raw_components(&n, &e),
+            );
             JwtValidator::from_parts(ISSUER, AUDIENCE, keys)
         }
 
@@ -973,7 +978,10 @@ mod tests {
             // Admin definition proof, against the SAME live claims: this
             // token carries neither `*` nor `kg:admin` in either roles or
             // scopes, so it is correctly NOT admin under this module's gate.
-            assert!(!is_admin_claims(&verified_claims.roles, &verified_claims.scopes));
+            assert!(!is_admin_claims(
+                &verified_claims.roles,
+                &verified_claims.scopes
+            ));
         }
 
         /// The `"*"` vs `kg:admin` asymmetry (module doc), proven against a

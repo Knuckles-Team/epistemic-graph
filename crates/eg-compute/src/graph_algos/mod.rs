@@ -76,7 +76,9 @@ pub use components::{strongly_connected_components, weakly_connected_components}
 pub use graph::AdjacencyGraph;
 pub use kcore::k_core;
 pub use label_propagation::{label_propagation, LabelPropagationConfig, LabelPropagationResult};
-pub use leiden::{leiden, leiden_hierarchy, HierarchyLevel, LeidenConfig, LeidenHierarchy, LeidenResult};
+pub use leiden::{
+    leiden, leiden_hierarchy, HierarchyLevel, LeidenConfig, LeidenHierarchy, LeidenResult,
+};
 pub use louvain::{louvain, LouvainConfig, LouvainResult};
 pub use pagerank::{pagerank, PageRankConfig, PageRankResult};
 pub use random_walk::{random_walk, RandomWalkConfig};

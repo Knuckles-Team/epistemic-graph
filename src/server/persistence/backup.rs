@@ -114,9 +114,9 @@ use crate::server::persistence::shard_migrate;
 // belongs in `copy_snapshot_verbatim` unconditionally, and the 2 GLOBAL (shard-0
 // homed, no graph key) tables belong in `copy_global_verbatim` next to
 // `MATVIEWS`/`XSHARD_*` — never per-graph-filtered, since they aren't per-graph data.
-use crate::redb_store::{capacity_lease, development_lane, work_item_capability};
 #[cfg(feature = "security")]
 use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+use crate::redb_store::{capacity_lease, development_lane, work_item_capability};
 #[cfg(feature = "matview")]
 use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
 use crate::redb_store::{
@@ -873,11 +873,10 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     // declared excluded — otherwise the manifest describes a scope it does not have.
     for name in manifest.bundled_stores.keys() {
         match super::durable_stores::lookup(name) {
-            Some(store)
-                if matches!(store.scope, super::durable_stores::BackupScope::Bundled) => {}
+            Some(store) if matches!(store.scope, super::durable_stores::BackupScope::Bundled) => {}
             _ => {
                 return Err(
-                    "backup manifest declares a store this build does not bundle".to_string()
+                    "backup manifest declares a store this build does not bundle".to_string(),
                 )
             }
         }
@@ -1584,11 +1583,11 @@ mod tests {
         use crate::redb_layout::shard_filename;
         #[cfg(feature = "security")]
         use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
-        #[cfg(feature = "matview")]
-        use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
         use crate::redb_store::{
             capacity_lease, development_lane, RESOURCE_RESERVATIONS, WORK_ITEM_COMMAND_SEQUENCE,
         };
+        #[cfg(feature = "matview")]
+        use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
 
         let root = std::env::temp_dir().join(format!("eg-backup-cx054-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);

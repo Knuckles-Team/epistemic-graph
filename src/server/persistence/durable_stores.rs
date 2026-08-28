@@ -258,7 +258,10 @@ mod tests {
     /// so `registry_covers_every_redb_store` can treat ANY other name as an
     /// unclassified new store and fail.
     const NOT_A_PERSIST_DIR_STORE: &[(&str, &str)] = &[
-        ("native.redb", "eg-mutation-store unit-test fixture (tempdir)"),
+        (
+            "native.redb",
+            "eg-mutation-store unit-test fixture (tempdir)",
+        ),
         ("coordinator.redb", "dispatch unit-test fixture (tempdir)"),
         ("compensation.redb", "dispatch unit-test fixture (tempdir)"),
         ("ts.redb", "eg-tsdb unit-test fixture (tempdir)"),
@@ -340,8 +343,10 @@ mod tests {
             names.len() > 5,
             "the source scan found almost nothing ({names:?}); it is not doing its job"
         );
-        let fixtures: std::collections::BTreeSet<&str> =
-            NOT_A_PERSIST_DIR_STORE.iter().map(|(name, _)| *name).collect();
+        let fixtures: std::collections::BTreeSet<&str> = NOT_A_PERSIST_DIR_STORE
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
         let unclassified: Vec<&String> = names
             .iter()
             .filter(|name| lookup(name).is_none() && !fixtures.contains(name.as_str()))

@@ -259,8 +259,7 @@ fn compute_idat_limit(width: u32, height: u32, channels: usize) -> Option<usize>
 }
 
 fn read_chunk_header(bytes: &[u8], position: usize) -> Option<(usize, [u8; 4], usize, usize)> {
-    let length =
-        u32::from_be_bytes(bytes.get(position..position + 4)?.try_into().ok()?) as usize;
+    let length = u32::from_be_bytes(bytes.get(position..position + 4)?.try_into().ok()?) as usize;
     let kind: [u8; 4] = bytes.get(position + 4..position + 8)?.try_into().ok()?;
     let data_start = position + 8;
     let data_end = data_start.checked_add(length)?;
@@ -327,7 +326,12 @@ fn parse_ihdr(data: &[u8]) -> Option<(u32, u32, u8, u8)> {
     Some((width, height, bit_depth, color_type))
 }
 
-fn validate_stream_complete(ended: bool, position: usize, bytes_len: usize, compressed_empty: bool) -> Option<()> {
+fn validate_stream_complete(
+    ended: bool,
+    position: usize,
+    bytes_len: usize,
+    compressed_empty: bool,
+) -> Option<()> {
     if !ended || position != bytes_len || compressed_empty {
         return None;
     }
@@ -379,10 +383,16 @@ fn finish_decode(
     compressed: &[u8],
 ) -> Option<DecodedImage> {
     validate_pixel_budget(width, height)?;
-    let (channels, color_space) = validate_color_layout_consistency(color_type, palette, transparency)?;
+    let (channels, color_space) =
+        validate_color_layout_consistency(color_type, palette, transparency)?;
     let (row_bytes, expected) = compute_scanline_geometry(width, height, channels)?;
     let inflated = inflate_scanlines(compressed, expected)?;
-    let raw = unfilter(&inflated, row_bytes, channels, usize::try_from(height).ok()?)?;
+    let raw = unfilter(
+        &inflated,
+        row_bytes,
+        channels,
+        usize::try_from(height).ok()?,
+    )?;
     let rgba = to_rgba(&raw, color_type, palette, transparency)?;
     let buffer = PixelBuffer {
         width,

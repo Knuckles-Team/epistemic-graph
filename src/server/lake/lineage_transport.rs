@@ -350,7 +350,8 @@ mod tests {
         assert!(KafkaTransport::from_env().is_none());
 
         std::env::set_var(KafkaTransport::ENV_BROKERS, "127.0.0.1:1");
-        let transport = KafkaTransport::from_env().expect("construction never requires connectivity");
+        let transport =
+            KafkaTransport::from_env().expect("construction never requires connectivity");
         let started = std::time::Instant::now();
         transport.push(&serde_json::json!({"run": {"runId": "r-unreachable"}}));
         assert!(
