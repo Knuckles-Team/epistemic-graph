@@ -2711,7 +2711,7 @@ impl GraphCore {
         #[cfg(feature = "result-cache")]
         let mut footprint = crate::dep_scope::WriteFootprint::default();
         #[cfg(feature = "result-cache")]
-        if !change.added_edges.is_empty() || !change.removed_edges.is_empty() {
+        if Self::change_touches_edges(change) {
             // The node-derived caches are untouched by a pure edge change, but a traversal query
             // depends on the edge set, so the clock must learn the edge dimension moved.
             footprint.edge_changed = true;
@@ -2723,73 +2723,21 @@ impl GraphCore {
 
         // ── ADDS: file the new id into the warm postings it belongs to. ──
         for nc in &change.added_nodes {
+            let val = self.node_props_value(&nc.id, nc.properties_msgpack.as_deref());
+            self.file_added_node(nc, val.as_ref(), target_version);
             #[cfg(feature = "result-cache")]
-            {
-                footprint.node_changed = true;
-            }
-            // perf/row-visibility-index: unlike the label/property postings below,
-            // `row_visibility` tolerates an undecodable blob internally (it returns
-            // `RowVisibility::default_public()`, the SAME value `can_see_node` would
-            // have produced for that node before this index existed) — so there is
-            // no "cannot target its postings" failure mode here and no need to drop
-            // the whole index on a decode failure. File unconditionally.
-            #[cfg(feature = "security")]
-            self.visibility_index_set(&nc.id, nc.properties_msgpack.as_deref(), target_version);
-            match self.node_props_value(&nc.id, nc.properties_msgpack.as_deref()) {
-                Some(val) => {
-                    self.label_index_add(&nc.id, &val, target_version);
-                    self.property_index_add(&nc.id, &val, target_version);
-                    #[cfg(feature = "result-cache")]
-                    collect_dep_footprint(&mut footprint, &val);
-                }
-                None => {
-                    // Cannot read the added node's content ⇒ cannot target its postings; drop.
-                    *self.label_index.write() = None;
-                    *self.property_index.write() = None;
-                    #[cfg(feature = "result-cache")]
-                    {
-                        footprint.coarse_node = true;
-                    }
-                }
-            }
-            *self.path_index.write() = None;
+            Self::note_added_node(&mut footprint, val.as_ref());
         }
 
         // ── REMOVES: unfile the id from the warm postings. ──
         for id in &change.removed_nodes {
-            #[cfg(feature = "result-cache")]
-            {
-                footprint.node_changed = true;
-            }
-            // perf/row-visibility-index: a flat `id -> RowVisibility` map needs no
-            // captured value to unfile — unlike the label/property postings (which
-            // need to know WHICH postings to remove `id` from), removal here is a
-            // single O(1) delete regardless of what the node's blob contained.
-            #[cfg(feature = "security")]
-            self.visibility_index_remove(id, target_version);
             let captured = change
                 .removed_node_props
                 .get(id)
                 .and_then(|blob| decode_property_value(blob).ok());
-            match &captured {
-                Some(val) => {
-                    self.label_index_remove(id, Some(val), target_version);
-                    self.property_index_remove(id, Some(val), target_version);
-                    #[cfg(feature = "result-cache")]
-                    collect_dep_footprint(&mut footprint, val);
-                }
-                None => {
-                    // Uncaptured removal: scan the warm postings for the id (sound; no blob decode)
-                    // and coarsely floor the clock (its labels/keys are unknown).
-                    self.label_index_remove(id, None, target_version);
-                    self.property_index_remove(id, None, target_version);
-                    #[cfg(feature = "result-cache")]
-                    {
-                        footprint.coarse_node = true;
-                    }
-                }
-            }
-            *self.path_index.write() = None;
+            self.unfile_removed_node(id, captured.as_ref(), target_version);
+            #[cfg(feature = "result-cache")]
+            Self::note_removed_node(&mut footprint, captured.as_ref());
         }
 
         // ── UPDATES (CAS): re-file the id for the changed label / property fields only. ──
@@ -2800,16 +2748,7 @@ impl GraphCore {
             }
             let Some(fields) = nc.changed_fields.as_ref() else {
                 // Unknown-scope update ⇒ drop the node-derived caches (fallback) + floor.
-                *self.label_index.write() = None;
-                *self.property_index.write() = None;
-                *self.path_index.write() = None;
-                // perf/row-visibility-index: an unknown-scope CAS could have touched
-                // an RLS key just as easily as any other — same conservative
-                // whole-index drop as the other node-derived caches above.
-                #[cfg(feature = "security")]
-                {
-                    *self.visibility_index.write() = None;
-                }
+                self.drop_node_derived_caches();
                 #[cfg(feature = "result-cache")]
                 {
                     footprint.coarse_node = true;
@@ -2817,41 +2756,178 @@ impl GraphCore {
                 continue;
             };
             let current = self.node_props_value(&nc.id, None);
-            if fields
-                .iter()
-                .any(|f| matches!(f.as_str(), "type" | "node_type" | "label" | "labels"))
-            {
-                self.label_index_refile(&nc.id, current.as_ref(), target_version);
-                #[cfg(feature = "result-cache")]
-                if let Some(val) = &current {
-                    footprint.labels.extend(labels_of(val));
-                }
-            }
-            self.property_index_refile(&nc.id, fields, current.as_ref(), target_version);
+            self.refile_updated_node(nc, fields, current.as_ref(), target_version);
             #[cfg(feature = "result-cache")]
-            footprint.keys.extend(fields.iter().cloned());
-            self.path_index_invalidate_for_fields(fields, target_version);
-            // perf/row-visibility-index: re-file ONLY when a changed field is one of
-            // the RLS keys `row_visibility` actually reads (EITHER naming
-            // convention — `crate::isolation::RowVisibility`'s doc) — a CAS that
-            // left every RLS key untouched cannot have changed the node's
-            // visibility decision, so the warm entry stays valid and is left alone
-            // (unlike label/property refiling above, which always re-files on ANY
-            // known field set because it must recompute regardless).
-            #[cfg(feature = "security")]
-            if fields.iter().any(|f| {
-                f == crate::isolation::RLS_OWNER_KEY
-                    || f == crate::isolation::RLS_VISIBILITY_KEY
-                    || f == crate::isolation::RLS_GRANTS_KEY
-                    || f == crate::isolation::RLS_OWNER_ID_KEY
-                    || f == crate::isolation::RLS_SHARED_SCOPE_KEY
-            }) {
-                self.visibility_index_set(&nc.id, None, target_version);
-            }
+            Self::note_updated_node(&mut footprint, fields, current.as_ref());
         }
 
         #[cfg(feature = "result-cache")]
         self.dep_clock.note_footprint(&footprint, target_version);
+    }
+
+    /// Did this change touch the edge set at all?
+    #[cfg(feature = "result-cache")]
+    fn change_touches_edges(change: &crate::index::ChangeSet) -> bool {
+        !change.added_edges.is_empty() || !change.removed_edges.is_empty()
+    }
+
+    /// File ONE added node into the warm node-derived postings. `val` is its
+    /// decoded blob, or `None` when it could not be read — in which case the
+    /// label/property postings cannot be targeted and are dropped wholesale.
+    fn file_added_node(
+        &self,
+        nc: &crate::index::NodeChange,
+        val: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        // perf/row-visibility-index: unlike the label/property postings below,
+        // `row_visibility` tolerates an undecodable blob internally (it returns
+        // `RowVisibility::default_public()`, the SAME value `can_see_node` would
+        // have produced for that node before this index existed) — so there is
+        // no "cannot target its postings" failure mode here and no need to drop
+        // the whole index on a decode failure. File unconditionally.
+        #[cfg(feature = "security")]
+        self.visibility_index_set(&nc.id, nc.properties_msgpack.as_deref(), target_version);
+        match val {
+            Some(val) => {
+                self.label_index_add(&nc.id, val, target_version);
+                self.property_index_add(&nc.id, val, target_version);
+            }
+            None => {
+                // Cannot read the added node's content ⇒ cannot target its postings; drop.
+                *self.label_index.write() = None;
+                *self.property_index.write() = None;
+            }
+        }
+        *self.path_index.write() = None;
+    }
+
+    /// The dependency-clock footprint of ONE added node.
+    #[cfg(feature = "result-cache")]
+    fn note_added_node(
+        footprint: &mut crate::dep_scope::WriteFootprint,
+        val: Option<&serde_json::Value>,
+    ) {
+        footprint.node_changed = true;
+        match val {
+            Some(val) => collect_dep_footprint(footprint, val),
+            None => footprint.coarse_node = true,
+        }
+    }
+
+    /// Unfile ONE removed node from the warm node-derived postings. `captured` is
+    /// the blob the change carried, or `None` for an uncaptured removal — the
+    /// maintainers then scan the warm postings for the id (sound; no blob decode).
+    fn unfile_removed_node(
+        &self,
+        id: &str,
+        captured: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        // perf/row-visibility-index: a flat `id -> RowVisibility` map needs no
+        // captured value to unfile — unlike the label/property postings (which
+        // need to know WHICH postings to remove `id` from), removal here is a
+        // single O(1) delete regardless of what the node's blob contained.
+        #[cfg(feature = "security")]
+        self.visibility_index_remove(id, target_version);
+        self.label_index_remove(id, captured, target_version);
+        self.property_index_remove(id, captured, target_version);
+        *self.path_index.write() = None;
+    }
+
+    /// The dependency-clock footprint of ONE removed node. An uncaptured removal
+    /// coarsely floors the clock (its labels/keys are unknown).
+    #[cfg(feature = "result-cache")]
+    fn note_removed_node(
+        footprint: &mut crate::dep_scope::WriteFootprint,
+        captured: Option<&serde_json::Value>,
+    ) {
+        footprint.node_changed = true;
+        match captured {
+            Some(val) => collect_dep_footprint(footprint, val),
+            None => footprint.coarse_node = true,
+        }
+    }
+
+    /// Unknown-scope CAS fallback: drop every node-derived cache.
+    fn drop_node_derived_caches(&self) {
+        *self.label_index.write() = None;
+        *self.property_index.write() = None;
+        *self.path_index.write() = None;
+        // perf/row-visibility-index: an unknown-scope CAS could have touched
+        // an RLS key just as easily as any other — same conservative
+        // whole-index drop as the other node-derived caches above.
+        #[cfg(feature = "security")]
+        {
+            *self.visibility_index.write() = None;
+        }
+    }
+
+    /// Re-file ONE known-scope CAS into the warm node-derived postings.
+    fn refile_updated_node(
+        &self,
+        nc: &crate::index::NodeChange,
+        fields: &[String],
+        current: Option<&serde_json::Value>,
+        target_version: u64,
+    ) {
+        if Self::changes_label_fields(fields) {
+            self.label_index_refile(&nc.id, current, target_version);
+        }
+        self.property_index_refile(&nc.id, fields, current, target_version);
+        self.path_index_invalidate_for_fields(fields, target_version);
+        // perf/row-visibility-index: re-file ONLY when a changed field is one of
+        // the RLS keys `row_visibility` actually reads (EITHER naming
+        // convention — `crate::isolation::RowVisibility`'s doc) — a CAS that
+        // left every RLS key untouched cannot have changed the node's
+        // visibility decision, so the warm entry stays valid and is left alone
+        // (unlike label/property refiling above, which always re-files on ANY
+        // known field set because it must recompute regardless).
+        #[cfg(feature = "security")]
+        if Self::changes_rls_keys(fields) {
+            self.visibility_index_set(&nc.id, None, target_version);
+        }
+    }
+
+    /// The dependency-clock footprint of ONE known-scope CAS. `footprint` is a
+    /// pure accumulator consumed once at the end of the sweep, so recording it
+    /// after the index re-file (rather than interleaved with it) is equivalent.
+    #[cfg(feature = "result-cache")]
+    fn note_updated_node(
+        footprint: &mut crate::dep_scope::WriteFootprint,
+        fields: &[String],
+        current: Option<&serde_json::Value>,
+    ) {
+        if Self::changes_label_fields(fields) {
+            if let Some(val) = current {
+                footprint.labels.extend(labels_of(val));
+            }
+        }
+        footprint.keys.extend(fields.iter().cloned());
+    }
+
+    /// Does this CAS touch a field the LABEL index is derived from? Any of them
+    /// forces a label re-file (the index cannot know which naming convention the
+    /// writer used).
+    fn changes_label_fields(fields: &[String]) -> bool {
+        fields
+            .iter()
+            .any(|f| matches!(f.as_str(), "type" | "node_type" | "label" | "labels"))
+    }
+
+    /// Does this CAS touch any RLS key that `row_visibility` actually reads
+    /// (EITHER naming convention — `crate::isolation::RowVisibility`'s doc)? A CAS
+    /// that left every RLS key untouched cannot have changed the node's visibility
+    /// decision, so its warm entry stays valid.
+    #[cfg(feature = "security")]
+    fn changes_rls_keys(fields: &[String]) -> bool {
+        fields.iter().any(|f| {
+            f == crate::isolation::RLS_OWNER_KEY
+                || f == crate::isolation::RLS_VISIBILITY_KEY
+                || f == crate::isolation::RLS_GRANTS_KEY
+                || f == crate::isolation::RLS_OWNER_ID_KEY
+                || f == crate::isolation::RLS_SHARED_SCOPE_KEY
+        })
     }
 
     /// Decode a node's CURRENT property blob (present after an add/update) to JSON, falling back
