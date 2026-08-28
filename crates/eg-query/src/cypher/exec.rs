@@ -1495,6 +1495,28 @@ struct BfsAccum {
 /// pushing newly-visited neighbours onto `next` and (once `depth >= min`, and
 /// excluding `src` itself — see [`bfs_reachable`]'s doc on the undirected-hop
 /// self-revisit) newly-reached ids onto `accum.out`.
+/// Record one confirmed neighbour: mark it visited (queuing it onto `next` the
+/// first time), and — once `depth >= min`, excluding `src` itself (see
+/// [`bfs_reachable`]'s doc on the undirected-hop self-revisit) — add its id to the
+/// reached set.
+fn bfs_record_neighbor(
+    ctx: &BfsCtx<'_>,
+    nbr: petgraph::stable_graph::NodeIndex,
+    depth: usize,
+    accum: &mut BfsAccum,
+    next: &mut Vec<petgraph::stable_graph::NodeIndex>,
+) {
+    if accum.visited.insert(nbr) {
+        next.push(nbr);
+    }
+    if depth >= ctx.min && nbr != ctx.src_idx {
+        let nbr_id = ctx.view.graph[nbr].clone();
+        if accum.reached.insert(nbr_id.clone()) {
+            accum.out.push(nbr_id);
+        }
+    }
+}
+
 fn bfs_expand_node(
     ctx: &BfsCtx<'_>,
     node: petgraph::stable_graph::NodeIndex,
@@ -1514,15 +1536,7 @@ fn bfs_expand_node(
             if !rel_matches(ctx.view, from_id, to_id, ctx.edge.rel_type.as_deref()) {
                 continue;
             }
-            if accum.visited.insert(nbr) {
-                next.push(nbr);
-            }
-            if depth >= ctx.min && nbr != ctx.src_idx {
-                let nbr_id = ctx.view.graph[nbr].clone();
-                if accum.reached.insert(nbr_id.clone()) {
-                    accum.out.push(nbr_id);
-                }
-            }
+            bfs_record_neighbor(ctx, nbr, depth, accum, next);
         }
     }
 }
