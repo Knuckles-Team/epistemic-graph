@@ -2888,16 +2888,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// CX-EG-10 BUG PIN (do not "fix" by widening -- see BUGS FOUND in
+    /// BUG-CX-016, FIXED (was a CX-EG-10 BUG PIN -- see BUGS FOUND in
     /// `plans/complex/lane-reports/CX-EG-10.md`): `provenance_anchor_members`
     /// (graph-scoped, feature `security`) and `plan_matviews` /
     /// `matview_operator_state` (global, `shard0()`-homed, feature `matview`) live
-    /// in the SAME `graph-<n>.redb` shard files as `nodes`/`audit_chain`, but
-    /// `migrate_shards`/`copy_global_tables` never import or route them, so a
-    /// K-shard migration silently drops them while every table the function DOES
-    /// know about survives. `NODES` is asserted as the differential control.
+    /// in the SAME `graph-<n>.redb` shard files as `nodes`/`audit_chain`.
+    /// `migrate_shards`/`copy_global_tables` now route all three (WD3-BUG-01:
+    /// `copy_provenance_anchor_members_for_source` +
+    /// `copy_plan_matviews_for_source`/`copy_matview_operator_state_for_source`), so a
+    /// K-shard migration carries them across exactly like `nodes`/`audit_chain` do.
+    /// `NODES` stays asserted as the differential control. Confirmed FAILING before this
+    /// fix (`anchors_after`/`plan_matviews_after`/`matview_state_after` were all `0`,
+    /// the assertions below now-inverted) against the unmodified `migrate_shards`.
     #[tokio::test(flavor = "multi_thread")]
-    async fn migration_silently_drops_provenance_anchor_and_matview_state() {
+    async fn migration_preserves_provenance_anchor_and_matview_state() {
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -3003,8 +3007,8 @@ mod tests {
                 })
                 .sum();
             assert_eq!(
-                anchors_after, 0,
-                "BUG: provenance_anchor_members is silently dropped by migrate_shards"
+                anchors_after, 1,
+                "FIXED (BUG-CX-016): provenance_anchor_members now survives migrate_shards"
             );
         }
         #[cfg(feature = "matview")]
@@ -3013,8 +3017,8 @@ mod tests {
                 .map(|i| table_row_count(&dst.join(format!("graph-{i}.redb")), PLAN_MATVIEWS))
                 .sum();
             assert_eq!(
-                plan_matviews_after, 0,
-                "BUG: plan_matviews is silently dropped by migrate_shards / copy_global_tables"
+                plan_matviews_after, 1,
+                "FIXED (BUG-CX-016): plan_matviews now survives migrate_shards / copy_global_tables"
             );
             let matview_state_after: usize = (0..2)
                 .map(|i| {
@@ -3022,10 +3026,142 @@ mod tests {
                 })
                 .sum();
             assert_eq!(
-                matview_state_after, 0,
-                "BUG: matview_operator_state is silently dropped by migrate_shards / copy_global_tables"
+                matview_state_after, 1,
+                "FIXED (BUG-CX-016): matview_operator_state now survives migrate_shards / copy_global_tables"
             );
         }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Insert one raw row directly into `table` for `graph`, bypassing every request/
+    /// validation path — the same "seed the durable table, not the API" technique
+    /// `table_row_count` already uses for reads. `key_tail` is whatever the table's key
+    /// needs after the leading graph element (a 2-tuple key passes `&[]`, more elements
+    /// are simulated by folding extra `&str` segments into one synthetic component,
+    /// since every routing decision this test cares about only inspects the FIRST key
+    /// element — the same contract `shard_index` and every `copy_*_for_source` function
+    /// in this file relies on).
+    fn seed_raw_two_tuple_row(
+        shard_path: &std::path::Path,
+        table: redb::TableDefinition<(&str, &str), &[u8]>,
+        graph: &str,
+        second_key: &str,
+        value: &[u8],
+    ) {
+        let db = Database::open(shard_path).expect("open shard for raw seed");
+        let wtx = db.begin_write().expect("begin write");
+        {
+            let mut t = wtx.open_table(table).expect("open table for raw seed");
+            t.insert((graph, second_key), value)
+                .expect("insert raw seed row");
+        }
+        wtx.commit().expect("commit raw seed row");
+    }
+
+    /// BUG-CX-054 (RESOURCE_*/development_lane/NATIVE_WORK_ITEMS) plus the two
+    /// undocumented gaps this lane's mechanical table inventory found in the SAME
+    /// class (capacity_lease, the remaining work_item_capability tables): one
+    /// representative table per subsystem, seeded directly (raw redb, bypassing the
+    /// request APIs those subsystems would otherwise require), migrated K=1 -> K=2, and
+    /// confirmed present afterward. Each of these tables has its own dedicated
+    /// `copy_*_for_source` unit and is exercised individually by `cargo check`'s type
+    /// checking (a key-shape or table-name transcription error fails to compile), but a
+    /// wrong FIELD ORDER within a correctly-typed tuple would still compile — this test
+    /// is the semantic check compilation cannot provide, across all four new subsystems
+    /// in one migration run.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn migration_preserves_resource_lane_capacity_and_capability_tables() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "eg-migrate-cx054-tables-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("src");
+        let dst = root.join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+        let src_s = src.to_string_lossy().to_string();
+
+        let backend = RedbBackend::open(src_s.clone(), DurabilityPolicy::Each, 256)
+            .expect("open K=1 backend");
+        backend
+            .register_graph("g", "g", GraphType::Global)
+            .await
+            .expect("register");
+        backend.shutdown();
+
+        let shard0 = src.join("graph-0.redb");
+        seed_raw_two_tuple_row(&shard0, RESOURCE_RESERVATIONS, "g", "r1", b"reservation");
+        seed_raw_two_tuple_row(&shard0, development_lane::HOLDS, "g", "h1", b"hold");
+        seed_raw_two_tuple_row(&shard0, capacity_lease::CELLS, "g", "c1", b"cell");
+        seed_raw_two_tuple_row(
+            &shard0,
+            work_item_capability::CAPABILITIES,
+            "g",
+            "digest1",
+            b"capability",
+        );
+        seed_raw_two_tuple_row(
+            &shard0,
+            work_item_capability::NATIVE_WORK_ITEMS,
+            "g",
+            "wi1",
+            b"native-work-item",
+        );
+
+        // Sanity: every seeded row landed in the source before migration.
+        assert_eq!(table_row_count(&shard0, RESOURCE_RESERVATIONS), 1);
+        assert_eq!(table_row_count(&shard0, development_lane::HOLDS), 1);
+        assert_eq!(table_row_count(&shard0, capacity_lease::CELLS), 1);
+        assert_eq!(
+            table_row_count(&shard0, work_item_capability::CAPABILITIES),
+            1
+        );
+        assert_eq!(
+            table_row_count(&shard0, work_item_capability::NATIVE_WORK_ITEMS),
+            1
+        );
+
+        let report = migrate_shards(&src, &dst, 2).expect("migrate K=1 -> K=2");
+        assert_eq!(report.graphs, 1);
+        assert_eq!(
+            report.capability_and_resource, 5,
+            "all 5 seeded rows counted under the new coverage bucket"
+        );
+
+        let after = |def: redb::TableDefinition<(&str, &str), &[u8]>| -> usize {
+            (0..2)
+                .map(|i| table_row_count(&dst.join(format!("graph-{i}.redb")), def))
+                .sum()
+        };
+        assert_eq!(
+            after(RESOURCE_RESERVATIONS),
+            1,
+            "resource_reservations survives migrate_shards (BUG-CX-054)"
+        );
+        assert_eq!(
+            after(development_lane::HOLDS),
+            1,
+            "development_lane_holds survives migrate_shards (BUG-CX-054)"
+        );
+        assert_eq!(
+            after(capacity_lease::CELLS),
+            1,
+            "capacity_cells survives migrate_shards (undocumented gap, same class as BUG-CX-054)"
+        );
+        assert_eq!(
+            after(work_item_capability::CAPABILITIES),
+            1,
+            "work_item_claim_capabilities survives migrate_shards (undocumented gap, same class as BUG-CX-054)"
+        );
+        assert_eq!(
+            after(work_item_capability::NATIVE_WORK_ITEMS),
+            1,
+            "native_work_item_authority survives migrate_shards (BUG-CX-054)"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
