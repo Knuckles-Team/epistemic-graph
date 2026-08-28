@@ -3564,17 +3564,18 @@ fn apply_set(
     Ok(())
 }
 
-/// `REMOVE v.prop | v:Label [, …]`: delete a property or remove a label from the
-/// bound node (CONCEPT:EG-KG.query.cypher-execution). A read-modify-write over the engine's field map: read
-/// the node blob, drop the field / label, write the blob back via `add_node` (which
-/// replaces an existing node's properties in place).
-fn apply_remove(
-    core: &GraphCore,
-    binding: &Binding,
-    items: &[RemoveItem],
-    mutated: &mut bool,
-) -> Result<(), String> {
-    // Group removals per target variable so each node is rewritten once.
+/// [`group_remove_items`]'s output: each REMOVE item's target variable, bucketed
+/// into the properties and labels to drop from it, in first-seen variable order —
+/// a named struct instead of a 3-tuple so the return type stays simple.
+struct RemoveGroups<'a> {
+    props_by_var: HashMap<&'a str, Vec<&'a str>>,
+    labels_by_var: HashMap<&'a str, Vec<&'a str>>,
+    order: Vec<&'a str>,
+}
+
+/// Group [`apply_remove`]'s items by target variable, in first-seen order, so
+/// each node is rewritten once.
+fn group_remove_items(items: &[RemoveItem]) -> RemoveGroups<'_> {
     let mut props_by_var: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut labels_by_var: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut order: Vec<&str> = Vec::new();
@@ -3594,36 +3595,73 @@ fn apply_remove(
             }
         }
     }
+    RemoveGroups {
+        props_by_var,
+        labels_by_var,
+        order,
+    }
+}
 
-    for var in order {
-        let id = binding
-            .get(var)
-            .ok_or_else(|| format!("REMOVE refers to unbound variable `{var}`"))?;
-        let blob = core
-            .get_node_properties(id)
-            .ok_or_else(|| format!("REMOVE on absent node `{var}` ({id})"))?;
-        let mut val = eg_types::msgpack::decode_property_value(&blob)
-            .map_err(|_| format!("decode node `{id}` failed"))?;
-        let Some(obj) = val.as_object_mut() else {
-            continue;
-        };
-        let mut changed = false;
-        for prop in props_by_var.get(var).into_iter().flatten() {
-            if obj.remove(*prop).is_some() {
-                changed = true;
-            }
+/// Apply [`apply_remove`]'s grouped property/label removals for one target
+/// variable's bound node: a read-modify-write over the engine's field map — read
+/// the node blob, drop each field/label, write the blob back via `add_node`
+/// (which replaces an existing node's properties in place) iff anything actually
+/// changed.
+fn apply_remove_for_var(
+    core: &GraphCore,
+    binding: &Binding,
+    var: &str,
+    props: &[&str],
+    labels: &[&str],
+    mutated: &mut bool,
+) -> Result<(), String> {
+    let id = binding
+        .get(var)
+        .ok_or_else(|| format!("REMOVE refers to unbound variable `{var}`"))?;
+    let blob = core
+        .get_node_properties(id)
+        .ok_or_else(|| format!("REMOVE on absent node `{var}` ({id})"))?;
+    let mut val = eg_types::msgpack::decode_property_value(&blob)
+        .map_err(|_| format!("decode node `{id}` failed"))?;
+    let Some(obj) = val.as_object_mut() else {
+        return Ok(());
+    };
+    let mut changed = false;
+    for prop in props {
+        if obj.remove(*prop).is_some() {
+            changed = true;
         }
-        for label in labels_by_var.get(var).into_iter().flatten() {
-            if remove_label(obj, label) {
-                changed = true;
-            }
+    }
+    for label in labels {
+        if remove_label(obj, label) {
+            changed = true;
         }
-        if changed {
-            let reenc =
-                rmp_serde::to_vec_named(&val).map_err(|e| format!("encode node `{id}`: {e}"))?;
-            core.add_node(id.clone(), reenc);
-            *mutated = true;
-        }
+    }
+    if changed {
+        let reenc =
+            rmp_serde::to_vec_named(&val).map_err(|e| format!("encode node `{id}`: {e}"))?;
+        core.add_node(id.clone(), reenc);
+        *mutated = true;
+    }
+    Ok(())
+}
+
+/// `REMOVE v.prop | v:Label [, …]`: delete a property or remove a label from the
+/// bound node (CONCEPT:EG-KG.query.cypher-execution). A read-modify-write over the engine's field map: read
+/// the node blob, drop the field / label, write the blob back via `add_node` (which
+/// replaces an existing node's properties in place).
+fn apply_remove(
+    core: &GraphCore,
+    binding: &Binding,
+    items: &[RemoveItem],
+    mutated: &mut bool,
+) -> Result<(), String> {
+    let groups = group_remove_items(items);
+    let empty: Vec<&str> = Vec::new();
+    for var in groups.order {
+        let props = groups.props_by_var.get(var).unwrap_or(&empty);
+        let labels = groups.labels_by_var.get(var).unwrap_or(&empty);
+        apply_remove_for_var(core, binding, var, props, labels, mutated)?;
     }
     Ok(())
 }
