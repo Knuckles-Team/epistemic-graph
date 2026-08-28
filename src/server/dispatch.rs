@@ -10922,281 +10922,384 @@ struct DispatchPipelineCtx<'a> {
     tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
 }
 
-async fn run_dispatch_pipeline(ctx: DispatchPipelineCtx<'_>, method: Method) -> Response {
-    let DispatchPipelineCtx {
+/// Stage 1: the universal mutation gateway, then the per-graph write
+/// coalescer, then the stateless pure-compute domains.
+///
+/// Returns `Err(method)` for a method this stage does not own, so the
+/// pipeline can offer it to the next stage; the terminal graph-op handler
+/// owns the catch-all.
+#[allow(unused_variables)]
+async fn route_gateway_and_stateless_domains(
+    ctx: &DispatchPipelineCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let caller = ctx.caller;
+    let read_authority = &ctx.read_authority;
+    let tenant_scope: &str = &ctx.tenant_scope;
+    let gateway_authz_ctx = &ctx.gateway_authz_ctx;
+    let core = &ctx.core;
+    let materialization_manifest = &ctx.materialization_manifest;
+    let persistence = &ctx.persistence;
+    #[cfg(feature = "streaming")]
+    let cdc = &ctx.cdc;
+    let write_coalescer = &ctx.write_coalescer;
+    let routed_write_coalescer = &ctx.routed_write_coalescer;
+    #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
+    let tsdb_store = &ctx.tsdb_store;
+    // Mutation-gateway routing (CONCEPT:EG-P0-2): the primary CRUD + agent-
+    // memory writes (`mutation::GATEWAY_ROUTED`) are routed through the
+    // single `commit_mutation` gateway — policy-driven authz, durability,
+    // audit, CDC, and TMS in ONE call. Native stores use their own explicit
+    // MutationBatch kernels. There is no second post-dispatch durability tail.
+    let method = match handlers::graph_ops::try_handle_gateway(
+        req_id,
+        caller,
+        tenant_scope,
+        graph_name,
+        core,
+        materialization_manifest.as_ref(),
+        read_authority.as_ref(),
+        persistence.as_ref(),
+        #[cfg(feature = "streaming")]
+        cdc.as_ref(),
+        Some(routed_write_coalescer),
+        gateway_authz_ctx.as_ref(),
+        #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
+        tsdb_store.as_ref(),
+        method,
+    )
+    .await
+    {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): the five high-frequency
+    // single-op writes are batched onto this graph's writer so M concurrent
+    // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
+    // below still owns dirty/durability/gauge off the returned Response, so durability
+    // and checkpoint semantics are unchanged — only WHERE the lock is taken
+    // moved. On a full queue the coalescer returns BUSY before any RAM or
+    // durable side effect, preserving the queue's declared order.
+    let method = match try_coalesce_write(req_id, write_coalescer, graph_name, core, method).await {
+        Ok(resp) => return Ok(resp),
+        Err(m) => m,
+    };
+    // Pure-compute domains (stateless: no graph core / lock) route first; a
+    // method that isn't theirs is handed back via Err and falls through to the
+    // graph-op match below. (CONCEPT:EG-KG.query.dispatch-routing — thin routing; logic in handlers/.)
+    // Feature-gated: in a slim build the line is absent and the method flows
+    // straight through to graph_ops (whose catch-all reports "not available").
+    #[cfg(feature = "finance")]
+    let method = match handlers::finance::try_handle(req_id, method) {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    // Native TTS synthesis (GOC-34, `OWNER-VOICE-TTS`): stateless, like finance
+    // above. `caller` is already the verified eg2-authenticated principal in
+    // scope at this point — see `handlers::tts`'s own doc for exactly how (and
+    // how far) that maps to the frozen contract's `PolicyDecision`.
+    #[cfg(feature = "tts-piper")]
+    let method = match handlers::tts::try_handle(req_id, caller, method) {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    Err(method)
+}
+
+/// Stage 2: the graph-scoped compute domains — data science, mining,
+/// graph learning and the ML pipeline read verbs.
+///
+/// Returns `Err(method)` for a method this stage does not own, so the
+/// pipeline can offer it to the next stage; the terminal graph-op handler
+/// owns the catch-all.
+#[allow(unused_variables)]
+async fn route_graph_scoped_domains(
+    ctx: &DispatchPipelineCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let read_authority = &ctx.read_authority;
+    let core = &ctx.core;
+    #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
+    let tsdb_store = &ctx.tsdb_store;
+    #[cfg(feature = "datascience")]
+    let method = match handlers::datascience::try_handle(req_id, method) {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    // Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): GRAPH-SCOPED
+    // (unlike finance/datascience), so it takes the graph core — the graph-derived
+    // transaction source reads node neighborhoods and write-back materializes
+    // `:AssociationRule` nodes into it. A method whose feature is off falls through
+    // to the graph_ops not-available catch-all.
+    #[cfg(feature = "mining")]
+    let method = match handlers::mining::try_handle(
+        req_id,
+        core.clone(),
+        read_authority.as_ref(),
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        graph_name,
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb_store.as_ref(),
+        method,
+    ) {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    // Graph-learning domain (CONCEPT:EG-KG.graphlearn.link-predictor): GRAPH-SCOPED
+    // like mining — the KAN link-predictor reads the live subgraph and write-back
+    // materializes `:PredictedEdge`/`:EdgeFunction` nodes into the core. A method
+    // whose feature is off falls through to the graph_ops not-available catch-all.
+    #[cfg(feature = "graphlearn")]
+    let method = match handlers::graphlearn::try_handle(req_id, core.clone(), method) {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): the READ verbs
+    // (Evaluate/Compare) route here with the graph core; Train/Serve/Predict are
+    // GATEWAY_ROUTED (writeback) and never reach this fallback. A build without
+    // `ml-pipeline` omits this line.
+    #[cfg(feature = "ml-pipeline")]
+    let method =
+        match handlers::pipeline::try_handle(req_id, core.clone(), read_authority.as_ref(), method)
+        {
+            Ok(r) => return Ok(r),
+            Err(m) => m,
+        };
+    Err(method)
+}
+
+/// Stage 3: the runtime-conditional query and native-RDF gateways.
+///
+/// Returns `Err(method)` for a method this stage does not own, so the
+/// pipeline can offer it to the next stage; the terminal graph-op handler
+/// owns the catch-all.
+#[allow(unused_variables)]
+async fn route_query_and_rdf_surfaces(
+    ctx: &DispatchPipelineCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let caller = ctx.caller;
+    let read_authority = &ctx.read_authority;
+    let verified_actor = ctx.verified_actor;
+    let tenant_scope: &str = &ctx.tenant_scope;
+    let gateway_authz_ctx = &ctx.gateway_authz_ctx;
+    let core = &ctx.core;
+    let materialization_manifest = &ctx.materialization_manifest;
+    let persistence = &ctx.persistence;
+    #[cfg(feature = "streaming")]
+    let cdc = &ctx.cdc;
+    #[cfg(feature = "security")]
+    let rls = &ctx.rls;
+    // Read-only query surface — SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind
+    // `query`) AND Cypher (CONCEPT:EG-KG.query.dep-free-behind, dep-free behind `cypher`) AND GraphQL
+    // (CONCEPT:EG-KG.query.sparql-completeness, pure-Rust eg-graphql behind `graphql`): borrows the graph
+    // core for an off-lock snapshot, runs on the blocking pool. Gated on ANY of the
+    // three features so CypherQuery still routes in a cypher-only (no-DataFusion) Pi
+    // build and GraphQl routes in a graphql build; the handler's per-method arm
+    // falls through (Err) when ITS feature is off, so Sql/CypherQuery/GraphQl then
+    // reach the graph_ops not-available catch-all. GraphQL — like SQL/Cypher/SPARQL
+    // — runs UNDER the SAME RLS-aware result-cache compose (`caller`/`&rls` threaded
+    // in, the cache key folds the caller's RLS context, the snapshot is RLS-filtered
+    // to the caller) so a GraphQL read NEVER leaks across agents. Slim builds with
+    // NONE of the three omit this line.
+    //
+    // Runtime-conditional query gateway (CONCEPT:EG-P0-2, L11): `Sql`/
+    // `CypherQuery`/`GraphQl` are `mutation::GATEWAY_ROUTED`, but their execution
+    // is `async` and needs `state`/`rls`, so they are routed HERE (not at the
+    // graph-ops `try_handle_gateway`, which hands them back). The SAME runtime
+    // parse `access::requires_write` uses decides whether THIS statement mutates:
+    // a SQL write / Cypher `CREATE|SET|DELETE` / GraphQL `mutation` → the full
+    // Write-authz commit; a `SELECT` / read-only Cypher / GraphQL `query` → a
+    // Read-authz passthrough with no durability/audit/CDC. Every OTHER query
+    // method (`UnifiedQuery`/`Explain*`/`Txn*Query`) is a pure read handled by
+    // the unchanged direct call in the `else` arm.
+    #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+    let method = match route_query_gateway(
+        GatewayRouteCtx {
+            state,
+            req_id,
+            graph_name,
+            caller,
+            tenant_scope: tenant_scope,
+            core: core.clone(),
+            persistence: persistence.clone(),
+            #[cfg(feature = "streaming")]
+            cdc: cdc.clone(),
+            materialization_manifest: materialization_manifest.clone(),
+            gateway_authz_ctx: gateway_authz_ctx,
+            read_authority: read_authority,
+            verified_actor,
+            #[cfg(feature = "security")]
+            rls: rls.clone(),
+        },
+        method,
+    )
+    .await
+    {
+        Ok(resp) => return Ok(resp),
+        Err(m) => m,
+    };
+    // Native RDF/SPARQL surface (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql/218, features `rdf`/`sparql`):
+    // AddTriples (durable — the shell below records it like any write),
+    // GetRdf + Sparql (read-only, off-lock snapshot). Graph-scoped, so the
+    // handler takes the graph core + name. Multi-valued literals are embedded
+    // losslessly in that graph image. Gated on `rdf`; a method whose feature is
+    // off falls through (Err) to the graph_ops not-available catch-all.
+    //
+    // Native-RDF write gateway (CONCEPT:EG-P0-2, L11): `AddTriples`/
+    // `RemoveTriples`/`DropNamedGraph` are `mutation::GATEWAY_ROUTED` (GraphRedb-
+    // durable, audited), routed HERE (not at `try_handle_gateway`) because their
+    // handler is async and also performs RDF policy validation. They always
+    // mutate (`mutates_now = true`), so `commit_conditional_mutation_async` runs
+    // the full Write-authz + durable audit-chain commit; the read-only
+    // RDF methods (`GetRdf`/`Sparql`/`ShaclValidate`/…) take the unchanged direct
+    // call in the `else` arm.
+    #[cfg(feature = "rdf")]
+    let method = match route_rdf_gateway(
+        GatewayRouteCtx {
+            state,
+            req_id,
+            graph_name,
+            caller,
+            tenant_scope: tenant_scope,
+            core: core.clone(),
+            persistence: persistence.clone(),
+            #[cfg(feature = "streaming")]
+            cdc: cdc.clone(),
+            materialization_manifest: materialization_manifest.clone(),
+            gateway_authz_ctx: gateway_authz_ctx,
+            read_authority: read_authority,
+            verified_actor,
+            #[cfg(feature = "security")]
+            rls: rls.clone(),
+        },
+        method,
+    )
+    .await
+    {
+        Ok(resp) => return Ok(resp),
+        Err(m) => m,
+    };
+    Err(method)
+}
+
+/// Stage 4: the process-global domains — sandboxed UDFs, query federation
+/// and distributed compute.
+///
+/// Returns `Err(method)` for a method this stage does not own, so the
+/// pipeline can offer it to the next stage; the terminal graph-op handler
+/// owns the catch-all.
+#[allow(unused_variables)]
+async fn route_process_global_domains(
+    ctx: &DispatchPipelineCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let caller = ctx.caller;
+    let read_authority = &ctx.read_authority;
+    // WASM-sandboxed UDF surface (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`):
+    // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
+    // caps) — both off-reactor. Process-global (not graph-scoped), so it takes
+    // `state` for the UdfRegistry. A method whose feature is off falls through.
+    #[cfg(feature = "wasm-udf")]
+    let method = match handlers::wasm_udf::try_handle(state, req_id, method).await {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    // Query federation (CONCEPT:EG-KG.query.query-federation, feature `federation`):
+    // RegisterForeignSource records a named foreign source on ServerState. The
+    // `Op::ForeignScan` op itself runs through the unified-query handler above
+    // (inline spec). Process-global, so it takes `state`. A method whose feature
+    // is off falls through to the graph_ops not-available catch-all.
+    #[cfg(feature = "federation")]
+    let method = match handlers::federation::try_handle(state, req_id, method).await {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    // Distributed graph compute (CONCEPT:EG-KG.storage.feature, feature `compute-dist`):
+    // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
+    // `state` (it gathers each shard graph's snapshot from the registry).
+    #[cfg(any(feature = "compute-dist", feature = "matview"))]
+    let method = match handlers::dist_compute::try_handle(
         state,
         req_id,
-        graph_name,
         caller,
+        read_authority.as_ref(),
+        method,
+    )
+    .await
+    {
+        Ok(r) => return Ok(r),
+        Err(m) => m,
+    };
+    Err(method)
+}
+
+/// The gateway/compute half of the routing pipeline.
+async fn route_pipeline_compute(
+    ctx: &DispatchPipelineCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let method = match route_gateway_and_stateless_domains(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    route_graph_scoped_domains(ctx, method).await
+}
+
+/// The query-surface / process-global half of the routing pipeline.
+async fn route_pipeline_surfaces(
+    ctx: &DispatchPipelineCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let method = match route_query_and_rdf_surfaces(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    route_process_global_domains(ctx, method).await
+}
+
+/// Route one already-authorized graph operation through the dispatch pipeline.
+///
+/// The single thirteen-step `'dispatch:` block this replaced is now four stages
+/// tried in order, each handing back a method it does not own. Stage order is
+/// unchanged, so the gateway still sees every routed mutation first and the
+/// terminal graph-op handler still owns the catch-all.
+async fn run_dispatch_pipeline(ctx: DispatchPipelineCtx<'_>, method: Method) -> Response {
+    let method = match route_pipeline_compute(&ctx, method).await {
+        Ok(response) => return response,
+        Err(method) => method,
+    };
+    let method = match route_pipeline_surfaces(&ctx, method).await {
+        Ok(response) => return response,
+        Err(method) => method,
+    };
+    // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
+    // re-enter the registry via `state`). Owns the catch-all, returns a Response.
+    let Some(read_authority) = ctx.read_authority.as_ref() else {
+        return Response::err(
+            ctx.req_id,
+            "mutation escaped the universal mutation gateway before terminal dispatch",
+        );
+    };
+    handlers::graph_ops::try_handle(
+        ctx.state,
+        ctx.req_id,
+        ctx.caller,
+        ctx.graph_name,
         read_authority,
-        verified_actor,
-        tenant_scope,
-        gateway_authz_ctx,
-        core,
-        materialization_manifest,
-        persistence,
-        #[cfg(feature = "streaming")]
-        cdc,
-        write_coalescer,
-        routed_write_coalescer,
-        #[cfg(feature = "security")]
-        rls,
-        #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
-        tsdb_store,
-    } = ctx;
-    'dispatch: {
-        // Mutation-gateway routing (CONCEPT:EG-P0-2): the primary CRUD + agent-
-        // memory writes (`mutation::GATEWAY_ROUTED`) are routed through the
-        // single `commit_mutation` gateway — policy-driven authz, durability,
-        // audit, CDC, and TMS in ONE call. Native stores use their own explicit
-        // MutationBatch kernels. There is no second post-dispatch durability tail.
-        let method = match handlers::graph_ops::try_handle_gateway(
-            req_id,
-            caller,
-            &tenant_scope,
-            graph_name,
-            &core,
-            materialization_manifest.as_ref(),
-            read_authority.as_ref(),
-            persistence.as_ref(),
-            #[cfg(feature = "streaming")]
-            cdc.as_ref(),
-            Some(&routed_write_coalescer),
-            gateway_authz_ctx.as_ref(),
-            #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
-            tsdb_store.as_ref(),
-            method,
-        )
-        .await
-        {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): the five high-frequency
-        // single-op writes are batched onto this graph's writer so M concurrent
-        // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
-        // below still owns dirty/durability/gauge off the returned Response, so durability
-        // and checkpoint semantics are unchanged — only WHERE the lock is taken
-        // moved. On a full queue the coalescer returns BUSY before any RAM or
-        // durable side effect, preserving the queue's declared order.
-        let method =
-            match try_coalesce_write(req_id, &write_coalescer, graph_name, &core, method).await {
-                Ok(resp) => break 'dispatch resp,
-                Err(m) => m,
-            };
-        // Pure-compute domains (stateless: no graph core / lock) route first; a
-        // method that isn't theirs is handed back via Err and falls through to the
-        // graph-op match below. (CONCEPT:EG-KG.query.dispatch-routing — thin routing; logic in handlers/.)
-        // Feature-gated: in a slim build the line is absent and the method flows
-        // straight through to graph_ops (whose catch-all reports "not available").
-        #[cfg(feature = "finance")]
-        let method = match handlers::finance::try_handle(req_id, method) {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Native TTS synthesis (GOC-34, `OWNER-VOICE-TTS`): stateless, like finance
-        // above. `caller` is already the verified eg2-authenticated principal in
-        // scope at this point — see `handlers::tts`'s own doc for exactly how (and
-        // how far) that maps to the frozen contract's `PolicyDecision`.
-        #[cfg(feature = "tts-piper")]
-        let method = match handlers::tts::try_handle(req_id, caller, method) {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        #[cfg(feature = "datascience")]
-        let method = match handlers::datascience::try_handle(req_id, method) {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): GRAPH-SCOPED
-        // (unlike finance/datascience), so it takes the graph core — the graph-derived
-        // transaction source reads node neighborhoods and write-back materializes
-        // `:AssociationRule` nodes into it. A method whose feature is off falls through
-        // to the graph_ops not-available catch-all.
-        #[cfg(feature = "mining")]
-        let method = match handlers::mining::try_handle(
-            req_id,
-            core.clone(),
-            read_authority.as_ref(),
-            #[cfg(all(feature = "query", feature = "tsdb"))]
-            graph_name,
-            #[cfg(all(feature = "query", feature = "tsdb"))]
-            tsdb_store.as_ref(),
-            method,
-        ) {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Graph-learning domain (CONCEPT:EG-KG.graphlearn.link-predictor): GRAPH-SCOPED
-        // like mining — the KAN link-predictor reads the live subgraph and write-back
-        // materializes `:PredictedEdge`/`:EdgeFunction` nodes into the core. A method
-        // whose feature is off falls through to the graph_ops not-available catch-all.
-        #[cfg(feature = "graphlearn")]
-        let method = match handlers::graphlearn::try_handle(req_id, core.clone(), method) {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): the READ verbs
-        // (Evaluate/Compare) route here with the graph core; Train/Serve/Predict are
-        // GATEWAY_ROUTED (writeback) and never reach this fallback. A build without
-        // `ml-pipeline` omits this line.
-        #[cfg(feature = "ml-pipeline")]
-        let method = match handlers::pipeline::try_handle(
-            req_id,
-            core.clone(),
-            read_authority.as_ref(),
-            method,
-        ) {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Read-only query surface — SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind
-        // `query`) AND Cypher (CONCEPT:EG-KG.query.dep-free-behind, dep-free behind `cypher`) AND GraphQL
-        // (CONCEPT:EG-KG.query.sparql-completeness, pure-Rust eg-graphql behind `graphql`): borrows the graph
-        // core for an off-lock snapshot, runs on the blocking pool. Gated on ANY of the
-        // three features so CypherQuery still routes in a cypher-only (no-DataFusion) Pi
-        // build and GraphQl routes in a graphql build; the handler's per-method arm
-        // falls through (Err) when ITS feature is off, so Sql/CypherQuery/GraphQl then
-        // reach the graph_ops not-available catch-all. GraphQL — like SQL/Cypher/SPARQL
-        // — runs UNDER the SAME RLS-aware result-cache compose (`caller`/`&rls` threaded
-        // in, the cache key folds the caller's RLS context, the snapshot is RLS-filtered
-        // to the caller) so a GraphQL read NEVER leaks across agents. Slim builds with
-        // NONE of the three omit this line.
-        //
-        // Runtime-conditional query gateway (CONCEPT:EG-P0-2, L11): `Sql`/
-        // `CypherQuery`/`GraphQl` are `mutation::GATEWAY_ROUTED`, but their execution
-        // is `async` and needs `state`/`rls`, so they are routed HERE (not at the
-        // graph-ops `try_handle_gateway`, which hands them back). The SAME runtime
-        // parse `access::requires_write` uses decides whether THIS statement mutates:
-        // a SQL write / Cypher `CREATE|SET|DELETE` / GraphQL `mutation` → the full
-        // Write-authz commit; a `SELECT` / read-only Cypher / GraphQL `query` → a
-        // Read-authz passthrough with no durability/audit/CDC. Every OTHER query
-        // method (`UnifiedQuery`/`Explain*`/`Txn*Query`) is a pure read handled by
-        // the unchanged direct call in the `else` arm.
-        #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-        let method = match route_query_gateway(
-            GatewayRouteCtx {
-                state,
-                req_id,
-                graph_name,
-                caller,
-                tenant_scope: &tenant_scope,
-                core: core.clone(),
-                persistence: persistence.clone(),
-                #[cfg(feature = "streaming")]
-                cdc: cdc.clone(),
-                materialization_manifest: materialization_manifest.clone(),
-                gateway_authz_ctx: &gateway_authz_ctx,
-                read_authority: &read_authority,
-                verified_actor,
-                #[cfg(feature = "security")]
-                rls: rls.clone(),
-            },
-            method,
-        )
-        .await
-        {
-            Ok(resp) => break 'dispatch resp,
-            Err(m) => m,
-        };
-        // Native RDF/SPARQL surface (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql/218, features `rdf`/`sparql`):
-        // AddTriples (durable — the shell below records it like any write),
-        // GetRdf + Sparql (read-only, off-lock snapshot). Graph-scoped, so the
-        // handler takes the graph core + name. Multi-valued literals are embedded
-        // losslessly in that graph image. Gated on `rdf`; a method whose feature is
-        // off falls through (Err) to the graph_ops not-available catch-all.
-        //
-        // Native-RDF write gateway (CONCEPT:EG-P0-2, L11): `AddTriples`/
-        // `RemoveTriples`/`DropNamedGraph` are `mutation::GATEWAY_ROUTED` (GraphRedb-
-        // durable, audited), routed HERE (not at `try_handle_gateway`) because their
-        // handler is async and also performs RDF policy validation. They always
-        // mutate (`mutates_now = true`), so `commit_conditional_mutation_async` runs
-        // the full Write-authz + durable audit-chain commit; the read-only
-        // RDF methods (`GetRdf`/`Sparql`/`ShaclValidate`/…) take the unchanged direct
-        // call in the `else` arm.
-        #[cfg(feature = "rdf")]
-        let method = match route_rdf_gateway(
-            GatewayRouteCtx {
-                state,
-                req_id,
-                graph_name,
-                caller,
-                tenant_scope: &tenant_scope,
-                core: core.clone(),
-                persistence: persistence.clone(),
-                #[cfg(feature = "streaming")]
-                cdc: cdc.clone(),
-                materialization_manifest: materialization_manifest.clone(),
-                gateway_authz_ctx: &gateway_authz_ctx,
-                read_authority: &read_authority,
-                verified_actor,
-                #[cfg(feature = "security")]
-                rls: rls.clone(),
-            },
-            method,
-        )
-        .await
-        {
-            Ok(resp) => break 'dispatch resp,
-            Err(m) => m,
-        };
-        // WASM-sandboxed UDF surface (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`):
-        // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
-        // caps) — both off-reactor. Process-global (not graph-scoped), so it takes
-        // `state` for the UdfRegistry. A method whose feature is off falls through.
-        #[cfg(feature = "wasm-udf")]
-        let method = match handlers::wasm_udf::try_handle(state, req_id, method).await {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Query federation (CONCEPT:EG-KG.query.query-federation, feature `federation`):
-        // RegisterForeignSource records a named foreign source on ServerState. The
-        // `Op::ForeignScan` op itself runs through the unified-query handler above
-        // (inline spec). Process-global, so it takes `state`. A method whose feature
-        // is off falls through to the graph_ops not-available catch-all.
-        #[cfg(feature = "federation")]
-        let method = match handlers::federation::try_handle(state, req_id, method).await {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Distributed graph compute (CONCEPT:EG-KG.storage.feature, feature `compute-dist`):
-        // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
-        // `state` (it gathers each shard graph's snapshot from the registry).
-        #[cfg(any(feature = "compute-dist", feature = "matview"))]
-        let method = match handlers::dist_compute::try_handle(
-            state,
-            req_id,
-            caller,
-            read_authority.as_ref(),
-            method,
-        )
-        .await
-        {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
-        };
-        // Terminal handler: graph-targeted ops (borrow the core; cross-graph ops
-        // re-enter the registry via `state`). Owns the catch-all, returns a Response.
-        // Bind then `break` (not a tail expr) so the `'dispatch` label stays used
-        // even when both compute-routing lines above are feature-gated out.
-        let Some(read_authority) = read_authority.as_ref() else {
-            break 'dispatch Response::err(
-                req_id,
-                "mutation escaped the universal mutation gateway before terminal dispatch",
-            );
-        };
-        let resp = handlers::graph_ops::try_handle(
-            state,
-            req_id,
-            caller,
-            graph_name,
-            read_authority,
-            core.clone(),
-            method,
-        )
-        .await;
-        break 'dispatch resp;
-    }
+        ctx.core.clone(),
+        method,
+    )
+    .await
 }
 
 /// Route the five high-frequency single-op writes through the per-graph write
