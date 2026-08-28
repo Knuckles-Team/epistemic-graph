@@ -279,6 +279,115 @@ fn row_budget(query: &CypherQuery) -> Option<usize> {
 
 // ── read-stage pipeline (CONCEPT:EG-KG.query.eg-extend-read-side) ─────────────────────────────────────
 
+/// Read-side context threaded unchanged through every [`run_stages`] arm — bundled so
+/// each per-stage helper stays under clippy's 7-parameter cap instead of re-passing
+/// `view`/`params`/`budget`/`index` individually.
+struct StageCtx<'a> {
+    view: &'a GraphView,
+    params: &'a Params,
+    budget: Option<usize>,
+    index: Option<IndexSource<'a>>,
+}
+
+/// `MATCH`/`OPTIONAL MATCH` stage: extend every incoming binding, recording the path
+/// variable on each match and — for an `OPTIONAL MATCH` that didn't extend — keeping
+/// the prior binding with the stage's new variables left unbound.
+fn apply_match_stage(
+    ctx: &StageCtx<'_>,
+    pattern: &Pattern,
+    optional: bool,
+    where_clause: &Option<WhereExpr>,
+    path_var: &Option<String>,
+    bindings: &[Binding],
+) -> Result<Vec<Binding>, String> {
+    let mut out: Vec<Binding> = Vec::new();
+    for incoming in bindings {
+        // `budget` is `Some` only for a single-MATCH pipeline (see `row_budget`), so
+        // the short-circuit cap is applied to the one and only stage here; a
+        // multi-stage query always carries `None`.
+        let mut matched = resolve_match(
+            ctx.view,
+            pattern,
+            where_clause,
+            incoming,
+            ctx.params,
+            ctx.budget,
+            ctx.index,
+        )?;
+        if let Some(pv) = path_var {
+            for b in matched.iter_mut() {
+                record_path(pattern, b, pv);
+            }
+        }
+        if matched.is_empty() && optional {
+            // OPTIONAL MATCH that didn't extend → keep the prior binding; the
+            // stage's new vars project as null.
+            out.push(incoming.clone());
+        } else {
+            out.extend(matched);
+        }
+    }
+    Ok(out)
+}
+
+/// `WITH <items> [WHERE <expr>]` stage: project each binding, dropping rows the
+/// post-filter rejects.
+fn apply_with_stage(
+    ctx: &StageCtx<'_>,
+    bindings: &[Binding],
+    items: &[WithItem],
+    where_clause: &Option<WhereExpr>,
+) -> Result<Vec<Binding>, String> {
+    let mut out: Vec<Binding> = Vec::new();
+    for b in bindings {
+        let nb = project_with(b, items);
+        if where_holds(ctx.view, &nb, ctx.params, where_clause)? {
+            out.push(nb);
+        }
+    }
+    Ok(out)
+}
+
+/// `UNWIND <list> AS <var>` stage: expand each binding into one row per list element.
+fn apply_unwind_stage(
+    bindings: &[Binding],
+    params: &Params,
+    list: &ListExpr,
+    var: &str,
+) -> Result<Vec<Binding>, String> {
+    let mut out: Vec<Binding> = Vec::new();
+    for b in bindings {
+        for elem in eval_list(b, params, list)? {
+            let mut nb = b.clone();
+            nb.insert(
+                val_key(var),
+                serde_json::to_string(&elem).unwrap_or_default(),
+            );
+            out.push(nb);
+        }
+    }
+    Ok(out)
+}
+
+/// `CALL { subquery }` stage: cartesian-join the subquery's per-row additions onto
+/// each incoming binding.
+fn apply_call_stage(
+    ctx: &StageCtx<'_>,
+    bindings: &[Binding],
+    subquery: &CypherQuery,
+) -> Result<Vec<Binding>, String> {
+    let additions = subquery_additions(ctx.view, subquery, ctx.params, ctx.index)?;
+    let mut out: Vec<Binding> = Vec::new();
+    for b in bindings {
+        for add in &additions {
+            let mut nb = b.clone();
+            nb.extend(add.clone());
+            out.push(nb);
+        }
+    }
+    Ok(out)
+}
+
 /// Run the reading-stage pipeline, threading bindings from one stage to the next.
 fn run_stages(
     view: &GraphView,
@@ -287,88 +396,32 @@ fn run_stages(
     budget: Option<usize>,
     index: Option<IndexSource<'_>>,
 ) -> Result<Vec<Binding>, String> {
+    let ctx = StageCtx {
+        view,
+        params,
+        budget,
+        index,
+    };
     // Seed with one empty binding so the first MATCH resolves from scratch.
     let mut bindings: Vec<Binding> = vec![HashMap::new()];
     for stage in stages {
-        match stage {
+        bindings = match stage {
             ReadStage::Match {
                 pattern,
                 optional,
                 where_clause,
                 path_var,
-            } => {
-                let mut out: Vec<Binding> = Vec::new();
-                for incoming in &bindings {
-                    // `budget` is `Some` only for a single-MATCH pipeline (see
-                    // `row_budget`), so the short-circuit cap is applied to the one and
-                    // only stage here; a multi-stage query always carries `None`.
-                    let mut matched = resolve_match(
-                        view,
-                        pattern,
-                        where_clause,
-                        incoming,
-                        params,
-                        budget,
-                        index,
-                    )?;
-                    if let Some(pv) = path_var {
-                        for b in matched.iter_mut() {
-                            record_path(pattern, b, pv);
-                        }
-                    }
-                    if matched.is_empty() && *optional {
-                        // OPTIONAL MATCH that didn't extend → keep the prior binding;
-                        // the stage's new vars project as null.
-                        out.push(incoming.clone());
-                    } else {
-                        out.extend(matched);
-                    }
-                }
-                bindings = out;
-            }
+            } => apply_match_stage(&ctx, pattern, *optional, where_clause, path_var, &bindings)?,
             ReadStage::With {
                 items,
                 where_clause,
-            } => {
-                let mut out: Vec<Binding> = Vec::new();
-                for b in &bindings {
-                    let nb = project_with(b, items);
-                    if where_holds(view, &nb, params, where_clause)? {
-                        out.push(nb);
-                    }
-                }
-                bindings = out;
-            }
-            ReadStage::Unwind { list, var } => {
-                let mut out: Vec<Binding> = Vec::new();
-                for b in &bindings {
-                    for elem in eval_list(b, params, list)? {
-                        let mut nb = b.clone();
-                        nb.insert(
-                            val_key(var),
-                            serde_json::to_string(&elem).unwrap_or_default(),
-                        );
-                        out.push(nb);
-                    }
-                }
-                bindings = out;
-            }
-            ReadStage::Call { subquery } => {
-                let additions = subquery_additions(view, subquery, params, index)?;
-                let mut out: Vec<Binding> = Vec::new();
-                for b in &bindings {
-                    for add in &additions {
-                        let mut nb = b.clone();
-                        nb.extend(add.clone());
-                        out.push(nb);
-                    }
-                }
-                bindings = out;
-            }
+            } => apply_with_stage(&ctx, &bindings, items, where_clause)?,
+            ReadStage::Unwind { list, var } => apply_unwind_stage(&bindings, params, list, var)?,
+            ReadStage::Call { subquery } => apply_call_stage(&ctx, &bindings, subquery)?,
             ReadStage::CallProc { name, args, yields } => {
-                bindings = run_call_proc(view, &bindings, name, args, yields, params)?;
+                run_call_proc(view, &bindings, name, args, yields, params)?
             }
-        }
+        };
     }
     Ok(bindings)
 }
@@ -455,62 +508,48 @@ fn bound_value(b: &Binding, var: &str) -> Option<Value> {
     }
 }
 
-/// Run a `CALL { subquery }` (CONCEPT:EG-KG.query.cypher-planning) and produce the per-result-row binding
-/// additions to merge (cartesian) onto each outer row. Node-valued RETURN vars stay
-/// anchorable node bindings; scalar/property/aggregate columns become `@val@`
-/// sidecars keyed by the projected column name.
-fn subquery_additions(
+/// [`subquery_additions`]'s aggregating-subquery path: an aggregating subquery
+/// collapses rows, so this runs the full RETURN and exposes each resulting
+/// column as a `@val@` scalar sidecar.
+fn aggregate_subquery_additions(
     view: &GraphView,
     subquery: &CypherQuery,
-    params: &Params,
-    index: Option<IndexSource<'_>>,
+    sub_bindings: Vec<Binding>,
 ) -> Result<Vec<Binding>, String> {
-    // A CALL subquery has its own LIMIT scope (applied by its own `finalize` below);
-    // the outer query's short-circuit budget never applies here.
-    let sub_bindings = run_stages(view, &subquery.stages, params, None, index)?;
-    let ret = &subquery.ret;
-    let items: Vec<ReturnItem> = if ret.star {
-        scope_vars(&subquery.stages)
-            .into_iter()
-            .map(|v| ReturnItem {
-                expr: Expr::Var(v),
-                alias: None,
-            })
-            .collect()
-    } else {
-        ret.items.clone()
-    };
-
-    // An aggregating subquery collapses rows; run the full RETURN and expose each
-    // resulting column as a scalar sidecar.
-    if items.iter().any(|i| is_agg(&i.expr)) {
-        let qr = finalize(view, subquery, sub_bindings)?;
-        let mut out = Vec::new();
-        for row in &qr.rows {
-            let cells: Vec<Value> = eg_types::msgpack::decode_bounded(
-                row,
-                eg_types::msgpack::MsgpackLimits::new(
-                    eg_types::msgpack::MAX_PROPERTY_BYTES,
-                    eg_types::msgpack::MAX_PROPERTY_ITEMS,
-                    eg_types::msgpack::DEFAULT_MAX_DEPTH,
-                ),
-            )
-            .map_err(|_| "decode subquery row failed".to_string())?;
-            let mut add = Binding::new();
-            for (i, col) in qr.columns.iter().enumerate() {
-                let v = cells.get(i).cloned().unwrap_or(Value::Null);
-                add.insert(val_key(col), serde_json::to_string(&v).unwrap_or_default());
-            }
-            out.push(add);
-        }
-        return Ok(out);
-    }
-
-    // Non-aggregating: one addition per sub-binding, preserving each var's kind.
+    let qr = finalize(view, subquery, sub_bindings)?;
     let mut out = Vec::new();
-    for b in &sub_bindings {
+    for row in &qr.rows {
+        let cells: Vec<Value> = eg_types::msgpack::decode_bounded(
+            row,
+            eg_types::msgpack::MsgpackLimits::new(
+                eg_types::msgpack::MAX_PROPERTY_BYTES,
+                eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .map_err(|_| "decode subquery row failed".to_string())?;
         let mut add = Binding::new();
-        for it in &items {
+        for (i, col) in qr.columns.iter().enumerate() {
+            let v = cells.get(i).cloned().unwrap_or(Value::Null);
+            add.insert(val_key(col), serde_json::to_string(&v).unwrap_or_default());
+        }
+        out.push(add);
+    }
+    Ok(out)
+}
+
+/// [`subquery_additions`]'s non-aggregating path: one addition per sub-binding,
+/// preserving each RETURN item's kind (node/path/scalar var, or a property
+/// access).
+fn nonagg_subquery_additions(
+    view: &GraphView,
+    sub_bindings: &[Binding],
+    items: &[ReturnItem],
+) -> Vec<Binding> {
+    let mut out = Vec::new();
+    for b in sub_bindings {
+        let mut add = Binding::new();
+        for it in items {
             let name = it.column();
             match &it.expr {
                 Expr::Var(v) => {
@@ -537,7 +576,39 @@ fn subquery_additions(
         }
         out.push(add);
     }
-    Ok(out)
+    out
+}
+
+/// Run a `CALL { subquery }` (CONCEPT:EG-KG.query.cypher-planning) and produce the per-result-row binding
+/// additions to merge (cartesian) onto each outer row. Node-valued RETURN vars stay
+/// anchorable node bindings; scalar/property/aggregate columns become `@val@`
+/// sidecars keyed by the projected column name.
+fn subquery_additions(
+    view: &GraphView,
+    subquery: &CypherQuery,
+    params: &Params,
+    index: Option<IndexSource<'_>>,
+) -> Result<Vec<Binding>, String> {
+    // A CALL subquery has its own LIMIT scope (applied by its own `finalize` below);
+    // the outer query's short-circuit budget never applies here.
+    let sub_bindings = run_stages(view, &subquery.stages, params, None, index)?;
+    let ret = &subquery.ret;
+    let items: Vec<ReturnItem> = if ret.star {
+        scope_vars(&subquery.stages)
+            .into_iter()
+            .map(|v| ReturnItem {
+                expr: Expr::Var(v),
+                alias: None,
+            })
+            .collect()
+    } else {
+        ret.items.clone()
+    };
+
+    if items.iter().any(|i| is_agg(&i.expr)) {
+        return aggregate_subquery_additions(view, subquery, sub_bindings);
+    }
+    Ok(nonagg_subquery_additions(view, &sub_bindings, &items))
 }
 
 /// Run a `CALL proc.name(args) YIELD …` stage (CONCEPT:EG-KG.query.cypher-planning): resolve the args,
@@ -772,6 +843,162 @@ fn reverse_pattern(pattern: &Pattern) -> Pattern {
 /// and when `budget` is `Some(k)` (a single `MATCH … LIMIT k` with no blocking op —
 /// see [`row_budget`]) the walk is DEPTH-FIRST and stops once `k` rows are produced
 /// ([`walk_hops_dfs`]), so a `LIMIT` touches O(k · degree) work instead of every match.
+/// Resolve the start-position candidate node ids for [`resolve_match`]: the
+/// anchored id if the start var is already bound; else, when unbound (labeled OR
+/// unlabeled — an otherwise whole-graph or whole-label scan), try narrowing
+/// through the bounded property index (CONCEPT:EG-KG.storage.index-manager-seam)
+/// via an indexable inline-prop or start-position WHERE equality/IN predicate;
+/// else the label set (or the whole graph, unlabeled). The returned `bool` is
+/// `from_label_scan` — did the set come from a whole-label enumeration
+/// (`label_candidates`, which already paid to build/consult the memoized
+/// whole-graph `label_index_memo`) rather than something small and known ahead
+/// of any index (a bound anchor id, or `indexed_start_candidates`'/
+/// `warm_label_candidates`' id fast paths)? [`filter_start_ids`] uses it to pick
+/// between [`node_has_label_id`] (reuse the already-built index, free) and
+/// [`node_has_label_point`] (avoid PAYING to build it — an O(V) decode of every
+/// node's property blob — just to answer a handful of point checks; see that
+/// function's doc).
+///
+/// `indexed_start_candidates` returning `None` (no `IndexSource`, no usable
+/// predicate, or the index/version-race guard declined) is NOT the same as an
+/// empty candidate set — it means "fall back to the full scan", so it is never
+/// conflated with `Some(vec![])` (a real, indexed, zero-match answer).
+/// `warm_label_candidates` is tried first for a labeled start (GraphCore's
+/// PERSISTENT, write-path-maintained `label_index`, built once and kept warm
+/// across every later query — see its own doc for why its semantics differ from
+/// the memoized index and why [`filter_start_ids`]'s re-verification keeps this
+/// result-identical) before falling back to `label_candidates`.
+fn resolve_start_candidates(
+    view: &GraphView,
+    pattern: &Pattern,
+    anchor: &Binding,
+    index: Option<IndexSource<'_>>,
+    start_preds: &[WhereExpr],
+    params: &Params,
+) -> (Vec<String>, bool) {
+    let anchored_id = pattern.start.var.as_ref().and_then(|v| anchor.get(v));
+    match anchored_id {
+        Some(id) => (vec![id.clone()], false),
+        None => {
+            match indexed_start_candidates(index, &pattern.start, start_preds, anchor, params) {
+                Some(ids) => (ids, false),
+                None => match pattern
+                    .start
+                    .label
+                    .as_deref()
+                    .and_then(|label| warm_label_candidates(index, label))
+                {
+                    Some(ids) => (ids, false),
+                    None => (label_candidates(view, &pattern.start), true),
+                },
+            }
+        }
+    }
+}
+
+/// Re-enforce `pattern.start`'s `:Label`/inline props on `resolve_start_candidates`'
+/// output — the label-index candidate set only pre-filters the un-anchored case
+/// (CONCEPT:EG-KG.query.cypher-planning lets a CALL/YIELD node id flow into a
+/// labelled MATCH), so an ANCHORED start still needs this. The `view.node_map`
+/// membership check is a no-op for `label_candidates` (already built from `view`,
+/// can't return anything else) but is load-bearing for an INDEXED candidate: the
+/// index answers off LIVE core state (CONCEPT:EG-KG.storage.index-manager-seam), so an id
+/// it returns that this exact point-in-time `view` doesn't have (RLS-filtered, or
+/// added/removed by a write that raced the snapshot) is dropped here rather than
+/// trusted — every downstream WHERE/prop read only ever consults `view`, never
+/// `index`.
+fn filter_start_ids(
+    view: &GraphView,
+    pattern: &Pattern,
+    anchor: &Binding,
+    params: &Params,
+    start_candidates: Vec<String>,
+    from_label_scan: bool,
+) -> Vec<String> {
+    start_candidates
+        .into_iter()
+        .filter(|id| {
+            view.node_map.contains_key(id)
+                && pattern.start.label.as_ref().is_none_or(|l| {
+                    if from_label_scan {
+                        node_has_label_id(view, id, l)
+                    } else {
+                        node_has_label_point(view, id, l)
+                    }
+                })
+                && node_props_match(view, id, &pattern.start, anchor, params)
+        })
+        .collect()
+}
+
+/// The invariants [`resolve_match_dfs`]/[`resolve_match_bfs_seed`] need, held once
+/// per `resolve_match` call instead of re-passed as eight separate params.
+struct MatchCtx<'a> {
+    view: &'a GraphView,
+    pattern: &'a Pattern,
+    hop_preds: &'a [Vec<WhereExpr>],
+    final_preds: &'a [WhereExpr],
+    params: &'a Params,
+    anchor: &'a Binding,
+    start_preds: &'a [WhereExpr],
+}
+
+/// The DEPTH-FIRST budgeted walk — the LIMIT short-circuit (see [`resolve_match`]'s
+/// doc): stops once `k` complete matches are produced instead of materializing
+/// every one.
+fn resolve_match_dfs(
+    ctx: &MatchCtx<'_>,
+    start_ids: Vec<String>,
+    k: usize,
+) -> Result<Vec<Binding>, String> {
+    let mut out: Vec<Binding> = Vec::new();
+    for sid in start_ids {
+        if out.len() >= k {
+            break;
+        }
+        let mut b = ctx.anchor.clone();
+        if let Some(v) = &ctx.pattern.start.var {
+            b.insert(v.clone(), sid.clone());
+        }
+        if !all_where_hold(ctx.view, &b, ctx.params, ctx.start_preds)? {
+            continue;
+        }
+        walk_metrics::note_start();
+        DfsWalk {
+            view: ctx.view,
+            hops: &ctx.pattern.hops,
+            hop_preds: ctx.hop_preds,
+            final_preds: ctx.final_preds,
+            params: ctx.params,
+            budget: k,
+        }
+        .run(&b, &sid, 0, &mut out)?;
+    }
+    Ok(out)
+}
+
+/// Seed the BREADTH-FIRST `(binding, current-node-id)` partials from `start_ids`,
+/// dropping any candidate the start-node WHERE conjuncts reject before ANY hop
+/// expands from it.
+fn resolve_match_bfs_seed(
+    ctx: &MatchCtx<'_>,
+    start_ids: Vec<String>,
+) -> Result<Vec<(Binding, String)>, String> {
+    let mut partials: Vec<(Binding, String)> = Vec::new();
+    for sid in start_ids {
+        let mut b = ctx.anchor.clone();
+        if let Some(v) = &ctx.pattern.start.var {
+            b.insert(v.clone(), sid.clone());
+        }
+        if !all_where_hold(ctx.view, &b, ctx.params, ctx.start_preds)? {
+            continue;
+        }
+        walk_metrics::note_start();
+        partials.push((b, sid));
+    }
+    Ok(partials)
+}
+
 fn resolve_match(
     view: &GraphView,
     pattern: &Pattern,
@@ -792,128 +1019,36 @@ fn resolve_match(
         final_preds,
     } = partition_where(pattern, anchor, where_clause);
 
-    // Start candidates: the anchored id if the start var is bound; else, when unbound
-    // (labeled OR unlabeled — an otherwise whole-graph or whole-label scan), try
-    // narrowing through the bounded property index (CONCEPT:EG-KG.storage.index-manager-seam) via an
-    // indexable inline-prop or start-position WHERE equality/IN predicate; else the
-    // label set (or the whole graph, unlabeled). `indexed_start_candidates` returning
-    // `None` (no `IndexSource`, no usable predicate, or the index/version-race guard
-    // declined) is NOT the same as an empty candidate set — it means "fall back to the
-    // full scan", so it is never conflated with `Some(vec![])` (a real, indexed,
-    // zero-match answer) here. The `.filter(...)` below re-enforces `node`'s label (and
-    // any other inline props) on whichever candidate source answered, so an indexed
-    // labeled start can't bypass label enforcement.
-    // Did the candidate set come from a whole-label enumeration (`label_candidates`,
-    // which ALREADY paid to build/consult the memoized whole-graph `label_index_memo`
-    // to produce it), or from something small and known ahead of any index — a bound
-    // `anchor` id, or `indexed_start_candidates`' id fast path? The distinction drives
-    // which of [`node_has_label_id`]/[`node_has_label_point`] the filter below uses:
-    // reusing the already-built index is free in the first case, but PAYING to build
-    // it (an O(V) decode of every node's property blob) just to answer a handful of
-    // point checks in the second case would silently reintroduce the exact
-    // whole-graph-scan cost the id fast path exists to eliminate — see
-    // `node_has_label_point`'s doc.
-    let anchored_id = pattern.start.var.as_ref().and_then(|v| anchor.get(v));
-    let (start_candidates, from_label_scan): (Vec<String>, bool) = match anchored_id {
-        Some(id) => (vec![id.clone()], false),
-        None => match indexed_start_candidates(index, &pattern.start, &start_preds, anchor, params)
-        {
-            Some(ids) => (ids, false),
-            // No inline-prop/WHERE equality to index — but a LABELED start can still
-            // avoid `label_candidates`' cold, per-VIEW `label_index_memo` build (an
-            // O(V) msgpack-decode-every-node pass that starts over on every fresh
-            // snapshot, see that memo's doc) by first trying `GraphCore`'s PERSISTENT,
-            // write-path-maintained `label_index` through `warm_label_candidates` —
-            // built once and incrementally kept warm across every later query, not
-            // just this one. `false` here (not `from_label_scan`) is deliberate and
-            // matches `indexed_start_candidates`' own candidates just above: the warm
-            // index is a hint that only NARROWS the set, so the filter below must
-            // still re-verify Cypher's narrower label predicate per candidate via
-            // `node_has_label_point` rather than trusting it outright — see
-            // `warm_label_candidates`'s doc for why the two indexes' semantics differ
-            // and why that re-verification is what keeps this result-identical.
-            None => match pattern
-                .start
-                .label
-                .as_deref()
-                .and_then(|label| warm_label_candidates(index, label))
-            {
-                Some(ids) => (ids, false),
-                None => (label_candidates(view, &pattern.start), true),
-            },
-        },
+    let (start_candidates, from_label_scan) =
+        resolve_start_candidates(view, pattern, anchor, index, &start_preds, params);
+    let start_ids = filter_start_ids(
+        view,
+        pattern,
+        anchor,
+        params,
+        start_candidates,
+        from_label_scan,
+    );
+
+    let ctx = MatchCtx {
+        view,
+        pattern,
+        hop_preds: &hop_preds,
+        final_preds: &final_preds,
+        params,
+        anchor,
+        start_preds: &start_preds,
     };
-    let start_ids: Vec<String> = start_candidates
-        .into_iter()
-        // An ANCHORED start node still has its `:Label`/inline props enforced here — the
-        // label-index candidate set only pre-filters the un-anchored case (CONCEPT:EG-KG.query.cypher-planning
-        // lets a CALL/YIELD node id flow into a labelled MATCH). The `view.node_map`
-        // membership check is a no-op for `label_candidates` (which is already built from
-        // `view` and can't return anything else) but is load-bearing for an INDEXED
-        // candidate: the index answers off LIVE core state (CONCEPT:EG-KG.storage.index-manager-seam), so
-        // an id it returns that this exact point-in-time `view` doesn't have (RLS-filtered,
-        // or added/removed by a write that raced the snapshot) is dropped here rather than
-        // trusted — every downstream WHERE/prop read only ever consults `view`, never `index`.
-        .filter(|id| {
-            view.node_map.contains_key(id)
-                && pattern.start.label.as_ref().is_none_or(|l| {
-                    if from_label_scan {
-                        node_has_label_id(view, id, l)
-                    } else {
-                        node_has_label_point(view, id, l)
-                    }
-                })
-                && node_props_match(view, id, &pattern.start, anchor, params)
-        })
-        .collect();
 
     // The DEPTH-FIRST budgeted walk is the LIMIT short-circuit; it does not expand
     // quantified groups, so a pattern with a group hop keeps the breadth-first walk.
     let dfs_budget = budget.filter(|_| pattern.hops.iter().all(|(e, _)| e.group.is_none()));
-
     if let Some(k) = dfs_budget {
-        let mut out: Vec<Binding> = Vec::new();
-        for sid in start_ids {
-            if out.len() >= k {
-                break;
-            }
-            let mut b = anchor.clone();
-            if let Some(v) = &pattern.start.var {
-                b.insert(v.clone(), sid.clone());
-            }
-            if !all_where_hold(view, &b, params, &start_preds)? {
-                continue;
-            }
-            walk_metrics::note_start();
-            DfsWalk {
-                view,
-                hops: &pattern.hops,
-                hop_preds: &hop_preds,
-                final_preds: &final_preds,
-                params,
-                budget: k,
-            }
-            .run(&b, &sid, 0, &mut out)?;
-        }
-        return Ok(out);
+        return resolve_match_dfs(&ctx, start_ids, k);
     }
 
-    // (binding, current-node-id) partials, extended hop by hop.
-    let mut partials: Vec<(Binding, String)> = Vec::new();
-    for sid in start_ids {
-        let mut b = anchor.clone();
-        if let Some(v) = &pattern.start.var {
-            b.insert(v.clone(), sid.clone());
-        }
-        // Start-node WHERE conjuncts drop a candidate before ANY hop expands from it.
-        if !all_where_hold(view, &b, params, &start_preds)? {
-            continue;
-        }
-        walk_metrics::note_start();
-        partials.push((b, sid));
-    }
-
-    partials = walk_hops(view, &pattern.hops, &hop_preds, partials, params)?;
+    let partials = resolve_match_bfs_seed(&ctx, start_ids)?;
+    let partials = walk_hops(view, &pattern.hops, &hop_preds, partials, params)?;
 
     let mut out: Vec<Binding> = Vec::new();
     for (b, _) in partials {
@@ -922,6 +1057,67 @@ fn resolve_match(
         }
     }
     Ok(out)
+}
+
+/// The per-hop invariants [`expand_group_hop`]/[`expand_simple_hop`] need, held once
+/// per hop iteration instead of re-passed as five separate params (clippy's cap).
+struct HopCtx<'a> {
+    view: &'a GraphView,
+    edge: &'a EdgePat,
+    node: &'a NodePat,
+    preds: &'a [WhereExpr],
+    params: &'a Params,
+}
+
+/// Expand one `(binding, cur-node)` partial across a quantified-path-pattern group
+/// hop (CONCEPT:EG-KG.query.quantified-path-pattern), appending every surviving extension to `next`.
+fn expand_group_hop(
+    ctx: &HopCtx<'_>,
+    group: &QuantifiedGroup,
+    b: &Binding,
+    cur: &str,
+    next: &mut Vec<(Binding, String)>,
+) -> Result<(), String> {
+    for (group_binding, target) in quantified_group_matches(ctx.view, cur, group, b, ctx.params)? {
+        walk_metrics::note_hop_expansion();
+        if let Some(nb) = bind_target_node(ctx.view, ctx.node, &group_binding, &target, ctx.params)
+        {
+            if all_where_hold(ctx.view, &nb, ctx.params, ctx.preds)? {
+                next.push((nb, target));
+            }
+        }
+        if next.len() > MAX_ROWS {
+            return Err(format!(
+                "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Expand one `(binding, cur-node)` partial across a FIXED or variable-length hop,
+/// appending every surviving extension to `next`.
+fn expand_simple_hop(
+    ctx: &HopCtx<'_>,
+    b: &Binding,
+    cur: &str,
+    next: &mut Vec<(Binding, String)>,
+) -> Result<(), String> {
+    let targets = match ctx.edge.var_len {
+        Some((min, max)) => bfs_reachable(ctx.view, cur, ctx.edge, min, max),
+        None => neighbors(ctx.view, cur, ctx.edge, b, ctx.params),
+    };
+    for t in targets {
+        walk_metrics::note_hop_expansion();
+        let Some(mut nb) = bind_target_node(ctx.view, ctx.node, b, &t, ctx.params) else {
+            continue;
+        };
+        bind_edge_var(ctx.view, &mut nb, ctx.edge, cur, &t);
+        if all_where_hold(ctx.view, &nb, ctx.params, ctx.preds)? {
+            next.push((nb, t));
+        }
+    }
+    Ok(())
 }
 
 /// Walk a fixed/variable-length/quantified-group hop chain from `partials`
@@ -959,41 +1155,19 @@ fn walk_hops(
                 edge.rel_type.as_deref().unwrap_or("")
             ));
         }
+        let ctx = HopCtx {
+            view,
+            edge,
+            node,
+            preds,
+            params,
+        };
         let mut next: Vec<(Binding, String)> = Vec::new();
         for (b, cur) in &partials {
             if let Some(group) = &edge.group {
-                for (group_binding, target) in
-                    quantified_group_matches(view, cur, group, b, params)?
-                {
-                    walk_metrics::note_hop_expansion();
-                    if let Some(nb) = bind_target_node(view, node, &group_binding, &target, params)
-                    {
-                        if all_where_hold(view, &nb, params, preds)? {
-                            next.push((nb, target));
-                        }
-                    }
-                    if next.len() > MAX_ROWS {
-                        return Err(format!(
-                            "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
-                        ));
-                    }
-                }
-                continue;
-            }
-
-            let targets = match edge.var_len {
-                Some((min, max)) => bfs_reachable(view, cur, edge, min, max),
-                None => neighbors(view, cur, edge, b, params),
-            };
-            for t in targets {
-                walk_metrics::note_hop_expansion();
-                let Some(mut nb) = bind_target_node(view, node, b, &t, params) else {
-                    continue;
-                };
-                bind_edge_var(view, &mut nb, edge, cur, &t);
-                if all_where_hold(view, &nb, params, preds)? {
-                    next.push((nb, t));
-                }
+                expand_group_hop(&ctx, group, b, cur, &mut next)?;
+            } else {
+                expand_simple_hop(&ctx, b, cur, &mut next)?;
             }
         }
         partials = next;
@@ -1120,6 +1294,29 @@ fn bind_target_node(
     Some(next)
 }
 
+/// One BFS depth-step of [`quantified_group_matches`]: expand every `(state,
+/// current)` pair in `frontier` by one application of the group's inner
+/// sub-pattern (CONCEPT:EG-KG.query.quantified-path-pattern).
+fn expand_group_frontier(
+    view: &GraphView,
+    group: &QuantifiedGroup,
+    frontier: &[(Binding, String)],
+    params: &Params,
+) -> Result<Vec<(Binding, String)>, String> {
+    let mut next_frontier = Vec::new();
+    for (state, current) in frontier {
+        for matched in expand_group_once(view, group, current, state, params)? {
+            next_frontier.push(matched);
+            if next_frontier.len() > MAX_ROWS {
+                return Err(format!(
+                    "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
+                ));
+            }
+        }
+    }
+    Ok(next_frontier)
+}
+
 /// Every distinct path produced by repeating `group`'s whole inner sub-pattern
 /// between `min` and `max` times. Unlike a reachability BFS, this preserves the
 /// ordered per-repetition values for every variable declared inside the group.
@@ -1145,17 +1342,7 @@ fn quantified_group_matches(
     let mut frontier = vec![(seed, src.to_string())];
 
     for depth in 1..=max {
-        let mut next_frontier = Vec::new();
-        for (state, current) in &frontier {
-            for matched in expand_group_once(view, group, current, state, params)? {
-                next_frontier.push(matched);
-                if next_frontier.len() > MAX_ROWS {
-                    return Err(format!(
-                        "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
-                    ));
-                }
-            }
-        }
+        let next_frontier = expand_group_frontier(view, group, &frontier, params)?;
         if next_frontier.is_empty() {
             break;
         }
@@ -1381,10 +1568,84 @@ fn edge_props_match(
     true
 }
 
+/// The per-BFS invariants [`bfs_expand_node`] needs, held once for the whole walk
+/// instead of re-passed as separate params.
+struct BfsCtx<'a> {
+    view: &'a GraphView,
+    edge: &'a EdgePat,
+    min: usize,
+    src_idx: petgraph::stable_graph::NodeIndex,
+}
+
+/// The BFS's mutable accumulators, bundled so [`bfs_expand_node`] takes one `&mut`
+/// param instead of three.
+#[derive(Default)]
+struct BfsAccum {
+    visited: HashSet<petgraph::stable_graph::NodeIndex>,
+    reached: HashSet<String>,
+    out: Vec<String>,
+}
+
+/// Expand one frontier node across both configured directions at this depth,
+/// pushing newly-visited neighbours onto `next` and (once `depth >= min`, and
+/// excluding `src` itself — see [`bfs_reachable`]'s doc on the undirected-hop
+/// self-revisit) newly-reached ids onto `accum.out`.
+/// Record one confirmed neighbour: mark it visited (queuing it onto `next` the
+/// first time), and — once `depth >= min`, excluding `src` itself (see
+/// [`bfs_reachable`]'s doc on the undirected-hop self-revisit) — add its id to the
+/// reached set.
+fn bfs_record_neighbor(
+    ctx: &BfsCtx<'_>,
+    nbr: petgraph::stable_graph::NodeIndex,
+    depth: usize,
+    accum: &mut BfsAccum,
+    next: &mut Vec<petgraph::stable_graph::NodeIndex>,
+) {
+    if accum.visited.insert(nbr) {
+        next.push(nbr);
+    }
+    if depth >= ctx.min && nbr != ctx.src_idx {
+        let nbr_id = ctx.view.graph[nbr].clone();
+        if accum.reached.insert(nbr_id.clone()) {
+            accum.out.push(nbr_id);
+        }
+    }
+}
+
+fn bfs_expand_node(
+    ctx: &BfsCtx<'_>,
+    node: petgraph::stable_graph::NodeIndex,
+    dirs: &[petgraph::Direction],
+    depth: usize,
+    accum: &mut BfsAccum,
+    next: &mut Vec<petgraph::stable_graph::NodeIndex>,
+) {
+    for &dir in dirs {
+        for e in ctx.view.graph.edges_directed(node, dir) {
+            let nbr = match dir {
+                petgraph::Direction::Outgoing => e.target(),
+                petgraph::Direction::Incoming => e.source(),
+            };
+            let from_id = &ctx.view.graph[e.source()];
+            let to_id = &ctx.view.graph[e.target()];
+            if !rel_matches(ctx.view, from_id, to_id, ctx.edge.rel_type.as_deref()) {
+                continue;
+            }
+            bfs_record_neighbor(ctx, nbr, depth, accum, next);
+        }
+    }
+}
+
 /// BFS from `src` over REL-typed edges in `edge.direction`, returning every node
 /// id reached at a hop-depth within `[min,max]` (depth ≥ 1). Each target appears
 /// once (the shallowest depth that reaches it). `edge.direction == Both` walks
 /// edges in either direction at every hop (CONCEPT:EG-KG.query.undirected-relationship-pattern).
+///
+/// Excludes the START node itself from the result: a directed acyclic hop
+/// essentially never revisits `src`, but an undirected hop trivially does at
+/// depth 2 (src -> nbr -> src, walking the SAME edge back) — without that guard
+/// (in [`bfs_expand_node`]) the source would incorrectly appear as one of its own
+/// var-length results.
 fn bfs_reachable(
     view: &GraphView,
     src: &str,
@@ -1395,51 +1656,28 @@ fn bfs_reachable(
     let Some(&src_idx) = view.node_map.get(src) else {
         return Vec::new();
     };
-    let mut reached: HashSet<String> = HashSet::new();
-    let mut out: Vec<String> = Vec::new();
+    let ctx = BfsCtx {
+        view,
+        edge,
+        min,
+        src_idx,
+    };
+    let mut accum = BfsAccum::default();
+    accum.visited.insert(src_idx);
     let mut frontier: Vec<petgraph::stable_graph::NodeIndex> = vec![src_idx];
-    let mut visited: HashSet<petgraph::stable_graph::NodeIndex> = HashSet::new();
-    visited.insert(src_idx);
     let dirs = petgraph_directions(edge.direction);
 
     for depth in 1..=max {
         let mut next: Vec<petgraph::stable_graph::NodeIndex> = Vec::new();
         for &node in &frontier {
-            for &dir in dirs {
-                for e in view.graph.edges_directed(node, dir) {
-                    let nbr = match dir {
-                        petgraph::Direction::Outgoing => e.target(),
-                        petgraph::Direction::Incoming => e.source(),
-                    };
-                    let from_id = &view.graph[e.source()];
-                    let to_id = &view.graph[e.target()];
-                    if !rel_matches(view, from_id, to_id, edge.rel_type.as_deref()) {
-                        continue;
-                    }
-                    if visited.insert(nbr) {
-                        next.push(nbr);
-                    }
-                    // Exclude the START node itself from `reached`: a directed
-                    // acyclic hop essentially never revisits `src`, but an
-                    // undirected hop (CONCEPT:EG-KG.query.undirected-relationship-pattern) trivially
-                    // does at depth 2 (src -> nbr -> src, walking the SAME edge
-                    // back) — without this guard the source would incorrectly
-                    // appear as one of its own var-length results.
-                    if depth >= min && nbr != src_idx {
-                        let nbr_id = view.graph[nbr].clone();
-                        if reached.insert(nbr_id.clone()) {
-                            out.push(nbr_id);
-                        }
-                    }
-                }
-            }
+            bfs_expand_node(&ctx, node, dirs, depth, &mut accum, &mut next);
         }
         if next.is_empty() {
             break;
         }
         frontier = next;
     }
-    out
+    accum.out
 }
 
 /// Resolve which of `(a→b)` / `(b→a)` is the REAL stored edge direction for a
@@ -1612,65 +1850,76 @@ fn project_with(b: &Binding, items: &[WithItem]) -> Binding {
     nb
 }
 
+/// Push `v` onto `scope` unless it's already present (dedup, declaration order).
+fn push_scope_var(v: &str, scope: &mut Vec<String>) {
+    if !scope.iter().any(|s| s == v) {
+        scope.push(v.to_string());
+    }
+}
+
+/// `scope_vars` accumulator for a `MATCH`/`OPTIONAL MATCH` stage: the pattern's start
+/// var, every hop's edge/quantified-group var and node var, and the path var.
+fn accumulate_match_scope(pattern: &Pattern, path_var: &Option<String>, scope: &mut Vec<String>) {
+    if let Some(v) = &pattern.start.var {
+        push_scope_var(v, scope);
+    }
+    for (edge, node) in &pattern.hops {
+        if let Some(group) = edge.group.as_deref() {
+            for var in group_scope_variables(group) {
+                push_scope_var(var, scope);
+            }
+        } else if let Some(var) = edge.var.as_deref() {
+            push_scope_var(var, scope);
+        }
+        if let Some(v) = &node.var {
+            push_scope_var(v, scope);
+        }
+    }
+    if let Some(pv) = path_var {
+        push_scope_var(pv, scope);
+    }
+}
+
+/// `scope_vars` accumulator for a `CALL { subquery }` stage: `RETURN *` recurses into
+/// the subquery's own scope, else each of its explicit RETURN columns.
+fn accumulate_call_scope(subquery: &CypherQuery, scope: &mut Vec<String>) {
+    if subquery.ret.star {
+        for v in scope_vars(&subquery.stages) {
+            push_scope_var(&v, scope);
+        }
+    } else {
+        for it in &subquery.ret.items {
+            push_scope_var(&it.column(), scope);
+        }
+    }
+}
+
+/// `scope_vars` accumulator for a `CALL proc(...) YIELD ...` stage: each yielded
+/// column's alias (or its bare column name).
+fn accumulate_call_proc_scope(yields: &[YieldItem], scope: &mut Vec<String>) {
+    for y in yields {
+        push_scope_var(&y.alias.clone().unwrap_or_else(|| y.col.clone()), scope);
+    }
+}
+
 /// The in-scope variable names (in declaration order) for `RETURN *` — node vars and
 /// path vars accumulate across MATCH stages; a `WITH` narrows scope to its outputs.
 fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
     let mut scope: Vec<String> = Vec::new();
-    let push = |v: &str, scope: &mut Vec<String>| {
-        if !scope.iter().any(|s| s == v) {
-            scope.push(v.to_string());
-        }
-    };
     for stage in stages {
         match stage {
             ReadStage::Match {
                 pattern, path_var, ..
-            } => {
-                if let Some(v) = &pattern.start.var {
-                    push(v, &mut scope);
-                }
-                for (edge, node) in &pattern.hops {
-                    if let Some(group) = edge.group.as_deref() {
-                        for var in group_scope_variables(group) {
-                            push(var, &mut scope);
-                        }
-                    } else if let Some(var) = edge.var.as_deref() {
-                        push(var, &mut scope);
-                    }
-                    if let Some(v) = &node.var {
-                        push(v, &mut scope);
-                    }
-                }
-                if let Some(pv) = path_var {
-                    push(pv, &mut scope);
-                }
-            }
+            } => accumulate_match_scope(pattern, path_var, &mut scope),
             ReadStage::With { items, .. } => {
                 scope = items
                     .iter()
                     .map(|it| it.alias.clone().unwrap_or_else(|| it.var.clone()))
                     .collect();
             }
-            ReadStage::Unwind { var, .. } => push(var, &mut scope),
-            ReadStage::CallProc { yields, .. } => {
-                for y in yields {
-                    push(
-                        &y.alias.clone().unwrap_or_else(|| y.col.clone()),
-                        &mut scope,
-                    );
-                }
-            }
-            ReadStage::Call { subquery } => {
-                if subquery.ret.star {
-                    for v in scope_vars(&subquery.stages) {
-                        push(&v, &mut scope);
-                    }
-                } else {
-                    for it in &subquery.ret.items {
-                        push(&it.column(), &mut scope);
-                    }
-                }
-            }
+            ReadStage::Unwind { var, .. } => push_scope_var(var, &mut scope),
+            ReadStage::CallProc { yields, .. } => accumulate_call_proc_scope(yields, &mut scope),
+            ReadStage::Call { subquery } => accumulate_call_scope(subquery, &mut scope),
         }
     }
     scope
@@ -1965,115 +2214,132 @@ fn is_agg(e: &Expr) -> bool {
     matches!(e, Expr::CountStar | Expr::Aggregate(..))
 }
 
+/// [`eval_scalar`]'s `Expr::Var(v)` arm: a path var (from a `p = (...)` binding), a
+/// quantified-group node/edge var (projects as an array), a plain UNWIND/CALL/YIELD
+/// scalar sidecar, a bound node id, or a bound edge — in that precedence order.
+fn eval_scalar_var(view: &GraphView, binding: &Binding, v: &str) -> Value {
+    if let Some(p) = binding.get(&path_key(v)) {
+        serde_json::from_str(p).unwrap_or(Value::Null)
+    } else if binding.contains_key(&qpp_node_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_node_key(v))
+                .into_iter()
+                .map(|id| materialize_node(view, &id))
+                .collect(),
+        )
+    } else if binding.contains_key(&qpp_edge_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_edge_key(v))
+                .into_iter()
+                .map(|edge| edge_value(view, &edge))
+                .collect(),
+        )
+    } else if let Some(s) = binding.get(&val_key(v)) {
+        // A scalar bound by UNWIND/CALL/YIELD (CONCEPT:EG-KG.query.param-list-drives-unwind/142).
+        serde_json::from_str(s).unwrap_or(Value::Null)
+    } else if let Some(id) = binding.get(v) {
+        materialize_node(view, id)
+    } else if let Some(edge) = binding.get(&edge_key(v)) {
+        edge_value(view, edge)
+    } else {
+        Value::Null
+    }
+}
+
+/// [`eval_scalar`]'s `Expr::Prop(v, p)` arm: a quantified-group node/edge var
+/// projects the property across every group element (an array); otherwise a
+/// bound node's property, falling back to a bound edge's.
+fn eval_scalar_prop(view: &GraphView, binding: &Binding, v: &str, p: &str) -> Value {
+    if binding.contains_key(&qpp_node_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_node_key(v))
+                .into_iter()
+                .map(|id| node_prop(view, &id, p).unwrap_or(Value::Null))
+                .collect(),
+        )
+    } else if binding.contains_key(&qpp_edge_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_edge_key(v))
+                .into_iter()
+                .map(|edge| edge_prop_value(view, &edge, p).unwrap_or(Value::Null))
+                .collect(),
+        )
+    } else {
+        binding
+            .get(v)
+            .and_then(|id| node_prop(view, id, p))
+            .or_else(|| {
+                binding
+                    .get(&edge_key(v))
+                    .and_then(|edge| edge_prop_value(view, edge, p))
+            })
+            .unwrap_or(Value::Null)
+    }
+}
+
+/// [`eval_scalar`]'s `Expr::RelType(v)` arm: `type(r)`, projected across a
+/// quantified-group edge var as an array, else the single bound edge's type.
+fn eval_scalar_rel_type(view: &GraphView, binding: &Binding, v: &str) -> Value {
+    if binding.contains_key(&qpp_edge_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_edge_key(v))
+                .into_iter()
+                .map(|edge| {
+                    edge.split_once('\u{0}')
+                        .and_then(|(from, to)| edge_rel_type(view, from, to))
+                        .map(Value::String)
+                        .unwrap_or(Value::Null)
+                })
+                .collect(),
+        )
+    } else {
+        binding
+            .get(&edge_key(v))
+            .and_then(|edge| edge.split_once('\u{0}'))
+            .and_then(|(from, to)| edge_rel_type(view, from, to))
+            .map(Value::String)
+            .unwrap_or(Value::Null)
+    }
+}
+
+/// [`eval_scalar`]'s `Expr::Labels(v)` arm: `labels(n)`, projected across a
+/// quantified-group node var as an array of arrays, else the single bound node's
+/// labels. `v` unbound to any node (e.g. a scalar/edge variable) is null — not an
+/// empty list — since `labels()` only ever applies to nodes.
+fn eval_scalar_labels(view: &GraphView, binding: &Binding, v: &str) -> Value {
+    if binding.contains_key(&qpp_node_key(v)) {
+        Value::Array(
+            binding_list(binding, &qpp_node_key(v))
+                .into_iter()
+                .map(|id| {
+                    Value::Array(
+                        node_labels(view, &id)
+                            .into_iter()
+                            .map(Value::String)
+                            .collect(),
+                    )
+                })
+                .collect(),
+        )
+    } else if let Some(id) = binding.get(v) {
+        Value::Array(
+            node_labels(view, id)
+                .into_iter()
+                .map(Value::String)
+                .collect(),
+        )
+    } else {
+        Value::Null
+    }
+}
+
 /// Evaluate a non-aggregate projection expression for one binding.
 fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
     match expr {
-        Expr::Var(v) => {
-            if let Some(p) = binding.get(&path_key(v)) {
-                serde_json::from_str(p).unwrap_or(Value::Null)
-            } else if binding.contains_key(&qpp_node_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_node_key(v))
-                        .into_iter()
-                        .map(|id| materialize_node(view, &id))
-                        .collect(),
-                )
-            } else if binding.contains_key(&qpp_edge_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_edge_key(v))
-                        .into_iter()
-                        .map(|edge| edge_value(view, &edge))
-                        .collect(),
-                )
-            } else if let Some(s) = binding.get(&val_key(v)) {
-                // A scalar bound by UNWIND/CALL/YIELD (CONCEPT:EG-KG.query.param-list-drives-unwind/142).
-                serde_json::from_str(s).unwrap_or(Value::Null)
-            } else if let Some(id) = binding.get(v) {
-                materialize_node(view, id)
-            } else if let Some(edge) = binding.get(&edge_key(v)) {
-                edge_value(view, edge)
-            } else {
-                Value::Null
-            }
-        }
-        Expr::Prop(v, p) => {
-            if binding.contains_key(&qpp_node_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_node_key(v))
-                        .into_iter()
-                        .map(|id| node_prop(view, &id, p).unwrap_or(Value::Null))
-                        .collect(),
-                )
-            } else if binding.contains_key(&qpp_edge_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_edge_key(v))
-                        .into_iter()
-                        .map(|edge| edge_prop_value(view, &edge, p).unwrap_or(Value::Null))
-                        .collect(),
-                )
-            } else {
-                binding
-                    .get(v)
-                    .and_then(|id| node_prop(view, id, p))
-                    .or_else(|| {
-                        binding
-                            .get(&edge_key(v))
-                            .and_then(|edge| edge_prop_value(view, edge, p))
-                    })
-                    .unwrap_or(Value::Null)
-            }
-        }
-        Expr::RelType(v) => {
-            if binding.contains_key(&qpp_edge_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_edge_key(v))
-                        .into_iter()
-                        .map(|edge| {
-                            edge.split_once('\u{0}')
-                                .and_then(|(from, to)| edge_rel_type(view, from, to))
-                                .map(Value::String)
-                                .unwrap_or(Value::Null)
-                        })
-                        .collect(),
-                )
-            } else {
-                binding
-                    .get(&edge_key(v))
-                    .and_then(|edge| edge.split_once('\u{0}'))
-                    .and_then(|(from, to)| edge_rel_type(view, from, to))
-                    .map(Value::String)
-                    .unwrap_or(Value::Null)
-            }
-        }
-        Expr::Labels(v) => {
-            if binding.contains_key(&qpp_node_key(v)) {
-                Value::Array(
-                    binding_list(binding, &qpp_node_key(v))
-                        .into_iter()
-                        .map(|id| {
-                            Value::Array(
-                                node_labels(view, &id)
-                                    .into_iter()
-                                    .map(Value::String)
-                                    .collect(),
-                            )
-                        })
-                        .collect(),
-                )
-            } else if let Some(id) = binding.get(v) {
-                Value::Array(
-                    node_labels(view, id)
-                        .into_iter()
-                        .map(Value::String)
-                        .collect(),
-                )
-            } else {
-                // `v` isn't bound to a node at all (e.g. a scalar/edge variable) —
-                // `labels()` only ever applies to nodes, so this is null rather than
-                // an empty list (distinct from "bound node, no label").
-                Value::Null
-            }
-        }
+        Expr::Var(v) => eval_scalar_var(view, binding, v),
+        Expr::Prop(v, p) => eval_scalar_prop(view, binding, v, p),
+        Expr::RelType(v) => eval_scalar_rel_type(view, binding, v),
+        Expr::Labels(v) => eval_scalar_labels(view, binding, v),
         // Aggregates never reach here (the agg path owns them).
         Expr::CountStar | Expr::Aggregate(..) => Value::Null,
     }
@@ -2446,17 +2712,15 @@ fn indexed_inline_props(
 /// declines — the caller then tries the next conjunct, if any, before giving up.
 fn indexed_where_cond(index: Option<IndexSource<'_>>, c: &Condition) -> Option<Vec<String>> {
     let _ = &index; // referenced unconditionally so a `result-cache`-off build doesn't warn
-    // Only a plain `var.prop` condition is ever indexable — `type(r)`/`labels(n)`
-    // have no property-index entry to consult, so they decline here (`None`) and the
-    // caller falls back to the full start-candidate scan, same as any other
-    // non-indexable conjunct.
+                    // Only a plain `var.prop` condition is ever indexable — `type(r)`/`labels(n)`
+                    // have no property-index entry to consult, so they decline here (`None`) and the
+                    // caller falls back to the full start-candidate scan, same as any other
+                    // non-indexable conjunct.
     let Accessor::Prop(prop) = &c.accessor else {
         return None;
     };
     match &c.test {
-        Test::Cmp(CompareOp::Eq, value) if prop == "id" => {
-            Some(vec![value.as_str()?.to_string()])
-        }
+        Test::Cmp(CompareOp::Eq, value) if prop == "id" => Some(vec![value.as_str()?.to_string()]),
         Test::In(values) if !values.is_empty() && prop == "id" => {
             let mut out = Vec::with_capacity(values.len());
             for v in values {
@@ -2848,6 +3112,38 @@ pub fn exec_cypher_write_params(
     }
 }
 
+/// Enrich each binding produced by the leading MATCH's `pattern` with its named
+/// edge variables (`-[r:REL]->`), so a later `DELETE r` can resolve the edge's
+/// endpoints. For each named-edge hop, maps `@edge@r -> "src\0tgt"`.
+fn enrich_edge_bindings(snap: &GraphView, pattern: &Pattern, bindings: &mut [Binding]) {
+    for binding in bindings.iter_mut() {
+        let mut prev_var = node_var(&pattern.start, 0);
+        for (i, (edge, node)) in pattern.hops.iter().enumerate() {
+            let next_var = node_var(node, i + 1);
+            if let Some(evar) = &edge.var {
+                if let (Some(a), Some(b)) = (
+                    binding.get(&prev_var).cloned(),
+                    binding.get(&next_var).cloned(),
+                ) {
+                    let (src, tgt) = match edge.direction {
+                        Direction::Right => (a, b),
+                        Direction::Left => (b, a),
+                        // Undirected: the MATCH that produced this binding only
+                        // proved AN edge exists between `a` and `b` in either
+                        // direction (CONCEPT:EG-KG.query.undirected-relationship-pattern) —
+                        // resolve which one actually exists so a downstream
+                        // `DELETE r`/edge-var reference points at the real
+                        // stored edge, not an endpoint order that may not exist.
+                        Direction::Both => resolve_undirected_endpoints(snap, &a, &b),
+                    };
+                    binding.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
+                }
+            }
+            prev_var = next_var;
+        }
+    }
+}
+
 /// Execute a parsed write statement against `core` (CONCEPT:EG-KG.query.register-each-user-table / EG-061).
 fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<QueryResult, String> {
     // Resolve the leading MATCH (if any) over a snapshot into bindings. No MATCH ⇒
@@ -2894,32 +3190,7 @@ fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<Query
     // Enrich bindings with edge variables (`-[r:REL]->`) so `DELETE r` can resolve the
     // edge endpoints. For each named-edge hop, map `@edge@r -> "src\0tgt"`.
     if let Some(pattern) = &w.match_pattern {
-        for binding in bindings.iter_mut() {
-            let mut prev_var = node_var(&pattern.start, 0);
-            for (i, (edge, node)) in pattern.hops.iter().enumerate() {
-                let next_var = node_var(node, i + 1);
-                if let Some(evar) = &edge.var {
-                    if let (Some(a), Some(b)) = (
-                        binding.get(&prev_var).cloned(),
-                        binding.get(&next_var).cloned(),
-                    ) {
-                        let (src, tgt) = match edge.direction {
-                            Direction::Right => (a, b),
-                            Direction::Left => (b, a),
-                            // Undirected: the MATCH that produced this binding only
-                            // proved AN edge exists between `a` and `b` in either
-                            // direction (CONCEPT:EG-KG.query.undirected-relationship-pattern) —
-                            // resolve which one actually exists so a downstream
-                            // `DELETE r`/edge-var reference points at the real
-                            // stored edge, not an endpoint order that may not exist.
-                            Direction::Both => resolve_undirected_endpoints(&snap, &a, &b),
-                        };
-                        binding.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
-                    }
-                }
-                prev_var = next_var;
-            }
-        }
+        enrich_edge_bindings(&snap, pattern, &mut bindings);
     }
 
     let mut mutated = false;
@@ -3051,6 +3322,68 @@ fn create_quantified_group(
     Ok(current)
 }
 
+/// [`apply_existing_node_spec`]'s label-merge step: a missing `node_type` is set
+/// from `label`; an existing one must agree, else this is a conflict error.
+/// Returns whether `obj` changed.
+fn merge_existing_node_label(
+    obj: &mut serde_json::Map<String, Value>,
+    label: &Option<String>,
+) -> Result<bool, String> {
+    let Some(label) = label else {
+        return Ok(false);
+    };
+    match obj.get("node_type").and_then(Value::as_str) {
+        Some(existing) if existing != label => Err(format!(
+            "CREATE QPP boundary label `{label}` conflicts with `{existing}`"
+        )),
+        Some(_) => Ok(false),
+        None if obj.contains_key("node_type") => Err(
+            "CREATE QPP boundary node_type must be a string when a label is present".to_string(),
+        ),
+        None => {
+            obj.insert("node_type".to_string(), Value::String(label.clone()));
+            Ok(true)
+        }
+    }
+}
+
+/// [`apply_existing_node_spec`]'s inline-prop merge step: `id` is checked against
+/// `node`'s inline `id` constraint (not written — it's already the resolved
+/// identity), every other prop missing on `obj` is set, and one already present
+/// must agree, else this is a conflict error. Returns whether `obj` changed.
+fn merge_existing_node_props(
+    obj: &mut serde_json::Map<String, Value>,
+    node: &NodePat,
+    id: &str,
+    binding: &Binding,
+    params: &Params,
+) -> Result<bool, String> {
+    let mut changed = false;
+    for (key, wanted) in props_to_map(node.props.as_deref(), binding, params)? {
+        if key == "id" {
+            if wanted.as_str() != Some(id) {
+                return Err(format!(
+                    "CREATE QPP boundary id constraint does not match `{id}`"
+                ));
+            }
+            continue;
+        }
+        match obj.get(&key) {
+            Some(existing) if existing != &wanted => {
+                return Err(format!(
+                    "CREATE QPP boundary property `{key}` conflicts with its existing value"
+                ));
+            }
+            Some(_) => {}
+            None => {
+                obj.insert(key, wanted);
+                changed = true;
+            }
+        }
+    }
+    Ok(changed)
+}
+
 /// Apply a node pattern to an existing QPP boundary node. Missing label/property
 /// constraints are added; conflicting constraints fail instead of silently
 /// overwriting an already-created node.
@@ -3079,51 +3412,11 @@ fn apply_existing_node_spec(
     let obj = value
         .as_object_mut()
         .ok_or_else(|| format!("CREATE QPP boundary node `{id}` has non-object properties"))?;
-    let mut changed = false;
 
-    if let Some(label) = &node.label {
-        match obj.get("node_type").and_then(Value::as_str) {
-            Some(existing) if existing != label => {
-                return Err(format!(
-                    "CREATE QPP boundary label `{label}` conflicts with `{existing}`"
-                ));
-            }
-            Some(_) => {}
-            None if obj.contains_key("node_type") => {
-                return Err(
-                    "CREATE QPP boundary node_type must be a string when a label is present"
-                        .to_string(),
-                );
-            }
-            None => {
-                obj.insert("node_type".to_string(), Value::String(label.clone()));
-                changed = true;
-            }
-        }
-    }
-    for (key, wanted) in props_to_map(node.props.as_deref(), binding, params)? {
-        if key == "id" {
-            if wanted.as_str() != Some(id) {
-                return Err(format!(
-                    "CREATE QPP boundary id constraint does not match `{id}`"
-                ));
-            }
-            continue;
-        }
-        match obj.get(&key) {
-            Some(existing) if existing != &wanted => {
-                return Err(format!(
-                    "CREATE QPP boundary property `{key}` conflicts with its existing value"
-                ));
-            }
-            Some(_) => {}
-            None => {
-                obj.insert(key, wanted);
-                changed = true;
-            }
-        }
-    }
-    if changed {
+    let label_changed = merge_existing_node_label(obj, &node.label)?;
+    let props_changed = merge_existing_node_props(obj, node, id, binding, params)?;
+
+    if label_changed || props_changed {
         let encoded =
             rmp_serde::to_vec_named(&value).map_err(|e| format!("encode node `{id}`: {e}"))?;
         core.add_node(id.to_string(), encoded);
@@ -3177,52 +3470,62 @@ fn realize_node(
     Ok(id)
 }
 
-/// `MERGE (n:Label {props})`: match a node by label + ALL inline props; create iff
-/// absent. Idempotent. Binds `n` (CONCEPT:EG-KG.query.register-each-user-table).
-fn apply_merge(
+/// `apply_merge`'s point-lookup fast path (CONCEPT:EG-KG.storage.index-manager-seam): the
+/// dominant production shape is `MERGE (m:Label {id: $x}) SET …` — a single-node
+/// point lookup, not a scan. `GraphCore::get_node_properties` is a DIRECT DashMap
+/// read keyed by the node's GRAPH KEY (no property index, no cache, no staleness of
+/// any kind — it reads whatever `core` holds live at this instant, so it is exactly
+/// as fresh as [`merge_scan_match`] and safe to consult even mid-statement, unlike
+/// the general property index; see `exec_write`'s doc on why THAT index is not used
+/// here). A hit is checked against the SAME `label` + `want` conditions
+/// [`merge_scan_match`] checks for one candidate — so a match here is
+/// unconditionally the same match the scan would find, and this returns `true`
+/// (having already bound `node.var`) without ever touching
+/// `get_nodes_by_label`'s O(label-cardinality) scan+decode. A miss (no node at
+/// that graph key, wrong label, or its blob doesn't carry `want` verbatim — e.g. a
+/// non-Cypher-authored node whose blob's own `id` field diverges from its graph
+/// key) returns `false` rather than being treated as "absent": this fast path can
+/// only ever ADD a match, never suppress one the scan would have found.
+fn merge_fast_path(
     core: &GraphCore,
     binding: &mut Binding,
     node: &NodePat,
-    params: &Params,
-    mutated: &mut bool,
-) -> Result<(), String> {
-    let want = props_to_map(node.props.as_deref(), binding, params)?;
-
-    // Fast path (CONCEPT:EG-KG.storage.index-manager-seam): the dominant production shape is
-    // `MERGE (m:Label {id: $x}) SET …` — a single-node point lookup, not a scan.
-    // `GraphCore::get_node_properties` is a DIRECT DashMap read keyed by the node's
-    // GRAPH KEY (no property index, no cache, no staleness of any kind — it reads
-    // whatever `core` holds live at this instant, so it is exactly as fresh as the
-    // full scan below and safe to consult even mid-statement, unlike the general
-    // property index; see `exec_write`'s doc on why THAT index is not used here).
-    // A hit is checked against the SAME `label` + `want` conditions the full-scan
-    // loop below checks for one candidate — so a match here is unconditionally the
-    // same match the loop would find, and it's returned immediately without ever
-    // touching `get_nodes_by_label`'s O(label-cardinality) scan+decode. A miss (no
-    // node at that graph key, wrong label, or its blob doesn't carry `want`
-    // verbatim — e.g. a non-Cypher-authored node whose blob's own `id` field
-    // diverges from its graph key) falls through to the unchanged full scan rather
-    // than being treated as "absent": this fast path can only ever ADD a match,
-    // never suppress one the slow path would have found.
-    if let Some(id_val) = want.get("id").and_then(Value::as_str) {
-        if let Some(blob) = core.get_node_properties(id_val) {
-            let label_ok = node
-                .label
-                .as_deref()
-                .is_none_or(|label| node_has_label(&blob, label));
-            if label_ok {
-                if let Ok(Value::Object(obj)) = eg_types::msgpack::decode_property_value(&blob) {
-                    if want.iter().all(|(k, v)| obj.get(k) == Some(v)) {
-                        if let Some(var) = &node.var {
-                            binding.insert(var.clone(), id_val.to_string());
-                        }
-                        return Ok(());
-                    }
-                }
-            }
-        }
+    want: &serde_json::Map<String, Value>,
+) -> bool {
+    let Some(id_val) = want.get("id").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(blob) = core.get_node_properties(id_val) else {
+        return false;
+    };
+    let label_ok = node
+        .label
+        .as_deref()
+        .is_none_or(|label| node_has_label(&blob, label));
+    if !label_ok {
+        return false;
     }
+    let Ok(Value::Object(obj)) = eg_types::msgpack::decode_property_value(&blob) else {
+        return false;
+    };
+    if !want.iter().all(|(k, v)| obj.get(k) == Some(v)) {
+        return false;
+    }
+    if let Some(var) = &node.var {
+        binding.insert(var.clone(), id_val.to_string());
+    }
+    true
+}
 
+/// `apply_merge`'s full-scan fallback: every label candidate (or every node, when
+/// the pattern carries no label), first-match-wins on ALL of `want`. Returns `true`
+/// (having already bound `node.var`) iff a candidate matched.
+fn merge_scan_match(
+    core: &GraphCore,
+    binding: &mut Binding,
+    node: &NodePat,
+    want: &serde_json::Map<String, Value>,
+) -> bool {
     let candidates: Vec<(String, Vec<u8>)> = match &node.label {
         Some(label) => core.get_nodes_by_label(label, 0),
         None => core.get_nodes(),
@@ -3243,8 +3546,27 @@ fn apply_merge(
             if let Some(var) = &node.var {
                 binding.insert(var.clone(), id.clone());
             }
-            return Ok(());
+            return true;
         }
+    }
+    false
+}
+
+/// `MERGE (n:Label {props})`: match a node by label + ALL inline props; create iff
+/// absent. Idempotent. Binds `n` (CONCEPT:EG-KG.query.register-each-user-table).
+fn apply_merge(
+    core: &GraphCore,
+    binding: &mut Binding,
+    node: &NodePat,
+    params: &Params,
+    mutated: &mut bool,
+) -> Result<(), String> {
+    let want = props_to_map(node.props.as_deref(), binding, params)?;
+    if merge_fast_path(core, binding, node, &want) {
+        return Ok(());
+    }
+    if merge_scan_match(core, binding, node, &want) {
+        return Ok(());
     }
     realize_node(core, binding, node, params, mutated)?;
     Ok(())
@@ -3277,17 +3599,18 @@ fn apply_set(
     Ok(())
 }
 
-/// `REMOVE v.prop | v:Label [, …]`: delete a property or remove a label from the
-/// bound node (CONCEPT:EG-KG.query.cypher-execution). A read-modify-write over the engine's field map: read
-/// the node blob, drop the field / label, write the blob back via `add_node` (which
-/// replaces an existing node's properties in place).
-fn apply_remove(
-    core: &GraphCore,
-    binding: &Binding,
-    items: &[RemoveItem],
-    mutated: &mut bool,
-) -> Result<(), String> {
-    // Group removals per target variable so each node is rewritten once.
+/// [`group_remove_items`]'s output: each REMOVE item's target variable, bucketed
+/// into the properties and labels to drop from it, in first-seen variable order —
+/// a named struct instead of a 3-tuple so the return type stays simple.
+struct RemoveGroups<'a> {
+    props_by_var: HashMap<&'a str, Vec<&'a str>>,
+    labels_by_var: HashMap<&'a str, Vec<&'a str>>,
+    order: Vec<&'a str>,
+}
+
+/// Group [`apply_remove`]'s items by target variable, in first-seen order, so
+/// each node is rewritten once.
+fn group_remove_items(items: &[RemoveItem]) -> RemoveGroups<'_> {
     let mut props_by_var: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut labels_by_var: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut order: Vec<&str> = Vec::new();
@@ -3307,36 +3630,73 @@ fn apply_remove(
             }
         }
     }
+    RemoveGroups {
+        props_by_var,
+        labels_by_var,
+        order,
+    }
+}
 
-    for var in order {
-        let id = binding
-            .get(var)
-            .ok_or_else(|| format!("REMOVE refers to unbound variable `{var}`"))?;
-        let blob = core
-            .get_node_properties(id)
-            .ok_or_else(|| format!("REMOVE on absent node `{var}` ({id})"))?;
-        let mut val = eg_types::msgpack::decode_property_value(&blob)
-            .map_err(|_| format!("decode node `{id}` failed"))?;
-        let Some(obj) = val.as_object_mut() else {
-            continue;
-        };
-        let mut changed = false;
-        for prop in props_by_var.get(var).into_iter().flatten() {
-            if obj.remove(*prop).is_some() {
-                changed = true;
-            }
+/// Apply [`apply_remove`]'s grouped property/label removals for one target
+/// variable's bound node: a read-modify-write over the engine's field map — read
+/// the node blob, drop each field/label, write the blob back via `add_node`
+/// (which replaces an existing node's properties in place) iff anything actually
+/// changed.
+fn apply_remove_for_var(
+    core: &GraphCore,
+    binding: &Binding,
+    var: &str,
+    props: &[&str],
+    labels: &[&str],
+    mutated: &mut bool,
+) -> Result<(), String> {
+    let id = binding
+        .get(var)
+        .ok_or_else(|| format!("REMOVE refers to unbound variable `{var}`"))?;
+    let blob = core
+        .get_node_properties(id)
+        .ok_or_else(|| format!("REMOVE on absent node `{var}` ({id})"))?;
+    let mut val = eg_types::msgpack::decode_property_value(&blob)
+        .map_err(|_| format!("decode node `{id}` failed"))?;
+    let Some(obj) = val.as_object_mut() else {
+        return Ok(());
+    };
+    let mut changed = false;
+    for prop in props {
+        if obj.remove(*prop).is_some() {
+            changed = true;
         }
-        for label in labels_by_var.get(var).into_iter().flatten() {
-            if remove_label(obj, label) {
-                changed = true;
-            }
+    }
+    for label in labels {
+        if remove_label(obj, label) {
+            changed = true;
         }
-        if changed {
-            let reenc =
-                rmp_serde::to_vec_named(&val).map_err(|e| format!("encode node `{id}`: {e}"))?;
-            core.add_node(id.clone(), reenc);
-            *mutated = true;
-        }
+    }
+    if changed {
+        let reenc =
+            rmp_serde::to_vec_named(&val).map_err(|e| format!("encode node `{id}`: {e}"))?;
+        core.add_node(id.clone(), reenc);
+        *mutated = true;
+    }
+    Ok(())
+}
+
+/// `REMOVE v.prop | v:Label [, …]`: delete a property or remove a label from the
+/// bound node (CONCEPT:EG-KG.query.cypher-execution). A read-modify-write over the engine's field map: read
+/// the node blob, drop the field / label, write the blob back via `add_node` (which
+/// replaces an existing node's properties in place).
+fn apply_remove(
+    core: &GraphCore,
+    binding: &Binding,
+    items: &[RemoveItem],
+    mutated: &mut bool,
+) -> Result<(), String> {
+    let groups = group_remove_items(items);
+    let empty: Vec<&str> = Vec::new();
+    for var in groups.order {
+        let props = groups.props_by_var.get(var).unwrap_or(&empty);
+        let labels = groups.labels_by_var.get(var).unwrap_or(&empty);
+        apply_remove_for_var(core, binding, var, props, labels, mutated)?;
     }
     Ok(())
 }
@@ -7235,7 +7595,11 @@ mod tests {
             IndexSource::new(&core, version),
         )
         .unwrap();
-        assert_eq!(r_agg.rows.len(), 39, "its aggregate sibling groups by (s, o)");
+        assert_eq!(
+            r_agg.rows.len(),
+            39,
+            "its aggregate sibling groups by (s, o)"
+        );
     }
 
     #[test]
@@ -7339,7 +7703,11 @@ mod tests {
             IndexSource::new(&core2, version2),
         )
         .unwrap();
-        assert_eq!(r3.rows.len(), 2, "labels(n) is a list, never null, for a bound node");
+        assert_eq!(
+            r3.rows.len(),
+            2,
+            "labels(n) is a list, never null, for a bound node"
+        );
     }
 
     #[test]
