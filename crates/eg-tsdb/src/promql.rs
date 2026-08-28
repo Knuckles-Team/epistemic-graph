@@ -1150,6 +1150,36 @@ pub struct Evaluator<'a> {
     lookback_ns: i64,
 }
 
+/// The `<agg>_over_time` functions, as a set so the call table stays flat.
+/// `quantile_over_time` is deliberately absent — it is parametrized and has its
+/// own arm.
+static OVER_TIME_FNS: [&str; 8] = [
+    "sum_over_time",
+    "avg_over_time",
+    "min_over_time",
+    "max_over_time",
+    "count_over_time",
+    "stddev_over_time",
+    "stdvar_over_time",
+    "last_over_time",
+];
+
+/// The instant value of a series: the most recent point at-or-before `at`
+/// within the lookback window. Sources promise timestamp order; their
+/// conforming fast path is the O(1) tail. A defensive binary predecessor
+/// lookup stays O(log N) for cache adapters that return a wider ordered slice
+/// than requested.
+fn instant_point(points: &[(Ts, f64)], at: Ts) -> Option<f64> {
+    points
+        .last()
+        .filter(|(ts, _)| *ts <= at)
+        .or_else(|| {
+            let end = points.partition_point(|(ts, _)| *ts <= at);
+            end.checked_sub(1).and_then(|i| points.get(i))
+        })
+        .map(|&(_, v)| v)
+}
+
 impl<'a> Evaluator<'a> {
     pub fn new(source: &'a dyn SeriesSource) -> Self {
         Self {
@@ -1170,60 +1200,16 @@ impl<'a> Evaluator<'a> {
         match expr {
             Expr::Number(n) => Ok(Value::Scalar(*n)),
             Expr::Str(_) => err("a string literal is not a valid top-level expression"),
-            Expr::Neg(inner) => match self.eval_instant(inner, t)? {
-                Value::Scalar(s) => Ok(Value::Scalar(-s)),
-                Value::Instant(v) => Ok(Value::Instant(map_values(v, |x| -x))),
-                Value::Range(_) => err("unary '-' not defined on a range vector"),
-            },
+            Expr::Neg(inner) => self.eval_neg(inner, t),
             Expr::Selector {
                 matchers,
                 offset_ns,
-            } => {
-                let at = t - offset_ns;
-                let series = self.source.select(matchers, at - self.lookback_ns, at);
-                let mut out = Vec::new();
-                for s in series {
-                    // The instant value = the most recent point at-or-before `at`
-                    // within the lookback window. Sources promise timestamp order;
-                    // their conforming fast path is the O(1) tail. A defensive
-                    // binary predecessor lookup stays O(log N) for cache adapters
-                    // that return a wider ordered slice than requested.
-                    let point = s.points.last().filter(|(ts, _)| *ts <= at).or_else(|| {
-                        let end = s.points.partition_point(|(ts, _)| *ts <= at);
-                        end.checked_sub(1).and_then(|i| s.points.get(i))
-                    });
-                    if let Some(&(_, v)) = point {
-                        out.push(InstantSample {
-                            labels: s.labels,
-                            value: v,
-                        });
-                    }
-                }
-                Ok(Value::Instant(out))
-            }
+            } => self.eval_selector(matchers, *offset_ns, t),
             Expr::Matrix {
                 matchers,
                 range_ns,
                 offset_ns,
-            } => {
-                let at = t - offset_ns;
-                let lo = at - range_ns;
-                let series = self.source.select(matchers, lo, at);
-                let out = series
-                    .into_iter()
-                    .map(|s| RangeSeries {
-                        labels: s.labels,
-                        // Prometheus range window is (lo, at].
-                        points: s
-                            .points
-                            .into_iter()
-                            .filter(|(ts, _)| *ts > lo && *ts <= at)
-                            .collect(),
-                    })
-                    .filter(|s| !s.points.is_empty())
-                    .collect();
-                Ok(Value::Range(out))
-            }
+            } => self.eval_matrix(matchers, *range_ns, *offset_ns, t),
             Expr::Call { func, args } => self.eval_call(func, args, t),
             Expr::Aggregate {
                 op,
@@ -1231,37 +1217,7 @@ impl<'a> Evaluator<'a> {
                 by,
                 labels,
                 param,
-            } => {
-                let v = self.eval_instant(expr, t)?;
-                let samples = as_instant(v, "aggregation operand")?;
-                let result = match op {
-                    AggOp::CountValues => {
-                        let dst = match param.as_deref() {
-                            Some(Expr::Str(s)) => s.clone(),
-                            _ => return err(
-                                "count_values expects a string label name as its first argument",
-                            ),
-                        };
-                        count_values(samples, *by, labels, &dst)
-                    }
-                    AggOp::Topk | AggOp::Bottomk => {
-                        let p = param.as_deref().ok_or_else(|| {
-                            PromqlError("topk/bottomk require a scalar `k` parameter".into())
-                        })?;
-                        let k = self.scalar_arg(p, t, "topk/bottomk k")?;
-                        topk_bottomk(*op, samples, *by, labels, k)
-                    }
-                    AggOp::Quantile => {
-                        let p = param.as_deref().ok_or_else(|| {
-                            PromqlError("quantile requires a scalar `phi` parameter".into())
-                        })?;
-                        let phi = self.scalar_arg(p, t, "quantile phi")?;
-                        quantile_agg(phi, samples, *by, labels)
-                    }
-                    _ => aggregate(*op, samples, *by, labels),
-                };
-                Ok(Value::Instant(result))
-            }
+            } => self.eval_aggregate(*op, expr, *by, labels, param.as_deref(), t),
             Expr::Binary {
                 op,
                 lhs,
@@ -1276,150 +1232,292 @@ impl<'a> Evaluator<'a> {
         }
     }
 
+    fn eval_neg(&self, inner: &Expr, t: Ts) -> Result<Value, PromqlError> {
+        match self.eval_instant(inner, t)? {
+            Value::Scalar(s) => Ok(Value::Scalar(-s)),
+            Value::Instant(v) => Ok(Value::Instant(map_values(v, |x| -x))),
+            Value::Range(_) => err("unary '-' not defined on a range vector"),
+        }
+    }
+
+    fn eval_selector(
+        &self,
+        matchers: &[LabelMatcher],
+        offset_ns: i64,
+        t: Ts,
+    ) -> Result<Value, PromqlError> {
+        let at = t - offset_ns;
+        let series = self.source.select(matchers, at - self.lookback_ns, at);
+        let mut out = Vec::new();
+        for s in series {
+            if let Some(value) = instant_point(&s.points, at) {
+                out.push(InstantSample {
+                    labels: s.labels,
+                    value,
+                });
+            }
+        }
+        Ok(Value::Instant(out))
+    }
+
+    fn eval_matrix(
+        &self,
+        matchers: &[LabelMatcher],
+        range_ns: i64,
+        offset_ns: i64,
+        t: Ts,
+    ) -> Result<Value, PromqlError> {
+        let at = t - offset_ns;
+        let lo = at - range_ns;
+        let series = self.source.select(matchers, lo, at);
+        let out = series
+            .into_iter()
+            .map(|s| RangeSeries {
+                labels: s.labels,
+                // Prometheus range window is (lo, at].
+                points: s
+                    .points
+                    .into_iter()
+                    .filter(|(ts, _)| *ts > lo && *ts <= at)
+                    .collect(),
+            })
+            .filter(|s| !s.points.is_empty())
+            .collect();
+        Ok(Value::Range(out))
+    }
+
+    fn eval_aggregate(
+        &self,
+        op: AggOp,
+        expr: &Expr,
+        by: bool,
+        labels: &[String],
+        param: Option<&Expr>,
+        t: Ts,
+    ) -> Result<Value, PromqlError> {
+        let v = self.eval_instant(expr, t)?;
+        let samples = as_instant(v, "aggregation operand")?;
+        let result = match op {
+            AggOp::CountValues => {
+                let dst = match param {
+                    Some(Expr::Str(s)) => s.clone(),
+                    _ => {
+                        return err(
+                            "count_values expects a string label name as its first argument",
+                        )
+                    }
+                };
+                count_values(samples, by, labels, &dst)
+            }
+            AggOp::Topk | AggOp::Bottomk => {
+                let p = param.ok_or_else(|| {
+                    PromqlError("topk/bottomk require a scalar `k` parameter".into())
+                })?;
+                let k = self.scalar_arg(p, t, "topk/bottomk k")?;
+                topk_bottomk(op, samples, by, labels, k)
+            }
+            AggOp::Quantile => {
+                let p = param.ok_or_else(|| {
+                    PromqlError("quantile requires a scalar `phi` parameter".into())
+                })?;
+                let phi = self.scalar_arg(p, t, "quantile phi")?;
+                quantile_agg(phi, samples, by, labels)
+            }
+            _ => aggregate(op, samples, by, labels),
+        };
+        Ok(Value::Instant(result))
+    }
+
+    /// The PromQL function table. Split across three tiers purely to keep each
+    /// dispatch flat; the tiers are probed in the order the arms were written.
     fn eval_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
         match func {
-            "rate" | "irate" | "increase" => {
-                let arg = one_arg(func, args)?;
-                let rv = self.eval_instant(arg, t)?;
-                let series = as_range(rv, func)?;
-                Ok(Value::Instant(rate_family(func, series)))
-            }
-            "abs" | "ceil" | "floor" => {
-                let arg = one_arg(func, args)?;
-                let iv = self.eval_instant(arg, t)?;
-                let samples = as_instant(iv, func)?;
-                let f: fn(f64) -> f64 = match func {
-                    "abs" => f64::abs,
-                    "ceil" => f64::ceil,
-                    _ => f64::floor,
-                };
-                // scalar functions drop the metric name
-                Ok(Value::Instant(map_values(strip_name(samples), f)))
-            }
-            "histogram_quantile" => {
-                if args.len() != 2 {
-                    return err("histogram_quantile expects (phi, vector)");
-                }
-                let phi = match self.eval_instant(&args[0], t)? {
-                    Value::Scalar(s) => s,
-                    _ => return err("histogram_quantile: first arg must be a scalar"),
-                };
-                let iv = self.eval_instant(&args[1], t)?;
-                let samples = as_instant(iv, "histogram_quantile")?;
-                Ok(Value::Instant(histogram_quantile(phi, samples)))
-            }
-            "scalar" => {
-                let arg = one_arg(func, args)?;
-                let iv = self.eval_instant(arg, t)?;
-                let samples = as_instant(iv, "scalar")?;
-                Ok(Value::Scalar(if samples.len() == 1 {
-                    samples[0].value
-                } else {
-                    f64::NAN
-                }))
-            }
+            "rate" | "irate" | "increase" => self.eval_rate_call(func, args, t),
+            "abs" | "ceil" | "floor" => self.eval_math_call(func, args, t),
+            "histogram_quantile" => self.eval_histogram_quantile_call(args, t),
+            "scalar" => self.eval_scalar_call(func, args, t),
+            _ => self.eval_range_call(func, args, t),
+        }
+    }
+
+    /// Tier 2: the range-vector functions.
+    fn eval_range_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        match func {
             // CONCEPT:EG-KG.query.bottomk-selection — `<agg>_over_time` over a range vector.
-            "sum_over_time" | "avg_over_time" | "min_over_time" | "max_over_time"
-            | "count_over_time" | "stddev_over_time" | "stdvar_over_time" | "last_over_time" => {
-                let arg = one_arg(func, args)?;
-                let rv = self.eval_instant(arg, t)?;
-                let series = as_range(rv, func)?;
-                Ok(Value::Instant(over_time_family(func, series)))
-            }
-            "quantile_over_time" => {
-                if args.len() != 2 {
-                    return err("quantile_over_time expects (phi, range-vector)");
-                }
-                let phi = self.scalar_arg(&args[0], t, "quantile_over_time phi")?;
-                let rv = self.eval_instant(&args[1], t)?;
-                let series = as_range(rv, "quantile_over_time")?;
-                Ok(Value::Instant(quantile_over_time(phi, series)))
-            }
+            f if OVER_TIME_FNS.contains(&f) => self.eval_over_time_call(func, args, t),
+            "quantile_over_time" => self.eval_quantile_over_time_call(args, t),
             // CONCEPT:EG-KG.query.bottomk-selection — range-vector deltas / derivatives.
-            "delta" | "idelta" | "deriv" => {
-                let arg = one_arg(func, args)?;
-                let rv = self.eval_instant(arg, t)?;
-                let series = as_range(rv, func)?;
-                Ok(Value::Instant(delta_family(func, series, t)))
-            }
-            "predict_linear" => {
-                if args.len() != 2 {
-                    return err("predict_linear expects (range-vector, t)");
-                }
-                let rv = self.eval_instant(&args[0], t)?;
-                let series = as_range(rv, "predict_linear")?;
-                let secs = self.scalar_arg(&args[1], t, "predict_linear t")?;
-                Ok(Value::Instant(predict_linear(series, secs, t)))
-            }
+            "delta" | "idelta" | "deriv" => self.eval_delta_call(func, args, t),
+            "predict_linear" => self.eval_predict_linear_call(args, t),
+            _ => self.eval_shaping_call(func, args, t),
+        }
+    }
+
+    /// Tier 3: the value/label shaping functions.
+    fn eval_shaping_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        match func {
             // CONCEPT:EG-KG.query.bottomk-selection — clamp / round.
-            "clamp" => {
-                if args.len() != 3 {
-                    return err("clamp expects (vector, min, max)");
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, "clamp")?;
-                let min = self.scalar_arg(&args[1], t, "clamp min")?;
-                let max = self.scalar_arg(&args[2], t, "clamp max")?;
-                Ok(Value::Instant(clamp(samples, min, max)))
-            }
-            "clamp_min" | "clamp_max" => {
-                if args.len() != 2 {
-                    return err(format!("{func} expects (vector, scalar)"));
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, func)?;
-                let bound = self.scalar_arg(&args[1], t, func)?;
-                let f: Box<dyn Fn(f64) -> f64> = if func == "clamp_min" {
-                    Box::new(move |v| v.max(bound))
-                } else {
-                    Box::new(move |v| v.min(bound))
-                };
-                Ok(Value::Instant(map_values(strip_name(samples), f)))
-            }
-            "round" => {
-                if args.is_empty() || args.len() > 2 {
-                    return err("round expects (vector) or (vector, to_nearest)");
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, "round")?;
-                let to_nearest = if args.len() == 2 {
-                    self.scalar_arg(&args[1], t, "round to_nearest")?
-                } else {
-                    1.0
-                };
-                Ok(Value::Instant(round(samples, to_nearest)))
-            }
+            "clamp" => self.eval_clamp_call(args, t),
+            "clamp_min" | "clamp_max" => self.eval_clamp_bound_call(func, args, t),
+            "round" => self.eval_round_call(args, t),
             // CONCEPT:EG-KG.query.bottomk-selection — label functions.
-            "label_replace" => {
-                if args.len() != 5 {
-                    return err("label_replace expects (vector, dst, replacement, src, regex)");
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, "label_replace")?;
-                let dst = str_arg(&args[1], "label_replace dst_label")?;
-                let repl = str_arg(&args[2], "label_replace replacement")?;
-                let src = str_arg(&args[3], "label_replace src_label")?;
-                let regex = str_arg(&args[4], "label_replace regex")?;
-                Ok(Value::Instant(label_replace(
-                    samples, dst, repl, src, regex,
-                )?))
-            }
-            "label_join" => {
-                if args.len() < 3 {
-                    return err("label_join expects (vector, dst, separator, src_label...)");
-                }
-                let iv = self.eval_instant(&args[0], t)?;
-                let samples = as_instant(iv, "label_join")?;
-                let dst = str_arg(&args[1], "label_join dst_label")?;
-                let sep = str_arg(&args[2], "label_join separator")?;
-                let srcs: Vec<&str> = args[3..]
-                    .iter()
-                    .map(|a| str_arg(a, "label_join src_label"))
-                    .collect::<Result<_, _>>()?;
-                Ok(Value::Instant(label_join(samples, dst, sep, &srcs)))
-            }
+            "label_replace" => self.eval_label_replace_call(args, t),
+            "label_join" => self.eval_label_join_call(args, t),
             other => err(format!("unsupported function '{other}' (EG-172 follow-up)")),
         }
+    }
+
+    fn eval_rate_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let rv = self.eval_instant(arg, t)?;
+        let series = as_range(rv, func)?;
+        Ok(Value::Instant(rate_family(func, series)))
+    }
+
+    fn eval_math_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let iv = self.eval_instant(arg, t)?;
+        let samples = as_instant(iv, func)?;
+        let f: fn(f64) -> f64 = match func {
+            "abs" => f64::abs,
+            "ceil" => f64::ceil,
+            _ => f64::floor,
+        };
+        // scalar functions drop the metric name
+        Ok(Value::Instant(map_values(strip_name(samples), f)))
+    }
+
+    fn eval_histogram_quantile_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 2 {
+            return err("histogram_quantile expects (phi, vector)");
+        }
+        let phi = match self.eval_instant(&args[0], t)? {
+            Value::Scalar(s) => s,
+            _ => return err("histogram_quantile: first arg must be a scalar"),
+        };
+        let iv = self.eval_instant(&args[1], t)?;
+        let samples = as_instant(iv, "histogram_quantile")?;
+        Ok(Value::Instant(histogram_quantile(phi, samples)))
+    }
+
+    fn eval_scalar_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let iv = self.eval_instant(arg, t)?;
+        let samples = as_instant(iv, "scalar")?;
+        Ok(Value::Scalar(if samples.len() == 1 {
+            samples[0].value
+        } else {
+            f64::NAN
+        }))
+    }
+
+    fn eval_over_time_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let rv = self.eval_instant(arg, t)?;
+        let series = as_range(rv, func)?;
+        Ok(Value::Instant(over_time_family(func, series)))
+    }
+
+    fn eval_quantile_over_time_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 2 {
+            return err("quantile_over_time expects (phi, range-vector)");
+        }
+        let phi = self.scalar_arg(&args[0], t, "quantile_over_time phi")?;
+        let rv = self.eval_instant(&args[1], t)?;
+        let series = as_range(rv, "quantile_over_time")?;
+        Ok(Value::Instant(quantile_over_time(phi, series)))
+    }
+
+    fn eval_delta_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let arg = one_arg(func, args)?;
+        let rv = self.eval_instant(arg, t)?;
+        let series = as_range(rv, func)?;
+        Ok(Value::Instant(delta_family(func, series, t)))
+    }
+
+    fn eval_predict_linear_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 2 {
+            return err("predict_linear expects (range-vector, t)");
+        }
+        let rv = self.eval_instant(&args[0], t)?;
+        let series = as_range(rv, "predict_linear")?;
+        let secs = self.scalar_arg(&args[1], t, "predict_linear t")?;
+        Ok(Value::Instant(predict_linear(series, secs, t)))
+    }
+
+    fn eval_clamp_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 3 {
+            return err("clamp expects (vector, min, max)");
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, "clamp")?;
+        let min = self.scalar_arg(&args[1], t, "clamp min")?;
+        let max = self.scalar_arg(&args[2], t, "clamp max")?;
+        Ok(Value::Instant(clamp(samples, min, max)))
+    }
+
+    fn eval_clamp_bound_call(
+        &self,
+        func: &str,
+        args: &[Expr],
+        t: Ts,
+    ) -> Result<Value, PromqlError> {
+        if args.len() != 2 {
+            return err(format!("{func} expects (vector, scalar)"));
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, func)?;
+        let bound = self.scalar_arg(&args[1], t, func)?;
+        let f: Box<dyn Fn(f64) -> f64> = if func == "clamp_min" {
+            Box::new(move |v| v.max(bound))
+        } else {
+            Box::new(move |v| v.min(bound))
+        };
+        Ok(Value::Instant(map_values(strip_name(samples), f)))
+    }
+
+    fn eval_round_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.is_empty() || args.len() > 2 {
+            return err("round expects (vector) or (vector, to_nearest)");
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, "round")?;
+        let to_nearest = if args.len() == 2 {
+            self.scalar_arg(&args[1], t, "round to_nearest")?
+        } else {
+            1.0
+        };
+        Ok(Value::Instant(round(samples, to_nearest)))
+    }
+
+    fn eval_label_replace_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() != 5 {
+            return err("label_replace expects (vector, dst, replacement, src, regex)");
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, "label_replace")?;
+        let dst = str_arg(&args[1], "label_replace dst_label")?;
+        let repl = str_arg(&args[2], "label_replace replacement")?;
+        let src = str_arg(&args[3], "label_replace src_label")?;
+        let regex = str_arg(&args[4], "label_replace regex")?;
+        Ok(Value::Instant(label_replace(
+            samples, dst, repl, src, regex,
+        )?))
+    }
+
+    fn eval_label_join_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        if args.len() < 3 {
+            return err("label_join expects (vector, dst, separator, src_label...)");
+        }
+        let iv = self.eval_instant(&args[0], t)?;
+        let samples = as_instant(iv, "label_join")?;
+        let dst = str_arg(&args[1], "label_join dst_label")?;
+        let sep = str_arg(&args[2], "label_join separator")?;
+        let srcs: Vec<&str> = args[3..]
+            .iter()
+            .map(|a| str_arg(a, "label_join src_label"))
+            .collect::<Result<_, _>>()?;
+        Ok(Value::Instant(label_join(samples, dst, sep, &srcs)))
     }
 
     /// Evaluate `e` and require it to be a scalar (used for function/aggregation
