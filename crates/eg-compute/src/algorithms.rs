@@ -326,11 +326,10 @@ pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
 
     // One independent single-source dependency accumulation. Returns (w, delta[w])
     // for every w != source — the partial betweenness this source contributes.
-    let source_contribution =
-        |source: NodeIndex| -> Vec<(NodeIndex, f64)> {
-            let (stack, predecessors, sigma) = bfs_shortest_path_counts(core, &nodes, source);
-            accumulate_betweenness_dependencies(&nodes, stack, &predecessors, &sigma, source)
-        };
+    let source_contribution = |source: NodeIndex| -> Vec<(NodeIndex, f64)> {
+        let (stack, predecessors, sigma) = bfs_shortest_path_counts(core, &nodes, source);
+        accumulate_betweenness_dependencies(&nodes, stack, &predecessors, &sigma, source)
+    };
 
     // Compute every source's contribution in parallel; collect preserves source
     // order so the sequential reduction below is order-stable.
@@ -467,7 +466,11 @@ pub fn connected_components(core: &GraphView) -> Vec<Vec<String>> {
         if visited.contains(&start) {
             continue;
         }
-        components.push(collect_weakly_connected_component(core, start, &mut visited));
+        components.push(collect_weakly_connected_component(
+            core,
+            start,
+            &mut visited,
+        ));
     }
 
     components
@@ -771,7 +774,11 @@ fn project_cluster_graph(
         });
     }
     ids.sort_unstable();
-    let index: HashMap<&str, usize> = ids.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
+    let index: HashMap<&str, usize> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
     let node_types: Vec<String> = ids
         .iter()
         .map(|id| {
@@ -904,7 +911,10 @@ pub fn cluster_hierarchy(
         let level = level_idx + 1;
         let (communities, parent): (Vec<Vec<usize>>, Vec<Option<usize>>) =
             if synthetic_singleton_level {
-                ((0..base_node_count).map(|i| vec![i]).collect(), vec![None; base_node_count])
+                (
+                    (0..base_node_count).map(|i| vec![i]).collect(),
+                    vec![None; base_node_count],
+                )
             } else {
                 (
                     raw.levels[level_idx].communities.clone(),
@@ -1507,7 +1517,10 @@ fn build_same_as_clusters(
         degree[i] += 1;
         degree[j] += 1;
         if s >= merge_threshold && nodes[i].2 == nodes[j].2 {
-            let (ri, rj) = (union_find_root(&mut parent, i), union_find_root(&mut parent, j));
+            let (ri, rj) = (
+                union_find_root(&mut parent, i),
+                union_find_root(&mut parent, j),
+            );
             if ri != rj {
                 parent[ri] = rj;
             }
@@ -1920,6 +1933,42 @@ pub fn merge_batch_node_properties(current: &[u8], updates: &[u8]) -> Result<Vec
 /// Malformed MessagePack, missing fields, unknown operations, non-object properties,
 /// and invalid embeddings are terminal errors. Callers must never reinterpret an
 /// opaque or partially decoded payload as an empty successful batch.
+/// Decode one `add_embedding` batch operation. Split out of
+/// `decode_batch_operations` (extract-method, cx/wD8) — same terms, same
+/// order as before.
+fn decode_batch_embedding_op(
+    operation: &serde_json::Value,
+    index: usize,
+) -> Result<BatchOperation, String> {
+    let id = required_batch_id(operation, index, "id")?;
+    let values = operation
+        .get("embedding")
+        .and_then(serde_json::Value::as_array)
+        .filter(|values| !values.is_empty())
+        .ok_or_else(|| {
+            format!("BatchUpdate op[{index}] 'embedding' must be a non-empty number array")
+        })?;
+    if values.len() > MAX_EMBEDDING_DIMENSION {
+        return Err(format!(
+            "BatchUpdate op[{index}] embedding exceeds the dimension limit"
+        ));
+    }
+    let mut embedding = Vec::with_capacity(values.len());
+    for value in values {
+        let number = value
+            .as_f64()
+            .ok_or_else(|| format!("BatchUpdate op[{index}] embedding contains a non-number"))?;
+        let component = number as f32;
+        if !number.is_finite() || !component.is_finite() {
+            return Err(format!(
+                "BatchUpdate op[{index}] embedding contains a non-finite component"
+            ));
+        }
+        embedding.push(component);
+    }
+    Ok(BatchOperation::AddEmbedding { id, embedding })
+}
+
 pub fn decode_batch_operations(operations_msgpack: &[u8]) -> Result<Vec<BatchOperation>, String> {
     let operations: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
         operations_msgpack,
@@ -1954,42 +2003,105 @@ pub fn decode_batch_operations(operations_msgpack: &[u8]) -> Result<Vec<BatchOpe
                 source: required_batch_id(operation, index, "source")?,
                 target: required_batch_id(operation, index, "target")?,
             },
-            "add_embedding" => {
-                let id = required_batch_id(operation, index, "id")?;
-                let values = operation
-                    .get("embedding")
-                    .and_then(serde_json::Value::as_array)
-                    .filter(|values| !values.is_empty())
-                    .ok_or_else(|| {
-                        format!(
-                            "BatchUpdate op[{index}] 'embedding' must be a non-empty number array"
-                        )
-                    })?;
-                if values.len() > MAX_EMBEDDING_DIMENSION {
-                    return Err(format!(
-                        "BatchUpdate op[{index}] embedding exceeds the dimension limit"
-                    ));
-                }
-                let mut embedding = Vec::with_capacity(values.len());
-                for value in values {
-                    let number = value.as_f64().ok_or_else(|| {
-                        format!("BatchUpdate op[{index}] embedding contains a non-number")
-                    })?;
-                    let component = number as f32;
-                    if !number.is_finite() || !component.is_finite() {
-                        return Err(format!(
-                            "BatchUpdate op[{index}] embedding contains a non-finite component"
-                        ));
-                    }
-                    embedding.push(component);
-                }
-                BatchOperation::AddEmbedding { id, embedding }
-            }
+            "add_embedding" => decode_batch_embedding_op(operation, index)?,
             _ => return Err(format!("BatchUpdate op[{index}] has an unknown operation")),
         };
         decoded.push(decoded_operation);
     }
     Ok(decoded)
+}
+
+/// Prepare one `AddNode`/`upsert_node` op — merging cumulative properties for
+/// a repeated id within the batch. Split out of `prepare_batch_operations_with`
+/// (extract-method, cx/wD8) — same terms, same order as before.
+fn prepare_add_node_op(
+    index: usize,
+    id: &str,
+    properties_msgpack: &mut Vec<u8>,
+    upsert: bool,
+    node_state: &mut HashMap<String, Option<Vec<u8>>>,
+    node_exists: &mut impl FnMut(&str) -> bool,
+    node_properties: &mut impl FnMut(&str) -> Option<Vec<u8>>,
+) -> Result<(), String> {
+    if upsert {
+        let current = match node_state.get(id) {
+            Some(properties) => properties.clone(),
+            None => match node_properties(id) {
+                Some(properties) => Some(properties),
+                None if node_exists(id) => {
+                    return Err(format!(
+                        "BatchUpdate op[{index}] node '{id}' has no property document"
+                    ));
+                }
+                None => None,
+            },
+        };
+        if let Some(current) = current {
+            *properties_msgpack = merge_batch_node_properties(&current, properties_msgpack)
+                .map_err(|reason| {
+                    format!("BatchUpdate op[{index}] cannot upsert node '{id}': {reason}")
+                })?;
+        }
+    }
+    node_state.insert(id.to_string(), Some(properties_msgpack.clone()));
+    Ok(())
+}
+
+/// Prepare one `AddEdge` op — endpoints must exist at that point in the
+/// batch. Split out of `prepare_batch_operations_with` (extract-method,
+/// cx/wD8) — same terms, same order as before.
+fn prepare_add_edge_op(
+    index: usize,
+    source: &str,
+    target: &str,
+    node_state: &HashMap<String, Option<Vec<u8>>>,
+    node_exists: &mut impl FnMut(&str) -> bool,
+) -> Result<(), String> {
+    let source_exists = node_state
+        .get(source)
+        .map(Option::is_some)
+        .unwrap_or_else(|| node_exists(source));
+    let target_exists = node_state
+        .get(target)
+        .map(Option::is_some)
+        .unwrap_or_else(|| node_exists(target));
+    if !source_exists || !target_exists {
+        return Err(format!(
+            "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
+        ));
+    }
+    Ok(())
+}
+
+/// Prepare one `AddEmbedding` op — validates the node exists and the
+/// embedding's dimension against `expected_embedding_dim`. Split out of
+/// `prepare_batch_operations_with` (extract-method, cx/wD8) — same terms,
+/// same order as before. Returns the (possibly newly-established) expected
+/// dimension.
+fn prepare_add_embedding_op(
+    index: usize,
+    id: &str,
+    embedding: &[f32],
+    expected_embedding_dim: usize,
+    node_state: &HashMap<String, Option<Vec<u8>>>,
+    node_exists: &mut impl FnMut(&str) -> bool,
+) -> Result<usize, String> {
+    let exists = node_state
+        .get(id)
+        .map(Option::is_some)
+        .unwrap_or_else(|| node_exists(id));
+    if !exists {
+        return Err(format!(
+            "BatchUpdate op[{index}] embedding node '{id}' does not exist"
+        ));
+    }
+    // Same guard as the arena/map chokepoint (`SemanticStore::add_embedding`),
+    // run for EVERY embedding op in the batch up front so a
+    // mixed-dimension OR non-finite-component batch (e.g. op[2] matches
+    // the store, op[5] doesn't, or op[5] contains a NaN) is rejected as a
+    // whole, before `batch_update` applies op[0]/op[1] to the live store.
+    eg_core::compute::semantic::check_embedding_dimension(embedding, expected_embedding_dim)
+        .map_err(|error| format!("BatchUpdate op[{index}] {error}"))
 }
 
 fn prepare_batch_operations_with(
@@ -2016,70 +2128,32 @@ fn prepare_batch_operations_with(
                 properties_msgpack,
                 upsert,
             } => {
-                if *upsert {
-                    let current = match node_state.get(id) {
-                        Some(properties) => properties.clone(),
-                        None => match node_properties(id) {
-                            Some(properties) => Some(properties),
-                            None if node_exists(id) => {
-                                return Err(format!(
-                                    "BatchUpdate op[{index}] node '{id}' has no property document"
-                                ));
-                            }
-                            None => None,
-                        },
-                    };
-                    if let Some(current) = current {
-                        *properties_msgpack = merge_batch_node_properties(
-                            &current,
-                            properties_msgpack,
-                        )
-                        .map_err(|reason| {
-                            format!("BatchUpdate op[{index}] cannot upsert node '{id}': {reason}")
-                        })?;
-                    }
-                }
-                node_state.insert(id.clone(), Some(properties_msgpack.clone()));
+                prepare_add_node_op(
+                    index,
+                    id,
+                    properties_msgpack,
+                    *upsert,
+                    &mut node_state,
+                    &mut node_exists,
+                    &mut node_properties,
+                )?;
             }
             BatchOperation::RemoveNode { id } => {
                 node_state.insert(id.clone(), None);
             }
             BatchOperation::AddEdge { source, target, .. } => {
-                let source_exists = node_state
-                    .get(source)
-                    .map(Option::is_some)
-                    .unwrap_or_else(|| node_exists(source));
-                let target_exists = node_state
-                    .get(target)
-                    .map(Option::is_some)
-                    .unwrap_or_else(|| node_exists(target));
-                if !source_exists || !target_exists {
-                    return Err(format!(
-                        "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
-                    ));
-                }
+                prepare_add_edge_op(index, source, target, &node_state, &mut node_exists)?;
             }
             BatchOperation::RemoveEdge { .. } => {}
             BatchOperation::AddEmbedding { id, embedding } => {
-                let node_exists = node_state
-                    .get(id)
-                    .map(Option::is_some)
-                    .unwrap_or_else(|| node_exists(id));
-                if !node_exists {
-                    return Err(format!(
-                        "BatchUpdate op[{index}] embedding node '{id}' does not exist"
-                    ));
-                }
-                // Same guard as the arena/map chokepoint (`SemanticStore::add_embedding`),
-                // run for EVERY embedding op in the batch up front so a
-                // mixed-dimension OR non-finite-component batch (e.g. op[2] matches
-                // the store, op[5] doesn't, or op[5] contains a NaN) is rejected as a
-                // whole, before `batch_update` applies op[0]/op[1] to the live store.
-                expected_embedding_dim = eg_core::compute::semantic::check_embedding_dimension(
+                expected_embedding_dim = prepare_add_embedding_op(
+                    index,
+                    id,
                     embedding,
                     expected_embedding_dim,
-                )
-                .map_err(|error| format!("BatchUpdate op[{index}] {error}"))?;
+                    &node_state,
+                    &mut node_exists,
+                )?;
             }
         }
     }
@@ -2142,6 +2216,72 @@ pub fn batch_update_preview(
 /// Supported operations are `add_node`, `upsert_node`, `remove_node`, `add_edge`,
 /// `upsert_edge`, `remove_edge`, and `add_embedding`. Nodes use `id`; edges use
 /// `source` and `target`; embeddings use `id` plus a non-empty `embedding` array.
+/// One pending change to `core.semantic_store`, applied after the topology
+/// `txn` commits. Split out of `batch_update` (extract-method, cx/wD8) — was
+/// a local `enum` there, unchanged.
+enum SemanticAction {
+    Upsert(String, Vec<f32>),
+    Remove(String),
+}
+
+/// Apply one decoded `BatchOperation` to the in-flight `txn`/changeset state.
+/// Split out of `batch_update`'s operation loop (extract-method, cx/wD8) —
+/// same terms, same order as before.
+#[allow(clippy::too_many_arguments)]
+fn apply_batch_operation(
+    operation: BatchOperation,
+    capture_content: bool,
+    node_upserts: &mut BTreeMap<String, Vec<u8>>,
+    node_removals: &mut BTreeSet<String>,
+    change: &mut eg_core::index::ChangeSet,
+    semantic_actions: &mut Vec<SemanticAction>,
+    txn: &mut eg_core::graph::GraphTxn<'_>,
+) -> Result<(), String> {
+    match operation {
+        BatchOperation::AddNode {
+            id,
+            properties_msgpack,
+            ..
+        } => {
+            if capture_content {
+                node_removals.remove(&id);
+                node_upserts.insert(id.clone(), properties_msgpack.clone());
+            } else {
+                node_removals.remove(&id);
+                node_upserts.insert(id.clone(), Vec::new());
+            }
+            txn.add_node(id, properties_msgpack);
+        }
+        BatchOperation::RemoveNode { id } => {
+            node_upserts.remove(&id);
+            node_removals.insert(id.clone());
+            txn.remove_node(id.clone());
+            semantic_actions.push(SemanticAction::Remove(id));
+        }
+        BatchOperation::AddEdge {
+            source,
+            target,
+            properties_msgpack,
+            upsert,
+        } => {
+            if upsert {
+                txn.remove_edge(source.clone(), target.clone());
+                change.record_remove_edge(source.clone(), target.clone());
+            }
+            txn.add_edge(source.clone(), target.clone(), properties_msgpack)?;
+            change.record_add_edge(source, target);
+        }
+        BatchOperation::RemoveEdge { source, target } => {
+            txn.remove_edge(source.clone(), target.clone());
+            change.record_remove_edge(source, target);
+        }
+        BatchOperation::AddEmbedding { id, embedding } => {
+            semantic_actions.push(SemanticAction::Upsert(id, embedding));
+        }
+    }
+    Ok(())
+}
+
 pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u8>, String> {
     let mut operations = decode_batch_operations(operations_msgpack)?;
     let summary = batch_summary(&operations);
@@ -2149,11 +2289,6 @@ pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u
     let mut node_upserts = BTreeMap::<String, Vec<u8>>::new();
     let mut node_removals = BTreeSet::<String>::new();
     let mut change = eg_core::index::ChangeSet::new();
-
-    enum SemanticAction {
-        Upsert(String, Vec<f32>),
-        Remove(String),
-    }
     let mut semantic_actions = Vec::new();
 
     // ONE topology guard makes every structural operation atomic to graph readers.
@@ -2175,48 +2310,15 @@ pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u
     )?;
     let source_version = core.version();
     for operation in operations {
-        match operation {
-            BatchOperation::AddNode {
-                id,
-                properties_msgpack,
-                ..
-            } => {
-                if capture_content {
-                    node_removals.remove(&id);
-                    node_upserts.insert(id.clone(), properties_msgpack.clone());
-                } else {
-                    node_removals.remove(&id);
-                    node_upserts.insert(id.clone(), Vec::new());
-                }
-                txn.add_node(id, properties_msgpack);
-            }
-            BatchOperation::RemoveNode { id } => {
-                node_upserts.remove(&id);
-                node_removals.insert(id.clone());
-                txn.remove_node(id.clone());
-                semantic_actions.push(SemanticAction::Remove(id));
-            }
-            BatchOperation::AddEdge {
-                source,
-                target,
-                properties_msgpack,
-                upsert,
-            } => {
-                if upsert {
-                    txn.remove_edge(source.clone(), target.clone());
-                    change.record_remove_edge(source.clone(), target.clone());
-                }
-                txn.add_edge(source.clone(), target.clone(), properties_msgpack)?;
-                change.record_add_edge(source, target);
-            }
-            BatchOperation::RemoveEdge { source, target } => {
-                txn.remove_edge(source.clone(), target.clone());
-                change.record_remove_edge(source, target);
-            }
-            BatchOperation::AddEmbedding { id, embedding } => {
-                semantic_actions.push(SemanticAction::Upsert(id, embedding));
-            }
-        }
+        apply_batch_operation(
+            operation,
+            capture_content,
+            &mut node_upserts,
+            &mut node_removals,
+            &mut change,
+            &mut semantic_actions,
+            &mut txn,
+        )?;
     }
 
     // Preserve operation order: remove→re-add→embedding and embedding→remove
@@ -2306,6 +2408,66 @@ pub fn compute_metrics(core: &GraphView) -> crate::types::GraphMetrics {
 ///
 /// Similar to standard PageRank but the random walker teleports to seed
 /// nodes weighted by their seed score instead of uniformly.
+/// Build the teleport vector: seed-weighted if any seed carries positive
+/// weight, else uniform. Split out of `personalized_pagerank`
+/// (extract-method, cx/wD8) — same terms, same arithmetic order as before.
+fn build_pagerank_teleport(
+    core: &GraphView,
+    seed_nodes: &[(String, f64)],
+    nodes: &[NodeIndex],
+    n: usize,
+) -> HashMap<NodeIndex, f64> {
+    let mut teleport: HashMap<NodeIndex, f64> = HashMap::new();
+    let total_seed_weight: f64 = seed_nodes.iter().map(|(_, w)| w).sum();
+
+    if total_seed_weight > 0.0 {
+        for (seed_id, weight) in seed_nodes {
+            if let Some(&idx) = core.node_map.get(seed_id) {
+                teleport.insert(idx, weight / total_seed_weight);
+            }
+        }
+    } else {
+        // Uniform teleport if no seeds
+        let uniform = 1.0 / n as f64;
+        for &node in nodes {
+            teleport.insert(node, uniform);
+        }
+    }
+    teleport
+}
+
+/// One personalized-PageRank power-iteration step. Split out of
+/// `personalized_pagerank` (extract-method, cx/wD8) — same terms, same
+/// arithmetic order as before, including the exact
+/// `(1.0 - damping) * tp + damping * rank_sum` evaluation order.
+fn pagerank_iteration(
+    core: &GraphView,
+    nodes: &[NodeIndex],
+    scores: &HashMap<NodeIndex, f64>,
+    teleport: &HashMap<NodeIndex, f64>,
+    out_degree: &HashMap<NodeIndex, usize>,
+    damping: f64,
+) -> HashMap<NodeIndex, f64> {
+    let mut new_scores: HashMap<NodeIndex, f64> = HashMap::new();
+
+    for &node in nodes {
+        let mut rank_sum = 0.0;
+        for edge in core
+            .graph
+            .edges_directed(node, petgraph::Direction::Incoming)
+        {
+            let src = edge.source();
+            let src_out = *out_degree.get(&src).unwrap_or(&1);
+            if src_out > 0 {
+                rank_sum += scores[&src] / src_out as f64;
+            }
+        }
+        let tp = teleport.get(&node).copied().unwrap_or(0.0);
+        new_scores.insert(node, (1.0 - damping) * tp + damping * rank_sum);
+    }
+    new_scores
+}
+
 pub fn personalized_pagerank(
     core: &GraphView,
     seed_nodes: &[(String, f64)],
@@ -2324,23 +2486,7 @@ pub fn personalized_pagerank(
         scores.insert(node, initial);
     }
 
-    // Build teleport vector
-    let mut teleport: HashMap<NodeIndex, f64> = HashMap::new();
-    let total_seed_weight: f64 = seed_nodes.iter().map(|(_, w)| w).sum();
-
-    if total_seed_weight > 0.0 {
-        for (seed_id, weight) in seed_nodes {
-            if let Some(&idx) = core.node_map.get(seed_id) {
-                teleport.insert(idx, weight / total_seed_weight);
-            }
-        }
-    } else {
-        // Uniform teleport if no seeds
-        let uniform = 1.0 / n as f64;
-        for &node in &nodes {
-            teleport.insert(node, uniform);
-        }
-    }
+    let teleport = build_pagerank_teleport(core, seed_nodes, &nodes, n);
 
     // Pre-compute out-degree
     let mut out_degree: HashMap<NodeIndex, usize> = HashMap::new();
@@ -2354,25 +2500,7 @@ pub fn personalized_pagerank(
     }
 
     for _ in 0..iterations {
-        let mut new_scores: HashMap<NodeIndex, f64> = HashMap::new();
-
-        for &node in &nodes {
-            let mut rank_sum = 0.0;
-            for edge in core
-                .graph
-                .edges_directed(node, petgraph::Direction::Incoming)
-            {
-                let src = edge.source();
-                let src_out = *out_degree.get(&src).unwrap_or(&1);
-                if src_out > 0 {
-                    rank_sum += scores[&src] / src_out as f64;
-                }
-            }
-            let tp = teleport.get(&node).copied().unwrap_or(0.0);
-            new_scores.insert(node, (1.0 - damping) * tp + damping * rank_sum);
-        }
-
-        scores = new_scores;
+        scores = pagerank_iteration(core, &nodes, &scores, &teleport, &out_degree, damping);
     }
 
     scores
@@ -2888,7 +3016,8 @@ mod cluster_hierarchy_tests {
             g.add_node((*id).to_string(), p(ty));
         }
         for (s, t) in edges {
-            g.add_edge((*s).to_string(), (*t).to_string(), p("_")).unwrap();
+            g.add_edge((*s).to_string(), (*t).to_string(), p("_"))
+                .unwrap();
         }
         g.analysis_snapshot()
     }
@@ -2929,7 +3058,10 @@ mod cluster_hierarchy_tests {
             let upper_ids: std::collections::BTreeSet<&str> =
                 upper.clusters.iter().map(|c| c.id.as_str()).collect();
             for c in &lower.clusters {
-                let parent = c.parent_id.as_deref().expect("non-root cluster needs a parent");
+                let parent = c
+                    .parent_id
+                    .as_deref()
+                    .expect("non-root cluster needs a parent");
                 assert!(upper_ids.contains(parent), "dangling parent {parent}");
             }
         }
