@@ -2949,6 +2949,7 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
             edges: Vec::new(),
             ledger: Vec::new(),
             semantic: Vec::new(),
+            native: Default::default(),
         };
 
         // Establish a valid image first.  The incoming snapshot contains the

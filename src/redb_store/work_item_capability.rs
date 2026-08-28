@@ -1494,6 +1494,7 @@ mod tests {
             edges: dump.edges.clone(),
             ledger: dump.ledger.clone(),
             semantic: dump.semantic.clone(),
+            native: Default::default(),
         };
         let error = super::super::apply_checkpoint(
             &db,
@@ -1549,6 +1550,7 @@ mod tests {
             edges: dump.edges,
             ledger: dump.ledger,
             semantic: dump.semantic,
+            native: Default::default(),
         };
         super::super::apply_checkpoint(&db, &mut Vec::new(), vec![restored], DurableCrypto::none())
             .expect("checkpoint replacement commits atomically");

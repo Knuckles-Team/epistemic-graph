@@ -622,7 +622,17 @@ impl EngineBackend {
     /// Latch the connection's startup graph + actor from the libpq `database`/`user`
     /// startup parameters (readable only once startup completes, so on the first
     /// query). Delegates the rules to [`WireProtocol::resolve_startup`].
+    ///
+    /// BUG-CX-084: also the pgwire-side "top of the SQL entry point" — mirrors the
+    /// call `handlers::query::handle_sql` makes for the native RPC path. Neither
+    /// `do_query` (simple protocol) nor the extended protocol's `do_query` ever calls
+    /// `handle_sql` (see `bind_sql_text_embedder`'s doc), and both call THIS method
+    /// first, so without this call `eg_embed(text)`'s process-wide embedder was never
+    /// bound for a session that only ever spoke pgwire — `eg_embed(...)` always fell
+    /// through to its typed "no server-side text embedder is bound" error even with
+    /// `EG_UQL_TEXT_EMBEDDER` configured. Idempotent/cheap (`Once`-guarded internally).
     async fn bind_startup_from_client<C: ClientInfo>(&self, client: &C) -> PgWireResult<()> {
+        crate::server::handlers::query::bind_sql_text_embedder();
         let meta = client.metadata();
         let user = meta.get(pgwire::api::METADATA_USER).cloned();
         let db = meta.get(pgwire::api::METADATA_DATABASE).cloned();
