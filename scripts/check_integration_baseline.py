@@ -38,6 +38,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = REPO_ROOT / "tests" / "integration_failure_baseline.txt"
 
+
+class BaselineError(RuntimeError):
+    """The required integration baseline cannot be trusted by this gate."""
+
+
 #: `FAILED tests/x.py::test_y - AssertionError: ...` and the ERROR equivalent.
 #: The reason after " - " is deliberately dropped: this gate tracks WHICH tests
 #: fail, never WHY, so a baselined test whose failure mode changes is still
@@ -92,6 +97,34 @@ def parse_baseline(text: str) -> tuple[set[str], list[tuple[str, datetime.date]]
     return nodes, dated
 
 
+def load_baseline(
+    path: Path | None = None,
+) -> tuple[set[str], list[tuple[str, datetime.date]]]:
+    """Read and parse the required baseline, failing closed on bad input.
+
+    A missing, unreadable, or malformed baseline cannot justify any known
+    failures.  Keep this refusal separate from the pytest verdict so the gate
+    never runs an expensive suite and then accidentally treats an unavailable
+    baseline as an empty one.
+    """
+
+    baseline_path = path if path is not None else BASELINE_PATH
+    try:
+        text = baseline_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise BaselineError(
+            f"cannot read required integration baseline {baseline_path}: {exc}"
+        ) from exc
+
+    try:
+        return parse_baseline(text)
+    except (SystemExit, ValueError) as exc:
+        detail = str(exc) or "invalid baseline contents"
+        raise BaselineError(
+            f"malformed required integration baseline {baseline_path}: {detail}"
+        ) from exc
+
+
 #: pytest's own delimiter for the block that lists failing node ids. Everything
 #: before it is test progress and captured output; everything after belongs to
 #: the run epilogue.
@@ -144,7 +177,7 @@ def _node_id(captured: str) -> str:
     return (head if separator else captured).strip()
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--today",
@@ -152,10 +185,9 @@ def main() -> int:
         help="Override today's date (YYYY-MM-DD) for the review-by ratchet.",
     )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
-    namespace = parser.parse_args()
+    namespace = parser.parse_args(argv)
 
-    baseline_text = BASELINE_PATH.read_text(encoding="utf-8")
-    baseline, dated = parse_baseline(baseline_text)
+    baseline, dated = load_baseline()
 
     arguments = namespace.pytest_args
     if arguments and arguments[0] == "--":
@@ -255,5 +287,14 @@ def main() -> int:
     return 0
 
 
+def command(argv: list[str] | None = None) -> int:
+    """Translate an untrustworthy baseline into a concise CLI refusal."""
+    try:
+        return main(argv)
+    except BaselineError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 1
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(command())
