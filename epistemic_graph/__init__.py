@@ -47,6 +47,7 @@ from .client import (
 )
 from .client_capabilities import (
     CLIENT_CAPABILITY_SCHEMA_VERSION,
+    CONSENSUS_GET_IDENTITY_CAPABILITY,
     WORK_ITEM_METADATA_CAS_CAPABILITY,
     ClientCapabilityError,
     client_build_identity,
@@ -75,6 +76,7 @@ __all__ = [
     "StaleRouteError",
     "RustASTParser",
     "CLIENT_CAPABILITY_SCHEMA_VERSION",
+    "CONSENSUS_GET_IDENTITY_CAPABILITY",
     "WORK_ITEM_METADATA_CAS_CAPABILITY",
     "ClientCapabilityError",
     "client_build_identity",
