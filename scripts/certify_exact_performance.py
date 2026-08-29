@@ -708,15 +708,7 @@ def _positive_number(value: Any, *, maximum: float | None = None) -> bool:
     )
 
 
-def _load_scenario_contracts(
-    manifest_path: Path,
-    schema_path: Path = DEFAULT_SCENARIO_SCHEMA,
-    ledger_path: Path = DEFAULT_COMPLEXITY_LEDGER,
-) -> ScenarioContracts:
-    manifest, manifest_sha256 = _read_public_json(
-        manifest_path, "scenario_manifest"
-    )
-    schema, schema_sha256 = _read_public_json(schema_path, "scenario_schema")
+def _validate_scenario_schema(schema: dict[str, Any]) -> None:
     if (
         schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema"
         or schema.get("$id") != "urn:epistemic-graph:g37:performance-scenarios:v1"
@@ -725,11 +717,8 @@ def _load_scenario_contracts(
     ):
         raise CertificationError("invalid_scenario_schema_contract")
 
-    data = _exact_keys(
-        manifest,
-        {"schema_version", "manifest_id", "ledger", "probe_protocol", "scenarios"},
-        "scenario_manifest",
-    )
+
+def _validate_scenario_manifest(data: dict[str, Any]) -> dict[str, Any]:
     if (
         data["schema_version"] != SCHEMA_VERSION
         or data["manifest_id"] != "g37-performance-scenarios-v1"
@@ -748,6 +737,187 @@ def _load_scenario_contracts(
         or ledger["expected_rows"] != EXPECTED_LEDGER_ROW_COUNT
     ):
         raise CertificationError("invalid_scenario_ledger_contract")
+    return ledger
+
+
+def _validate_scenario_identity(
+    scenario: dict[str, Any],
+    ordinal: int,
+    seen_scenarios: set[str],
+    seen_drivers: set[str],
+) -> None:
+    scenario_id = scenario["scenario_id"]
+    match = _SCENARIO_ID.fullmatch(scenario_id) if isinstance(scenario_id, str) else None
+    if match is None or int(match.group(1)) != ordinal or scenario_id in seen_scenarios:
+        raise CertificationError("invalid_scenario_identity")
+    seen_scenarios.add(scenario_id)
+    driver = scenario["driver"]
+    if (
+        not isinstance(driver, str)
+        or not _DRIVER.fullmatch(driver)
+        or driver in seen_drivers
+    ):
+        raise CertificationError("invalid_scenario_driver")
+    seen_drivers.add(driver)
+
+
+def _validate_scenario_scales(scenario: dict[str, Any]) -> None:
+    scales = scenario["scales"]
+    if (
+        not isinstance(scales, list)
+        or not 3 <= len(scales) <= 8
+        or scales != sorted(set(scales))
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not 1 <= value <= 1_000_000
+            for value in scales
+        )
+    ):
+        raise CertificationError("invalid_scenario_scales")
+
+
+def _validate_scenario_repetitions(scenario: dict[str, Any]) -> None:
+    repetitions = scenario["repetitions"]
+    if (
+        isinstance(repetitions, bool)
+        or not isinstance(repetitions, int)
+        or not 3 <= repetitions <= 1_000
+    ):
+        raise CertificationError("invalid_scenario_repetitions")
+
+
+def _validate_scenario_resource_bounds(scenario: dict[str, Any]) -> None:
+    bounds = _exact_keys(
+        scenario["resource_bounds"],
+        {"maximum_elapsed_ms", "maximum_peak_rss_mib", "maximum_output_bytes"},
+        "scenario_resource_bounds",
+    )
+    for name, minimum, maximum in (
+        ("maximum_elapsed_ms", 100, 600_000),
+        ("maximum_peak_rss_mib", 16, 16_384),
+        ("maximum_output_bytes", 1_024, MAX_SCENARIO_OUTPUT_BYTES),
+    ):
+        value = bounds[name]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not minimum <= value <= maximum
+        ):
+            raise CertificationError("invalid_scenario_resource_bounds")
+
+
+def _validate_scenario_implementation_ref(reference: Any) -> None:
+    if not isinstance(reference, str) or not _IMPLEMENTATION_REF.fullmatch(reference):
+        raise CertificationError("invalid_scenario_implementation_ref")
+    relative_path = reference.split("::", 1)[0]
+    source = (ROOT / relative_path).resolve()
+    try:
+        source.relative_to(ROOT.resolve())
+    except ValueError as error:
+        raise CertificationError("invalid_scenario_implementation_ref") from error
+    if not source.exists():
+        raise CertificationError("missing_scenario_implementation_ref")
+
+
+def _validate_scenario_implementation_refs(scenario: dict[str, Any]) -> None:
+    references = scenario["implementation_refs"]
+    if (
+        not isinstance(references, list)
+        or not 1 <= len(references) <= 12
+        or len(set(references)) != len(references)
+    ):
+        raise CertificationError("invalid_scenario_implementation_refs")
+    for reference in references:
+        _validate_scenario_implementation_ref(reference)
+
+
+def _validate_scenario_checks(checks: Any) -> None:
+    if (
+        not isinstance(checks, list)
+        or not 1 <= len(checks) <= 12
+        or len(set(checks)) != len(checks)
+        or any(
+            not isinstance(check, str) or not _CHECK_NAME.fullmatch(check)
+            for check in checks
+        )
+    ):
+        raise CertificationError("invalid_scenario_equivalence_checks")
+
+
+def _validate_scenario_threshold(threshold: Any) -> None:
+    threshold = _exact_keys(
+        threshold,
+        {
+            "maximum_work_units",
+            "maximum_work_growth_ratio",
+            "maximum_peak_memory_bytes",
+            "maximum_memory_growth_ratio",
+            "maximum_latency_p99_ms",
+            "maximum_latency_growth_ratio",
+        },
+        "scenario_thresholds",
+    )
+    for name, maximum in (
+        ("maximum_work_units", 1_000_000_000_000),
+        ("maximum_work_growth_ratio", 1_000_000),
+        ("maximum_peak_memory_bytes", 17_179_869_184),
+        ("maximum_memory_growth_ratio", 1_000_000),
+        ("maximum_latency_p99_ms", 600_000),
+        ("maximum_latency_growth_ratio", 1_000_000),
+    ):
+        if not _positive_number(threshold[name], maximum=maximum):
+            raise CertificationError("invalid_scenario_threshold")
+
+
+def _validate_scenario_row(
+    untyped_row: Any, ledger_rows: dict[str, str], seen_rows: set[str]
+) -> None:
+    row = _exact_keys(
+        untyped_row,
+        {"row_id", "equivalence_checks", "thresholds"},
+        "scenario_row",
+    )
+    row_id = row["row_id"]
+    if (
+        not isinstance(row_id, str)
+        or not _ROW_ID.fullmatch(row_id)
+        or row_id not in ledger_rows
+        or row_id in seen_rows
+    ):
+        raise CertificationError("invalid_scenario_row_coverage")
+    seen_rows.add(row_id)
+    _validate_scenario_checks(row["equivalence_checks"])
+    _validate_scenario_threshold(row["thresholds"])
+
+
+def _validate_scenario_rows(
+    scenario: dict[str, Any], ledger_rows: dict[str, str], seen_rows: set[str]
+) -> None:
+    rows = scenario["rows"]
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 8:
+        raise CertificationError("invalid_scenario_rows")
+    for untyped_row in rows:
+        _validate_scenario_row(untyped_row, ledger_rows, seen_rows)
+
+
+def _load_scenario_contracts(
+    manifest_path: Path,
+    schema_path: Path = DEFAULT_SCENARIO_SCHEMA,
+    ledger_path: Path = DEFAULT_COMPLEXITY_LEDGER,
+) -> ScenarioContracts:
+    manifest, manifest_sha256 = _read_public_json(
+        manifest_path, "scenario_manifest"
+    )
+    schema, schema_sha256 = _read_public_json(schema_path, "scenario_schema")
+    _validate_scenario_schema(schema)
+
+    data = _exact_keys(
+        manifest,
+        {"schema_version", "manifest_id", "ledger", "probe_protocol", "scenarios"},
+        "scenario_manifest",
+    )
+    ledger = _validate_scenario_manifest(data)
     ledger_rows, ledger_sha256 = _load_complexity_ledger(
         ledger_path,
         ledger["registry_heading"],
@@ -775,125 +945,14 @@ def _load_scenario_contracts(
             },
             "scenario",
         )
-        scenario_id = scenario["scenario_id"]
-        match = _SCENARIO_ID.fullmatch(scenario_id) if isinstance(scenario_id, str) else None
-        if match is None or int(match.group(1)) != ordinal or scenario_id in seen_scenarios:
-            raise CertificationError("invalid_scenario_identity")
-        seen_scenarios.add(scenario_id)
-        driver = scenario["driver"]
-        if (
-            not isinstance(driver, str)
-            or not _DRIVER.fullmatch(driver)
-            or driver in seen_drivers
-        ):
-            raise CertificationError("invalid_scenario_driver")
-        seen_drivers.add(driver)
-        scales = scenario["scales"]
-        if (
-            not isinstance(scales, list)
-            or not 3 <= len(scales) <= 8
-            or scales != sorted(set(scales))
-            or any(
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or not 1 <= value <= 1_000_000
-                for value in scales
-            )
-        ):
-            raise CertificationError("invalid_scenario_scales")
-        repetitions = scenario["repetitions"]
-        if (
-            isinstance(repetitions, bool)
-            or not isinstance(repetitions, int)
-            or not 3 <= repetitions <= 1_000
-        ):
-            raise CertificationError("invalid_scenario_repetitions")
-        bounds = _exact_keys(
-            scenario["resource_bounds"],
-            {"maximum_elapsed_ms", "maximum_peak_rss_mib", "maximum_output_bytes"},
-            "scenario_resource_bounds",
+        _validate_scenario_identity(
+            scenario, ordinal, seen_scenarios, seen_drivers
         )
-        for name, minimum, maximum in (
-            ("maximum_elapsed_ms", 100, 600_000),
-            ("maximum_peak_rss_mib", 16, 16_384),
-            ("maximum_output_bytes", 1_024, MAX_SCENARIO_OUTPUT_BYTES),
-        ):
-            value = bounds[name]
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or not minimum <= value <= maximum
-            ):
-                raise CertificationError("invalid_scenario_resource_bounds")
-        references = scenario["implementation_refs"]
-        if (
-            not isinstance(references, list)
-            or not 1 <= len(references) <= 12
-            or len(set(references)) != len(references)
-        ):
-            raise CertificationError("invalid_scenario_implementation_refs")
-        for reference in references:
-            if not isinstance(reference, str) or not _IMPLEMENTATION_REF.fullmatch(reference):
-                raise CertificationError("invalid_scenario_implementation_ref")
-            relative_path = reference.split("::", 1)[0]
-            source = (ROOT / relative_path).resolve()
-            try:
-                source.relative_to(ROOT.resolve())
-            except ValueError as error:
-                raise CertificationError("invalid_scenario_implementation_ref") from error
-            if not source.exists():
-                raise CertificationError("missing_scenario_implementation_ref")
-        rows = scenario["rows"]
-        if not isinstance(rows, list) or not 1 <= len(rows) <= 8:
-            raise CertificationError("invalid_scenario_rows")
-        for untyped_row in rows:
-            row = _exact_keys(
-                untyped_row,
-                {"row_id", "equivalence_checks", "thresholds"},
-                "scenario_row",
-            )
-            row_id = row["row_id"]
-            if (
-                not isinstance(row_id, str)
-                or not _ROW_ID.fullmatch(row_id)
-                or row_id not in ledger_rows
-                or row_id in seen_rows
-            ):
-                raise CertificationError("invalid_scenario_row_coverage")
-            seen_rows.add(row_id)
-            checks = row["equivalence_checks"]
-            if (
-                not isinstance(checks, list)
-                or not 1 <= len(checks) <= 12
-                or len(set(checks)) != len(checks)
-                or any(
-                    not isinstance(check, str) or not _CHECK_NAME.fullmatch(check)
-                    for check in checks
-                )
-            ):
-                raise CertificationError("invalid_scenario_equivalence_checks")
-            threshold = _exact_keys(
-                row["thresholds"],
-                {
-                    "maximum_work_units",
-                    "maximum_work_growth_ratio",
-                    "maximum_peak_memory_bytes",
-                    "maximum_memory_growth_ratio",
-                    "maximum_latency_p99_ms",
-                    "maximum_latency_growth_ratio",
-                },
-                "scenario_thresholds",
-            )
-            for name, maximum in (
-                ("maximum_work_units", 1_000_000_000_000),
-                ("maximum_work_growth_ratio", 1_000_000),
-                ("maximum_peak_memory_bytes", 17_179_869_184),
-                ("maximum_memory_growth_ratio", 1_000_000),
-                ("maximum_latency_p99_ms", 600_000),
-                ("maximum_latency_growth_ratio", 1_000_000),
-            ):
-                if not _positive_number(threshold[name], maximum=maximum):
-                    raise CertificationError("invalid_scenario_threshold")
+        _validate_scenario_scales(scenario)
+        _validate_scenario_repetitions(scenario)
+        _validate_scenario_resource_bounds(scenario)
+        _validate_scenario_implementation_refs(scenario)
+        _validate_scenario_rows(scenario, ledger_rows, seen_rows)
     if seen_rows != set(ledger_rows):
         raise CertificationError("invalid_scenario_row_coverage")
     return ScenarioContracts(
