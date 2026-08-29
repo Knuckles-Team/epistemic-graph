@@ -3,6 +3,7 @@ package epgthin
 import (
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -70,5 +71,41 @@ func TestRestoreRequiresExplicitCurrentShardLayout(t *testing.T) {
 	}
 	if _, err := client.Restore("scheduled-001", 65); err == nil {
 		t.Fatal("target shard count above the current bound was accepted")
+	}
+}
+
+func TestValidateResourceSelector(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   any
+		want    any
+		wantErr string
+	}{
+		{name: "all", input: "All", want: "All"},
+		{name: "pattern", input: map[string]string{"Pattern": "orders:*"}, want: map[string]string{"Pattern": "orders:*"}},
+		{name: "msgpack map", input: map[string]any{"Label": "sensitive"}, want: map[string]string{"Label": "sensitive"}},
+		{name: "wrong string", input: "all", wantErr: "resource selector string must be All"},
+		{name: "nil", input: nil, wantErr: "resource selector must be All or one named selector"},
+		{name: "multiple entries", input: map[string]string{"Pattern": "a", "Graph": "b"}, wantErr: "resource selector must contain exactly one entry"},
+		{name: "unsupported key", input: map[string]string{"Other": "value"}, wantErr: "unsupported resource selector"},
+		{name: "empty value", input: map[string]string{"Graph": "  "}, wantErr: "resource selector value must be non-empty"},
+		{name: "non-string value", input: map[string]any{"Graph": 42}, wantErr: "resource selector value must be a string"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := validateResourceSelector(test.input)
+			if test.wantErr != "" {
+				if err == nil || err.Error() != test.wantErr {
+					t.Fatalf("validateResourceSelector(%#v) error = %v, want %q", test.input, err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateResourceSelector(%#v) returned error: %v", test.input, err)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("validateResourceSelector(%#v) = %#v, want %#v", test.input, got, test.want)
+			}
+		})
 	}
 }

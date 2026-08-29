@@ -832,14 +832,30 @@ func (c *Client) StreamCommittedOffset(stream, group string) (any, error) {
 // {"Pattern": s} / {"Label": s} / {"Graph": s}. Pass it as `any` accordingly.
 
 func validateResourceSelector(resource any) (any, error) {
-	if value, ok := resource.(string); ok {
+	validate := func(selector map[string]string) (any, error) {
+		if len(selector) != 1 {
+			return nil, fmt.Errorf("resource selector must contain exactly one entry")
+		}
+		for key, value := range selector {
+			switch key {
+			case "Pattern", "Label", "Graph":
+			default:
+				return nil, fmt.Errorf("unsupported resource selector")
+			}
+			if strings.TrimSpace(value) == "" {
+				return nil, fmt.Errorf("resource selector value must be non-empty")
+			}
+		}
+		return selector, nil
+	}
+
+	var selector map[string]string
+	switch value := resource.(type) {
+	case string:
 		if value != "All" {
 			return nil, fmt.Errorf("resource selector string must be All")
 		}
 		return value, nil
-	}
-	var selector map[string]string
-	switch value := resource.(type) {
 	case map[string]string:
 		selector = value
 	case map[string]any:
@@ -854,18 +870,7 @@ func validateResourceSelector(resource any) (any, error) {
 	default:
 		return nil, fmt.Errorf("resource selector must be All or one named selector")
 	}
-	if len(selector) != 1 {
-		return nil, fmt.Errorf("resource selector must contain exactly one entry")
-	}
-	for key, value := range selector {
-		if key != "Pattern" && key != "Label" && key != "Graph" {
-			return nil, fmt.Errorf("unsupported resource selector")
-		}
-		if strings.TrimSpace(value) == "" {
-			return nil, fmt.Errorf("resource selector value must be non-empty")
-		}
-	}
-	return selector, nil
+	return validate(selector)
 }
 
 func (c *Client) RbacAddRole(name string, parents []string) (any, error) {
