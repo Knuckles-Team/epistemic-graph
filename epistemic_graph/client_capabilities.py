@@ -16,11 +16,12 @@ from collections.abc import Iterable
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Final
 
-from .client import WorkItemClient
+from .client import ConsensusClient, WorkItemClient
 
 PACKAGE_NAME: Final = "epistemic-graph"
 CLIENT_CAPABILITY_SCHEMA_VERSION: Final = 1
 WORK_ITEM_METADATA_CAS_CAPABILITY: Final = "work_items.cas_metadata"
+CONSENSUS_GET_IDENTITY_CAPABILITY: Final = "consensus.get_identity"
 
 
 class ClientCapabilityError(RuntimeError):
@@ -45,7 +46,10 @@ def _capabilities() -> dict[str, bool]:
     return {
         WORK_ITEM_METADATA_CAS_CAPABILITY: callable(
             getattr(WorkItemClient, "cas_metadata", None)
-        )
+        ),
+        CONSENSUS_GET_IDENTITY_CAPABILITY: callable(
+            getattr(ConsensusClient, "get_identity", None)
+        ),
     }
 
 
@@ -69,8 +73,9 @@ def client_capability_manifest() -> dict[str, Any]:
     The returned mapping is JSON-serializable so deployment/image preflight can
     inspect it without importing implementation details.  The identity digest
     covers the package version and every capability result; an older client
-    lacking ``WorkItemClient.cas_metadata`` therefore produces a different
-    identity and, more importantly, reports the required capability as false.
+    lacking ``WorkItemClient.cas_metadata`` or
+    ``ConsensusClient.get_identity`` therefore produces a different identity
+    and, more importantly, reports the required capability as false.
     """
 
     package_version = _package_version()
