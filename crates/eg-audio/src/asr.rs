@@ -497,7 +497,10 @@ pub struct AsrResult {
 /// finished one.
 /// Every segment: belongs to `request`, individually validates, and is strictly
 /// ordered by sequence relative to its predecessor.
-fn validate_segment_ordering(segments: &[AsrSegment], request: &AsrRequest) -> Result<(), AsrError> {
+fn validate_segment_ordering(
+    segments: &[AsrSegment],
+    request: &AsrRequest,
+) -> Result<(), AsrError> {
     let mut previous_sequence: Option<u64> = None;
     for segment in segments {
         if segment.request_id != request.request_id {
