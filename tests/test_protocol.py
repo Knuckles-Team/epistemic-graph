@@ -51,6 +51,22 @@ def test_request_create_channel_roundtrip():
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
+def test_get_identity_request_preserves_graph_for_server_scope_validation():
+    """The signed request graph remains visible to the server boundary."""
+    req = {
+        "id": 7,
+        "graph": "agent:planner",
+        "auth_token": "tok",
+        "method": "GetIdentity",
+        "params": {"agent_id": "agent-a"},
+    }
+    parsed = json.loads(json.dumps(req))
+    assert parsed["method"] == "GetIdentity"
+    assert parsed["params"] == {"agent_id": "agent-a"}
+    assert parsed["graph"] == "agent:planner"
+
+
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_response_ok_roundtrip():
     """Test successful response serialization."""
     resp = {"id": 1, "result": {"count": 42}}

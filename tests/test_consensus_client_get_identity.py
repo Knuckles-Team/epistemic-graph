@@ -44,6 +44,7 @@ class _FakeClient:
 
 @pytest.mark.asyncio
 async def test_get_identity_sends_exact_method_name_and_commons_graph() -> None:
+    """The client pins identity reads to the registry graph, never a caller graph."""
     fake = _FakeClient(None)
     client = ConsensusClient(fake)  # type: ignore[arg-type]
 

@@ -40,6 +40,44 @@ use crate::protocol::{Method, Request, Response, ResultPayload};
 /// is defense in depth for in-process callers and future enum extensions.
 const UNSUPPORTED_GRAPH_TYPE: &str = "INVALID_ARGUMENT: unsupported graph type";
 
+/// The identity registry is stored on the control graph, not on the caller's
+/// selected data graph.  Keep this boundary exact: accepting an empty or
+/// alternate graph here would make the signed request's graph claim
+/// meaningless for an identity read-back.
+const IDENTITY_GRAPH: &str = "__commons__";
+const IDENTITY_GRAPH_SCOPE_ERROR: &str =
+    "INVALID_ARGUMENT: GetIdentity requires the __commons__ graph";
+
+fn validate_get_identity_graph(request_graph: &str) -> Result<(), &'static str> {
+    if request_graph == IDENTITY_GRAPH {
+        Ok(())
+    } else {
+        Err(IDENTITY_GRAPH_SCOPE_ERROR)
+    }
+}
+
+#[cfg(test)]
+mod identity_graph_scope_tests {
+    use super::{validate_get_identity_graph, IDENTITY_GRAPH_SCOPE_ERROR};
+
+    #[test]
+    fn accepts_only_the_identity_registry_graph() {
+        assert!(validate_get_identity_graph("__commons__").is_ok());
+        for graph in ["", "agent:planner", "__commons__ ", "__COMMONS__"] {
+            assert_eq!(
+                validate_get_identity_graph(graph),
+                Err(IDENTITY_GRAPH_SCOPE_ERROR)
+            );
+        }
+    }
+
+    #[test]
+    fn scope_error_is_typed_and_does_not_echo_request_graph() {
+        assert!(IDENTITY_GRAPH_SCOPE_ERROR.starts_with("INVALID_ARGUMENT:"));
+        assert!(!IDENTITY_GRAPH_SCOPE_ERROR.contains("agent:planner"));
+    }
+}
+
 /// Validate the graph lifecycle type before any placement, persistence, or
 /// registry work begins.  `GraphType` is intentionally a closed wire enum
 /// today, but the explicit allowlist means a future enum variant cannot be
@@ -4181,6 +4219,18 @@ async fn dispatch_register_identity(
 async fn dispatch_get_identity(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    request_graph: &str,
+    method: Method,
+) -> Response {
+    match validate_get_identity_graph(request_graph) {
+        Ok(()) => dispatch_get_identity_from_store(state, req_id, method).await,
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+async fn dispatch_get_identity_from_store(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
     method: Method,
 ) -> Response {
     match method {
@@ -6047,7 +6097,7 @@ async fn dispatch_identity_and_access_methods(
         // enforced by the admin-scope check above the method match, so no additional
         // authorization is done here.
         method @ Method::GetIdentity { .. } => {
-            dispatch_boxed(dispatch_get_identity(state, req.id, method)).await
+            dispatch_boxed(dispatch_get_identity(state, req.id, &req.graph, method)).await
         }
 
         // CA-16 (DEC-CA-04): export the M1 row-visibility policy bundle. Gated
@@ -13420,6 +13470,37 @@ mod admin_scope_tests {
             msg.contains("ACCESS_DENIED") && msg.contains("admin capability"),
             "unexpected denial message: {msg}"
         );
+    }
+
+    /// The fixed graph boundary must not replace the existing `security:admin`
+    /// policy.  An unprivileged caller targeting an alternate graph is still
+    /// denied by the admin-capability gate before the handler's graph validator
+    /// can reveal its fixed identity-store scope.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_identity_alternate_graph_preserves_admin_capability_gate() {
+        let state = state_min();
+        let response = dispatch_on_heap(
+            &state,
+            sign_current_test_request(
+                SECRET,
+                Request {
+                    id: 2,
+                    graph: "agent:alice".into(),
+                    auth_token: String::new(),
+                    agent_id: Some("alice".into()),
+                    method: Method::GetIdentity {
+                        agent_id: "alice".into(),
+                    },
+                },
+            ),
+        )
+        .await;
+        let error = response.error.expect("unprivileged caller must be denied");
+        assert!(
+            error.contains("ACCESS_DENIED") && error.contains("admin capability"),
+            "unexpected denial: {error}"
+        );
+        assert!(!error.contains("GetIdentity requires the __commons__ graph"));
     }
 }
 

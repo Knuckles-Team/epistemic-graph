@@ -294,6 +294,32 @@ async fn t10_get_identity_unknown_agent_returns_null_not_an_error() {
     }
 }
 
+/// `GetIdentity` reads the engine's identity registry, which is anchored on the
+/// `__commons__` control graph.  An authenticated admin request carrying any
+/// other graph (including an empty graph) must fail closed before the identity
+/// store is consulted.
+#[tokio::test]
+async fn get_identity_rejects_empty_or_alternate_request_graph() {
+    for (id, graph) in [(2, ""), (3, "agent:planner"), (4, "__commons__ ")] {
+        let state = state();
+        let resp = call(
+            &state,
+            id,
+            graph,
+            Method::GetIdentity {
+                agent_id: common::TEST_AGENT.to_string(),
+            },
+        )
+        .await;
+        assert_eq!(
+            resp.error.as_deref(),
+            Some("INVALID_ARGUMENT: GetIdentity requires the __commons__ graph"),
+            "unexpected response for request graph {graph:?}: {resp:?}"
+        );
+        assert!(resp.result.is_none());
+    }
+}
+
 #[tokio::test]
 async fn t11_register_identity_ordinary_agent() {
     let state = state();
