@@ -137,6 +137,38 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # BUG-CX-136 scanner profile.  These hooks resolve already-installed tools
+  # only; provisioning belongs to the CI scanner-quality job below, never to a
+  # developer hook.  The wrappers own staged/index semantics and fail closed
+  # on a missing, drifted, or malformed tool/report.
+  - id: dupehound-changed-functions
+    name: Dupehound — changed functions only (no new structural clones)
+    entry: python3 scripts/check_dupehound.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit]
+  - id: kiss-changed-rust
+    name: KISS — changed Rust source (one path per invocation)
+    entry: bash scripts/check_kiss_staged.sh
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit]
+  - id: jscpd-differential
+    name: jscpd — differential clone gate (new pairs only)
+    entry: python3 scripts/check_duplication.py enforce
+    language: system
+    pass_filenames: false
+    require_serial: true
+    stages: [pre-push, manual]
+  - id: jscpd-census
+    name: jscpd — tracked-tree census (advisory; no baseline)
+    entry: python3 scripts/check_duplication.py census
+    language: system
+    pass_filenames: false
+    require_serial: true
+    stages: [pre-push, manual]
 # ─────────────────────────────────────────────────────────────────────────
 # Rust CI parity — mirrors .github/workflows/rust-ci.yml `lint-and-test` PLUS a
 # representative wheel build from release-build.yml, so `pre-commit run` catches
@@ -155,6 +187,114 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # Whole-tree scanner profile.  Findings are intentionally advisory census
+  # numbers (there is no checked-in baseline); missing tools, version drift,
+  # parse errors, and scanner/config failures remain hard environment errors.
+  # The explicit git ls-files universe keeps ignored/untracked build output out
+  # while ensuring a census does not accidentally scan only a convenient dir.
+  - id: cccc-census
+    name: CCCC — tracked source census (advisory; no baseline)
+    entry: |-
+      bash -c '
+      set -euo pipefail
+      expected="$(PYTHONPATH=scripts python3 -c "from scanner_contract import load_contract; print(load_contract().cccc_version)")" || { echo "cccc census: invalid scanner contract" >&2; exit 2; }
+      cccc_bin="${CCCC_BIN:-cccc}"
+      command -v "$cccc_bin" >/dev/null 2>&1 || { echo "cccc census: CCCC is not installed; install the pinned tool before running hooks" >&2; exit 2; }
+      got="$("$cccc_bin" --version 2>/dev/null)" || { echo "cccc census: cccc --version failed" >&2; exit 2; }
+      [ "$got" = "cccc $expected" ] || { echo "cccc census: expected cccc $expected, got $got" >&2; exit 2; }
+      report="$(mktemp "${TMPDIR:-/tmp}/eg-cccc-census.XXXXXX.json")"
+      trap "rm -f \"$report\"" EXIT
+      mapfile -d "" files < <(python3 scripts/list_scanner_sources.py cccc)
+      [ "${#files[@]}" -gt 0 ] || { echo "cccc census: no tracked CCCC-supported source files" >&2; exit 2; }
+      languages="$(PYTHONPATH=scripts python3 -c "from scanner_contract import cccc_languages_arg; print(cccc_languages_arg())")" || { echo "cccc census: invalid language registry" >&2; exit 2; }
+      "$cccc_bin" --no-config --min 0 --lang "$languages" "${files[@]}" > "$report"
+      python3 scripts/validate_cccc_census.py "$report"
+      '
+    language: system
+    pass_filenames: false
+    always_run: true
+    require_serial: true
+    stages: [pre-push, manual]
+  - id: kiss-census
+    name: KISS — tracked Rust census (advisory; no baseline)
+    entry: |-
+      bash -c '
+      set -euo pipefail
+      expected="$(PYTHONPATH=scripts python3 -c "from scanner_contract import load_contract; print(load_contract().kiss_version)")" || { echo "kiss census: invalid scanner contract" >&2; exit 2; }
+      kiss_bin="${KISS_BIN:-kiss}"
+      command -v "$kiss_bin" >/dev/null 2>&1 || { echo "kiss census: KISS is not installed; install the pinned tool before running hooks" >&2; exit 2; }
+      got="$("$kiss_bin" --version 2>/dev/null)" || { echo "kiss census: kiss --version failed" >&2; exit 2; }
+      [ "$got" = "kiss $expected" ] || { echo "kiss census: expected kiss $expected, got $got" >&2; exit 2; }
+      [ -f .kiss/kiss.toml ] || { echo "kiss census: missing .kiss/kiss.toml" >&2; exit 2; }
+      [ ! -e .kissconfig ] || { echo "kiss census: .kissconfig is forbidden because it disables measured rules" >&2; exit 2; }
+      mapfile -d "" files < <(python3 scripts/list_scanner_sources.py kiss)
+      [ "${#files[@]}" -gt 0 ] || { echo "kiss census: no tracked Rust source files" >&2; exit 2; }
+      total=0
+      for path in "${files[@]}"; do
+        set +e
+        output="$("$kiss_bin" check --config .kiss/kiss.toml --lang rust "$path" 2>&1)"
+        status=$?
+        set -e
+        if grep -q "Unknown config key" <<< "$output"; then printf "%s\\n" "$output" >&2; echo "kiss census: KISS rejected a config key" >&2; exit 2; fi
+        if [ "$status" -gt 1 ]; then printf "%s\\n" "$output" >&2; echo "kiss census: KISS failed on $path with exit $status" >&2; exit 2; fi
+        count="$(grep -c "^VIOLATION:" <<< "$output" || true)"
+        if { [ "$status" -eq 0 ] && [ "$count" -ne 0 ]; } || { [ "$status" -eq 1 ] && [ "$count" -eq 0 ]; }; then printf "%s\\n" "$output" >&2; echo "kiss census: exit status and report disagree for $path" >&2; exit 2; fi
+        total=$((total + count))
+      done
+      printf "kiss census: %s tracked Rust file(s), %s violation(s); findings are advisory\\n" "${#files[@]}" "$total"
+      exit 0
+      '
+    language: system
+    pass_filenames: false
+    always_run: true
+    require_serial: true
+    stages: [pre-push, manual]
+  - id: import-linter-architecture
+    name: Python architecture — import-linter
+    entry: |-
+      bash -c '
+      set -euo pipefail
+      command -v lint-imports >/dev/null 2>&1 || { echo "import-linter: lint-imports is not installed; install the pinned tool before running hooks" >&2; exit 2; }
+      expected="$(PYTHONPATH=scripts python3 -c "from scanner_contract import load_contract; print(load_contract().import_linter_version)")" || { echo "import-linter: invalid scanner contract" >&2; exit 2; }
+      got="$(python3 -c "from importlib.metadata import version; print(version(\"import-linter\"))")" || { echo "import-linter: package metadata is unavailable" >&2; exit 2; }
+      [ "$got" = "$expected" ] || { echo "import-linter: expected $expected, got $got" >&2; exit 2; }
+      lint-imports --version >/dev/null 2>&1 || { echo "import-linter: lint-imports --version failed" >&2; exit 2; }
+      exec lint-imports --config .importlinter --no-cache
+      '
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
+  - id: dependency-cruiser-architecture
+    name: JavaScript architecture — dependency-cruiser
+    entry: |-
+      bash -c '
+      set -euo pipefail
+      command -v depcruise >/dev/null 2>&1 || { echo "dependency-cruiser: depcruise is not installed; install the pinned tool before running hooks" >&2; exit 2; }
+      expected="$(PYTHONPATH=scripts python3 -c "from scanner_contract import load_contract; print(load_contract().dependency_cruiser_version)")" || { echo "dependency-cruiser: invalid scanner contract" >&2; exit 2; }
+      got="$(depcruise --version 2>&1)" || { echo "dependency-cruiser: depcruise --version failed" >&2; exit 2; }
+      [ "$got" = "$expected" ] || { echo "dependency-cruiser: expected $expected, got $got" >&2; exit 2; }
+      exec depcruise --validate --config clients/js/.dependency-cruiser.cjs clients/js/index.mjs
+      '
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
+  - id: rust-arch-lint
+    name: Rust architecture — arch-lint
+    entry: |-
+      bash -c '
+      set -euo pipefail
+      command -v arch-lint >/dev/null 2>&1 || { echo "arch-lint: binary is not installed; install the pinned tool before running hooks" >&2; exit 2; }
+      expected="$(PYTHONPATH=scripts python3 -c "from scanner_contract import load_contract; print(load_contract().arch_lint_version)")" || { echo "arch-lint: invalid scanner contract" >&2; exit 2; }
+      got="$(arch-lint --version 2>&1)" || { echo "arch-lint: arch-lint --version failed" >&2; exit 2; }
+      case "$got" in "$expected"|"arch-lint $expected") ;; *) echo "arch-lint: expected $expected, got $got" >&2; exit 2 ;; esac
+      exec arch-lint check --format json
+      '
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
   - id: canonical-property-schema
     name: Canonical structural property schema
     entry: python3 scripts/check_canonical_property_schema.py

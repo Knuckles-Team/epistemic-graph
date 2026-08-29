@@ -1,0 +1,28 @@
+# Native Rust architecture policy.  The minimal preset is intentional: this
+# repository already has a measured complexity/Clippy policy, while this gate
+# owns the native architecture profile.  Raising the preset would turn existing
+# panic and sync-I/O census debt into an unmeasured release blocker.
+preset = "minimal"
+fail_on = "error"
+
+[analyzer]
+# arch-lint's syn analyzer walks `<root>/**/*.rs`; the workspace is a Cargo
+# multi-crate project, so the root must include both the binary/client sources
+# and every crate under `crates/`. Keeping this at `.` is also explicit about
+# the path passed by the hook (`arch-lint check ... .`).
+root = "."
+exclude = [
+    "**/target/**",
+    "**/generated/**",
+    "**/vendor/**",
+    "**/third_party/**",
+    "**/fixtures/**",
+]
+respect_gitignore = true
+
+# AL001 is already a measured CCCC/KISS concern for this repository: enabling
+# it here would turn the existing production panic census into an unmeasured
+# release blocker.  Keep arch-lint focused on dependency direction until that
+# debt is deliberately reduced and the rule can be enabled with evidence.
+[rules.no-unwrap-expect]
+enabled = false

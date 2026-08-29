@@ -198,6 +198,16 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
             {"gates", "lint-and-architecture", "feature-matrix", "benchmarks"}
         ),
         job_skip_reasons={
+            "scanner-quality": (
+                "CI-only scanner profile: provisions the exact CCCC/KISS/dupehound/"
+                "jscpd/import-linter/dependency-cruiser/arch-lint versions into an "
+                "ephemeral runner directory. The local pre-commit/pre-push profile "
+                "runs the same fail-closed wrappers and native architecture checks "
+                "against preinstalled tools; replaying this job locally would "
+                "download and compile tools during a hook, which is forbidden. "
+                "Every step is therefore reported NOT VALIDATED LOCALLY rather than "
+                "silently omitted."
+            ),
             "build": (
                 "5-platform native cross-compilation matrix (linux-x86_64/aarch64, "
                 "windows-x86_64, macos-aarch64/x86_64) built via PyO3/maturin-action — "
@@ -361,6 +371,25 @@ BUILD_AFFECTING_FILE_PATTERNS: tuple[str, ...] = (
     "build.rs",
     ".github/workflows/**",
     ".pre-commit-config.yaml",
+    # Scanner contracts and architecture policies are executable build/release
+    # inputs.  A diff in one of these files must not permit callers to skip the
+    # workflow-derived gate on the grounds that no Rust source changed.
+    "pyproject.toml",
+    ".kiss/**",
+    ".kissconfig",
+    ".importlinter",
+    "arch-lint.toml",
+    "**/.dependency-cruiser.cjs",
+    "**/.dependency-cruiser.js",
+    "clients/js/package.json",
+    "clients/js/package-lock.json",
+    "scripts/scanner_contract.py",
+    "scripts/check_complexity_staged.py",
+    "scripts/check_dupehound.py",
+    "scripts/check_duplication.py",
+    "scripts/check_kiss_staged.sh",
+    "scripts/list_scanner_sources.py",
+    "scripts/validate_cccc_census.py",
 )
 
 
@@ -1434,7 +1463,9 @@ def main() -> int:
             # The gate remains authoritative when its private optimization
             # ledger is unavailable.  A missing/unverifiable ledger can only
             # remove reuse; it can never turn a required step into a pass.
-            print(f"push-gate-evidence: unavailable ({type(exc).__name__}); executing normally")
+            print(
+                f"push-gate-evidence: unavailable ({type(exc).__name__}); executing normally"
+            )
             evidence_store = None
             prior_evidence = None
 
@@ -1498,9 +1529,7 @@ def main() -> int:
                     f"{selection.label}"
                 )
                 in_invocation[selection_key] = (0, 0.0)
-                results.append(
-                    {**item, "status": 0, "elapsed": 0.0, "cached": True}
-                )
+                results.append({**item, "status": 0, "elapsed": 0.0, "cached": True})
                 continue
             print(
                 f"\n############### STEP [{item['workflow']}:{item['job']}] {item['name']} ###############"

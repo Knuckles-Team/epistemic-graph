@@ -1,0 +1,26 @@
+[importlinter]
+root_package = epistemic_graph
+
+# The Python package is a thin client/adapter surface.  Keep the pure quant
+# helpers and in-process adapter from acquiring a dependency on a network pool
+# or parser by accident; import-linter follows transitive imports for these
+# contracts, so a new edge fails the same gate as a direct edge.
+[importlinter:contract:quant-is-transport-independent]
+name = Quant helpers do not depend on transport adapters
+type = forbidden
+source_modules =
+    epistemic_graph.quant
+forbidden_modules =
+    epistemic_graph.client
+    epistemic_graph.pool
+    epistemic_graph.parser
+
+[importlinter:contract:embedded-is-server-independent]
+name = Embedded adapter does not import network transports
+type = forbidden
+source_modules =
+    epistemic_graph.embedded
+forbidden_modules =
+    epistemic_graph.client
+    epistemic_graph.pool
+    epistemic_graph.parser
