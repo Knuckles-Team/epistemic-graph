@@ -2074,9 +2074,11 @@ impl RedbBackend {
             .map_err(|_| "redb writer dropped audit_prove_inclusion reply".to_string())?
     }
 
-    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:EG-KG.storage.100m-tenant — tenant
-    /// rehydration). Routed through the owner thread (exclusive file lock) which
-    /// flushes pending writes first. `None` ⇒ the graph has no durable identity.
+    /// Read ONE graph's durable rows as a read-only materialization view
+    /// (CONCEPT:EG-KG.storage.100m-tenant — tenant rehydration). Routed through the
+    /// owner thread, which flushes pending writes first. This is not a transfer
+    /// image; cross-store moves use [`Self::reshard_graph`]. `None` means the graph
+    /// has no durable identity.
     pub fn read_graph_dump_blocking(&self, graph_fname: &str) -> Result<Option<GraphDump>, String> {
         let (reply, rx) = std::sync::mpsc::channel();
         self.shard_for(graph_fname)

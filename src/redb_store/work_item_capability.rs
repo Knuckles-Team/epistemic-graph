@@ -1483,19 +1483,20 @@ mod tests {
         let dump = super::super::read_graph_dump(&db, "graph-a", DurableCrypto::none())
             .expect("read graph checkpoint")
             .expect("graph checkpoint identity");
-        let invalid = super::super::GraphDump {
-            graph: dump.graph.clone(),
-            name: dump.name.clone(),
-            graph_type: dump.graph_type,
-            incarnation_id: "incarnation:checkpoint-invalid".to_string(),
-            source_snapshot_version: dump.source_snapshot_version.saturating_add(1),
-            integrity_policy: dump.integrity_policy.clone(),
-            nodes: dump.nodes.clone(),
-            edges: dump.edges.clone(),
-            ledger: dump.ledger.clone(),
-            semantic: dump.semantic.clone(),
-            native: Default::default(),
-        };
+        let invalid = super::super::GraphDump::in_place_core_checkpoint(
+            super::super::InPlaceCoreCheckpoint {
+                graph: dump.graph.clone(),
+                name: dump.name.clone(),
+                graph_type: dump.graph_type,
+                incarnation_id: "incarnation:checkpoint-invalid".to_string(),
+                source_snapshot_version: dump.source_snapshot_version.saturating_add(1),
+                integrity_policy: dump.integrity_policy.clone(),
+                nodes: dump.nodes.clone(),
+                edges: dump.edges.clone(),
+                ledger: dump.ledger.clone(),
+                semantic: dump.semantic.clone(),
+            },
+        );
         let error = super::super::apply_checkpoint(
             &db,
             &mut Vec::new(),
@@ -1539,19 +1540,20 @@ mod tests {
             })
             .collect();
         let restored_incarnation = "incarnation:checkpoint-replacement";
-        let restored = super::super::GraphDump {
-            graph: dump.graph,
-            name: dump.name,
-            graph_type: dump.graph_type,
-            incarnation_id: restored_incarnation.to_string(),
-            source_snapshot_version: dump.source_snapshot_version.saturating_add(1),
-            integrity_policy: dump.integrity_policy,
-            nodes,
-            edges: dump.edges,
-            ledger: dump.ledger,
-            semantic: dump.semantic,
-            native: Default::default(),
-        };
+        let restored = super::super::GraphDump::in_place_core_checkpoint(
+            super::super::InPlaceCoreCheckpoint {
+                graph: dump.graph,
+                name: dump.name,
+                graph_type: dump.graph_type,
+                incarnation_id: restored_incarnation.to_string(),
+                source_snapshot_version: dump.source_snapshot_version.saturating_add(1),
+                integrity_policy: dump.integrity_policy,
+                nodes,
+                edges: dump.edges,
+                ledger: dump.ledger,
+                semantic: dump.semantic,
+            },
+        );
         super::super::apply_checkpoint(&db, &mut Vec::new(), vec![restored], DurableCrypto::none())
             .expect("checkpoint replacement commits atomically");
         assert_eq!(private_row_counts(&db), (0, 0, 0));

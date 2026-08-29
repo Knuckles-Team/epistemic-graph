@@ -27,7 +27,7 @@
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::change_envelope::{
@@ -998,8 +998,18 @@ pub fn sanitize(name: &str) -> String {
     bounded
 }
 
-/// An owned, off-lock dump of one graph used by the checkpoint + load paths.
-pub struct GraphDump {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GraphDumpKind {
+    InPlaceCoreCheckpoint,
+    DurableReadOnlyMaterialization,
+}
+
+/// The complete in-memory `GraphCore` image accepted by an in-place checkpoint.
+///
+/// Keeping this input distinct from [`GraphDump`] makes the authority boundary
+/// structural: callers cannot accidentally attach durable native rows or reuse a
+/// read-only materialization while constructing an ordinary checkpoint.
+pub(crate) struct InPlaceCoreCheckpoint {
     pub graph: String,
     pub name: String,
     pub graph_type: GraphType,
@@ -1010,21 +1020,65 @@ pub struct GraphDump {
     pub edges: Vec<(String, String, Vec<u8>)>,
     pub ledger: Vec<String>,
     pub semantic: Vec<u8>,
-    /// Every native `development_lane_*`/`resource_*` table row for this graph
-    /// (BUG-CX-096). Populated ONLY by [`read_graph_dump`] — every other
-    /// `GraphDump` construction site (the embedded in-memory checkpoint path,
-    /// tests) leaves this at its `Default` empty state, because those callers
-    /// have no native-authority rows to report in the first place (an
-    /// in-memory `GraphCore` never held them; they live only in redb).
-    /// [`apply_checkpoint_dump`] deliberately does NOT consume these fields —
-    /// the existing in-place-checkpoint discipline is unchanged (native rows
-    /// already durable at the destination stay put and are re-proved via
-    /// `development_lane::validate_checkpoint_lane_links`). This field exists
-    /// so a dump is no longer silently lossy: any FUTURE consumer that
-    /// relocates a graph to a different store/shard via a `GraphDump` now has
-    /// the data to carry, instead of the destination's lane/resource
-    /// validators vacuously passing because they see nothing.
+}
+
+/// An owned, off-lock view of one graph used by checkpoint and materialization paths.
+///
+/// This is deliberately not a cross-store transfer image. Durable reads include
+/// diagnostic native rows but omit other graph-scoped authorities. Complete moves
+/// must use the fenced `RedbBackend::reshard_graph` / `RawGraphRows` protocol.
+pub struct GraphDump {
+    kind: GraphDumpKind,
+    pub graph: String,
+    pub name: String,
+    pub graph_type: GraphType,
+    pub incarnation_id: String,
+    pub source_snapshot_version: u64,
+    pub integrity_policy: Option<crate::graph::IntegrityPolicy>,
+    pub nodes: Vec<(String, Vec<u8>)>,
+    pub edges: Vec<(String, String, Vec<u8>)>,
+    pub ledger: Vec<String>,
+    pub semantic: Vec<u8>,
+    /// Diagnostic/read-only native `development_lane_*`/`resource_*` rows for
+    /// this graph (BUG-CX-096). They make omissions observable to readers; they
+    /// are not a complete authority-transfer contract and are never applied by
+    /// an ordinary in-place checkpoint.
     pub native: NativeOperationDumpRows,
+}
+
+impl GraphDump {
+    pub(crate) fn in_place_core_checkpoint(checkpoint: InPlaceCoreCheckpoint) -> Self {
+        Self {
+            kind: GraphDumpKind::InPlaceCoreCheckpoint,
+            graph: checkpoint.graph,
+            name: checkpoint.name,
+            graph_type: checkpoint.graph_type,
+            incarnation_id: checkpoint.incarnation_id,
+            source_snapshot_version: checkpoint.source_snapshot_version,
+            integrity_policy: checkpoint.integrity_policy,
+            nodes: checkpoint.nodes,
+            edges: checkpoint.edges,
+            ledger: checkpoint.ledger,
+            semantic: checkpoint.semantic,
+            native: NativeOperationDumpRows::default(),
+        }
+    }
+
+    fn validate_in_place_checkpoint(&self) -> Result<(), String> {
+        if self.kind != GraphDumpKind::InPlaceCoreCheckpoint {
+            return Err(
+                "checkpoint refused a durable read-only dump; use RedbBackend::reshard_graph for cross-store transfer"
+                    .to_string(),
+            );
+        }
+        if !self.native.is_empty() {
+            return Err(
+                "checkpoint refused native authority rows; use RedbBackend::reshard_graph for cross-store transfer"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
 }
 
 /// The graph-scoped row set of every `development_lane_*` (10 tables) and
@@ -1077,6 +1131,35 @@ pub struct NativeOperationDumpRows {
     pub resource_anti_affinity: Vec<((String, String), u64)>,
     /// `resource_disk_policies`: `(graph, key) -> sealed disk-policy blob`.
     pub resource_disk_policies: Vec<(String, Vec<u8>)>,
+}
+
+impl NativeOperationDumpRows {
+    fn is_empty(&self) -> bool {
+        [
+            self.development_lane_holds.len(),
+            self.development_lane_tenant_index.len(),
+            self.development_lane_lane_index.len(),
+            self.development_lane_repository_branch_index.len(),
+            self.development_lane_worktree_index.len(),
+            self.development_lane_work_item_index.len(),
+            self.development_lane_counters.len(),
+            self.development_lane_pressure_index.len(),
+            self.development_lane_policies.len(),
+            self.development_lane_invocations.len(),
+            self.resource_reservations.len(),
+            self.resource_reservation_tenant_index.len(),
+            self.resource_reservation_attempts.len(),
+            self.resource_hosts.len(),
+            self.resource_exclusivity.len(),
+            self.resource_fairness.len(),
+            self.resource_concurrency.len(),
+            self.resource_anti_affinity.len(),
+            self.resource_disk_policies.len(),
+        ]
+        .into_iter()
+        .sum::<usize>()
+            == 0
+    }
 }
 
 /// Commit all buffered mutations (and any Raft log appends) in ONE write
@@ -14703,12 +14786,28 @@ fn apply_checkpoint_dumps(
     Ok(count)
 }
 
+fn validate_checkpoint_dumps(graphs: &[GraphDump]) -> Result<(), String> {
+    let mut graph_ids = HashSet::with_capacity(graphs.len());
+    for dump in graphs {
+        if !graph_ids.insert(dump.graph.as_str()) {
+            return Err("checkpoint contains duplicate graph id".to_string());
+        }
+        dump.validate_in_place_checkpoint()?;
+    }
+    Ok(())
+}
+
 pub(crate) fn apply_checkpoint(
     db: &Database,
     pending: &mut Vec<(String, Method)>,
     graphs: Vec<GraphDump>,
     crypto: DurableCrypto<'_>,
 ) -> Result<usize, String> {
+    // Validate origin/completeness before opening a write transaction or
+    // replaying any pending mutation. A durable read is intentionally not a
+    // transferable checkpoint, even when its diagnostic native row vectors
+    // happen to be empty.
+    validate_checkpoint_dumps(&graphs)?;
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
@@ -15030,10 +15129,12 @@ fn read_native_operation_dump_rows(
     })
 }
 
-/// Read ONE graph's durable rows back into an owned [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
+/// Read ONE graph's durable rows into a read-only [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
 /// tenant rehydration). Range-scans each table by the `graph` key prefix, so a cold
-/// tenant rehydrates from redb without reading the whole store. `None` when the graph
-/// has no durable identity (`graph_meta`) row — a genuine absence, not a hibernation.
+/// tenant rehydrates from redb without reading the whole store. This materialization
+/// view is intentionally rejected by [`apply_checkpoint`]; cross-store moves use the
+/// complete fenced `RawGraphRows`/`RedbBackend::reshard_graph` protocol. `None` means
+/// the graph has no durable identity (`graph_meta`) row.
 pub(crate) fn read_graph_dump(
     db: &Database,
     graph: &str,
@@ -15099,11 +15200,13 @@ pub(crate) fn read_graph_dump(
         .map(|v| crypto.unseal(v.value()))
         .transpose()?
         .unwrap_or_default();
-    // BUG-CX-096: the native lane/resource authority rows, so a `GraphDump` is no
-    // longer silently lossy for them. See `NativeOperationDumpRows`'s doc.
+    // BUG-CX-096: expose native lane/resource authority rows for diagnostics.
+    // The private read-only origin marker prevents this incomplete view from
+    // being replayed as a checkpoint or transfer image.
     let native = read_native_operation_dump_rows(&rtx, graph, crypto)?;
 
     Ok(Some(GraphDump {
+        kind: GraphDumpKind::DurableReadOnlyMaterialization,
         graph: graph.to_string(),
         name: meta_record.name,
         graph_type: meta_record.graph_type,
@@ -15553,7 +15656,7 @@ mod keyset_page_tests {
         apply_checkpoint(
             &db,
             &mut Vec::new(),
-            vec![GraphDump {
+            vec![GraphDump::in_place_core_checkpoint(InPlaceCoreCheckpoint {
                 graph: "graph".to_string(),
                 name: "graph".to_string(),
                 graph_type: GraphType::Global,
@@ -15564,8 +15667,7 @@ mod keyset_page_tests {
                 edges: edges.clone(),
                 ledger: Vec::new(),
                 semantic: Vec::new(),
-                native: Default::default(),
-            }],
+            })],
             DurableCrypto::none(),
         )
         .unwrap();
@@ -15616,8 +15718,10 @@ mod keyset_page_tests {
     }
 }
 
-/// Read the entire store into owned per-graph dumps. Each graph's rows are
-/// collected by iterating the whole table once and bucketing by the graph prefix.
+/// Read the entire store into read-only per-graph materialization views. Each
+/// graph's core rows are collected by iterating the whole table once and
+/// bucketing by graph prefix. These views are not cross-store transfer images
+/// and are rejected by [`apply_checkpoint`].
 pub(crate) fn read_all_dumps(
     db: &Database,
     crypto: DurableCrypto<'_>,
@@ -15645,6 +15749,7 @@ pub(crate) fn read_all_dumps(
         dumps.insert(
             graph.clone(),
             GraphDump {
+                kind: GraphDumpKind::DurableReadOnlyMaterialization,
                 graph,
                 name: record.name,
                 graph_type: record.graph_type,
@@ -17120,11 +17225,11 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(path);
     }
 
-    /// BUG-CX-096: `read_graph_dump` used to range-scan ONLY `GRAPH_META` /
-    /// `MUTATION_GRAPH_VERSION` / `NODES` / `EDGES` / `LEDGER` / `SEMANTIC` — none of
-    /// the 10 `development_lane_*` tables and none of the 9 `resource_*` tables ever
-    /// traveled in a `GraphDump`; the destination side (`validate_checkpoint_lane_links`
-    /// et al.) would see zero rows and pass, the fail-open shape BUG-CX-022 shares.
+    /// BUG-CX-096: `read_graph_dump` used to expose ONLY `GRAPH_META` /
+    /// `MUTATION_GRAPH_VERSION` / `NODES` / `EDGES` / `LEDGER` / `SEMANTIC`, making
+    /// the 10 `development_lane_*` and 9 `resource_*` tables invisible to dump
+    /// diagnostics. They are now observable but explicitly read-only: `GraphDump`
+    /// remains incomplete for transfer, and `apply_checkpoint` rejects this origin.
     /// Seed one row directly into EVERY one of those 19 tables (raw redb inserts,
     /// bypassing every native-operation precondition — the same technique
     /// `redb_backend::tests::seed_raw_two_str_row` uses for the sibling BUG-CX-016/054
@@ -17136,9 +17241,7 @@ mod mutation_batch_tests {
     ///
     /// Confirmed FAILING before this fix: `GraphDump` had no `native` field at all
     /// (`cargo check` errors `no field \`native\` on type \`GraphDump\``) — the
-    /// absence of the field IS the defect this test exists to close, exactly as the
-    /// ledger names it ("None of the 10 development_lane_* tables travel in a
-    /// dump").
+    /// absence of the field IS the observability defect this test closes.
     #[test]
     fn read_graph_dump_carries_every_native_lane_and_resource_table() {
         let path = temp_path("native-dump-coverage");
@@ -17263,6 +17366,7 @@ mod mutation_batch_tests {
         let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
             .unwrap()
             .unwrap();
+        assert_eq!(dump.kind, GraphDumpKind::DurableReadOnlyMaterialization);
 
         assert_eq!(
             dump.native.development_lane_holds,
@@ -17369,6 +17473,100 @@ mod mutation_batch_tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn durable_read_dump_is_rejected_before_checkpoint_mutation() {
+        let path = temp_path("read-dump-checkpoint-refusal");
+        let db = open(&path);
+        let seed = batch("batch-read-dump-refusal", "idem-read-dump-refusal");
+        commit_at(&db, &seed, None).unwrap();
+
+        let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+            .unwrap()
+            .expect("seed graph identity");
+        assert_eq!(dump.kind, GraphDumpKind::DurableReadOnlyMaterialization);
+        assert!(
+            dump.native.is_empty(),
+            "the origin marker must reject even a read with no native rows"
+        );
+        let incarnation_id = dump.incarnation_id.clone();
+        let source_snapshot_version = dump.source_snapshot_version;
+        let mut pending = vec![("graph-a".to_string(), Method::ClearGraph)];
+
+        let error = apply_checkpoint(&db, &mut pending, vec![dump], DurableCrypto::none())
+            .expect_err("a durable read is not a complete transfer image");
+        assert!(error.contains("RedbBackend::reshard_graph"));
+        assert_eq!(pending.len(), 1, "rejection must not consume pending work");
+        assert!(matches!(pending[0].1, Method::ClearGraph));
+
+        let after = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+            .unwrap()
+            .expect("rejection must preserve destination rows");
+        assert_eq!(after.incarnation_id, incarnation_id);
+        assert_eq!(after.source_snapshot_version, source_snapshot_version);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn duplicate_checkpoint_graph_ids_are_rejected_before_pending_mutation() {
+        let path = temp_path("duplicate-checkpoint-graph-id");
+        let db = open(&path);
+        let dump = || {
+            GraphDump::in_place_core_checkpoint(InPlaceCoreCheckpoint {
+                graph: "graph-a".to_string(),
+                name: "graph-a".to_string(),
+                graph_type: GraphType::Global,
+                incarnation_id: "incarnation:test:duplicate-checkpoint".to_string(),
+                source_snapshot_version: 1,
+                integrity_policy: None,
+                nodes: Vec::new(),
+                edges: Vec::new(),
+                ledger: Vec::new(),
+                semantic: Vec::new(),
+            })
+        };
+        let mut pending = vec![("graph-a".to_string(), Method::ClearGraph)];
+
+        let error = apply_checkpoint(
+            &db,
+            &mut pending,
+            vec![dump(), dump()],
+            DurableCrypto::none(),
+        )
+        .expect_err("duplicate graph images are ambiguous");
+        assert_eq!(error, "checkpoint contains duplicate graph id");
+        assert_eq!(pending.len(), 1, "rejection must not consume pending work");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn in_place_checkpoint_rejects_attached_native_authority_before_mutation() {
+        let path = temp_path("native-authority-checkpoint-refusal");
+        let db = open(&path);
+        let mut dump = GraphDump::in_place_core_checkpoint(InPlaceCoreCheckpoint {
+            graph: "graph-a".to_string(),
+            name: "graph-a".to_string(),
+            graph_type: GraphType::Global,
+            incarnation_id: "incarnation:test:native-authority-refusal".to_string(),
+            source_snapshot_version: 1,
+            integrity_policy: None,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            ledger: Vec::new(),
+            semantic: Vec::new(),
+        });
+        dump.native
+            .resource_hosts
+            .push(("host-a".to_string(), Vec::new()));
+        let mut pending = vec![("graph-a".to_string(), Method::ClearGraph)];
+
+        let error = apply_checkpoint(&db, &mut pending, vec![dump], DurableCrypto::none())
+            .expect_err("ordinary checkpoints cannot carry native authority rows");
+        assert!(error.contains("RedbBackend::reshard_graph"));
+        assert_eq!(pending.len(), 1, "rejection must not consume pending work");
+        assert!(matches!(pending[0].1, Method::ClearGraph));
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
