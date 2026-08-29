@@ -34,6 +34,35 @@ def test_live_mutation_inventory_contract() -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "opener", "closer"),
+    [
+        ('{ "}" }', "{", "}"),
+        ("{ // }\n }", "{", "}"),
+        ("{ /* outer /* nested */ still */ }", "{", "}"),
+        (r'''{ '}' }''', "{", "}"),
+        (r'''{ "escaped \" }" }''', "{", "}"),
+        ("{'a}", "{", "}"),
+    ],
+)
+def test_balanced_span_ignores_rust_comments_and_literals(
+    source: str, opener: str, closer: str
+) -> None:
+    module = _gate_module()
+    start = source.index(opener)
+
+    assert module._balanced_span_from(source, start, opener, closer) == source.rindex(
+        closer
+    )
+
+
+def test_balanced_span_rejects_unterminated_rust_block() -> None:
+    module = _gate_module()
+
+    with pytest.raises(SystemExit, match="unterminated balanced block"):
+        module._balanced_span_from("{ /* unterminated", 0, "{", "}")
+
+
+@pytest.mark.parametrize(
     ("source_name", "before", "after", "failure"),
     [
         (
