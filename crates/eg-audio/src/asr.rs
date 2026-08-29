@@ -495,6 +495,32 @@ pub struct AsrResult {
 /// A `Complete` status with zero segments is rejected — a partial/degraded
 /// run must say so explicitly rather than reporting an empty transcript as a
 /// finished one.
+/// Every segment: belongs to `request`, individually validates, and is strictly
+/// ordered by sequence relative to its predecessor.
+fn validate_segment_ordering(
+    segments: &[AsrSegment],
+    request: &AsrRequest,
+) -> Result<(), AsrError> {
+    let mut previous_sequence: Option<u64> = None;
+    for segment in segments {
+        if segment.request_id != request.request_id {
+            return Err(AsrError::Conflict {
+                reason: "segment belongs to a different request",
+            });
+        }
+        segment.validate()?;
+        if let Some(previous) = previous_sequence {
+            if segment.sequence.0 <= previous {
+                return Err(AsrError::MalformedResult {
+                    reason: "segments are not strictly ordered by sequence",
+                });
+            }
+        }
+        previous_sequence = Some(segment.sequence.0);
+    }
+    Ok(())
+}
+
 pub fn finalize_result(
     authorized: &AuthorizedCarrier,
     request: &AsrRequest,
@@ -518,23 +544,7 @@ pub fn finalize_result(
             limit: "max_segments",
         });
     }
-    let mut previous_sequence: Option<u64> = None;
-    for segment in &segments {
-        if segment.request_id != request.request_id {
-            return Err(AsrError::Conflict {
-                reason: "segment belongs to a different request",
-            });
-        }
-        segment.validate()?;
-        if let Some(previous) = previous_sequence {
-            if segment.sequence.0 <= previous {
-                return Err(AsrError::MalformedResult {
-                    reason: "segments are not strictly ordered by sequence",
-                });
-            }
-        }
-        previous_sequence = Some(segment.sequence.0);
-    }
+    validate_segment_ordering(&segments, request)?;
     let timing_coverage = if !segments.is_empty()
         && segments
             .iter()

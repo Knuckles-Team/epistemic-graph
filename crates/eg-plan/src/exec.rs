@@ -1571,38 +1571,45 @@ fn tsdb_scan_op(
 /// candidate scores 0 but is kept (degrade, never err — mirrors `Rank` over an empty
 /// store). Unweighted BFS from `center` following OUTGOING edges (the same topology
 /// the `Traverse` leg walks). Order follows score desc, ties by id for determinism.
-fn rank_node_distance(view: &GraphView, input: RowSet, center: &str) -> RowSet {
+/// BFS hop distances from `center` over the whole topology, following OUTGOING edges.
+/// `center` itself is distance 0; unreached nodes are absent from the map.
+fn bfs_hop_distances(view: &GraphView, center: &str) -> std::collections::HashMap<String, usize> {
     use petgraph::visit::EdgeRef;
+    let mut dist: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let Some(&start) = view.node_map.get(center) else {
+        return dist;
+    };
+    let mut visited: HashSet<petgraph::stable_graph::NodeIndex> = HashSet::new();
+    visited.insert(start);
+    dist.insert(center.to_string(), 0);
+    let mut frontier = vec![start];
+    let mut depth = 0usize;
+    while !frontier.is_empty() {
+        depth += 1;
+        let mut next = Vec::new();
+        for &node in &frontier {
+            for e in view
+                .graph
+                .edges_directed(node, petgraph::Direction::Outgoing)
+            {
+                let nbr = e.target();
+                if visited.insert(nbr) {
+                    dist.entry(view.graph[nbr].clone()).or_insert(depth);
+                    next.push(nbr);
+                }
+            }
+        }
+        frontier = next;
+    }
+    dist
+}
+
+fn rank_node_distance(view: &GraphView, input: RowSet, center: &str) -> RowSet {
     let candidates = input.id_set();
     if candidates.is_empty() {
         return input;
     }
-    // BFS hop distances from center over the whole topology.
-    let mut dist: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    if let Some(&start) = view.node_map.get(center) {
-        let mut visited: HashSet<petgraph::stable_graph::NodeIndex> = HashSet::new();
-        visited.insert(start);
-        dist.insert(center.to_string(), 0);
-        let mut frontier = vec![start];
-        let mut depth = 0usize;
-        while !frontier.is_empty() {
-            depth += 1;
-            let mut next = Vec::new();
-            for &node in &frontier {
-                for e in view
-                    .graph
-                    .edges_directed(node, petgraph::Direction::Outgoing)
-                {
-                    let nbr = e.target();
-                    if visited.insert(nbr) {
-                        dist.entry(view.graph[nbr].clone()).or_insert(depth);
-                        next.push(nbr);
-                    }
-                }
-            }
-            frontier = next;
-        }
-    }
+    let dist = bfs_hop_distances(view, center);
     let scored: Vec<(String, f32)> = input
         .rows()
         .iter()

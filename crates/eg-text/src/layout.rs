@@ -232,20 +232,35 @@ fn is_list_item_line(line: &str) -> bool {
     matches!(t[digits.len()..].chars().next(), Some('.') | Some(')'))
 }
 
-/// Segment `text` into [`LayoutSpan`]s: table regions (reusing [`extract_tables`]),
-/// then headings / list items / paragraphs line-by-line over what's left, merging
-/// consecutive lines of the SAME kind (paragraphs especially) into one span.
-pub fn layout_spans(text: &str) -> Vec<LayoutSpan> {
-    let tables = extract_tables(text);
-
-    // Compute per-line byte ranges once.
-    let mut line_ranges: Vec<(usize, usize)> = Vec::new(); // [start, end) excluding the trailing \n
+/// Per-line half-open byte ranges `[start, end)` over `text`, excluding each line's
+/// trailing `\n`/`\r\n`.
+fn line_byte_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut line_ranges: Vec<(usize, usize)> = Vec::new();
     let mut offset = 0usize;
     for raw in text.split_inclusive('\n') {
         let content_len = raw.trim_end_matches('\n').trim_end_matches('\r').len();
         line_ranges.push((offset, offset + content_len));
         offset += raw.len();
     }
+    line_ranges
+}
+
+/// Index just past the last line whose byte range starts before `table_end` — i.e. how
+/// far `li` must advance to skip every line a table spans.
+fn advance_past_table(line_ranges: &[(usize, usize)], li: usize, table_end: usize) -> usize {
+    let mut li = li;
+    while li < line_ranges.len() && line_ranges[li].0 < table_end {
+        li += 1;
+    }
+    li
+}
+
+/// Segment `text` into [`LayoutSpan`]s: table regions (reusing [`extract_tables`]),
+/// then headings / list items / paragraphs line-by-line over what's left, merging
+/// consecutive lines of the SAME kind (paragraphs especially) into one span.
+pub fn layout_spans(text: &str) -> Vec<LayoutSpan> {
+    let tables = extract_tables(text);
+    let line_ranges = line_byte_ranges(text);
 
     let mut spans: Vec<LayoutSpan> = Vec::new();
     let mut li = 0usize;
@@ -274,9 +289,7 @@ pub fn layout_spans(text: &str) -> Vec<LayoutSpan> {
                 end: t.byte_end,
             });
             // Advance li past every line the table's byte range covers.
-            while li < line_ranges.len() && line_ranges[li].0 < t.byte_end {
-                li += 1;
-            }
+            li = advance_past_table(&line_ranges, li, t.byte_end);
             continue;
         }
 

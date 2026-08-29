@@ -132,24 +132,7 @@ impl Distribution {
                 ((alpha - 1.0) * x.ln() + (beta - 1.0) * (1.0 - x).ln() - ln_b).exp()
             }
             Distribution::Categorical { .. } => 0.0,
-            Distribution::Empirical { samples } => {
-                let n = samples.len();
-                if n == 0 {
-                    return 0.0;
-                }
-                // Silverman's rule-of-thumb bandwidth over a Gaussian kernel.
-                let sd = self.variance().sqrt();
-                let h = (1.06 * sd * (n as f64).powf(-0.2)).max(1e-9);
-                let norm = 1.0 / (h * (2.0 * std::f64::consts::PI).sqrt());
-                samples
-                    .iter()
-                    .map(|xi| {
-                        let z = (x - xi) / h;
-                        norm * (-0.5 * z * z).exp()
-                    })
-                    .sum::<f64>()
-                    / n as f64
-            }
+            Distribution::Empirical { samples } => empirical_kde_pdf(samples, self.variance(), x),
         }
     }
 
@@ -189,21 +172,7 @@ impl Distribution {
                     x / s
                 }
             }
-            Distribution::Categorical { probs } => {
-                let total: f64 = probs.iter().map(|(_, p)| p).sum();
-                if total <= 0.0 || probs.is_empty() {
-                    return 0.0;
-                }
-                let u = rng.next_f64() * total;
-                let mut acc = 0.0;
-                for (i, (_, p)) in probs.iter().enumerate() {
-                    acc += p;
-                    if u < acc {
-                        return i as f64;
-                    }
-                }
-                (probs.len() - 1) as f64
-            }
+            Distribution::Categorical { probs } => sample_categorical_index(probs, &mut rng),
             Distribution::Empirical { samples } => {
                 if samples.is_empty() {
                     return 0.0;
@@ -230,40 +199,48 @@ impl Distribution {
         match self {
             Distribution::Gaussian { mean, std } => mean + std * inv_norm_cdf(q),
             Distribution::Beta { alpha, beta } => beta_quantile(q, *alpha, *beta),
-            Distribution::Categorical { probs } => {
-                let total: f64 = probs.iter().map(|(_, p)| p).sum();
-                if total <= 0.0 || probs.is_empty() {
-                    return 0.0;
-                }
-                let target = q * total;
-                let mut acc = 0.0;
-                for (i, (_, p)) in probs.iter().enumerate() {
-                    acc += p;
-                    if acc >= target {
-                        return i as f64;
-                    }
-                }
-                (probs.len() - 1) as f64
-            }
-            Distribution::Empirical { samples } => {
-                if samples.is_empty() {
-                    return 0.0;
-                }
-                let mut sorted = samples.clone();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                // Type-7 linear-interpolated empirical quantile.
-                let n = sorted.len();
-                if n == 1 {
-                    return sorted[0];
-                }
-                let h = (n as f64 - 1.0) * q;
-                let lo = h.floor() as usize;
-                let hi = (lo + 1).min(n - 1);
-                let frac = h - lo as f64;
-                sorted[lo] + frac * (sorted[hi] - sorted[lo])
-            }
+            Distribution::Categorical { probs } => categorical_quantile_index(probs, q),
+            Distribution::Empirical { samples } => empirical_type7_quantile(samples, q),
         }
     }
+}
+
+/// The `q`-quantile category index by inverse-CDF over `probs`' (renormalized) weights.
+/// `0.0` on an empty or non-positive-mass distribution; the last index on rounding
+/// overshoot.
+fn categorical_quantile_index(probs: &[(String, f64)], q: f64) -> f64 {
+    let total: f64 = probs.iter().map(|(_, p)| p).sum();
+    if total <= 0.0 || probs.is_empty() {
+        return 0.0;
+    }
+    let target = q * total;
+    let mut acc = 0.0;
+    for (i, (_, p)) in probs.iter().enumerate() {
+        acc += p;
+        if acc >= target {
+            return i as f64;
+        }
+    }
+    (probs.len() - 1) as f64
+}
+
+/// Type-7 linear-interpolated empirical quantile (R's default): `0.0` on an empty sample
+/// set.
+fn empirical_type7_quantile(samples: &[f64], q: f64) -> f64 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = sorted.len();
+    if n == 1 {
+        return sorted[0];
+    }
+    let h = (n as f64 - 1.0) * q;
+    let lo = h.floor() as usize;
+    let hi = (lo + 1).min(n - 1);
+    let frac = h - lo as f64;
+    sorted[lo] + frac * (sorted[hi] - sorted[lo])
 }
 
 // ── Deterministic PRNG + samplers (pure Rust, no `rand` dep) ─────────────────
@@ -291,6 +268,46 @@ impl SplitMix64 {
     fn next_f64(&mut self) -> f64 {
         (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
     }
+}
+
+/// Gaussian-KDE density estimate at `x` over `samples`, using `variance` (the
+/// distribution's own, already-computed) for Silverman's rule-of-thumb bandwidth. `0.0`
+/// on an empty sample set.
+fn empirical_kde_pdf(samples: &[f64], variance: f64, x: f64) -> f64 {
+    let n = samples.len();
+    if n == 0 {
+        return 0.0;
+    }
+    let sd = variance.sqrt();
+    let h = (1.06 * sd * (n as f64).powf(-0.2)).max(1e-9);
+    let norm = 1.0 / (h * (2.0 * std::f64::consts::PI).sqrt());
+    samples
+        .iter()
+        .map(|xi| {
+            let z = (x - xi) / h;
+            norm * (-0.5 * z * z).exp()
+        })
+        .sum::<f64>()
+        / n as f64
+}
+
+/// Draw a categorical sample's index by inverse-CDF over `probs`' (renormalized) weights.
+/// `0.0` on an empty or non-positive-mass distribution; the last index on rounding
+/// overshoot.
+fn sample_categorical_index(probs: &[(String, f64)], rng: &mut SplitMix64) -> f64 {
+    let total: f64 = probs.iter().map(|(_, p)| p).sum();
+    if total <= 0.0 || probs.is_empty() {
+        return 0.0;
+    }
+    let u = rng.next_f64() * total;
+    let mut acc = 0.0;
+    for (i, (_, p)) in probs.iter().enumerate() {
+        acc += p;
+        if u < acc {
+            return i as f64;
+        }
+    }
+    (probs.len() - 1) as f64
 }
 
 /// One standard-normal draw via the Box–Muller transform.

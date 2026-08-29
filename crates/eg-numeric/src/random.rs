@@ -123,27 +123,10 @@ impl Generator {
     ) -> crate::Result<Vec<usize>> {
         check_population_size(population_size)?;
         check_size(sample_size)?;
+        let weights = validate_choice_request(population_size, sample_size, replace, weights)?;
         if population_size == 0 {
-            if sample_size == 0 && weights.is_none() {
-                return Ok(Vec::new());
-            }
-            return Err(crate::NumericError::random(
-                "choice cannot sample an empty population",
-            ));
+            return Ok(Vec::new());
         }
-        if !replace && sample_size > population_size {
-            return Err(crate::NumericError::random(
-                "cannot take a larger sample than population without replacement",
-            ));
-        }
-
-        let weights = match weights {
-            Some(weights) => {
-                validate_weights(weights, population_size)?;
-                Some(weights)
-            }
-            None => None,
-        };
 
         match (replace, weights) {
             (true, None) => Ok((0..sample_size)
@@ -211,6 +194,39 @@ impl Generator {
             .into_iter()
             .map(|index| positive_indices[index])
             .collect())
+    }
+}
+
+/// Validate a `try_choice_indices` request's shape and weights. `population_size == 0`
+/// is a special case: `Ok(None)` when `sample_size == 0` and `weights` is absent (the
+/// caller then treats an empty population as "return an empty `Vec`"), an error
+/// otherwise. For a non-empty population, checks `sample_size` against `replace` and
+/// validates `weights` (if any) against `population_size`.
+fn validate_choice_request(
+    population_size: usize,
+    sample_size: usize,
+    replace: bool,
+    weights: Option<&[f64]>,
+) -> crate::Result<Option<&[f64]>> {
+    if population_size == 0 {
+        if sample_size == 0 && weights.is_none() {
+            return Ok(None);
+        }
+        return Err(crate::NumericError::random(
+            "choice cannot sample an empty population",
+        ));
+    }
+    if !replace && sample_size > population_size {
+        return Err(crate::NumericError::random(
+            "cannot take a larger sample than population without replacement",
+        ));
+    }
+    match weights {
+        Some(weights) => {
+            validate_weights(weights, population_size)?;
+            Ok(Some(weights))
+        }
+        None => Ok(None),
     }
 }
 

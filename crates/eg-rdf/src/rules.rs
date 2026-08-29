@@ -872,8 +872,8 @@ impl Engine {
     fn try_bind_tuple(
         &self,
         atom: &Atom,
-        fp: &String,
-        tuple: &Vec<String>,
+        fp: &str,
+        tuple: &[String],
         binding: &mut HashMap<String, String>,
         conf_acc: f64,
         walk: &mut Walk,
@@ -890,7 +890,7 @@ impl Engine {
         if ok {
             let fconf = self
                 .conf
-                .get(&(fp.clone(), tuple.clone()))
+                .get(&(fp.to_string(), tuple.to_vec()))
                 .copied()
                 .unwrap_or(1.0);
             self.eval_at(walk.body, walk.idx + 1, binding, conf_acc * fconf, walk.out);

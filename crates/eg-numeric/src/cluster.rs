@@ -48,6 +48,36 @@ fn nearest(point: &[f64], centroids: &Array2<f64>) -> (usize, f64) {
     (best, best_d)
 }
 
+/// Sample the next k-means++ centroid's row index, weighted by each point's squared
+/// distance `d2[i]` to the nearest centroid chosen so far. Falls back to a uniform pick
+/// when every point already coincides with a centroid (`total <= 0.0`).
+fn sample_weighted_centroid_index(d2: &[f64], n: usize, gen: &mut Generator) -> usize {
+    let total: f64 = d2.iter().sum();
+    if total <= 0.0 {
+        return gen.integers(0, n as i64, 1)[0] as usize;
+    }
+    let target = gen.uniform(0.0, total, 1)[0];
+    let mut acc = 0.0;
+    for (i, &w) in d2.iter().enumerate() {
+        acc += w;
+        if acc >= target {
+            return i;
+        }
+    }
+    n - 1
+}
+
+/// Update each point's running nearest-centroid squared distance after `new_centroid`
+/// (row `d` values) joins the chosen set, in place.
+fn update_nearest_sq_dist(data: ArrayView2<f64>, new_centroid: &[f64], d2: &mut [f64]) {
+    for (i, slot) in d2.iter_mut().enumerate() {
+        let dist = sq_dist(data.row(i).as_slice().unwrap(), new_centroid);
+        if dist < *slot {
+            *slot = dist;
+        }
+    }
+}
+
 /// k-means++ seeding — the deterministic-given-`seed` probabilistic init that spreads the
 /// initial centroids proportionally to squared distance, yielding far better/stabler
 /// clusters than a plain random pick. Returns a `k×d` centroid matrix.
@@ -63,32 +93,11 @@ fn kmeans_plus_plus(data: ArrayView2<f64>, k: usize, gen: &mut Generator) -> Arr
         .map(|i| sq_dist(data.row(i).as_slice().unwrap(), &centroids.row(0).to_vec()))
         .collect();
     for c in 1..k {
-        let total: f64 = d2.iter().sum();
-        let chosen = if total <= 0.0 {
-            // All points coincide with a centroid — fall back to a uniform pick.
-            gen.integers(0, n as i64, 1)[0] as usize
-        } else {
-            let target = gen.uniform(0.0, total, 1)[0];
-            let mut acc = 0.0;
-            let mut pick = n - 1;
-            for (i, &w) in d2.iter().enumerate() {
-                acc += w;
-                if acc >= target {
-                    pick = i;
-                    break;
-                }
-            }
-            pick
-        };
+        let chosen = sample_weighted_centroid_index(&d2, n, gen);
         centroids.row_mut(c).assign(&data.row(chosen));
         // Update each point's nearest-centroid squared distance with the new centroid.
         let new_c = centroids.row(c).to_vec();
-        for (i, slot) in d2.iter_mut().enumerate() {
-            let dist = sq_dist(data.row(i).as_slice().unwrap(), &new_c);
-            if dist < *slot {
-                *slot = dist;
-            }
-        }
+        update_nearest_sq_dist(data, &new_c, &mut d2);
     }
     centroids
 }
