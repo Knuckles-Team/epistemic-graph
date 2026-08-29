@@ -145,6 +145,52 @@ check_untyped_defs = true
 exclude = [".venv", "venv", "build", "dist", "target"]
 min_confidence = 95
 
+# BUG-CX-136 — one reviewed contract for the repository-local quality
+# sensors.  The hooks resolve already-installed binaries only; they never
+# invoke a package manager.  Keeping the versions here makes a tool upgrade a
+# deliberate change to the same file as the thresholds and format universe.
+[tool.epistemic_graph.scanners]
+cccc_version = "1.6.0"
+kiss_version = "0.4.10"
+dupehound_version = "0.1.2"
+dupehound_threshold = 0.85
+dupehound_min_tokens = 40
+jscpd_version = "5.0.16"
+jscpd_min_tokens = 50
+jscpd_min_lines = 5
+jscpd_mode = "mild"
+dependency_cruiser_version = "18.2.0"
+import_linter_version = "2.13"
+arch_lint_version = "0.5.0"
+
+# jscpd is intentionally the wide-net sensor.  It sees Rust/Python/JS/TS
+# blocks as well as the config/template formats dupehound cannot parse.
+jscpd_formats = { rust = ["rs"], python = ["py", "pyi"], javascript = ["js", "cjs", "mjs"], typescript = ["ts", "tsx", "cts", "mts"], bash = ["sh", "bash"], css = ["css"], html = ["html", "htm"], json = ["json"], yaml = ["yaml", "yml"], toml = ["toml"], sql = ["sql"], markdown = ["md"] }
+jscpd_filenames = { docker = ["Dockerfile", "Containerfile"], makefile = ["Makefile", "GNUmakefile"] }
+jscpd_exclusions = [
+    "**/.git/**",
+    "**/.venv/**",
+    "**/venv/**",
+    "**/node_modules/**",
+    "**/target/**",
+    "**/target-*/**",
+    "**/build/**",
+    "**/dist/**",
+    "**/.cache/**",
+    "**/cache/**",
+    "**/.import_linter_cache/**",
+    "**/generated/**",
+    "**/vendor/**",
+    "**/third_party/**",
+    "**/fixtures/**",
+    "**/fixture/**",
+    "**/__snapshots__/**",
+    "**/__pycache__/**",
+    "**/*.lock",
+    "**/Cargo.lock",
+    "**/package-lock.json",
+]
+
 [tool.maturin]
 python-source = "."
 bindings = "bin"

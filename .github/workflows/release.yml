@@ -23,7 +23,8 @@ name: Release
 # push / `workflow_dispatch`), never by `continue-on-error` — see those two
 # jobs' `if:` conditions.
 #
-# Stages, in `needs:` order: gates -> lint-and-architecture -> build ->
+# Stages, in `needs:` order: gates -> lint-and-architecture ->
+# scanner-quality -> build ->
 # {docker-image, publish-pypi} (each also needs: feature-matrix + benchmarks,
 # added 2026-08-28/wD9-CIGATE after those two were found to share
 # docker-image/publish-pypi's own tag/dispatch trigger without being wired
@@ -395,6 +396,156 @@ jobs:
       - name: Clippy (slim server — proves no compute leaks into the lean build)
         run: cargo clippy --no-default-features --features server --all-targets -- -D warnings
 
+  # ── STAGE 1c: deterministic complexity/duplication and native architecture
+  # scanners.  The tools are installed into an ephemeral runner root at the
+  # exact versions in pyproject.toml; no package manager state is committed.
+  # This job is deliberately separate from lint-and-architecture because its
+  # local pre-push mirror uses already-installed binaries and must never turn a
+  # developer hook into a network download/build.
+  scanner-quality:
+    name: Scanner + architecture quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+      - name: Install locked thin-client dependencies
+        working-directory: clients/js
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+
+      # Pull-request base SHA is authoritative for the differential clone
+      # gate.  On a push, github.event.before is the previous commit.  A
+      # zero/empty base (first push or manual dispatch) falls back to the
+      # immediate parent, then the root commit; an unavailable object is an
+      # environment failure, never an invented empty baseline.
+      - name: Resolve scanner base commit
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.base_ref }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${PR_BASE_SHA:-${PUSH_BEFORE_SHA:-}}"
+          case "$base" in
+            ""|0000000000000000000000000000000000000000) base="" ;;
+          esac
+          if [ -z "$base" ]; then
+            base="$(git rev-parse --verify HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)"
+          fi
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            if [ -n "${PR_BASE_REF:-}" ]; then
+              git fetch --no-tags --depth=1 origin "refs/heads/${PR_BASE_REF}:refs/remotes/origin/${PR_BASE_REF}"
+            fi
+          fi
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base"
+          fi
+          resolved="$(git rev-parse --verify "${base}^{commit}")"
+          git cat-file -e "${resolved}^{commit}"
+          printf 'CX_DUP_BASE_REF=%s\n' "$resolved" >> "$GITHUB_ENV"
+
+      # Each Rust CLI is installed under its own runner-local --root.  The
+      # Python and Node tools are pinned directly as well; hooks never execute
+      # these provisioning commands.  `--no-package-lock` is safe here because
+      # this is an ephemeral scanner prefix, not the clients/js dependency
+      # graph shipped to users.
+      - name: Provision pinned scanner toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          scanner_root="$RUNNER_TEMP/epistemic-graph-scanners"
+          mkdir -p "$scanner_root"
+          cargo install --locked --version 1.6.0 --root "$scanner_root/cccc" cccc-cli
+          cargo install --locked --version 0.4.10 --root "$scanner_root/kiss" kiss-ai
+          cargo install --locked --version 0.1.2 --root "$scanner_root/dupehound" dupehound
+          cargo install --locked --version 0.5.0 --root "$scanner_root/arch-lint" arch-lint-cli
+          python -m pip install --disable-pip-version-check --no-input --upgrade "import-linter==2.13"
+          npm install --prefix "$scanner_root/npm" --no-package-lock --ignore-scripts --no-save --no-audit --no-fund \
+            "jscpd@5.0.16" "dependency-cruiser@18.2.0"
+          for bin_dir in "$scanner_root/cccc/bin" "$scanner_root/kiss/bin" "$scanner_root/dupehound/bin" "$scanner_root/arch-lint/bin" "$scanner_root/npm/node_modules/.bin"; do
+            echo "$bin_dir" >> "$GITHUB_PATH"
+          done
+
+      - name: Verify scanner versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cccc --version)" = "cccc 1.6.0"
+          test "$(kiss --version)" = "kiss 0.4.10"
+          test "$(dupehound --version)" = "dupehound 0.1.2"
+          test "$(jscpd --version)" = "cpd 5.0.16"
+          test "$(depcruise --version)" = "18.2.0"
+          test "$(python -c 'from importlib.metadata import version; print(version("import-linter"))')" = "2.13"
+          case "$(arch-lint --version 2>&1)" in
+            0.5.0|"arch-lint 0.5.0") ;;
+            *) echo "unexpected arch-lint version output" >&2; exit 2 ;;
+          esac
+
+      - name: jscpd differential gate (new pairs)
+        run: python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
+      - name: jscpd tracked-tree census (advisory)
+        run: python3 scripts/check_duplication.py census
+
+      # CCCC is intentionally invoked over an explicit tracked-file list.  A
+      # directory walk would include an untracked build artifact and would not
+      # be a truthful repository census; no max-* option means findings are
+      # advisory while malformed output/parse errors still fail closed.
+      - name: CCCC tracked-tree census (advisory)
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/epistemic-graph-cccc-census.json"
+          mapfile -d "" files < <(python3 scripts/list_scanner_sources.py cccc)
+          [ "${#files[@]}" -gt 0 ] || { echo "CCCC census: no tracked source files" >&2; exit 2; }
+          languages="$(PYTHONPATH=scripts python3 -c "from scanner_contract import cccc_languages_arg; print(cccc_languages_arg())")" || { echo "CCCC census: invalid language registry" >&2; exit 2; }
+          cccc --no-config --min 0 --lang "$languages" "${files[@]}" > "$report"
+          python3 scripts/validate_cccc_census.py "$report"
+
+      # KISS has a known multi-path false-green mode, so the census deliberately
+      # invokes one tracked Rust path at a time and treats findings as a count,
+      # not a baseline.  Unknown keys, scanner failures, and status/report
+      # disagreements remain hard errors.
+      - name: KISS tracked-tree census (advisory)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -f .kiss/kiss.toml ] || { echo "KISS census: missing .kiss/kiss.toml" >&2; exit 2; }
+          [ ! -e .kissconfig ] || { echo "KISS census: .kissconfig is forbidden" >&2; exit 2; }
+          mapfile -d "" files < <(python3 scripts/list_scanner_sources.py kiss)
+          [ "${#files[@]}" -gt 0 ] || { echo "KISS census: no tracked Rust source files" >&2; exit 2; }
+          total=0
+          for path in "${files[@]}"; do
+            set +e
+            output="$(kiss check --config .kiss/kiss.toml --lang rust "$path" 2>&1)"
+            status=$?
+            set -e
+            if grep -q "Unknown config key" <<< "$output"; then printf "%s\\n" "$output" >&2; echo "KISS census: KISS rejected a config key" >&2; exit 2; fi
+            if [ "$status" -gt 1 ]; then printf "%s\\n" "$output" >&2; echo "KISS census: KISS failed on $path with exit $status" >&2; exit 2; fi
+            count="$(grep -c "^VIOLATION:" <<< "$output" || true)"
+            if { [ "$status" -eq 0 ] && [ "$count" -ne 0 ]; } || { [ "$status" -eq 1 ] && [ "$count" -eq 0 ]; }; then printf "%s\\n" "$output" >&2; echo "KISS census: exit status and report disagree for $path" >&2; exit 2; fi
+            total=$((total + count))
+          done
+          printf "KISS census: %s tracked Rust file(s), %s violation(s); findings are advisory\\n" "${#files[@]}" "$total"
+
+      - name: Python import architecture (import-linter)
+        run: lint-imports --config .importlinter --no-cache
+      - name: JavaScript dependency architecture (dependency-cruiser)
+        working-directory: clients/js
+        run: depcruise --validate --config .dependency-cruiser.cjs index.mjs
+      - name: Rust architecture (arch-lint)
+        run: arch-lint check --format json
+
   # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
   # supported native target — release-critical item: wheel build +
   # reproducibility + release-contract + wheel-privacy checks. Needs: gates.
@@ -403,7 +554,7 @@ jobs:
   # change this job's build/determinism logic here).
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, lint-and-architecture]
+    needs: [gates, lint-and-architecture, scanner-quality]
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
     # An OPTIONAL leg must not hold the whole run open. Measured on run
