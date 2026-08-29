@@ -7,13 +7,17 @@ and all mandatory workflow coverage remain owned by the parent gate.
 
 from __future__ import annotations
 
+import sys
+
+import pytest
+
+import scripts.push_gate_evidence as push_gate_evidence
 from scripts.push_gate_evidence import (
+    SUBSET_PROOFS,
     EvidenceStore,
     Selection,
-    SUBSET_PROOFS,
     _digest,
 )
-import pytest
 
 # Pure/static test -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -95,6 +99,8 @@ def test_subset_reuse_is_only_the_declared_clippy_proof() -> None:
     )
     document = _document(provider)
 
+    assert requested.selection_digest not in document["plan"]
+    assert requested.selection_digest not in document["results"]
     assert EvidenceStore._admissible(document, requested)
 
     unrelated = Selection.from_argv(
@@ -104,3 +110,75 @@ def test_subset_reuse_is_only_the_declared_clippy_proof() -> None:
         environment=environment,
     )
     assert not EvidenceStore._admissible(document, unrelated)
+
+
+def test_subset_proof_does_not_make_an_unplanned_exact_result_admissible() -> None:
+    proof = SUBSET_PROOFS["cargo-clippy-full"]
+    environment = {"CARGO_TARGET_DIR": "/var/tmp/eg", "CARGO_BUILD_JOBS": "2"}
+    requested = Selection.from_argv(
+        "cargo-clippy-full",
+        proof["requested_argv"],
+        kind="cargo",
+        environment=environment,
+    )
+    document = _document(requested)
+    del document["plan"][requested.selection_digest]  # type: ignore[index]
+
+    assert requested.selection_digest not in document["plan"]
+    assert not EvidenceStore._admissible(document, requested)
+
+
+def test_cli_run_preserves_command_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_or_consume(
+        selection: Selection,
+        command: tuple[str, ...] | list[str],
+        *,
+        produce_only: bool = False,
+        environment: dict[str, str] | None = None,
+    ) -> int:
+        captured.update(
+            selection=selection,
+            command=tuple(command),
+            produce_only=produce_only,
+            environment=environment,
+        )
+        return 17
+
+    monkeypatch.setattr(sys, "argv", [
+        "push_gate_evidence.py",
+        "run",
+        "--selection",
+        "fixture-run",
+        "--kind",
+        "cargo",
+        "--produce-only",
+        "--",
+        "cargo",
+        "test",
+        "-p",
+        "eg-core",
+    ])
+    monkeypatch.setattr(push_gate_evidence, "run_or_consume", fake_run_or_consume)
+
+    assert push_gate_evidence._cli() == 17
+    selection = captured["selection"]
+    assert isinstance(selection, Selection)
+    assert selection.argv == ("cargo", "test", "-p", "eg-core")
+    assert captured["command"] == ("cargo", "test", "-p", "eg-core")
+    assert captured["produce_only"] is True
+    assert captured["environment"] is None
+
+
+def test_cli_finalize_without_invocation_returns_cache_miss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["push_gate_evidence.py", "finalize", "complete"])
+    monkeypatch.setattr(
+        push_gate_evidence.EvidenceStore,
+        "current",
+        classmethod(lambda cls: None),
+    )
+
+    assert push_gate_evidence._cli() == 2

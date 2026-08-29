@@ -30,9 +30,10 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "epistemic-graph.push-gate-evidence/v1"
@@ -381,7 +382,7 @@ class Selection:
         *,
         kind: str = "shell",
         environment: Mapping[str, str] | None = None,
-    ) -> "Selection":
+    ) -> Selection:
         normalized = tuple(str(item) for item in argv)
         packages, features, targets = _extract_cargo(normalized)
         return cls(
@@ -440,6 +441,49 @@ SUBSET_PROOFS: dict[str, dict[str, object]] = {
         "rationale": "workspace all-features/all-targets strictly covers shipped full/all-targets",
     }
 }
+
+
+_MISSING_SELECTION = object()
+
+
+def _successful_result(result: object, payload: dict[str, object]) -> bool:
+    if not isinstance(result, dict):
+        return False
+    return (
+        result.get("status") == "success"
+        and result.get("exitCode") == 0
+        and result.get("resultDigest")
+        == _digest({"selection": payload, "exitCode": 0, "status": "success"})
+    )
+
+
+def _proof_provider(selection: Selection) -> Selection | None:
+    proof = SUBSET_PROOFS.get(selection.label)
+    if proof is None or list(selection.argv) != proof["requested_argv"]:
+        return None
+    provider_argv = tuple(str(item) for item in proof["provider_argv"])
+    packages, features, targets = _extract_cargo(provider_argv)
+    return Selection(
+        label=f"proof-provider:{selection.label}",
+        argv=provider_argv,
+        kind=selection.kind,
+        environment=selection.environment,
+        packages=packages,
+        features=features,
+        targets=targets,
+    )
+
+
+def _subset_admissible(
+    plan: dict[str, Any], results: dict[str, Any], selection: Selection
+) -> bool:
+    provider = _proof_provider(selection)
+    if provider is None:
+        return False
+    provider_payload = provider.payload()
+    return _successful_result(
+        results.get(provider.selection_digest), provider_payload
+    ) and (plan.get(provider.selection_digest) == provider_payload)
 
 
 def _git_directory() -> Path:
@@ -627,7 +671,7 @@ class EvidenceStore:
         self.parent_identity = parent_identity
 
     @classmethod
-    def begin_or_resume(cls) -> "EvidenceStore":
+    def begin_or_resume(cls) -> EvidenceStore:
         directory = _git_directory() / CACHE_DIRECTORY
         if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
             raise EvidenceError("private evidence cache unavailable")
@@ -698,7 +742,7 @@ class EvidenceStore:
         return store
 
     @classmethod
-    def current(cls) -> "EvidenceStore | None":
+    def current(cls) -> EvidenceStore | None:
         try:
             directory = _git_directory() / CACHE_DIRECTORY
             if directory.is_symlink() or not directory.is_dir():
@@ -867,58 +911,20 @@ class EvidenceStore:
     def _admissible(document: dict[str, Any], selection: Selection) -> bool:
         if document.get("status") != "complete":
             return False
-        planned = document.get("plan", {}).get(selection.selection_digest)
-        if planned != selection.payload():
+        plan = document.get("plan")
+        results = document.get("results")
+        if not isinstance(plan, dict) or not isinstance(results, dict):
             return False
-        exact = document.get("results", {}).get(selection.selection_digest)
-        if (
-            isinstance(exact, dict)
-            and exact.get("status") == "success"
-            and exact.get("exitCode") == 0
-            and exact.get("resultDigest")
-            == _digest(
-                {
-                    "selection": selection.payload(),
-                    "exitCode": 0,
-                    "status": "success",
-                }
-            )
+        payload = selection.payload()
+        selection_key = selection.selection_digest
+        planned = plan.get(selection_key, _MISSING_SELECTION)
+        if planned is not _MISSING_SELECTION and planned != payload:
+            return False
+        if planned is not _MISSING_SELECTION and _successful_result(
+            results.get(selection_key), payload
         ):
             return True
-        proof = SUBSET_PROOFS.get(selection.label)
-        if proof is None or list(selection.argv) != proof["requested_argv"]:
-            return False
-        provider_argv = tuple(str(item) for item in proof["provider_argv"])
-        packages, features, targets = _extract_cargo(provider_argv)
-        provider = Selection(
-            label=f"proof-provider:{selection.label}",
-            argv=provider_argv,
-            kind=selection.kind,
-            environment=selection.environment,
-            packages=packages,
-            features=features,
-            targets=targets,
-        )
-        provider_key = provider.selection_digest
-        result = document.get("results", {}).get(provider_key)
-        provider_payload = document.get("plan", {}).get(provider_key)
-        if (
-            not isinstance(result, dict)
-            or result.get("status") != "success"
-            or result.get("exitCode") != 0
-            or result.get("resultDigest")
-            != _digest(
-                {
-                    "selection": provider.payload(),
-                    "exitCode": 0,
-                    "status": "success",
-                }
-            )
-        ):
-            return False
-        if provider_payload != provider.payload():
-            return False
-        return True
+        return _subset_admissible(plan, results, selection)
 
     def consume(self, selection: Selection) -> bool:
         """Return true only for an admissible successful exact/subset result."""
@@ -1020,7 +1026,7 @@ def run_or_consume(
     return exit_code
 
 
-def _cli() -> int:
+def _cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="action", required=True)
     run_parser = subparsers.add_parser("run")
@@ -1034,58 +1040,88 @@ def _cli() -> int:
     consume_parser.add_argument("command", nargs=argparse.REMAINDER)
     finish_parser = subparsers.add_parser("finalize")
     finish_parser.add_argument("status", choices=("complete", "aborted"))
-    args = parser.parse_args()
-    if args.action in {"run", "consume"}:
-        command = list(args.command)
-        if command[:1] == ["--"]:
-            command = command[1:]
-        if not command:
-            parser.error("a command is required")
-        if args.action == "consume":
-            try:
-                command_environment = local_build_environment()
-            except EvidenceError as exc:
-                # An invalid local override is itself a cache miss. The
-                # command still executes with the caller's environment so the
-                # gate cannot turn configuration trouble into a false pass.
-                print(
-                    f"push-gate-evidence: local environment unavailable ({exc}); "
-                    "executing normally",
-                    file=sys.stderr,
-                )
-                command_environment = None
-        else:
-            command_environment = None
-        selection = Selection.from_argv(
-            args.selection,
-            command,
-            kind=args.kind,
-            environment=command_environment,
+    return parser
+
+
+def _cli_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> list[str]:
+    command = list(args.command)
+    if command[:1] == ["--"]:
+        command = command[1:]
+    if not command:
+        parser.error("a command is required")
+    return command
+
+
+def _consume_environment() -> dict[str, str] | None:
+    try:
+        return local_build_environment()
+    except EvidenceError as exc:
+        # An invalid local override is itself a cache miss. The command still
+        # executes with the caller's environment so the gate cannot turn
+        # configuration trouble into a false pass.
+        print(
+            f"push-gate-evidence: local environment unavailable ({exc}); "
+            "executing normally",
+            file=sys.stderr,
         )
-        if args.action == "consume":
-            store = EvidenceStore.current()
-            try:
-                reusable = store is not None and store.consume(selection)
-            except (EvidenceError, OSError):
-                reusable = False
-            if reusable:
-                print(f"push-gate-evidence: reused successful selection {args.selection}")
-                return 0
-            return run_or_consume(
-                selection,
-                command,
-                produce_only=True,
-                environment=command_environment,
-            )
-        return run_or_consume(selection, command, produce_only=args.produce_only)
+        return None
+
+
+def _cli_consume(args: argparse.Namespace, command: Sequence[str]) -> int:
+    command_environment = _consume_environment()
+    selection = Selection.from_argv(
+        args.selection,
+        command,
+        kind=args.kind,
+        environment=command_environment,
+    )
+    store = EvidenceStore.current()
+    try:
+        reusable = store is not None and store.consume(selection)
+    except (EvidenceError, OSError):
+        reusable = False
+    if reusable:
+        print(f"push-gate-evidence: reused successful selection {args.selection}")
+        return 0
+    return run_or_consume(
+        selection,
+        command,
+        produce_only=True,
+        environment=command_environment,
+    )
+
+
+def _cli_run_or_consume(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> int:
+    command = _cli_command(args, parser)
+    if args.action == "consume":
+        return _cli_consume(args, command)
+    selection = Selection.from_argv(
+        args.selection,
+        command,
+        kind=args.kind,
+    )
+    return run_or_consume(selection, command, produce_only=args.produce_only)
+
+
+def _cli_finalize(status: str) -> int:
     store = EvidenceStore.current()
     if store is None:
         return 2
     try:
-        store.finalize(args.status)
+        store.finalize(status)
     except (EvidenceError, OSError):
         return 2
     return 0
+
+
+def _cli() -> int:
+    parser = _cli_parser()
+    args = parser.parse_args()
+    if args.action in {"run", "consume"}:
+        return _cli_run_or_consume(args, parser)
+    return _cli_finalize(args.status)
 
 
 if __name__ == "__main__":
