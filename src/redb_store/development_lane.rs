@@ -836,8 +836,10 @@ fn validate_checkpoint_hold_link(
     validate_checkpoint_cleanup_link(row, incoming)
 }
 
-/// Ordinary checkpoints do not carry lane tables in `GraphDump`; the native
-/// rows therefore remain in place and the replacement image must prove every
+/// Ordinary in-place checkpoints originate in `GraphCore` and carry no lane
+/// tables. Durable read-only `GraphDump` materializations are not accepted as
+/// checkpoints or transfer images. Native rows therefore remain in place and
+/// the replacement image must prove every
 /// retained hold still has its exact immutable/fenced lifecycle WorkItem (and,
 /// after cleanup, its distinct cleanup WorkItem correlation).
 /// This is the lane equivalent of RMDD-27's resource-link validation and

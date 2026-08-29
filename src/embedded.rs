@@ -590,23 +590,22 @@ impl EmbeddedEngine {
                 let reg = self.inner.registry.read();
                 reg.all_entries()
                     .iter()
-                    .map(|e| crate::redb_store::GraphDump {
-                        graph: crate::redb_store::sanitize(&e.name),
-                        name: e.name.clone(),
-                        graph_type: e.graph_type,
-                        incarnation_id: e.incarnation_id.clone(),
-                        source_snapshot_version: e.core.version(),
-                        integrity_policy: e.core.integrity_policy(),
-                        nodes: e.core.get_nodes(),
-                        edges: e.core.get_edges(),
-                        ledger: e.core.get_ledger(),
-                        semantic: rmp_serde::to_vec_named(&*e.core.semantic_store.read())
-                            .unwrap_or_default(),
-                        // The in-memory `GraphCore` this checkpoint snapshots never
-                        // holds native lane/resource rows (BUG-CX-096) — those live
-                        // only in redb and, for an in-place checkpoint, are meant to
-                        // stay put (see `NativeOperationDumpRows`'s doc).
-                        native: Default::default(),
+                    .map(|e| {
+                        crate::redb_store::GraphDump::in_place_core_checkpoint(
+                            crate::redb_store::InPlaceCoreCheckpoint {
+                                graph: crate::redb_store::sanitize(&e.name),
+                                name: e.name.clone(),
+                                graph_type: e.graph_type,
+                                incarnation_id: e.incarnation_id.clone(),
+                                source_snapshot_version: e.core.version(),
+                                integrity_policy: e.core.integrity_policy(),
+                                nodes: e.core.get_nodes(),
+                                edges: e.core.get_edges(),
+                                ledger: e.core.get_ledger(),
+                                semantic: rmp_serde::to_vec_named(&*e.core.semantic_store.read())
+                                    .unwrap_or_default(),
+                            },
+                        )
                     })
                     .collect::<Vec<_>>()
             };
