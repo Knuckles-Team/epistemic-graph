@@ -32,7 +32,7 @@ const CONTEXT_FIELDS = new Set([
 ]);
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
-export function validateRequestContext(context) {
+function assertContextShape(context) {
   if (context === null || typeof context !== "object" || Array.isArray(context)) {
     throw new TypeError("verifiedContext must be an object");
   }
@@ -45,11 +45,17 @@ export function validateRequestContext(context) {
   if (unsupported.length) {
     throw new Error(`verifiedContext contains unsupported claims: ${unsupported.join(", ")}`);
   }
+}
+
+function assertStringClaims(context) {
   for (const field of ["principal", "tenant", "audience", "agent_id", "policy_version"]) {
     if (typeof context[field] !== "string" || !context[field].trim()) {
       throw new Error(`verifiedContext.${field} must be a non-empty string`);
     }
   }
+}
+
+function assertListClaims(context) {
   for (const field of ["roles", "scopes", "delegation"]) {
     if (!Array.isArray(context[field])) {
       throw new TypeError(`verifiedContext.${field} must be an array of strings`);
@@ -65,6 +71,9 @@ export function validateRequestContext(context) {
       seen.add(claim);
     }
   }
+}
+
+function buildValidatedContext(context) {
   const value = {
     principal: context.principal,
     tenant: context.tenant,
@@ -75,6 +84,10 @@ export function validateRequestContext(context) {
     policy_version: context.policy_version,
     delegation: Object.freeze([...context.delegation]),
   };
+  return value;
+}
+
+function assertDelegation(value) {
   if (value.principal === value.agent_id) {
     if (value.delegation.length) {
       throw new Error("delegation must be empty when principal is the agent");
@@ -86,6 +99,14 @@ export function validateRequestContext(context) {
   ) {
     throw new Error("delegation must run from principal to effective agent");
   }
+}
+
+export function validateRequestContext(context) {
+  assertContextShape(context);
+  assertStringClaims(context);
+  assertListClaims(context);
+  const value = buildValidatedContext(context);
+  assertDelegation(value);
   return Object.freeze(value);
 }
 
