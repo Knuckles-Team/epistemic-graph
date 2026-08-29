@@ -2451,6 +2451,162 @@ def _scenario_threshold_result(
     }
 
 
+def _scenario_row_threshold_results(
+    work: list[float],
+    memory: list[float],
+    latency_p99: list[float],
+    thresholds: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "work_units": _scenario_threshold_result(
+            max(work), thresholds["maximum_work_units"], "work_units"
+        ),
+        "work_growth_ratio": _scenario_threshold_result(
+            _scale_growth_ratio(work),
+            thresholds["maximum_work_growth_ratio"],
+            "ratio",
+        ),
+        "peak_memory_bytes": _scenario_threshold_result(
+            max(memory), thresholds["maximum_peak_memory_bytes"], "bytes"
+        ),
+        "memory_growth_ratio": _scenario_threshold_result(
+            _scale_growth_ratio(memory),
+            thresholds["maximum_memory_growth_ratio"],
+            "ratio",
+        ),
+        "latency_p99_ms": _scenario_threshold_result(
+            max(latency_p99),
+            thresholds["maximum_latency_p99_ms"],
+            "milliseconds",
+        ),
+        "latency_growth_ratio": _scenario_threshold_result(
+            _scale_growth_ratio(latency_p99),
+            thresholds["maximum_latency_growth_ratio"],
+            "ratio",
+        ),
+    }
+
+
+def _scenario_row_failures(
+    row_id: str,
+    equivalence: dict[str, Any],
+    threshold_results: dict[str, Any],
+) -> list[str]:
+    failures = [
+        f"scenario_equivalence:{row_id}:{check}"
+        for check, passed in equivalence.items()
+        if not passed
+    ]
+    failures.extend(
+        f"scenario_threshold:{row_id}:{metric}"
+        for metric, result in threshold_results.items()
+        if not result["passed"]
+    )
+    return failures
+
+
+def _scenario_scale_evidence(
+    scales: list[dict[str, Any]], latency_p99: list[float]
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "scale": scale_result["scale"],
+            "work_units": scale_result["work_units"],
+            "memory_bytes": scale_result["memory_bytes"],
+            "latency_p99_ms": round(latency, 6),
+            "latency_samples": len(scale_result["latency_ns"]),
+        }
+        for scale_result, latency in zip(scales, latency_p99, strict=True)
+    ]
+
+
+def _evaluate_scenario_row(
+    row_contract: dict[str, Any],
+    output: dict[str, Any],
+    ledger_row_name: str,
+    scenario_id: str,
+    driver: str,
+    resource_evidence: dict[str, Any],
+    binding_sha256: str,
+) -> tuple[dict[str, Any], list[str]]:
+    row_id = row_contract["row_id"]
+    work = [float(scale["work_units"]) for scale in output["scales"]]
+    memory = [float(scale["memory_bytes"]) for scale in output["scales"]]
+    latency_by_scale_ms = [
+        [float(sample) / 1_000_000 for sample in scale["latency_ns"]]
+        for scale in output["scales"]
+    ]
+    latency_p99 = [_percentile(samples, 0.99) for samples in latency_by_scale_ms]
+    threshold_results = _scenario_row_threshold_results(
+        work, memory, latency_p99, row_contract["thresholds"]
+    )
+    equivalence = dict(output["equivalence"])
+    failures = _scenario_row_failures(row_id, equivalence, threshold_results)
+    return (
+        {
+            "ledger_row_name": ledger_row_name,
+            "scenario_id": scenario_id,
+            "driver": driver,
+            "scales": _scenario_scale_evidence(output["scales"], latency_p99),
+            "equivalence": equivalence,
+            "threshold_results": threshold_results,
+            "resource_evidence": resource_evidence,
+            "evidence_binding_sha256": binding_sha256,
+            "passed": all(equivalence.values())
+            and all(result["passed"] for result in threshold_results.values()),
+        },
+        failures,
+    )
+
+
+def _evaluate_scenario(
+    scenario: dict[str, Any],
+    execution: ScenarioExecution | None,
+    contracts: ScenarioContracts,
+    binding_sha256: str,
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    scenario_id = scenario["scenario_id"]
+    if execution is None:
+        return (
+            {},
+            {},
+            [
+                f"missing_scenario:{scenario_id}",
+                *(f"missing_scenario_row:{row['row_id']}" for row in scenario["rows"]),
+            ],
+        )
+    resource_evidence = {
+        "driver": scenario["driver"],
+        "row_ids": [row["row_id"] for row in scenario["rows"]],
+        "elapsed_ms": round(execution.elapsed_ms, 6),
+        "peak_rss_bytes": execution.peak_rss_bytes,
+        "rss_samples": execution.rss_samples,
+        "resource_bounds": scenario["resource_bounds"],
+        "evidence_binding_sha256": binding_sha256,
+    }
+    row_evidence: dict[str, Any] = {}
+    failures: list[str] = []
+    output_rows = {row["row_id"]: row for row in execution.result["rows"]}
+    for row_contract in scenario["rows"]:
+        row_id = row_contract["row_id"]
+        output = output_rows.get(row_id)
+        if output is None:
+            failures.append(f"missing_scenario_row:{row_id}")
+            continue
+        evidence, row_failures = _evaluate_scenario_row(
+            row_contract,
+            output,
+            contracts.ledger_rows[row_id],
+            scenario_id,
+            scenario["driver"],
+            resource_evidence,
+            binding_sha256,
+        )
+        row_evidence[row_id] = evidence
+        failures.extend(row_failures)
+    return row_evidence, {scenario_id: resource_evidence}, failures
+
+
 def _evaluate_scenarios(
     contracts: ScenarioContracts,
     executions: dict[str, ScenarioExecution],
@@ -2460,101 +2616,12 @@ def _evaluate_scenarios(
     scenario_evidence: dict[str, Any] = {}
     failures: list[str] = []
     for scenario in contracts.manifest["scenarios"]:
-        scenario_id = scenario["scenario_id"]
-        execution = executions.get(scenario_id)
-        if execution is None:
-            failures.append(f"missing_scenario:{scenario_id}")
-            for row in scenario["rows"]:
-                failures.append(f"missing_scenario_row:{row['row_id']}")
-            continue
-        scenario_evidence[scenario_id] = {
-            "driver": scenario["driver"],
-            "row_ids": [row["row_id"] for row in scenario["rows"]],
-            "elapsed_ms": round(execution.elapsed_ms, 6),
-            "peak_rss_bytes": execution.peak_rss_bytes,
-            "rss_samples": execution.rss_samples,
-            "resource_bounds": scenario["resource_bounds"],
-            "evidence_binding_sha256": binding_sha256,
-        }
-        output_rows = {
-            row["row_id"]: row for row in execution.result["rows"]
-        }
-        for row_contract in scenario["rows"]:
-            row_id = row_contract["row_id"]
-            output = output_rows.get(row_id)
-            if output is None:
-                failures.append(f"missing_scenario_row:{row_id}")
-                continue
-            work = [float(scale["work_units"]) for scale in output["scales"]]
-            memory = [float(scale["memory_bytes"]) for scale in output["scales"]]
-            latency_by_scale_ms = [
-                [float(sample) / 1_000_000 for sample in scale["latency_ns"]]
-                for scale in output["scales"]
-            ]
-            latency_p99 = [
-                _percentile(samples, 0.99) for samples in latency_by_scale_ms
-            ]
-            threshold = row_contract["thresholds"]
-            threshold_results = {
-                "work_units": _scenario_threshold_result(
-                    max(work), threshold["maximum_work_units"], "work_units"
-                ),
-                "work_growth_ratio": _scenario_threshold_result(
-                    _scale_growth_ratio(work),
-                    threshold["maximum_work_growth_ratio"],
-                    "ratio",
-                ),
-                "peak_memory_bytes": _scenario_threshold_result(
-                    max(memory),
-                    threshold["maximum_peak_memory_bytes"],
-                    "bytes",
-                ),
-                "memory_growth_ratio": _scenario_threshold_result(
-                    _scale_growth_ratio(memory),
-                    threshold["maximum_memory_growth_ratio"],
-                    "ratio",
-                ),
-                "latency_p99_ms": _scenario_threshold_result(
-                    max(latency_p99),
-                    threshold["maximum_latency_p99_ms"],
-                    "milliseconds",
-                ),
-                "latency_growth_ratio": _scenario_threshold_result(
-                    _scale_growth_ratio(latency_p99),
-                    threshold["maximum_latency_growth_ratio"],
-                    "ratio",
-                ),
-            }
-            equivalence = dict(output["equivalence"])
-            for check, passed in equivalence.items():
-                if not passed:
-                    failures.append(f"scenario_equivalence:{row_id}:{check}")
-            for metric, result in threshold_results.items():
-                if not result["passed"]:
-                    failures.append(f"scenario_threshold:{row_id}:{metric}")
-            row_evidence[row_id] = {
-                "ledger_row_name": contracts.ledger_rows[row_id],
-                "scenario_id": scenario_id,
-                "driver": scenario["driver"],
-                "scales": [
-                    {
-                        "scale": scale_result["scale"],
-                        "work_units": scale_result["work_units"],
-                        "memory_bytes": scale_result["memory_bytes"],
-                        "latency_p99_ms": round(latency, 6),
-                        "latency_samples": len(scale_result["latency_ns"]),
-                    }
-                    for scale_result, latency in zip(
-                        output["scales"], latency_p99, strict=True
-                    )
-                ],
-                "equivalence": equivalence,
-                "threshold_results": threshold_results,
-                "resource_evidence": scenario_evidence[scenario_id],
-                "evidence_binding_sha256": binding_sha256,
-                "passed": all(equivalence.values())
-                and all(result["passed"] for result in threshold_results.values()),
-            }
+        rows, evidence, scenario_failures = _evaluate_scenario(
+            scenario, executions.get(scenario["scenario_id"]), contracts, binding_sha256
+        )
+        row_evidence.update(rows)
+        scenario_evidence.update(evidence)
+        failures.extend(scenario_failures)
     expected_rows = set(contracts.ledger_rows)
     if set(row_evidence) != expected_rows:
         failures.append("scenario_row_evidence_coverage_gap")
