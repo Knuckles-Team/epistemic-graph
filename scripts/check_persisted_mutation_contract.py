@@ -23,6 +23,67 @@ _METHOD_VARIANT = re.compile(r"\bMethod::([A-Z][A-Za-z0-9_]*)")
 _STRING_LITERAL = re.compile(r'"([A-Z][A-Za-z0-9_]*)"')
 
 
+def _balanced_code_step(
+    source: str,
+    index: int,
+    char: str,
+    following: str,
+    opener: str,
+    closer: str,
+    depth: int,
+) -> tuple[str, int, int, int | None]:
+    """Advance one code-state character in the balanced-span scanner."""
+
+    token = char + following
+    if token == "//":
+        return "line-comment", depth, 1, None
+    if token == "/*":
+        return "block-comment", depth, 1, None
+    if char == '"':
+        return "string", depth, 0, None
+    if char == "'":
+        # Rust lifetimes are not character literals. Only enter the char state
+        # when a closing quote is nearby.
+        if source.find("'", index + 1, min(index + 8, len(source))) >= 0:
+            return "char", depth, 0, None
+        return "code", depth, 0, None
+    if char == opener:
+        return "code", depth + 1, 0, None
+    if char == closer:
+        depth -= 1
+        if depth == 0:
+            return "code", depth, 0, index
+    return "code", depth, 0, None
+
+
+def _balanced_non_code_step(
+    state: str,
+    char: str,
+    following: str,
+    block_comment_depth: int,
+) -> tuple[str, int, int]:
+    """Advance one comment/string/character-literal scanner state."""
+
+    if state == "line-comment":
+        return ("code" if char == "\n" else state), block_comment_depth, 0
+    if state == "block-comment":
+        token = char + following
+        if token == "/*":
+            return state, block_comment_depth + 1, 1
+        if token == "*/":
+            block_comment_depth -= 1
+            return (
+                "code" if block_comment_depth == 0 else state,
+                block_comment_depth,
+                1,
+            )
+        return state, block_comment_depth, 0
+    quote = '"' if state == "string" else "'"
+    if char == "\\":
+        return state, block_comment_depth, 1
+    return ("code" if char == quote else state), block_comment_depth, 0
+
+
 def _balanced_span_from(source: str, start: int, opener: str, closer: str) -> int:
     """Index of the `closer` that balances the `opener` at `start`, comment/string-aware.
 
@@ -41,50 +102,19 @@ def _balanced_span_from(source: str, start: int, opener: str, closer: str) -> in
     while index < len(source):
         char = source[index]
         following = source[index + 1] if index + 1 < len(source) else ""
-        if state == "line-comment":
-            if char == "\n":
-                state = "code"
-        elif state == "block-comment":
-            if char == "/" and following == "*":
-                block_comment_depth += 1
-                index += 1
-            elif char == "*" and following == "/":
-                block_comment_depth -= 1
-                index += 1
-                if block_comment_depth == 0:
-                    state = "code"
-        elif state == "string":
-            if char == "\\":
-                index += 1
-            elif char == '"':
-                state = "code"
-        elif state == "char":
-            if char == "\\":
-                index += 1
-            elif char == "'":
-                state = "code"
+        if state == "code":
+            state, depth, skip, closing_index = _balanced_code_step(
+                source, index, char, following, opener, closer, depth
+            )
+            block_comment_depth = int(state == "block-comment")
         else:
-            if char == "/" and following == "/":
-                state = "line-comment"
-                index += 1
-            elif char == "/" and following == "*":
-                state = "block-comment"
-                block_comment_depth = 1
-                index += 1
-            elif char == '"':
-                state = "string"
-            elif char == "'":
-                # Rust lifetimes are not character literals. Only enter the char
-                # state when a closing quote is nearby.
-                if source.find("'", index + 1, min(index + 8, len(source))) >= 0:
-                    state = "char"
-            elif char == opener:
-                depth += 1
-            elif char == closer:
-                depth -= 1
-                if depth == 0:
-                    return index
-        index += 1
+            state, block_comment_depth, skip = _balanced_non_code_step(
+                state, char, following, block_comment_depth
+            )
+            closing_index = None
+        if closing_index is not None:
+            return closing_index
+        index += skip + 1
     require(False, f"unterminated balanced block starting at position {start}")
     return -1  # unreachable; keeps static type checkers total
 
