@@ -165,3 +165,9 @@ NodeInfoUpsert  # owner=@genius PERMANENT reason=raft-startup-self-report-only-a
 # intend to break; the review date is when that follow-up is expected to have
 # landed and the real shape is bindable.
 TtsSynthesize  # owner=@genius review-by=2026-10-21 note=BIND-once-GOC-05-SensitiveInputRef-replaces-the-interim-opaque-bytes-carrier
+
+# CA-16's policy bundle exporter is reached through the authenticated admin HTTP
+# `/policy/export` adapter (consumed by au's BundleFetcher), not the thin Python
+# client. Keep the wire variant explicitly governed until a client-owned policy
+# sub-client is approved; this is a disposition, not an untracked omission.
+PolicyExport  # owner=@genius review-by=2026-09-12 note=admin-http-adapter-no-thin-client-by-design
