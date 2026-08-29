@@ -74,6 +74,22 @@ def test_quant_order_matching_crosses_book():
     assert bids == [(99.0, 5.0)]
 
 
+def test_quant_order_matching_sell_crosses_best_bids_first():
+    from epistemic_graph import quant
+
+    bids, asks, trades = quant.simulate_order_matching(
+        bids=[(99.0, 2.0), (101.0, 3.0), (100.0, 4.0)],
+        asks=[(102.0, 5.0)],
+        price=99.5,
+        volume=5.0,
+        is_buy=False,
+    )
+    # Sells take the highest bids first: 3@101 then 2@100.
+    assert trades == [(101.0, 3.0), (100.0, 2.0)]
+    assert bids == [(100.0, 2.0), (99.0, 2.0)]
+    assert asks == [(102.0, 5.0)]
+
+
 def test_length_prefixed_framing_is_binary_safe():
     """The headline correctness fix: a MessagePack payload containing 0x0A
     (newline) bytes must round-trip intact under length-prefixed framing.

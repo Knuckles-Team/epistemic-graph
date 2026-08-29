@@ -144,37 +144,30 @@ def simulate_order_matching(
     """
     trades: list[tuple[float, float]] = []
     remaining = volume
+    levels = asks if is_buy else bids
+    ordered_levels = sorted(levels, key=lambda level: level[0], reverse=not is_buy)
+    remaining_levels: list[tuple[float, float]] = []
+    for level_price, level_volume in ordered_levels:
+        crosses = level_price <= price if is_buy else level_price >= price
+        if remaining <= 0 or not crosses:
+            remaining_levels.append((level_price, level_volume))
+            continue
+        take = min(remaining, level_volume)
+        remaining -= take
+        trades.append((level_price, take))
+        leftover = level_volume - take
+        if leftover > 0:
+            remaining_levels.append((level_price, leftover))
 
-    if is_buy:
-        ask_book = sorted(asks, key=lambda x: x[0])  # ascending price
-        new_asks: list[tuple[float, float]] = []
-        for ask_price, ask_vol in ask_book:
-            if remaining > 0 and ask_price <= price:
-                take = min(remaining, ask_vol)
-                remaining -= take
-                trades.append((ask_price, take))
-                leftover = ask_vol - take
-                if leftover > 0:
-                    new_asks.append((ask_price, leftover))
-            else:
-                new_asks.append((ask_price, ask_vol))
-        bid_book = sorted(bids, key=lambda x: x[0], reverse=True)
-        return bid_book, new_asks, trades
-
-    bid_book = sorted(bids, key=lambda x: x[0], reverse=True)  # descending price
-    new_bids: list[tuple[float, float]] = []
-    for bid_price, bid_vol in bid_book:
-        if remaining > 0 and bid_price >= price:
-            take = min(remaining, bid_vol)
-            remaining -= take
-            trades.append((bid_price, take))
-            leftover = bid_vol - take
-            if leftover > 0:
-                new_bids.append((bid_price, leftover))
-        else:
-            new_bids.append((bid_price, bid_vol))
-    ask_book = sorted(asks, key=lambda x: x[0])
-    return new_bids, ask_book, trades
+    remaining_bids = sorted(bids, key=lambda level: level[0], reverse=True)
+    remaining_asks = (
+        remaining_levels if is_buy else sorted(asks, key=lambda level: level[0])
+    )
+    return (
+        remaining_bids if is_buy else remaining_levels,
+        remaining_asks,
+        trades,
+    )
 
 
 def ucb1_scores(
