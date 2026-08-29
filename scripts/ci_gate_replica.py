@@ -130,6 +130,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import tomllib
 import yaml
@@ -1341,7 +1342,7 @@ def _local_hygiene() -> None:
         print(f"[local-only hygiene, NOT a workflow step] removed stale: {removed}")
 
 
-def main() -> int:
+def _parse_ci_gate_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -1364,21 +1365,275 @@ def main() -> int:
         default=WORKFLOWS_DIR,
         help="override the workflows directory (testing)",
     )
-    args = ap.parse_args()
+    return ap.parse_args()
 
-    if args.skip_safe is not None:
-        safe, hits = diff_touches_build_affecting_files(args.skip_safe)
-        if safe:
-            print(
-                f"SKIP-SAFE: no build-affecting files changed vs {args.skip_safe!r}; skipping ci-gate-replica is safe."
-            )
-            return 0
+
+def _handle_skip_safe(base_ref: str) -> int:
+    safe, hits = diff_touches_build_affecting_files(base_ref)
+    if safe:
         print(
-            f"NOT SKIP-SAFE: build-affecting file(s) changed vs {args.skip_safe!r}; do NOT skip ci-gate-replica:"
+            f"SKIP-SAFE: no build-affecting files changed vs {base_ref!r}; skipping ci-gate-replica is safe."
         )
-        for h in hits:
-            print(f"  - {h}")
-        return 1
+        return 0
+    print(
+        f"NOT SKIP-SAFE: build-affecting file(s) changed vs {base_ref!r}; do NOT skip ci-gate-replica:"
+    )
+    for hit in hits:
+        print(f"  - {hit}")
+    return 1
+
+
+def _build_execution_plan(workflows_dir: Path) -> tuple[list[dict], dict[str, dict]]:
+    all_plan: list[dict] = []
+    docs: dict[str, dict] = {}
+    for fname, spec in WORKFLOW_REGISTRY.items():
+        path = workflows_dir / fname
+        if not path.is_file():
+            continue
+        doc = load_workflow(path)
+        docs[fname] = doc
+        plan, _, _ = build_plan_for_workflow(spec, doc)
+        all_plan.extend(plan)
+    return all_plan, docs
+
+
+@dataclass
+class _GateExecutionState:
+    docs: dict[str, dict]
+    dry_run: bool
+    cargo_build_jobs: int
+    evidence_store: Any = None
+    prior_evidence: Any = None
+    job_envs: dict[tuple[str, str], dict] = field(default_factory=dict)
+    in_invocation: dict[str, tuple[object, float]] = field(default_factory=dict)
+
+
+def _begin_evidence(dry_run: bool) -> tuple[Any, Any]:
+    if dry_run:
+        return None, None
+    try:
+        store = push_gate_evidence.EvidenceStore.begin_or_resume()
+        return store, store.begin_execution()
+    except (push_gate_evidence.EvidenceError, OSError) as exc:
+        print(
+            f"push-gate-evidence: unavailable ({type(exc).__name__}); executing normally"
+        )
+        return None, None
+
+
+def _environment_for_item(item: dict, state: _GateExecutionState) -> dict:
+    base_job_id = item["job"].split("#", 1)[0]
+    key = (item["workflow"], item["job"])
+    if key not in state.job_envs:
+        state.job_envs[key] = _job_base_env(state.docs[item["workflow"]], base_job_id)
+    return state.job_envs[key]
+
+
+def _selection_for_item(item: dict, state: _GateExecutionState):
+    return push_gate_evidence.selection_for_workflow_item(
+        item,
+        environment={
+            **_environment_for_item(item, state),
+            "CARGO_BUILD_JOBS": str(state.cargo_build_jobs),
+        },
+    )
+
+
+def _reuse_invocation(item: dict, selection, state: _GateExecutionState) -> dict | None:
+    selection_key = selection.selection_digest
+    if selection_key not in state.in_invocation:
+        return None
+    status, elapsed = state.in_invocation[selection_key]
+    print(f"push-gate-evidence: reused identical plan selection {selection.label}")
+    return {**item, "status": status, "elapsed": elapsed, "cached": True}
+
+
+def _reuse_prior_evidence(
+    item: dict, selection, state: _GateExecutionState
+) -> dict | None:
+    if state.evidence_store is None or state.prior_evidence is None:
+        return None
+    try:
+        reusable = state.evidence_store.consume_from(state.prior_evidence, selection)
+    except (push_gate_evidence.EvidenceError, OSError):
+        reusable = False
+    if not reusable:
+        return None
+    print(f"push-gate-evidence: reused prior successful selection {selection.label}")
+    state.in_invocation[selection.selection_digest] = (0, 0.0)
+    return {**item, "status": 0, "elapsed": 0.0, "cached": True}
+
+
+def _record_step_evidence(
+    selection, status: object, elapsed: float, state: _GateExecutionState
+) -> None:
+    state.in_invocation[selection.selection_digest] = (status, elapsed)
+    if state.evidence_store is None:
+        return
+    try:
+        state.evidence_store.record(
+            selection,
+            exit_code=status if isinstance(status, int) else 1,
+            elapsed=elapsed,
+        )
+    except (push_gate_evidence.EvidenceError, OSError) as exc:
+        print(
+            f"push-gate-evidence: write unavailable ({type(exc).__name__}); "
+            "continuing without reuse"
+        )
+        state.evidence_store = None
+        state.prior_evidence = None
+
+
+def _run_fresh_item(item: dict, selection, state: _GateExecutionState) -> dict:
+    print(
+        f"\n############### STEP [{item['workflow']}:{item['job']}] {item['name']} ###############"
+    )
+    status, elapsed = _run_step(
+        item["detail"],
+        _environment_for_item(item, state),
+        state.cargo_build_jobs,
+    )
+    print(
+        f"### STEP_RESULT job={item['job']} name={item['name']!r} exit={status} secs={elapsed:.1f}"
+    )
+    _record_step_evidence(selection, status, elapsed, state)
+    return {**item, "status": status, "elapsed": elapsed}
+
+
+def _execute_run_item(item: dict, state: _GateExecutionState) -> dict:
+    if state.dry_run:
+        print(f"[DRY-RUN] would RUN [{item['workflow']}:{item['job']}] {item['name']}")
+        return {**item, "status": "DRY_RUN", "elapsed": 0.0}
+
+    selection = _selection_for_item(item, state)
+    reused = _reuse_invocation(item, selection, state)
+    if reused is not None:
+        return reused
+    reused = _reuse_prior_evidence(item, selection, state)
+    if reused is not None:
+        return reused
+    return _run_fresh_item(item, selection, state)
+
+
+def _non_run_item(item: dict) -> dict:
+    mode = item["mode"]
+    if mode in {"ENV_SETUP", "ARTIFACT_IO"}:
+        status = mode
+    else:
+        tag = (
+            "TOOLCHAIN ABSENT LOCALLY"
+            if mode == "TOOLCHAIN_MISSING"
+            else "NOT VALIDATED LOCALLY"
+        )
+        print(
+            f"\n### {tag} [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}"
+        )
+        status = "NOT_VALIDATED_LOCALLY"
+    return {**item, "status": status, "elapsed": 0.0}
+
+
+def _execute_item(item: dict, state: _GateExecutionState) -> dict:
+    if item["mode"] == "RUN":
+        return _execute_run_item(item, state)
+    return _non_run_item(item)
+
+
+def _execute_plan(plan: list[dict], state: _GateExecutionState) -> list[dict]:
+    return [_execute_item(item, state) for item in plan]
+
+
+def _finalize_evidence(state: _GateExecutionState) -> None:
+    if state.evidence_store is None:
+        return
+    try:
+        state.evidence_store.finalize("complete")
+    except (push_gate_evidence.EvidenceError, OSError) as exc:
+        print(
+            f"push-gate-evidence: finalization unavailable ({type(exc).__name__}); "
+            "results remain non-consumable"
+        )
+
+
+def _status_is_bad(status: object) -> bool:
+    return (isinstance(status, str) and status not in NON_BLOCKING_STATUSES) or (
+        isinstance(status, int) and status != 0
+    )
+
+
+def _print_summary_rows(results: list[dict]) -> tuple[bool, bool]:
+    blocking_fail = False
+    advisory_fail = False
+    for result in results:
+        status = result["status"]
+        label = f"{result['workflow']}:{result['job']}"
+        print(
+            f"{label:36s} {result['name'][:56]:56s} status={str(status):22s} secs={result['elapsed']:8.1f}"
+        )
+        if _status_is_bad(status):
+            if result["blocking"]:
+                blocking_fail = True
+            else:
+                advisory_fail = True
+    return blocking_fail, advisory_fail
+
+
+def _print_not_validated(results: list[dict]) -> None:
+    not_validated = [
+        result for result in results if result["status"] == "NOT_VALIDATED_LOCALLY"
+    ]
+    if not not_validated:
+        return
+    print(
+        f"\n### {len(not_validated)} STEP(S) NOT VALIDATED LOCALLY — these were NEVER RUN on "
+        "this host and are NOT a pass, never counted as one:"
+    )
+    for result in not_validated:
+        print(
+            f"  - [{result['workflow']}:{result['job']}] {result['name']}\n      reason: {result['detail']}"
+        )
+
+
+def _summarize_results(results: list[dict]) -> int:
+    print("\n################ SUMMARY ################")
+    blocking_fail, advisory_fail = _print_summary_rows(results)
+    _print_not_validated(results)
+    print(f"BLOCKING_FAIL={'1' if blocking_fail else '0'}")
+    print(
+        f"ADVISORY_FAIL={'1' if advisory_fail else '0'} (never fails the pre-push gate — reported loudly only)"
+    )
+    print(f"OVERALL_FAIL={'1' if blocking_fail else '0'}")
+    print(
+        f"=== SENTINEL_COMPLETE {datetime.datetime.now(datetime.timezone.utc).isoformat()} ==="
+    )
+    return 1 if blocking_fail else 0
+
+
+def _run_gate(
+    args: argparse.Namespace,
+    all_plan: list[dict],
+    docs: dict[str, dict],
+    cargo_build_jobs: int,
+) -> int:
+    if not args.dry_run:
+        _local_hygiene()
+    evidence_store, prior_evidence = _begin_evidence(args.dry_run)
+    state = _GateExecutionState(
+        docs=docs,
+        dry_run=args.dry_run,
+        cargo_build_jobs=cargo_build_jobs,
+        evidence_store=evidence_store,
+        prior_evidence=prior_evidence,
+    )
+    results = _execute_plan(all_plan, state)
+    _finalize_evidence(state)
+    return _summarize_results(results)
+
+
+def main() -> int:
+    args = _parse_ci_gate_args()
+    if args.skip_safe is not None:
+        return _handle_skip_safe(args.skip_safe)
 
     detected_cpus = os.cpu_count()
     try:
@@ -1410,183 +1665,8 @@ def main() -> int:
         )
         return 1
 
-    all_plan: list[dict] = []
-    docs: dict[str, dict] = {}
-    for fname, spec in WORKFLOW_REGISTRY.items():
-        path = args.workflows_dir / fname
-        if not path.is_file():
-            continue
-        doc = load_workflow(path)
-        docs[fname] = doc
-        plan, _, _ = build_plan_for_workflow(spec, doc)
-        all_plan.extend(plan)
-
-    if not args.dry_run:
-        _local_hygiene()
-
-    evidence_store = None
-    prior_evidence = None
-    if not args.dry_run:
-        try:
-            evidence_store = push_gate_evidence.EvidenceStore.begin_or_resume()
-            prior_evidence = evidence_store.begin_execution()
-        except (push_gate_evidence.EvidenceError, OSError) as exc:
-            # The gate remains authoritative when its private optimization
-            # ledger is unavailable.  A missing/unverifiable ledger can only
-            # remove reuse; it can never turn a required step into a pass.
-            print(f"push-gate-evidence: unavailable ({type(exc).__name__}); executing normally")
-            evidence_store = None
-            prior_evidence = None
-
-    # job_envs keyed by (workflow, base job id — pre-matrix-suffix) so every
-    # matrix leg of one job still threads $GITHUB_ENV/$GITHUB_PATH state
-    # independently is not required here (GH Actions env is per-job-run,
-    # i.e. per matrix leg, in reality) — key by the exact plan "job" label
-    # instead, built lazily on first use.
-    job_envs: dict[tuple[str, str], dict] = {}
-
-    def env_for(item: dict) -> dict:
-        base_job_id = item["job"].split("#", 1)[0]
-        key = (item["workflow"], item["job"])
-        if key not in job_envs:
-            job_envs[key] = _job_base_env(docs[item["workflow"]], base_job_id)
-        return job_envs[key]
-
-    results: list[dict] = []
-    in_invocation: dict[str, tuple[object, float]] = {}
-    for item in all_plan:
-        mode = item["mode"]
-        if mode == "RUN":
-            if args.dry_run:
-                print(
-                    f"[DRY-RUN] would RUN [{item['workflow']}:{item['job']}] {item['name']}"
-                )
-                results.append({**item, "status": "DRY_RUN", "elapsed": 0.0})
-                continue
-            selection = push_gate_evidence.selection_for_workflow_item(
-                item,
-                environment={
-                    **env_for(item),
-                    # _run_step replaces any inherited value with the same
-                    # bounded local policy. Include that effective value in
-                    # the evidence key instead of the pre-step environment.
-                    "CARGO_BUILD_JOBS": str(cargo_build_jobs),
-                },
-            )
-            selection_key = selection.selection_digest
-            if selection_key in in_invocation:
-                status, elapsed = in_invocation[selection_key]
-                print(
-                    f"push-gate-evidence: reused identical plan selection "
-                    f"{selection.label}"
-                )
-                results.append(
-                    {**item, "status": status, "elapsed": elapsed, "cached": True}
-                )
-                continue
-            try:
-                reusable_prior = (
-                    evidence_store is not None
-                    and prior_evidence is not None
-                    and evidence_store.consume_from(prior_evidence, selection)
-                )
-            except (push_gate_evidence.EvidenceError, OSError):
-                reusable_prior = False
-            if reusable_prior:
-                print(
-                    f"push-gate-evidence: reused prior successful selection "
-                    f"{selection.label}"
-                )
-                in_invocation[selection_key] = (0, 0.0)
-                results.append(
-                    {**item, "status": 0, "elapsed": 0.0, "cached": True}
-                )
-                continue
-            print(
-                f"\n############### STEP [{item['workflow']}:{item['job']}] {item['name']} ###############"
-            )
-            status, elapsed = _run_step(item["detail"], env_for(item), cargo_build_jobs)
-            print(
-                f"### STEP_RESULT job={item['job']} name={item['name']!r} exit={status} secs={elapsed:.1f}"
-            )
-            in_invocation[selection_key] = (status, elapsed)
-            if evidence_store is not None:
-                try:
-                    evidence_store.record(
-                        selection,
-                        exit_code=status if isinstance(status, int) else 1,
-                        elapsed=elapsed,
-                    )
-                except (push_gate_evidence.EvidenceError, OSError) as exc:
-                    print(
-                        f"push-gate-evidence: write unavailable ({type(exc).__name__}); "
-                        "continuing without reuse"
-                    )
-                    evidence_store = None
-                    prior_evidence = None
-            results.append({**item, "status": status, "elapsed": elapsed})
-        elif mode == "ENV_SETUP":
-            results.append({**item, "status": "ENV_SETUP", "elapsed": 0.0})
-        elif mode == "ARTIFACT_IO":
-            results.append({**item, "status": "ARTIFACT_IO", "elapsed": 0.0})
-        else:
-            tag = (
-                "TOOLCHAIN ABSENT LOCALLY"
-                if mode == "TOOLCHAIN_MISSING"
-                else "NOT VALIDATED LOCALLY"
-            )
-            print(
-                f"\n### {tag} [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}"
-            )
-            results.append({**item, "status": "NOT_VALIDATED_LOCALLY", "elapsed": 0.0})
-
-    if evidence_store is not None:
-        try:
-            evidence_store.finalize("complete")
-        except (push_gate_evidence.EvidenceError, OSError) as exc:
-            print(
-                f"push-gate-evidence: finalization unavailable ({type(exc).__name__}); "
-                "results remain non-consumable"
-            )
-
-    print("\n################ SUMMARY ################")
-    blocking_fail = False
-    advisory_fail = False
-    for r in results:
-        status = r["status"]
-        label = f"{r['workflow']}:{r['job']}"
-        print(
-            f"{label:36s} {r['name'][:56]:56s} status={str(status):22s} secs={r['elapsed']:8.1f}"
-        )
-        bad = (isinstance(status, str) and status not in NON_BLOCKING_STATUSES) or (
-            isinstance(status, int) and status != 0
-        )
-        if bad:
-            if r["blocking"]:
-                blocking_fail = True
-            else:
-                advisory_fail = True
-
-    not_validated = [r for r in results if r["status"] == "NOT_VALIDATED_LOCALLY"]
-    if not_validated:
-        print(
-            f"\n### {len(not_validated)} STEP(S) NOT VALIDATED LOCALLY — these were NEVER RUN on "
-            "this host and are NOT a pass, never counted as one:"
-        )
-        for r in not_validated:
-            print(
-                f"  - [{r['workflow']}:{r['job']}] {r['name']}\n      reason: {r['detail']}"
-            )
-
-    print(f"BLOCKING_FAIL={'1' if blocking_fail else '0'}")
-    print(
-        f"ADVISORY_FAIL={'1' if advisory_fail else '0'} (never fails the pre-push gate — reported loudly only)"
-    )
-    print(f"OVERALL_FAIL={'1' if blocking_fail else '0'}")
-    print(
-        f"=== SENTINEL_COMPLETE {datetime.datetime.now(datetime.timezone.utc).isoformat()} ==="
-    )
-    return 1 if blocking_fail else 0
+    all_plan, docs = _build_execution_plan(args.workflows_dir)
+    return _run_gate(args, all_plan, docs, cargo_build_jobs)
 
 
 if __name__ == "__main__":
