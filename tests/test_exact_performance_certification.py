@@ -102,6 +102,44 @@ def test_gate_fails_closed_when_any_measurement_is_missing() -> None:
     assert all(value.startswith("missing:") for value in failures)
 
 
+def test_measurement_metrics_preserve_operation_counters() -> None:
+    harness = _load_harness()
+    modalities = list(harness.MODALITIES)
+    series = harness.MeasurementSeries(
+        routing_groups=[[1.0, 1.0], [2.0, 2.0]],
+        point_query_groups=[[1.0, 1.0], [2.0, 2.0]],
+        node_ingest_groups=[[1.0], [2.0]],
+        ingest_latencies=[1.0, 2.0],
+        routing_latencies=[1.0, 2.0],
+        point_query_latencies=[1.0, 2.0],
+        analytics_latencies=[1.0, 2.0],
+        job_submit_latencies=[1.0, 2.0],
+        job_completion_latencies=[1.0, 2.0],
+        modality_capability_latencies=[1.0, 2.0],
+        modality_ingest_latencies=[1.0, 2.0],
+        modality_query_latencies=[1.0, 2.0],
+        modality_ingest_by_kind={modality: [1.0, 2.0] for modality in modalities},
+        modality_query_groups_by_kind={
+            modality: [[1.0, 2.0], [2.0, 3.0]] for modality in modalities
+        },
+        ingested_ops=6,
+        query_rows=10,
+        query_elapsed_ms=5.0,
+    )
+    memory = harness.MemoryMeasurements(
+        all_samples=[10, 11],
+        workload_samples=[11],
+        peak_rss_kib=11,
+        workload_peak_rss_kib=11,
+    )
+
+    metrics = harness._build_metrics(1.0, 10, series, memory)
+
+    assert set(metrics) == set(harness.METRIC_CONTRACT)
+    assert metrics["ingest_throughput_ops_per_second"] == 2_000.0
+    assert metrics["point_query_throughput_rows_per_second"] == 2_000.0
+
+
 def test_gate_fails_closed_when_any_workload_area_is_missing() -> None:
     harness = _load_harness()
 

@@ -272,6 +272,68 @@ class ScenarioExecution:
     rss_samples: int
 
 
+@dataclass(frozen=True)
+class NodeMeasurements:
+    routing_groups: list[list[float]]
+    point_query_groups: list[list[float]]
+    node_ingest_groups: list[list[float]]
+    ingest_latencies: list[float]
+    ingested_ops: int
+    query_rows: int
+    query_elapsed_ms: float
+
+
+@dataclass(frozen=True)
+class GraphMeasurements:
+    routing_groups: list[list[float]]
+    point_query_groups: list[list[float]]
+    node_ingest_groups: list[list[float]]
+    ingest_latencies: list[float]
+    routing_latencies: list[float]
+    point_query_latencies: list[float]
+    analytics_latencies: list[float]
+    ingested_ops: int
+    query_rows: int
+    query_elapsed_ms: float
+
+
+@dataclass(frozen=True)
+class ModalityMeasurements:
+    capability_modalities: list[str]
+    capability_latencies: list[float]
+    ingest_by_kind: dict[str, list[float]]
+    query_groups_by_kind: dict[str, list[list[float]]]
+
+
+@dataclass(frozen=True)
+class MemoryMeasurements:
+    all_samples: list[int]
+    workload_samples: list[int]
+    peak_rss_kib: int
+    workload_peak_rss_kib: int
+
+
+@dataclass(frozen=True)
+class MeasurementSeries:
+    routing_groups: list[list[float]]
+    point_query_groups: list[list[float]]
+    node_ingest_groups: list[list[float]]
+    ingest_latencies: list[float]
+    routing_latencies: list[float]
+    point_query_latencies: list[float]
+    analytics_latencies: list[float]
+    job_submit_latencies: list[float]
+    job_completion_latencies: list[float]
+    modality_capability_latencies: list[float]
+    modality_ingest_latencies: list[float]
+    modality_query_latencies: list[float]
+    modality_ingest_by_kind: dict[str, list[float]]
+    modality_query_groups_by_kind: dict[str, list[list[float]]]
+    ingested_ops: int
+    query_rows: int
+    query_elapsed_ms: float
+
+
 @dataclass
 class EngineHandle:
     process: subprocess.Popen[bytes]
@@ -1687,21 +1749,39 @@ def _job_state_name(job: Any) -> str:
     raise CertificationError("invalid_job_state")
 
 
-async def _measure(
+async def _probe_node_scale(
     client: Any,
     manifest: dict[str, Any],
     workload: Workload,
-    cold_start_ms: float,
-    sampler: RssSampler,
     route_tenant_ref: str,
-) -> tuple[dict[str, float], dict[str, float], dict[str, Any], dict[str, Any]]:
-    graph_ref = manifest["graph_ref"]
-    ready_sample_index = sampler.sample_count
-    ready_rss_kib = sampler.current_kib()
-    if ready_rss_kib <= 0:
-        raise CertificationError("missing_ready_rss")
-    await client.tenants.create(graph_ref)
+    ordinal_by_id: dict[str, int],
+) -> tuple[list[float], list[float], int]:
+    routing = await _repeat_latency(
+        lambda: client.placement.route(
+            route_tenant_ref, workload.route_partition_ref
+        ),
+        manifest["probe_repetitions"],
+        lambda value: _validate_route(
+            value, route_tenant_ref, workload.route_partition_ref
+        ),
+    )
+    ids = workload.node_ids[: manifest["query_batch_size"]]
+    point = await _repeat_latency(
+        lambda ids=ids: client.nodes.properties_batch(ids),
+        manifest["probe_repetitions"],
+        lambda value, ids=ids: _validate_properties_batch(
+            value, ids, ordinal_by_id
+        ),
+    )
+    return routing, point, len(ids)
 
+
+async def _measure_node_batches(
+    client: Any,
+    manifest: dict[str, Any],
+    workload: Workload,
+    route_tenant_ref: str,
+) -> NodeMeasurements:
     routing_groups: list[list[float]] = []
     point_query_groups: list[list[float]] = []
     node_ingest_groups: list[list[float]] = []
@@ -1715,7 +1795,6 @@ async def _measure(
     ordinal_by_id = {
         node_id: index for index, node_id in enumerate(workload.node_ids)
     }
-    node_id_set = set(workload.node_ids)
     for chunk in _chunks(workload.node_operations, manifest["batch_size"]):
         result, elapsed = await _timed(
             lambda chunk=chunk: client.lifecycle.batch_update(chunk)
@@ -1728,26 +1807,16 @@ async def _measure(
         if next_operation in scale_points:
             node_ingest_groups.append(current_node_ingest_group)
             current_node_ingest_group = []
-            routing = await _repeat_latency(
-                lambda: client.placement.route(
-                    route_tenant_ref, workload.route_partition_ref
-                ),
-                manifest["probe_repetitions"],
-                lambda value: _validate_route(
-                    value, route_tenant_ref, workload.route_partition_ref
-                ),
-            )
-            ids = workload.node_ids[: manifest["query_batch_size"]]
-            point = await _repeat_latency(
-                lambda ids=ids: client.nodes.properties_batch(ids),
-                manifest["probe_repetitions"],
-                lambda value, ids=ids: _validate_properties_batch(
-                    value, ids, ordinal_by_id
-                ),
+            routing, point, query_count = await _probe_node_scale(
+                client,
+                manifest,
+                workload,
+                route_tenant_ref,
+                ordinal_by_id,
             )
             routing_groups.append(routing)
             point_query_groups.append(point)
-            query_rows += len(ids) * len(point)
+            query_rows += query_count * len(point)
             query_elapsed_ms += sum(point)
     if (
         next_operation != manifest["node_count"]
@@ -1756,7 +1825,22 @@ async def _measure(
         or len(node_ingest_groups) != len(scale_points)
     ):
         raise CertificationError("node_scale_coverage_gap")
+    return NodeMeasurements(
+        routing_groups,
+        point_query_groups,
+        node_ingest_groups,
+        ingest_latencies,
+        ingested_ops,
+        query_rows,
+        query_elapsed_ms,
+    )
 
+
+async def _measure_edge_batches(
+    client: Any, manifest: dict[str, Any], workload: Workload
+) -> tuple[list[float], int]:
+    ingest_latencies: list[float] = []
+    ingested_ops = 0
     for chunk in _chunks(workload.edge_operations, manifest["batch_size"]):
         result, elapsed = await _timed(
             lambda chunk=chunk: client.lifecycle.batch_update(chunk)
@@ -1764,21 +1848,55 @@ async def _measure(
         _validate_batch_result(result, expected_edges=len(chunk))
         ingest_latencies.append(elapsed)
         ingested_ops += len(chunk)
+    return ingest_latencies, ingested_ops
 
-    node_count, edge_count = await asyncio.gather(
+
+async def _measure_graph(
+    client: Any,
+    manifest: dict[str, Any],
+    workload: Workload,
+    route_tenant_ref: str,
+    node_id_set: set[str],
+) -> GraphMeasurements:
+    nodes = await _measure_node_batches(
+        client, manifest, workload, route_tenant_ref
+    )
+    edge_latencies, edge_count = await _measure_edge_batches(
+        client, manifest, workload
+    )
+    node_count, observed_edge_count = await asyncio.gather(
         client.nodes.count(), client.edges.count()
     )
-    if node_count != manifest["node_count"] or edge_count != manifest["edge_count"]:
+    if (
+        node_count != manifest["node_count"]
+        or observed_edge_count != manifest["edge_count"]
+    ):
         raise CertificationError("incorrect_ingest_cardinality")
-
     analytics_latencies = await _repeat_latency(
         lambda: client.analytics.pagerank(damping=0.85, iterations=20),
         manifest["analytics_query_repetitions"],
         lambda value: _validate_pagerank(value, node_id_set),
     )
-    routing_latencies = [value for group in routing_groups for value in group]
-    point_query_latencies = [value for group in point_query_groups for value in group]
+    return GraphMeasurements(
+        nodes.routing_groups,
+        nodes.point_query_groups,
+        nodes.node_ingest_groups,
+        nodes.ingest_latencies + edge_latencies,
+        [value for group in nodes.routing_groups for value in group],
+        [value for group in nodes.point_query_groups for value in group],
+        analytics_latencies,
+        nodes.ingested_ops + edge_count,
+        nodes.query_rows,
+        nodes.query_elapsed_ms,
+    )
 
+
+async def _measure_jobs(
+    client: Any,
+    graph_ref: str,
+    workload: Workload,
+    manifest: dict[str, Any],
+) -> tuple[list[float], list[float]]:
     job_submit_latencies: list[float] = []
     job_completion_latencies: list[float] = []
     for _ in range(manifest["job_count"]):
@@ -1811,10 +1929,17 @@ async def _measure(
             if time.monotonic() >= deadline:
                 raise CertificationError("job_completion_timeout")
             await asyncio.sleep(0.01)
-        job_completion_latencies.append((time.perf_counter_ns() - started) / 1_000_000)
+        job_completion_latencies.append(
+            (time.perf_counter_ns() - started) / 1_000_000
+        )
+    return job_submit_latencies, job_completion_latencies
 
-    modality_capability_latencies: list[float] = []
+
+async def _measure_modality_capabilities(
+    client: Any, manifest: dict[str, Any]
+) -> tuple[list[str], list[float]]:
     capability_modalities = list(MODALITIES)
+    capability_latencies: list[float] = []
     for modality in capability_modalities:
         for _ in range(manifest["modality_capability_repetitions"]):
             capabilities, elapsed = await _timed(
@@ -1827,58 +1952,115 @@ async def _measure(
                 "component_total": 12,
             }:
                 raise CertificationError("modality_capability_failure")
-            modality_capability_latencies.append(elapsed)
+            capability_latencies.append(elapsed)
+    return capability_modalities, capability_latencies
 
-    modality_authority = await client.modalities.authority()
-    modality_ingest_by_kind: dict[str, list[float]] = {
-        modality: [] for modality in MODALITIES
-    }
-    modality_query_groups_by_kind: dict[str, list[list[float]]] = {
-        modality: [] for modality in MODALITIES
-    }
-    modality_scale_points = set(manifest["modality_scale_points"])
-    for modality in MODALITIES:
-        occurrence_ids: set[str] = set()
-        sources = workload.modality_sources[modality]
-        for index, source in enumerate(sources, start=1):
-            global_index = MODALITIES.index(modality) * len(sources) + index
-            bundle, occurrence, idempotency = _modality_bundle(
-                modality_authority,
-                modality,
-                source,
-                manifest["seed"],
-                global_index,
-            )
-            outcome, elapsed = await _timed(
-                lambda modality=modality, bundle=bundle, occurrence=occurrence, idempotency=idempotency, source=source: (
-                    client.modalities.ingest(
-                        modality,
-                        idempotency_ref=idempotency,
-                        target_occurrence_id=occurrence,
-                        bundle_msgpack=msgpack.packb(bundle, use_bin_type=True),
-                        source_bytes=source,
-                    )
+
+async def _measure_one_modality(
+    client: Any,
+    manifest: dict[str, Any],
+    workload: Workload,
+    modality_authority: dict[str, Any],
+    modality: str,
+) -> tuple[list[float], list[list[float]]]:
+    occurrence_ids: set[str] = set()
+    ingest_latencies: list[float] = []
+    query_groups: list[list[float]] = []
+    sources = workload.modality_sources[modality]
+    scale_points = set(manifest["modality_scale_points"])
+    for index, source in enumerate(sources, start=1):
+        global_index = MODALITIES.index(modality) * len(sources) + index
+        bundle, occurrence, idempotency = _modality_bundle(
+            modality_authority,
+            modality,
+            source,
+            manifest["seed"],
+            global_index,
+        )
+        outcome, elapsed = await _timed(
+            lambda modality=modality, bundle=bundle, occurrence=occurrence, idempotency=idempotency, source=source: (
+                client.modalities.ingest(
+                    modality,
+                    idempotency_ref=idempotency,
+                    target_occurrence_id=occurrence,
+                    bundle_msgpack=msgpack.packb(bundle, use_bin_type=True),
+                    source_bytes=source,
                 )
             )
-            if (
-                not isinstance(outcome, dict)
-                or outcome.get("disposition") != "Applied"
-                or outcome.get("observation_version") != 1
-            ):
-                raise CertificationError("incorrect_modality_ingest_result")
-            occurrence_ids.add(occurrence)
-            modality_ingest_by_kind[modality].append(elapsed)
-            if index in modality_scale_points:
-                group = await _repeat_latency(
-                    lambda modality=modality: _native_modality_query(client, modality),
+        )
+        if (
+            not isinstance(outcome, dict)
+            or outcome.get("disposition") != "Applied"
+            or outcome.get("observation_version") != 1
+        ):
+            raise CertificationError("incorrect_modality_ingest_result")
+        occurrence_ids.add(occurrence)
+        ingest_latencies.append(elapsed)
+        if index in scale_points:
+            query_groups.append(
+                await _repeat_latency(
+                    lambda modality=modality: _native_modality_query(
+                        client, modality
+                    ),
                     manifest["modality_query_repetitions"],
                     lambda value, occurrence_ids=occurrence_ids: (
                         _validate_modality_page(value, occurrence_ids)
                     ),
                 )
-                modality_query_groups_by_kind[modality].append(group)
-        if len(modality_query_groups_by_kind[modality]) != len(modality_scale_points):
-            raise CertificationError("modality_scale_coverage_gap")
+            )
+    if len(query_groups) != len(scale_points):
+        raise CertificationError("modality_scale_coverage_gap")
+    return ingest_latencies, query_groups
+
+
+async def _measure_modalities(
+    client: Any, manifest: dict[str, Any], workload: Workload
+) -> ModalityMeasurements:
+    capability_modalities, capability_latencies = await _measure_modality_capabilities(
+        client, manifest
+    )
+    modality_authority = await client.modalities.authority()
+    ingest_by_kind: dict[str, list[float]] = {}
+    query_groups_by_kind: dict[str, list[list[float]]] = {}
+    for modality in MODALITIES:
+        ingest, queries = await _measure_one_modality(
+            client, manifest, workload, modality_authority, modality
+        )
+        ingest_by_kind[modality] = ingest
+        query_groups_by_kind[modality] = queries
+    return ModalityMeasurements(
+        capability_modalities,
+        capability_latencies,
+        ingest_by_kind,
+        query_groups_by_kind,
+    )
+
+
+def _collect_memory(
+    sampler: RssSampler, ready_sample_index: int, ready_rss_kib: int
+) -> MemoryMeasurements:
+    all_samples = sampler.samples_kib
+    workload_samples = sampler.samples_since(ready_sample_index)
+    if sampler.saturated:
+        raise CertificationError("memory_sample_limit_exceeded")
+    if not all_samples or not workload_samples:
+        raise CertificationError("missing_memory_samples")
+    return MemoryMeasurements(
+        all_samples,
+        workload_samples,
+        max(all_samples),
+        max(ready_rss_kib, *workload_samples),
+    )
+
+
+def _measurement_series(
+    graph: GraphMeasurements,
+    job_submit_latencies: list[float],
+    job_completion_latencies: list[float],
+    modalities: ModalityMeasurements,
+) -> MeasurementSeries:
+    modality_ingest_by_kind = modalities.ingest_by_kind
+    modality_query_groups_by_kind = modalities.query_groups_by_kind
     modality_ingest_latencies = [
         value for modality in MODALITIES for value in modality_ingest_by_kind[modality]
     ]
@@ -1887,56 +2069,87 @@ async def _measure(
         for modality in MODALITIES
         for group in modality_query_groups_by_kind[modality]
     ]
-    modality_query_latencies = [value for group in modality_query_groups for value in group]
+    return MeasurementSeries(
+        graph.routing_groups,
+        graph.point_query_groups,
+        graph.node_ingest_groups,
+        graph.ingest_latencies,
+        graph.routing_latencies,
+        graph.point_query_latencies,
+        graph.analytics_latencies,
+        job_submit_latencies,
+        job_completion_latencies,
+        modalities.capability_latencies,
+        modality_ingest_latencies,
+        [value for group in modality_query_groups for value in group],
+        modality_ingest_by_kind,
+        modality_query_groups_by_kind,
+        graph.ingested_ops,
+        graph.query_rows,
+        graph.query_elapsed_ms,
+    )
 
-    all_samples = sampler.samples_kib
-    workload_samples = sampler.samples_since(ready_sample_index)
-    if sampler.saturated:
-        raise CertificationError("memory_sample_limit_exceeded")
-    if not all_samples or not workload_samples:
-        raise CertificationError("missing_memory_samples")
-    peak_rss_kib = max(all_samples)
-    workload_peak_rss_kib = max(ready_rss_kib, *workload_samples)
-    ingest_elapsed_ms = sum(ingest_latencies)
-    routing_elapsed_ms = sum(routing_latencies)
-    job_elapsed_ms = sum(job_completion_latencies)
+
+def _build_metrics(
+    cold_start_ms: float,
+    ready_rss_kib: int,
+    series: MeasurementSeries,
+    memory: MemoryMeasurements,
+) -> dict[str, float]:
+    ingest_elapsed_ms = sum(series.ingest_latencies)
+    routing_elapsed_ms = sum(series.routing_latencies)
+    job_elapsed_ms = sum(series.job_completion_latencies)
     modality_elapsed_ms = sum(
-        modality_capability_latencies
-        + modality_ingest_latencies
-        + modality_query_latencies
+        series.modality_capability_latencies
+        + series.modality_ingest_latencies
+        + series.modality_query_latencies
     )
     modality_ops = (
-        len(modality_capability_latencies)
-        + len(modality_ingest_latencies)
-        + len(modality_query_latencies)
+        len(series.modality_capability_latencies)
+        + len(series.modality_ingest_latencies)
+        + len(series.modality_query_latencies)
     )
     metrics = {
         "cold_start_ready_ms": cold_start_ms,
-        "routing_latency_p50_ms": _percentile(routing_latencies, 0.50),
-        "routing_latency_p99_ms": _percentile(routing_latencies, 0.99),
-        "routing_throughput_ops_per_second": len(routing_latencies)
+        "routing_latency_p50_ms": _percentile(series.routing_latencies, 0.50),
+        "routing_latency_p99_ms": _percentile(series.routing_latencies, 0.99),
+        "routing_throughput_ops_per_second": len(series.routing_latencies)
         / (routing_elapsed_ms / 1_000),
-        "ingest_batch_latency_p50_ms": _percentile(ingest_latencies, 0.50),
-        "ingest_batch_latency_p99_ms": _percentile(ingest_latencies, 0.99),
-        "ingest_throughput_ops_per_second": ingested_ops / (ingest_elapsed_ms / 1_000),
-        "point_query_latency_p50_ms": _percentile(point_query_latencies, 0.50),
-        "point_query_latency_p99_ms": _percentile(point_query_latencies, 0.99),
-        "point_query_throughput_rows_per_second": query_rows / (query_elapsed_ms / 1_000),
-        "analytics_query_latency_p99_ms": _percentile(analytics_latencies, 0.99),
-        "job_submit_latency_p99_ms": _percentile(job_submit_latencies, 0.99),
-        "job_completion_latency_p99_ms": _percentile(job_completion_latencies, 0.99),
-        "job_throughput_jobs_per_second": len(job_completion_latencies)
+        "ingest_batch_latency_p50_ms": _percentile(series.ingest_latencies, 0.50),
+        "ingest_batch_latency_p99_ms": _percentile(series.ingest_latencies, 0.99),
+        "ingest_throughput_ops_per_second": series.ingested_ops
+        / (ingest_elapsed_ms / 1_000),
+        "point_query_latency_p50_ms": _percentile(series.point_query_latencies, 0.50),
+        "point_query_latency_p99_ms": _percentile(series.point_query_latencies, 0.99),
+        "point_query_throughput_rows_per_second": series.query_rows
+        / (series.query_elapsed_ms / 1_000),
+        "analytics_query_latency_p99_ms": _percentile(
+            series.analytics_latencies, 0.99
+        ),
+        "job_submit_latency_p99_ms": _percentile(
+            series.job_submit_latencies, 0.99
+        ),
+        "job_completion_latency_p99_ms": _percentile(
+            series.job_completion_latencies, 0.99
+        ),
+        "job_throughput_jobs_per_second": len(series.job_completion_latencies)
         / (job_elapsed_ms / 1_000),
         "modality_capability_latency_p99_ms": _percentile(
-            modality_capability_latencies, 0.99
+            series.modality_capability_latencies, 0.99
         ),
-        "modality_ingest_latency_p99_ms": _percentile(modality_ingest_latencies, 0.99),
-        "modality_query_latency_p99_ms": _percentile(modality_query_latencies, 0.99),
+        "modality_ingest_latency_p99_ms": _percentile(
+            series.modality_ingest_latencies, 0.99
+        ),
+        "modality_query_latency_p99_ms": _percentile(
+            series.modality_query_latencies, 0.99
+        ),
         "modality_throughput_ops_per_second": modality_ops
         / (modality_elapsed_ms / 1_000),
         "memory_ready_rss_mib": ready_rss_kib / 1024,
-        "memory_peak_rss_mib": peak_rss_kib / 1024,
-        "memory_growth_rss_mib": max(0, workload_peak_rss_kib - ready_rss_kib)
+        "memory_peak_rss_mib": memory.peak_rss_kib / 1024,
+        "memory_growth_rss_mib": max(
+            0, memory.workload_peak_rss_kib - ready_rss_kib
+        )
         / 1024,
     }
     metrics = {name: float(value) for name, value in metrics.items()}
@@ -1946,30 +2159,52 @@ async def _measure(
         if name != "memory_growth_rss_mib"
     ):
         raise CertificationError("metric_coverage_gap")
+    return metrics
+
+
+def _build_complexity(
+    series: MeasurementSeries,
+) -> tuple[dict[str, float], dict[str, float]]:
     modality_growth_by_kind = {
-        modality: _growth_ratio(modality_query_groups_by_kind[modality])
+        modality: _growth_ratio(series.modality_query_groups_by_kind[modality])
         for modality in MODALITIES
     }
-    complexity = {
-        "routing_state_growth_ratio": _growth_ratio(routing_groups),
-        "point_query_state_growth_ratio": _growth_ratio(point_query_groups),
-        "fixed_batch_ingest_state_growth_ratio": _growth_ratio(node_ingest_groups),
+    return {
+        "routing_state_growth_ratio": _growth_ratio(series.routing_groups),
+        "point_query_state_growth_ratio": _growth_ratio(series.point_query_groups),
+        "fixed_batch_ingest_state_growth_ratio": _growth_ratio(
+            series.node_ingest_groups
+        ),
         "modality_index_growth_ratio": max(modality_growth_by_kind.values()),
+    }, modality_growth_by_kind
+
+
+def _build_measurements(
+    series: MeasurementSeries, memory: MemoryMeasurements
+) -> dict[str, Any]:
+    return {
+        "routing": _summary(series.routing_latencies),
+        "ingest_batch": _summary(series.ingest_latencies),
+        "point_query": _summary(series.point_query_latencies),
+        "analytics_query": _summary(series.analytics_latencies),
+        "job_submit": _summary(series.job_submit_latencies),
+        "job_completion": _summary(series.job_completion_latencies),
+        "modality_capability": _summary(series.modality_capability_latencies),
+        "modality_ingest": _summary(series.modality_ingest_latencies),
+        "modality_query": _summary(series.modality_query_latencies),
+        "memory_samples": len(memory.all_samples),
+        "workload_memory_samples": len(memory.workload_samples),
     }
-    measurements = {
-        "routing": _summary(routing_latencies),
-        "ingest_batch": _summary(ingest_latencies),
-        "point_query": _summary(point_query_latencies),
-        "analytics_query": _summary(analytics_latencies),
-        "job_submit": _summary(job_submit_latencies),
-        "job_completion": _summary(job_completion_latencies),
-        "modality_capability": _summary(modality_capability_latencies),
-        "modality_ingest": _summary(modality_ingest_latencies),
-        "modality_query": _summary(modality_query_latencies),
-        "memory_samples": len(all_samples),
-        "workload_memory_samples": len(workload_samples),
-    }
-    coverage = {
+
+
+def _build_coverage(
+    manifest: dict[str, Any],
+    series: MeasurementSeries,
+    capability_modalities: list[str],
+    modality_growth_by_kind: dict[str, float],
+    memory: MemoryMeasurements,
+) -> dict[str, Any]:
+    return {
         "cold_start": {
             "ready": True,
             "private_socket_verified": True,
@@ -1978,36 +2213,37 @@ async def _measure(
         "routing": {
             "operation": "engine_authoritative_placement_route",
             "scale_points": manifest["scale_points"],
-            "samples": len(routing_latencies),
+            "samples": len(series.routing_latencies),
             "results_verified": True,
         },
         "ingest": {
             "operation": "atomic_batch_update",
             "nodes": manifest["node_count"],
             "edges": manifest["edge_count"],
-            "batches": len(ingest_latencies),
+            "batches": len(series.ingest_latencies),
             "result_counts_verified": True,
             "graph_cardinality_verified": True,
         },
         "query": {
             "operations": ["properties_batch", "pagerank"],
-            "point_samples": len(point_query_latencies),
-            "analytics_samples": len(analytics_latencies),
+            "point_samples": len(series.point_query_latencies),
+            "analytics_samples": len(series.analytics_latencies),
             "results_verified": True,
         },
         "job": {
             "operation": "durable_association_job",
-            "completed": len(job_completion_latencies),
+            "completed": len(series.job_completion_latencies),
         },
         "modality": {
             "component_probes": capability_modalities,
             "ingests_by_modality": {
-                modality: len(modality_ingest_by_kind[modality])
+                modality: len(series.modality_ingest_by_kind[modality])
                 for modality in MODALITIES
             },
             "native_query_samples_by_modality": {
                 modality: sum(
-                    len(group) for group in modality_query_groups_by_kind[modality]
+                    len(group)
+                    for group in series.modality_query_groups_by_kind[modality]
                 )
                 for modality in MODALITIES
             },
@@ -2015,11 +2251,75 @@ async def _measure(
             "results_verified": True,
         },
         "memory": {
-            "rss_samples": len(all_samples),
-            "workload_rss_samples": len(workload_samples),
+            "rss_samples": len(memory.all_samples),
+            "workload_rss_samples": len(memory.workload_samples),
         },
     }
-    return metrics, complexity, measurements, coverage
+
+
+def _build_measurement_report(
+    manifest: dict[str, Any],
+    cold_start_ms: float,
+    ready_rss_kib: int,
+    graph: GraphMeasurements,
+    job_submit_latencies: list[float],
+    job_completion_latencies: list[float],
+    modalities: ModalityMeasurements,
+    memory: MemoryMeasurements,
+) -> tuple[dict[str, float], dict[str, float], dict[str, Any], dict[str, Any]]:
+    series = _measurement_series(
+        graph, job_submit_latencies, job_completion_latencies, modalities
+    )
+    complexity, modality_growth = _build_complexity(series)
+    return (
+        _build_metrics(cold_start_ms, ready_rss_kib, series, memory),
+        complexity,
+        _build_measurements(series, memory),
+        _build_coverage(
+            manifest,
+            series,
+            modalities.capability_modalities,
+            modality_growth,
+            memory,
+        ),
+    )
+
+
+async def _measure(
+    client: Any,
+    manifest: dict[str, Any],
+    workload: Workload,
+    cold_start_ms: float,
+    sampler: RssSampler,
+    route_tenant_ref: str,
+) -> tuple[dict[str, float], dict[str, float], dict[str, Any], dict[str, Any]]:
+    graph_ref = manifest["graph_ref"]
+    ready_sample_index = sampler.sample_count
+    ready_rss_kib = sampler.current_kib()
+    if ready_rss_kib <= 0:
+        raise CertificationError("missing_ready_rss")
+    await client.tenants.create(graph_ref)
+    node_id_set = set(workload.node_ids)
+
+    graph = await _measure_graph(
+        client, manifest, workload, route_tenant_ref, node_id_set
+    )
+
+    job_submit_latencies, job_completion_latencies = await _measure_jobs(
+        client, graph_ref, workload, manifest
+    )
+    modalities = await _measure_modalities(client, manifest, workload)
+    memory = _collect_memory(sampler, ready_sample_index, ready_rss_kib)
+    return _build_measurement_report(
+        manifest,
+        cold_start_ms,
+        ready_rss_kib,
+        graph,
+        job_submit_latencies,
+        job_completion_latencies,
+        modalities,
+        memory,
+    )
 
 
 def _evaluate(
