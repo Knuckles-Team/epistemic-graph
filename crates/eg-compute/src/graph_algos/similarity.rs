@@ -202,19 +202,7 @@ where
         }
     }
     // Descending score, then ascending (a, b) for stable ordering.
-    out.sort_by(|x, y| {
-        y.2.partial_cmp(&x.2)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| x.0.cmp(&y.0))
-            .then_with(|| x.1.cmp(&y.1))
-    });
-    out.into_iter()
-        .map(|(a, b, score)| SimilarityPair {
-            a: graph.node_at(a).clone(),
-            b: graph.node_at(b).clone(),
-            score,
-        })
-        .collect()
+    finish_similarity_pairs(graph, out)
 }
 
 /// Score node `a` against every other node under `metric`, keep only scores
@@ -296,21 +284,10 @@ where
             }
         }
     }
-    let mut out: Vec<(usize, usize, f64)> =
-        pair_best.into_iter().map(|((a, b), s)| (a, b, s)).collect();
-    out.sort_by(|x, y| {
-        y.2.partial_cmp(&x.2)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| x.0.cmp(&y.0))
-            .then_with(|| x.1.cmp(&y.1))
-    });
-    out.into_iter()
-        .map(|(a, b, score)| SimilarityPair {
-            a: graph.node_at(a).clone(),
-            b: graph.node_at(b).clone(),
-            score,
-        })
-        .collect()
+    finish_similarity_pairs(
+        graph,
+        pair_best.into_iter().map(|((a, b), score)| (a, b, score)),
+    )
 }
 
 /// A tiny deterministic SplitMix64 PRNG for reproducible NN-descent sampling
@@ -703,13 +680,12 @@ fn fold_descent_pairs(lists: &[Vec<DescNeighbor>], cutoff: f64) -> HashMap<(usiz
 
 fn finish_similarity_pairs<N>(
     graph: &AdjacencyGraph<N>,
-    pair_best: HashMap<(usize, usize), f64>,
+    pairs: impl IntoIterator<Item = (usize, usize, f64)>,
 ) -> Vec<SimilarityPair<N>>
 where
     N: Clone + Eq + Hash + Ord,
 {
-    let mut out: Vec<(usize, usize, f64)> =
-        pair_best.into_iter().map(|((a, b), s)| (a, b, s)).collect();
+    let mut out: Vec<(usize, usize, f64)> = pairs.into_iter().collect();
     out.sort_by(|x, y| {
         y.2.partial_cmp(&x.2)
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -809,7 +785,12 @@ where
     // Fold the directed working lists into undirected pairs (max of the two
     // directional scores), applying the `> cutoff` gate only now — the working lists
     // keep the best-k regardless of cutoff so the join always has neighbours to walk.
-    finish_similarity_pairs(graph, fold_descent_pairs(&lists, cutoff))
+    finish_similarity_pairs(
+        graph,
+        fold_descent_pairs(&lists, cutoff)
+            .into_iter()
+            .map(|((a, b), score)| (a, b, score)),
+    )
 }
 
 #[cfg(test)]
