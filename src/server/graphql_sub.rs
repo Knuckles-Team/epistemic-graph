@@ -826,17 +826,22 @@ mod tests {
             isolation.add_grant(grant(RbacAction::Write));
         }
         for agent_id in ["actor-a", "actor-b"] {
-            isolation.register_agent(AgentIdentity {
-                agent_id: agent_id.into(),
-                role: AgentRole::Agent,
-                teams: Vec::new(),
-                #[cfg(feature = "security")]
-                roles: vec!["commons-user".to_string()],
-                #[cfg(not(feature = "security"))]
-                roles: Vec::new(),
-            });
+            isolation.register_agent(test_agent(agent_id));
         }
         isolation
+    }
+
+    fn test_agent(agent_id: &str) -> AgentIdentity {
+        AgentIdentity {
+            agent_id: agent_id.to_owned(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: if cfg!(feature = "security") {
+                vec!["commons-user".to_owned()]
+            } else {
+                Vec::new()
+            },
+        }
     }
 
     #[test]
