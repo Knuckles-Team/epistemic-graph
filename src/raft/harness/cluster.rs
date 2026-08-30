@@ -16,14 +16,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use openraft::async_runtime::watch::WatchReceiver;
-use openraft::BasicNode;
 use tokio::sync::RwLock;
 
-use crate::channels::ChannelManager;
-use crate::durability::DurabilityPolicy;
-use crate::isolation::IsolationLayer;
-use crate::registry::GraphRegistry;
-use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
 
@@ -31,6 +25,9 @@ use super::super::config::RaftClusterConfig;
 use super::super::node::{self, StartedNode};
 use super::super::{NodeId, RaftRequest};
 use crate::protocol::{GraphType, Method};
+
+#[path = "fixture.rs"]
+pub(crate) mod fixture;
 
 /// The graph every harness write targets.
 pub const GRAPH: &str = "__commons__";
@@ -65,91 +62,8 @@ const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const CLEANUP_POLL: Duration = Duration::from_millis(25);
 const PORT_ALLOCATION_ATTEMPTS: usize = 32;
 
-/// Build a redb-AUTHORITATIVE `ServerState` rooted at `dir` (mirrors `tests::make_state`)
-/// and REHYDRATE its registry from the durable redb store — exactly the M2
-/// `load_all` step the real boot path (`main.rs`) runs BEFORE Raft starts
-/// (`store::EgStore::open` docs: "the graph DATA is recovered separately by the M2
-/// `load_all` path before Raft starts"). Without this a RESTARTED node would come up
-/// with an empty graph and only re-acquire data via leader catch-up — which would
-/// make the harness mis-report a durable-but-not-yet-replayed write as "lost".
-async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.to_string(), DurabilityPolicy::Each, 4096)
-            .map_err(|e| format!("open redb {dir}: {e}"))?,
-    );
-    let state = Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: "harness".to_string(),
-        persist_dir: Some(dir.to_string()),
-        persistence: Some(backend.clone()),
-        max_in_flight: Arc::new(tokio::sync::Semaphore::new(256)),
-        read_admission: Arc::new(tokio::sync::Semaphore::new(256)),
-        per_graph_inflight: Arc::new(dashmap::DashMap::new()),
-        per_graph_inflight_limit: 64,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(dashmap::DashMap::new()),
-        txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-            crate::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-    }));
-    // M2 rehydration: load the durable graph data from redb into the registry before
-    // Raft starts (the real boot path's `load_all`). A fresh dir loads 0; a restarted
-    // node loads back every committed-before-kill entry.
-    if let Err(error) = backend.load_all(&state).await {
-        // `make_state` is also used by the partial-start path. If recovery fails,
-        // stop the writer before returning so the failed attempt does not retain a
-        // redb file lock while the caller removes its temporary root.
-        backend.shutdown();
-        return Err(format!("load_all {dir}: {error}"));
-    }
-    Ok(state)
-}
-
-fn peer_map(ports: &[u16]) -> BTreeMap<NodeId, BasicNode> {
-    ports
-        .iter()
-        .enumerate()
-        .map(|(i, p)| ((i + 1) as NodeId, BasicNode::new(format!("127.0.0.1:{p}"))))
-        .collect()
-}
-
 fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
-    let peers = peer_map(ports);
+    let peers = fixture::peer_map(ports);
     let bind_addr = peers.get(&node_id).unwrap().addr.clone();
     RaftClusterConfig {
         node_id,
@@ -326,7 +240,7 @@ impl Cluster {
                     .await);
             }
             let dir = dir.to_string_lossy().to_string();
-            let state = match make_state(&dir).await {
+            let state = match fixture::make_rehydrated_state(&dir).await {
                 Ok(state) => state,
                 Err(error) => {
                     return Err(cluster.fail_start(error, false).await);
@@ -765,7 +679,7 @@ impl Cluster {
             }
             m.dir.clone()
         };
-        let state = make_state(&dir).await?;
+        let state = fixture::make_rehydrated_state(&dir).await?;
         let started = match node::start(cluster_cfg(id, &self.ports), state.clone()).await {
             Ok(started) => started,
             Err(error) => {

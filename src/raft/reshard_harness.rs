@@ -14,36 +14,25 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+use super::harness::cluster::fixture;
 use super::multi::MultiRaft;
 use super::reshard::TenantManager;
 use super::{GroupId, RaftRequest};
-use crate::durability::DurabilityPolicy;
-use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
-use crate::server::persistence::redb_backend::RedbBackend;
-use crate::server::persistence::PersistenceBackend;
-use crate::server::ServerState;
 
 const GROUP_A: GroupId = 100;
 const GROUP_B: GroupId = 200;
 const GRAPH: &str = "tenant:acme";
 
-fn fresh_dir(tag: &str) -> String {
-    let d = std::env::temp_dir().join(format!("eg-reshard-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d.to_string_lossy().to_string()
-}
-
 /// Bring up a one-node, two-group cluster with `GRAPH` initially assigned to group A.
 async fn bring_up(
     dir: &str,
-    backend: Arc<dyn PersistenceBackend>,
-) -> (Arc<MultiRaft>, Arc<RwLock<ServerState>>) {
-    let (multi, state) = super::harness_support::start_single_node_groups(
+    backend: fixture::Backend,
+) -> (Arc<MultiRaft>, Arc<RwLock<crate::server::ServerState>>) {
+    let (multi, state) = fixture::start_single_node_groups(
         dir,
         backend,
-        IsolationLayer::new(),
+        crate::isolation::IsolationLayer::new(),
         "reshard-test",
         &[GROUP_A, GROUP_B],
     )
@@ -82,20 +71,12 @@ async fn write_via_owner(multi: &Arc<MultiRaft>, node_id: &str) -> Result<(), St
     group.client_write(req).await.map(|_| ())
 }
 
-async fn has_node(state: &Arc<RwLock<ServerState>>, node_id: &str) -> bool {
+async fn has_node(state: &Arc<RwLock<crate::server::ServerState>>, node_id: &str) -> bool {
     let s = state.read().await;
     s.registry
         .get(GRAPH)
         .map(|e| e.core.has_node(node_id))
         .unwrap_or(false)
-}
-
-async fn node_count(state: &Arc<RwLock<ServerState>>) -> usize {
-    let s = state.read().await;
-    s.registry
-        .get(GRAPH)
-        .map(|e| e.core.node_count())
-        .unwrap_or(0)
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -104,9 +85,8 @@ async fn node_count(state: &Arc<RwLock<ServerState>>) -> usize {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reshard_keeps_data_and_serves_after() {
-    let dir = fresh_dir("keep");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-reshard", "keep");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 
@@ -115,7 +95,7 @@ async fn reshard_keeps_data_and_serves_after() {
     for i in 0..5 {
         write_via_owner(&multi, &format!("a{i}")).await.unwrap();
     }
-    assert_eq!(node_count(&state).await, 5, "5 nodes on A");
+    assert_eq!(fixture::node_count(&state, GRAPH).await, 5, "5 nodes on A");
 
     // ── RESHARD A→B (online, no downtime) ──
     let report = tenants
@@ -136,7 +116,7 @@ async fn reshard_keeps_data_and_serves_after() {
     // (b) A post-reshard write routes through B and lands — serves correctly.
     write_via_owner(&multi, "b0").await.expect("write via B");
     assert!(has_node(&state, "b0").await, "post-reshard write landed");
-    assert_eq!(node_count(&state).await, 6, "5 old + 1 new");
+    assert_eq!(fixture::node_count(&state, GRAPH).await, 6, "5 old + 1 new");
 
     multi.stop_listener();
     backend.shutdown();
@@ -158,9 +138,8 @@ async fn reshard_data_durable_across_restart() {
     // them. See `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("durable");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-reshard", "durable");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     {
         let (multi, _state) = bring_up(&dir, backend.clone()).await;
         let tenants = TenantManager::new(multi.clone(), backend.clone());
@@ -178,8 +157,7 @@ async fn reshard_data_durable_across_restart() {
     // Restart over the SAME files: every reshareded node is durable.
     backend.shutdown();
     drop(backend);
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen"));
+    let backend2 = fixture::open_backend(&dir).expect("reopen");
     let (multi2, state2) = bring_up(&dir, backend2.clone()).await;
     backend2.load_all(&state2).await.expect("load_all");
     for i in 0..4 {
@@ -199,26 +177,37 @@ async fn reshard_data_durable_across_restart() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hibernate_then_rehydrate_intact() {
-    let dir = fresh_dir("hib");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-reshard", "hib");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 
     for i in 0..7 {
         write_via_owner(&multi, &format!("h{i}")).await.unwrap();
     }
-    assert_eq!(node_count(&state).await, 7, "7 nodes resident");
+    assert_eq!(
+        fixture::node_count(&state, GRAPH).await,
+        7,
+        "7 nodes resident"
+    );
 
     // ── HIBERNATE: force durable, drop in-RAM state ──
     let freed = tenants.hibernate_graph(GRAPH).await.expect("hibernate");
     assert_eq!(freed, 7, "7 nodes evicted from RAM");
-    assert_eq!(node_count(&state).await, 0, "core is now empty in RAM");
+    assert_eq!(
+        fixture::node_count(&state, GRAPH).await,
+        0,
+        "core is now empty in RAM"
+    );
 
     // ── REHYDRATE on next access: every node restored from redb ──
     let restored = tenants.rehydrate_graph(GRAPH).await.expect("rehydrate");
     assert_eq!(restored, 7, "7 nodes restored");
-    assert_eq!(node_count(&state).await, 7, "core repopulated");
+    assert_eq!(
+        fixture::node_count(&state, GRAPH).await,
+        7,
+        "core repopulated"
+    );
     for i in 0..7 {
         assert!(has_node(&state, &format!("h{i}")).await, "h{i} rehydrated");
     }

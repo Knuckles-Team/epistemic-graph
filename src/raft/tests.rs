@@ -25,6 +25,7 @@ use openraft::BasicNode;
 use tokio::sync::RwLock;
 
 use super::config::RaftClusterConfig;
+use super::harness::cluster::fixture;
 use super::node::{self, StartedNode};
 use super::{NodeId, RaftRequest};
 use crate::durability::DurabilityPolicy;
@@ -35,9 +36,7 @@ use crate::server::ServerState;
 
 /// Build a ServerState with a redb-AUTHORITATIVE backend rooted at `dir`.
 async fn make_state(dir: &str) -> Arc<RwLock<ServerState>> {
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.to_string(), DurabilityPolicy::Each, 4096).expect("open redb"),
-    );
+    let backend = fixture::open_backend(dir).expect("open redb");
     make_state_with_backend(dir, backend).await
 }
 
@@ -61,21 +60,13 @@ async fn make_state_with_backend(
     .await
 }
 
-fn peer_map(ports: &[u16]) -> BTreeMap<NodeId, BasicNode> {
-    ports
-        .iter()
-        .enumerate()
-        .map(|(i, p)| ((i + 1) as NodeId, BasicNode::new(format!("127.0.0.1:{p}"))))
-        .collect()
-}
-
 fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
     cluster_cfg_with_groups(node_id, ports, 1)
 }
 
 /// [`cluster_cfg`] with an explicit group count (DIST-P2-2 multi-group startup test).
 fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftClusterConfig {
-    let peers = peer_map(ports);
+    let peers = fixture::peer_map(ports);
     let bind_addr = peers.get(&node_id).unwrap().addr.clone();
     RaftClusterConfig {
         node_id,
@@ -309,15 +300,9 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     const SECRET: &str = "raft-test"; // matches make_state's ServerState.auth_secret
     static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-    std::env::set_var(
-        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-        std::env::temp_dir().join(format!(
-            "eg-cluster-members-wire-auth-{}",
-            std::process::id()
-        )),
+    let _auth_env = super::harness::test_env::configure_auth_test_environment(
+        "tenant-shared",
+        "cluster-members-wire-auth",
     );
 
     fn signed_request(id: u64, scopes: Vec<String>, method: Method) -> Request {
@@ -816,16 +801,6 @@ mod placement_admin_wire_rpc {
     /// signature ("Authentication failed") — this is the one constructor path
     /// for a non-`__commons__` request.
     fn signed_request_for_graph(id: u64, graph: &str, method: Method) -> crate::protocol::Request {
-        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-        std::env::set_var(
-            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-            std::env::temp_dir().join(format!(
-                "epistemic-graph-placement-wire-auth-{}",
-                std::process::id()
-            )),
-        );
         let context = RequestContextClaims {
             principal: TEST_AGENT.to_string(),
             tenant: "tenant-shared".to_string(),
@@ -963,6 +938,11 @@ mod placement_admin_wire_rpc {
     async fn placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body() {
         use super::super::DEFAULT_GROUP;
         const TARGET_GROUP: super::super::GroupId = 1;
+
+        let _auth_env = super::super::harness::test_env::configure_auth_test_environment(
+            "tenant-shared",
+            "placement-wire-auth",
+        );
 
         let tmp =
             std::env::temp_dir().join(format!("eg-placement-wire-test-{}", std::process::id()));
@@ -1297,8 +1277,7 @@ fn make_log_entry(index: u64, term: u64, node_id: &str) -> EntryOf<super::TypeCo
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn durable_log_replays_from_redb_after_restart() {
     let dir = fresh_dir("logreplay");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state,
@@ -1356,8 +1335,7 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
     let dir = fresh_dir("faultlog");
     // DurabilityPolicy::Each = a committed (awaited) append is fsynced before the await
     // returns, so anything we observe as Ok IS on disk.
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
@@ -1495,8 +1473,7 @@ async fn two_groups_one_node_commit_independently() {
     use super::multi::MultiRaft;
 
     let dir = fresh_dir("twogroups");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
