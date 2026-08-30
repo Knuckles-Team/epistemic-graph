@@ -419,6 +419,116 @@ fn authority_update_keys(props: &serde_json::Map<String, serde_json::Value>) -> 
     })
 }
 
+fn native_claimed(
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    graph: &str,
+    work_item_id: &str,
+) -> Result<bool, String> {
+    native_work_items
+        .get((graph, work_item_id))
+        .map(|row| row.is_some())
+        .map_err(|error| error.to_string())
+}
+
+fn existing_work_item(
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    graph: &str,
+    work_item_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<bool, String> {
+    let Some(row) = nodes
+        .get((graph, work_item_id))
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(false);
+    };
+    let bytes = crypto.unseal(row.value())?;
+    let props = decode_durable::<serde_json::Map<String, serde_json::Value>>(&bytes)?;
+    Ok(is_work_item(&props))
+}
+
+fn validate_generic_add_node(
+    graph: &str,
+    node_id: &str,
+    properties_msgpack: &[u8],
+    replacement_error: &str,
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if native_claimed(native_work_items, graph, node_id)?
+        || existing_work_item(nodes, graph, node_id, crypto)?
+    {
+        return Err(replacement_error.to_string());
+    }
+    // Ordinary graph nodes may retain legacy opaque property bytes; only a
+    // structurally valid WorkItem map is subject to the native authority guard.
+    if let Ok(props) =
+        decode_durable::<serde_json::Map<String, serde_json::Value>>(properties_msgpack)
+    {
+        validate_submission_properties(&props)?;
+    }
+    Ok(())
+}
+
+fn validate_generic_update(
+    graph: &str,
+    node_id: &str,
+    updates_msgpack: &[u8],
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if native_claimed(native_work_items, graph, node_id)? {
+        return Err("native WorkItem authority required for generic update".to_string());
+    }
+    if existing_work_item(nodes, graph, node_id, crypto)? {
+        let updates = decode_durable::<serde_json::Map<String, serde_json::Value>>(updates_msgpack)
+            .map_err(|_| "invalid WorkItem update properties".to_string())?;
+        if let Some(key) = authority_update_keys(&updates) {
+            return Err(format!(
+                "native WorkItem authority required for protected field '{key}'"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_generic_batch(
+    graph: &str,
+    operations_msgpack: &[u8],
+    nodes: &redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    use crate::algorithms::BatchOperation;
+
+    for operation in crate::algorithms::decode_batch_operations(operations_msgpack)? {
+        match operation {
+            BatchOperation::AddNode {
+                id,
+                properties_msgpack,
+                ..
+            } => validate_generic_add_node(
+                graph,
+                &id,
+                &properties_msgpack,
+                "native WorkItem authority required for generic batch replacement",
+                nodes,
+                native_work_items,
+                crypto,
+            )?,
+            BatchOperation::RemoveNode { id } if native_claimed(native_work_items, graph, &id)? => {
+                return Err(
+                    "native WorkItem authority required for generic batch removal".to_string(),
+                )
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Guard generic graph-row writers before they can manufacture or replace
 /// native WorkItem authority.  Submission is intentionally the one exception:
 /// a new `submitted`/`ready` WorkItem may be projected by the existing AU
@@ -431,109 +541,48 @@ pub(crate) fn validate_generic_method(
     native_work_items: &redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    let existing =
-        |work_item_id: &str| -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
-            let Some(row) = nodes
-                .get((graph, work_item_id))
-                .map_err(|error| error.to_string())?
-            else {
-                return Ok(None);
-            };
-            let bytes = crypto.unseal(row.value())?;
-            let props = decode_durable::<serde_json::Map<String, serde_json::Value>>(&bytes)?;
-            Ok(Some(props))
-        };
-    let claimed = |work_item_id: &str| -> Result<bool, String> {
-        native_work_items
-            .get((graph, work_item_id))
-            .map(|row| row.is_some())
-            .map_err(|error| error.to_string())
-    };
-
     match method {
         crate::protocol::Method::AddNode {
             node_id,
             properties_msgpack,
-        } => {
-            if claimed(node_id)? || existing(node_id)?.is_some_and(|props| is_work_item(&props)) {
-                return Err(
-                    "native WorkItem authority required for generic replacement".to_string()
-                );
-            }
-            // Ordinary graph nodes may retain legacy opaque property bytes;
-            // only a structurally valid WorkItem map is subject to the native
-            // authority guard.  A plausible WorkItem can never bypass this
-            // branch because it necessarily decodes as the map below.
-            if let Ok(props) =
-                decode_durable::<serde_json::Map<String, serde_json::Value>>(properties_msgpack)
-            {
-                validate_submission_properties(&props)?;
-            }
-        }
+        } => validate_generic_add_node(
+            graph,
+            node_id,
+            properties_msgpack,
+            "native WorkItem authority required for generic replacement",
+            nodes,
+            native_work_items,
+            crypto,
+        ),
         crate::protocol::Method::RemoveNode { node_id } => {
-            if claimed(node_id)? {
+            if native_claimed(native_work_items, graph, node_id)? {
                 return Err("native WorkItem authority required for generic removal".to_string());
             }
+            Ok(())
         }
         crate::protocol::Method::CompareAndSetNodeFields {
             node_id,
             updates_msgpack,
             ..
-        } => {
-            if claimed(node_id)? {
+        } => validate_generic_update(
+            graph,
+            node_id,
+            updates_msgpack,
+            nodes,
+            native_work_items,
+            crypto,
+        ),
+        crate::protocol::Method::BatchUpdate { operations_msgpack } => {
+            validate_generic_batch(graph, operations_msgpack, nodes, native_work_items, crypto)
+        }
+        crate::protocol::Method::SetPose { node_id, .. } => {
+            if native_claimed(native_work_items, graph, node_id)? {
                 return Err("native WorkItem authority required for generic update".to_string());
             }
-            if existing(node_id)?.is_some_and(|props| is_work_item(&props)) {
-                let updates =
-                    decode_durable::<serde_json::Map<String, serde_json::Value>>(updates_msgpack)
-                        .map_err(|_| "invalid WorkItem update properties".to_string())?;
-                if let Some(key) = authority_update_keys(&updates) {
-                    return Err(format!(
-                        "native WorkItem authority required for protected field '{key}'"
-                    ));
-                }
-            }
+            Ok(())
         }
-        crate::protocol::Method::BatchUpdate { operations_msgpack } => {
-            use crate::algorithms::BatchOperation;
-            let operations = crate::algorithms::decode_batch_operations(operations_msgpack)?;
-            for operation in operations {
-                match operation {
-                    BatchOperation::AddNode {
-                        id,
-                        properties_msgpack,
-                        ..
-                    } => {
-                        if claimed(&id)? || existing(&id)?.is_some_and(|props| is_work_item(&props))
-                        {
-                            return Err(
-                                "native WorkItem authority required for generic batch replacement"
-                                    .to_string(),
-                            );
-                        }
-                        if let Ok(props) = decode_durable::<
-                            serde_json::Map<String, serde_json::Value>,
-                        >(&properties_msgpack)
-                        {
-                            validate_submission_properties(&props)?;
-                        }
-                    }
-                    BatchOperation::RemoveNode { id } if claimed(&id)? => {
-                        return Err(
-                            "native WorkItem authority required for generic batch removal"
-                                .to_string(),
-                        )
-                    }
-                    _ => {}
-                }
-            }
-        }
-        crate::protocol::Method::SetPose { node_id, .. } if claimed(node_id)? => {
-            return Err("native WorkItem authority required for generic update".to_string());
-        }
-        _ => {}
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 pub(crate) fn validate_snapshot_nodes(nodes: &[(String, Vec<u8>)]) -> Result<(), String> {
