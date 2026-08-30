@@ -53,6 +53,17 @@ async fn bring_up(
     .await
 }
 
+/// Open the durable fixture used by each cross-shard read scenario.  The tests
+/// keep their placement assignments local because those are the behavior under
+/// test; only the identical storage/cluster lifecycle belongs here.
+async fn start_read_scenario(
+    scenario: &str,
+) -> (Arc<MultiRaft>, Arc<RwLock<crate::server::ServerState>>) {
+    let dir = fixture::fresh_dir("eg-xread", scenario);
+    let backend = fixture::open_backend(&dir).expect("open redb");
+    bring_up(&dir, backend.clone()).await
+}
+
 /// Write ONE node into `graph` through `gid`'s Raft `client_write`.
 async fn put_node(multi: &Arc<MultiRaft>, gid: GroupId, graph: &str, node_id: &str) {
     let group = multi.group(gid).await.expect("group running");
@@ -81,9 +92,7 @@ async fn put_node(multi: &Arc<MultiRaft>, gid: GroupId, graph: &str, node_id: &s
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_cross_shard_merges_rows_from_two_groups() {
-    let dir = fixture::fresh_dir("eg-xread", "merge");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, _state) = bring_up(&dir, backend.clone()).await;
+    let (multi, _state) = start_read_scenario("merge").await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
     multi.router().assign(GRAPH_B, GROUP_B);
@@ -118,9 +127,7 @@ async fn read_cross_shard_merges_rows_from_two_groups() {
 /// single-group fast-path gate mirrors the write side's `GroupRouter::is_cross_shard`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_cross_shard_single_group_is_not_flagged_cross_shard() {
-    let dir = fixture::fresh_dir("eg-xread", "single-group");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, _state) = bring_up(&dir, backend.clone()).await;
+    let (multi, _state) = start_read_scenario("single-group").await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
     multi.router().assign("alsoA", GROUP_A);
