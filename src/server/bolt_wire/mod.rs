@@ -1124,13 +1124,9 @@ mod tests {
     //! PULL → SUCCESS auto-commit round-trip against the Cypher engine, plus BEGIN/COMMIT
     //! and FAILURE/RESET flows — no external Neo4j driver.
     use super::*;
-    use crate::channels::ChannelManager;
     use crate::isolation::IsolationLayer;
-    use crate::registry::GraphRegistry;
     use crate::server::ServerState;
-    use dashmap::DashMap;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::sync::Semaphore;
 
     /// A `ServerState` seeded with public nodes so a signed Cypher read returns
     /// rows over `__commons__` even under default-deny row isolation. Tagged
@@ -1143,20 +1139,20 @@ mod tests {
     /// `_visibility`/`_shared_scope` set, the row keeps the pre-existing
     /// bare-absent-default (visible beyond its owner), so it stays readable
     /// by this test's non-owning wire caller.
-    fn test_state(seed_public_nodes: bool) -> Arc<RwLock<ServerState>> {
-        let registry = GraphRegistry::new();
-        if seed_public_nodes {
-            let core = registry.get("__commons__").unwrap().core.clone();
-            for (id, ty) in [("n1", "Agent"), ("n2", "Agent"), ("n3", "Tool")] {
-                let blob = rmp_serde::to_vec_named(&serde_json::json!({
-                    "type": ty,
-                    "id": id,
-                    "_owner_id": "system-writer"
-                }))
-                .unwrap();
-                core.add_node(id.to_string(), blob);
-            }
+    fn test_agent_identity(agent_id: &str) -> crate::isolation::AgentIdentity {
+        crate::isolation::AgentIdentity {
+            agent_id: agent_id.to_string(),
+            role: crate::isolation::AgentRole::Agent,
+            teams: Vec::new(),
+            roles: if cfg!(feature = "security") {
+                vec!["commons-user".to_string()]
+            } else {
+                Vec::new()
+            },
         }
+    }
+
+    fn test_state(seed_public_nodes: bool) -> Arc<RwLock<ServerState>> {
         let mut isolation = IsolationLayer::new();
         #[cfg(feature = "security")]
         {
@@ -1175,38 +1171,30 @@ mod tests {
                 effect: GrantEffect::Allow,
             });
         }
-        isolation.register_agent(crate::isolation::AgentIdentity {
-            agent_id: "service:bolt-test".to_string(),
-            role: crate::isolation::AgentRole::Agent,
-            teams: Vec::new(),
-            #[cfg(feature = "security")]
-            roles: vec!["commons-user".to_string()],
-            #[cfg(not(feature = "security"))]
-            roles: Vec::new(),
-        });
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry,
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: "test".to_string(),
-            #[cfg(feature = "kv")]
-            kv: None,
-            persist_dir: None,
-            // A REAL per-test durable backend, same reasoning as
-            // `server::mod.rs`'s `test_state()` (redb takes an exclusive
-            // per-process file lock, so each call gets its own uniquely-named
-            // dir): BEGIN/COMMIT session-control mutations and durable-domain
-            // writes fail closed without one. `durable_state()` below
-            // immediately overrides this with its own explicitly-tracked
-            // backend for the tests that need to inspect/restart it.
-            #[cfg(feature = "redb")]
-            persistence: Some(std::sync::Arc::new(
+        isolation.register_agent(test_agent_identity("service:bolt-test"));
+        let mut state = ServerState::new_for_test("test", isolation);
+        if seed_public_nodes {
+            let core = state.registry.get("__commons__").unwrap().core.clone();
+            for (id, ty) in [("n1", "Agent"), ("n2", "Agent"), ("n3", "Tool")] {
+                let blob = rmp_serde::to_vec_named(&serde_json::json!({
+                    "type": ty,
+                    "id": id,
+                    "_owner_id": "system-writer"
+                }))
+                .unwrap();
+                core.add_node(id.to_string(), blob);
+            }
+        }
+        // A REAL per-test durable backend, same reasoning as
+        // `server::mod.rs`'s `test_state()` (redb takes an exclusive
+        // per-process file lock, so each call gets its own uniquely-named
+        // dir): BEGIN/COMMIT session-control mutations and durable-domain
+        // writes fail closed without one. `durable_state()` below
+        // immediately overrides this with its own explicitly-tracked
+        // backend for the tests that need to inspect/restart it.
+        #[cfg(feature = "redb")]
+        {
+            state.persistence = Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
                     std::env::temp_dir()
                         .join(format!(
@@ -1223,45 +1211,9 @@ mod tests {
                     256,
                 )
                 .expect("open bolt test redb backend"),
-            )),
-            #[cfg(not(feature = "redb"))]
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+            ));
+        }
+        Arc::new(RwLock::new(state))
     }
 
     fn seeded_state() -> Arc<RwLock<ServerState>> {

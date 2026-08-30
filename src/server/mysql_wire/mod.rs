@@ -501,10 +501,11 @@ mod tests {
         {
             use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
             isolation.add_role(Role::new("commons-user"));
+            let commons_graph = ResourceSelector::Graph("__commons__".to_string());
             for action in [RbacAction::Read, RbacAction::Write] {
                 isolation.add_grant(Grant {
                     role: "commons-user".to_string(),
-                    resource: ResourceSelector::Graph("__commons__".to_string()),
+                    resource: commons_graph.clone(),
                     action,
                     effect: GrantEffect::Allow,
                 });

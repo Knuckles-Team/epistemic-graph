@@ -35,7 +35,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::protocol::Method;
-use crate::protocol::ResultPayload;
 use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
 use crate::server::broker_wire::{
     derive_password as derive_stomp_passcode_impl, verify_password as verify_stomp_passcode_impl,
@@ -65,10 +64,6 @@ const MAX_STOMP_UNACKED: usize = 65_536;
 const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
 const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
 const BROKER_PREFETCH: u32 = 32;
-
-fn decode_broker_result<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
-    broker_wire::decode_broker_result(bytes, MAX_STOMP_FRAME_BYTES, MAX_BROKER_RESULT_ITEMS)
-}
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -145,43 +140,23 @@ async fn claim_one(
     queue: &str,
     consumer: &str,
 ) -> Option<(String, String, Vec<u8>)> {
-    let payload = broker_wire::engine_call(
+    let claim = broker_wire::claim_message(
         state,
         graph,
         actor,
         next_req_id,
-        Method::BrokerConsume {
-            queue: queue.to_string(),
-            group: "stomp".to_string(),
-            consumer: consumer.to_string(),
-            now_ms: broker_wire::current_time_ms(),
-            lease_ms: BROKER_LEASE_MS,
-            prefetch: BROKER_PREFETCH,
-        },
+        queue,
+        "stomp",
+        consumer,
+        BROKER_LEASE_MS,
+        BROKER_PREFETCH,
+        MAX_STOMP_FRAME_BYTES,
+        MAX_BROKER_RESULT_ITEMS,
+        Some(MAX_STOMP_IDENTIFIER_BYTES),
+        Some(MAX_STOMP_HEADER_LINE_BYTES),
     )
-    .await;
-    let ResultPayload::Raw(bytes) = payload else {
-        return None;
-    };
-    let claimed: Option<(String, serde_json::Value)> = decode_broker_result(&bytes)?;
-    let (id, props) = claimed?;
-    if id.len() > MAX_STOMP_IDENTIFIER_BYTES {
-        return None;
-    }
-    let rk = props
-        .get("routing_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if rk.len() > MAX_STOMP_HEADER_LINE_BYTES {
-        return None;
-    }
-    let rk = rk.to_string();
-    let body = props
-        .get("payload")
-        .and_then(|v| v.as_str())
-        .and_then(crate::broker::hex_decode)
-        .unwrap_or_default();
-    Some((id, rk, body))
+    .await?;
+    Some((claim.node_id, claim.routing_key, claim.body))
 }
 
 /// Return a claimed message to the claimable pool through the native rejection path.
@@ -910,11 +885,7 @@ mod tests {
     /// `feature = "redb"` (which `stomp-wire` does not itself require, but the
     /// round trip needs to actually publish/deliver a message).
     async fn test_state() -> Arc<RwLock<ServerState>> {
-        use crate::channels::ChannelManager;
         use crate::isolation::IsolationLayer;
-        use crate::registry::GraphRegistry;
-        use dashmap::DashMap;
-        use tokio::sync::Semaphore;
         let mut isolation = IsolationLayer::new();
         #[cfg(feature = "security")]
         {
@@ -986,57 +957,10 @@ mod tests {
             Option<String>,
             Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
         ) = (None, None);
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: "test".to_string(),
-            persist_dir,
-            persistence,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        let mut state = ServerState::new_for_test("test", isolation);
+        state.persist_dir = persist_dir;
+        state.persistence = persistence;
+        Arc::new(RwLock::new(state))
     }
 
     async fn spawn_listener() -> String {

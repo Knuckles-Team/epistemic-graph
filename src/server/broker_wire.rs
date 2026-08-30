@@ -92,6 +92,95 @@ pub(crate) fn invalid_data(message: &'static str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, message)
 }
 
+/// Decoded broker delivery shared by the AMQP, MQTT, and STOMP adapters.
+pub(crate) struct BrokerClaim {
+    pub(crate) node_id: String,
+    pub(crate) routing_key: String,
+    pub(crate) exchange: String,
+    pub(crate) body: Vec<u8>,
+}
+
+/// Decode one native broker claim and apply the adapter's size bounds.
+pub(crate) fn decode_claim(
+    payload: ResultPayload,
+    max_bytes: usize,
+    max_items: usize,
+    max_identifier_len: Option<usize>,
+    max_routing_key_len: Option<usize>,
+) -> Option<BrokerClaim> {
+    let ResultPayload::Raw(bytes) = payload else {
+        return None;
+    };
+    let claimed: Option<(String, serde_json::Value)> =
+        decode_broker_result(&bytes, max_bytes, max_items)?;
+    let (node_id, props) = claimed?;
+    if max_identifier_len.is_some_and(|limit| node_id.len() > limit) {
+        return None;
+    }
+    let routing_key = props
+        .get("routing_key")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if max_routing_key_len.is_some_and(|limit| routing_key.len() > limit) {
+        return None;
+    }
+    let body = props
+        .get("payload")
+        .and_then(|value| value.as_str())
+        .and_then(crate::broker::hex_decode)
+        .unwrap_or_default();
+    let exchange = props
+        .get("exchange")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
+    Some(BrokerClaim {
+        node_id,
+        routing_key: routing_key.to_string(),
+        exchange,
+        body,
+    })
+}
+
+pub(crate) async fn claim_message(
+    state: &Arc<tokio::sync::RwLock<ServerState>>,
+    graph: &str,
+    actor: &str,
+    next_id: fn() -> u64,
+    queue: &str,
+    group: &str,
+    consumer: &str,
+    lease_ms: u64,
+    prefetch: u32,
+    max_bytes: usize,
+    max_items: usize,
+    max_identifier_len: Option<usize>,
+    max_routing_key_len: Option<usize>,
+) -> Option<BrokerClaim> {
+    let payload = engine_call(
+        state,
+        graph,
+        actor,
+        next_id,
+        Method::BrokerConsume {
+            queue: queue.to_string(),
+            group: group.to_string(),
+            consumer: consumer.to_string(),
+            now_ms: current_time_ms(),
+            lease_ms,
+            prefetch,
+        },
+    )
+    .await;
+    decode_claim(
+        payload,
+        max_bytes,
+        max_items,
+        max_identifier_len,
+        max_routing_key_len,
+    )
+}
+
 /// Dispatch one broker method with the adapter-supplied request sequence.
 ///
 /// Request ids remain owned by each wire protocol, while request construction and
@@ -176,38 +265,25 @@ impl<'a> ByteCursor<'a> {
     }
 
     pub(crate) fn u16(&mut self) -> u16 {
-        let Some(end) = self.i.checked_add(2).filter(|end| *end <= self.b.len()) else {
-            self.valid = false;
-            self.i = self.b.len();
-            return 0;
-        };
-        let x = u16::from_be_bytes([self.b[self.i], self.b[self.i + 1]]);
-        self.i = end;
-        x
+        u16::from_be_bytes(self.fixed())
     }
 
     pub(crate) fn u32(&mut self) -> u32 {
-        let Some(end) = self.i.checked_add(4).filter(|end| *end <= self.b.len()) else {
-            self.valid = false;
-            self.i = self.b.len();
-            return 0;
-        };
-        let mut a = [0u8; 4];
-        a.copy_from_slice(&self.b[self.i..end]);
-        self.i = end;
-        u32::from_be_bytes(a)
+        u32::from_be_bytes(self.fixed())
     }
 
     pub(crate) fn u64(&mut self) -> u64 {
-        let Some(end) = self.i.checked_add(8).filter(|end| *end <= self.b.len()) else {
-            self.valid = false;
-            self.i = self.b.len();
-            return 0;
-        };
-        let mut a = [0u8; 8];
-        a.copy_from_slice(&self.b[self.i..end]);
-        self.i = end;
-        u64::from_be_bytes(a)
+        u64::from_be_bytes(self.fixed())
+    }
+
+    fn fixed<const N: usize>(&mut self) -> [u8; N] {
+        let bytes = self.take(N);
+        if !self.valid {
+            return [0u8; N];
+        }
+        let mut out = [0u8; N];
+        out.copy_from_slice(bytes);
+        out
     }
 
     pub(crate) fn take(&mut self, n: usize) -> &'a [u8] {
