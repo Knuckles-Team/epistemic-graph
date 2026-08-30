@@ -29,10 +29,11 @@ pub(crate) fn register_broker_test_agent(
         agent_id: agent_id.into(),
         role: crate::isolation::AgentRole::Agent,
         teams: Vec::new(),
-        #[cfg(feature = "security")]
-        roles: vec!["commons-user".to_string()],
-        #[cfg(not(feature = "security"))]
-        roles: Vec::new(),
+        roles: if cfg!(feature = "security") {
+            vec!["commons-user".to_string()]
+        } else {
+            Vec::new()
+        },
     });
 }
 
@@ -48,19 +49,16 @@ pub(crate) async fn test_state_with_broker_agents(
     {
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
 
+        let graph = ResourceSelector::Graph("__commons__".to_string());
         isolation.add_role(Role::new("commons-user"));
-        isolation.add_grant(Grant {
-            role: "commons-user".to_string(),
-            resource: ResourceSelector::Graph("__commons__".to_string()),
-            action: RbacAction::Read,
-            effect: GrantEffect::Allow,
-        });
-        isolation.add_grant(Grant {
-            role: "commons-user".to_string(),
-            resource: ResourceSelector::Graph("__commons__".to_string()),
-            action: RbacAction::Write,
-            effect: GrantEffect::Allow,
-        });
+        for action in [RbacAction::Read, RbacAction::Write] {
+            isolation.add_grant(Grant {
+                role: "commons-user".to_string(),
+                resource: graph.clone(),
+                action,
+                effect: GrantEffect::Allow,
+            });
+        }
     }
     for principal in principals {
         let actor_ref = crate::server::pseudonymous_broker_actor("test", principal)
