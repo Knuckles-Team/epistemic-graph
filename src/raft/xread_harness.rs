@@ -21,18 +21,14 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+use super::harness::cluster::fixture;
 use super::multi::MultiRaft;
 use super::xread::{
     CompletionPolicy, CrossGraphReadErrorCode, CrossGraphReadRequest, CrossShardReader,
     ReadLegStatus, ReadPageErrorCode,
 };
 use super::{GroupId, RaftRequest};
-use crate::durability::DurabilityPolicy;
-use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
-use crate::server::persistence::redb_backend::RedbBackend;
-use crate::server::persistence::PersistenceBackend;
-use crate::server::ServerState;
 
 const GROUP_A: GroupId = 500;
 const GROUP_B: GroupId = 600;
@@ -40,24 +36,17 @@ const GRAPH_A: &str = "xreadShardA";
 const GRAPH_B: &str = "xreadShardB";
 const TENANT: &str = "xread-acme";
 
-fn fresh_dir(tag: &str) -> String {
-    let d = std::env::temp_dir().join(format!("eg-xread-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d.to_string_lossy().to_string()
-}
-
 /// Bring up a one-node, two-group cluster (the `xshard_harness`/`placement_harness`
 /// convention): `GROUP_A`/`GROUP_B` both on this node, each elected leader before the
 /// test writes through them.
 async fn bring_up(
     dir: &str,
-    backend: Arc<dyn PersistenceBackend>,
-) -> (Arc<MultiRaft>, Arc<RwLock<ServerState>>) {
-    super::harness_support::start_single_node_groups(
+    backend: fixture::Backend,
+) -> (Arc<MultiRaft>, Arc<RwLock<crate::server::ServerState>>) {
+    fixture::start_single_node_groups(
         dir,
         backend,
-        IsolationLayer::new(),
+        crate::isolation::IsolationLayer::new(),
         "xread-test",
         &[GROUP_A, GROUP_B, super::DEFAULT_GROUP],
     )
@@ -92,9 +81,8 @@ async fn put_node(multi: &Arc<MultiRaft>, gid: GroupId, graph: &str, node_id: &s
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_cross_shard_merges_rows_from_two_groups() {
-    let dir = fresh_dir("merge");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-xread", "merge");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
@@ -130,9 +118,8 @@ async fn read_cross_shard_merges_rows_from_two_groups() {
 /// single-group fast-path gate mirrors the write side's `GroupRouter::is_cross_shard`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_cross_shard_single_group_is_not_flagged_cross_shard() {
-    let dir = fresh_dir("single-group");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-xread", "single-group");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
@@ -162,9 +149,8 @@ async fn read_cross_shard_single_group_is_not_flagged_cross_shard() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
-    let dir = fresh_dir("catalog-routing");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-xread", "catalog-routing");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     // Pick two workspace sub-keys whose stable hashes fall on either side of a split
@@ -230,9 +216,8 @@ async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_cross_shard_errors_loudly_on_a_leg_whose_group_is_not_running_here() {
-    let dir = fresh_dir("unreachable");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-xread", "unreachable");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     multi.router().assign(GRAPH_A, GROUP_A);

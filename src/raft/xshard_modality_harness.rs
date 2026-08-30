@@ -67,11 +67,10 @@ use tokio::sync::RwLock;
 
 use super::cross_shard_txn::{CrossShardCoordinator, CrossShardTxn, GraphSlice, TxnOutcome};
 use super::multi::MultiRaft;
-use crate::durability::DurabilityPolicy;
 use crate::protocol::{GraphType, Method};
-use crate::server::persistence::redb_backend::RedbBackend;
-use crate::server::persistence::PersistenceBackend;
-use crate::server::ServerState;
+
+#[path = "harness/fixture.rs"]
+pub(crate) mod fixture;
 
 /// Group + graph names for the two modalities the cross-shard txn spans.
 const GROUP_A: u64 = 100;
@@ -85,48 +84,25 @@ const GRAPH_B: &str = "modalB";
 /// nodes, so `graph_node_count(modalB) > 0` iff the RDF modality landed.
 const MODAL_B_TURTLE: &str = "@prefix ex: <http://ex/> .\nex:s ex:p ex:o .\n";
 
-fn fresh_dir(tag: &str) -> String {
-    let d = std::env::temp_dir().join(format!("eg-xshard-modal-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d.to_string_lossy().to_string()
-}
-
-async fn wait_until<F, Fut>(timeout: Duration, mut pred: F) -> Result<(), ()>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = bool>,
-{
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if pred().await {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(120)).await;
-    }
-    Err(())
-}
-
 /// Bring up a one-node, two-group cluster over `dir`'s redb, with `modalA`→100 and
 /// `modalB`→200 assigned in the router, each group's single-node leader elected.
 async fn bring_up(
     dir: &str,
-    backend: Arc<dyn PersistenceBackend>,
+    backend: fixture::Backend,
 ) -> (
     Arc<MultiRaft>,
     CrossShardCoordinator,
-    Arc<RwLock<ServerState>>,
+    Arc<RwLock<crate::server::ServerState>>,
 ) {
-    let (multi, state) = super::harness_support::start_single_node_groups(
+    let (multi, state) = fixture::start_routed_groups(
         dir,
         backend.clone(),
         crate::isolation::IsolationLayer::new(),
         "test-xshard-modality-secret",
         &[GROUP_A, GROUP_B],
+        &[(GRAPH_A, GROUP_A), (GRAPH_B, GROUP_B)],
     )
     .await;
-    multi.router().assign(GRAPH_A, GROUP_A);
-    multi.router().assign(GRAPH_B, GROUP_B);
     let coord = CrossShardCoordinator::new(multi.clone(), backend);
     (multi, coord, state)
 }
@@ -134,12 +110,8 @@ async fn bring_up(
 /// Count nodes in a named graph on a state (the read-back probe for BOTH modalities:
 /// the property-graph node count for `modalA`, and the projected-triple node count for
 /// `modalB`).
-async fn graph_node_count(state: &Arc<RwLock<ServerState>>, graph: &str) -> usize {
-    let s = state.read().await;
-    s.registry
-        .get(graph)
-        .map(|e| e.core.node_count())
-        .unwrap_or(0)
+async fn graph_node_count(state: &Arc<RwLock<crate::server::ServerState>>, graph: &str) -> usize {
+    fixture::node_count(state, graph).await
 }
 
 /// A cross-shard txn spanning TWO modalities: a property-graph node into `modalA`
@@ -182,7 +154,7 @@ struct ModalityState {
 }
 
 impl ModalityState {
-    async fn read(state: &Arc<RwLock<ServerState>>) -> Self {
+    async fn read(state: &Arc<RwLock<crate::server::ServerState>>) -> Self {
         Self {
             a_present: graph_node_count(state, GRAPH_A).await > 0,
             b_present: graph_node_count(state, GRAPH_B).await > 0,
@@ -247,10 +219,8 @@ pub async fn prove_crossshard_modality_2pc_single_decision() -> Result<ProofRepo
 
 /// Scenario 1 — happy commit lands BOTH modalities atomically on BOTH groups.
 async fn scenario_happy() -> Result<bool, String> {
-    let dir = fresh_dir("happy");
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
-    );
+    let dir = fixture::fresh_dir("eg-xshard-modal", "happy");
+    let backend = fixture::open_backend(&dir)?;
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     let txn = modality_spanning_txn("t-modal-happy", "n1");
@@ -282,10 +252,8 @@ async fn scenario_happy() -> Result<bool, String> {
 /// Scenario 2 — a participant killed (group closed) before PREPARE cannot vote → the
 /// txn ABORTS and the LIVE participant applied NOTHING (no partial commit).
 async fn scenario_participant_kill() -> Result<bool, String> {
-    let dir = fresh_dir("killprep");
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
-    );
+    let dir = fixture::fresh_dir("eg-xshard-modal", "killprep");
+    let backend = fixture::open_backend(&dir)?;
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     // KILL the RDF participant (close group 200) — unreachable to prepare.
@@ -318,10 +286,8 @@ async fn scenario_participant_kill() -> Result<bool, String> {
 /// Scenario 3 — coordinator killed AFTER a COMMIT decision (before phase-2 apply):
 /// drop the node+backend, reopen, recover → COMMIT re-applies BOTH modalities.
 async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
-    let dir = fresh_dir("recovercommit");
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
-    );
+    let dir = fixture::fresh_dir("eg-xshard-modal", "recovercommit");
+    let backend = fixture::open_backend(&dir)?;
     let txn_id = "t-modal-recover-commit";
     {
         let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
@@ -345,9 +311,7 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
     drop(backend);
 
     // Process restart: reopen a brand-new backend over the SAME files.
-    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
-    );
+    let backend2 = fixture::open_backend(&dir)?;
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
 
     let resolved = coord2.recover_in_doubt().await?;
@@ -374,10 +338,8 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
 /// Scenario 4 — coordinator killed BEFORE any decision (presumed-abort): durable
 /// prepares, no decision; recovery resolves to ABORT → NEITHER modality lands.
 async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
-    let dir = fresh_dir("recoverabort");
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
-    );
+    let dir = fixture::fresh_dir("eg-xshard-modal", "recoverabort");
+    let backend = fixture::open_backend(&dir)?;
     let txn_id = "t-modal-recover-abort";
     {
         let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
@@ -406,9 +368,7 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
     backend.shutdown();
     drop(backend);
 
-    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
-    );
+    let backend2 = fixture::open_backend(&dir)?;
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
 
     let resolved = coord2.recover_in_doubt().await?;
@@ -446,10 +406,8 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
 /// window can be deterministically reproduced without needing to win an actual
 /// timing race.
 async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
-    let dir = fresh_dir("stalefence");
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
-    );
+    let dir = fixture::fresh_dir("eg-xshard-modal", "stalefence");
+    let backend = fixture::open_backend(&dir)?;
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     // Placement admin (`placement_assign`) commits through the DEFAULT group
@@ -461,7 +419,7 @@ async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
         .group(super::DEFAULT_GROUP)
         .await
         .ok_or("default placement group missing after ensure_group")?;
-    wait_until(Duration::from_secs(15), || {
+    fixture::wait_until(Duration::from_secs(15), || {
         let g = default_group.clone();
         async move { g.current_leader().await == Some(1u64) }
     })

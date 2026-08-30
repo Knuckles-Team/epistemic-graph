@@ -20,16 +20,12 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+use super::harness::cluster::fixture;
 use super::multi::MultiRaft;
 use super::placement::split_tenant_key;
 use super::reshard::TenantManager;
 use super::{GroupId, RaftRequest};
-use crate::durability::DurabilityPolicy;
-use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
-use crate::server::persistence::redb_backend::RedbBackend;
-use crate::server::persistence::PersistenceBackend;
-use crate::server::ServerState;
 
 const GROUP_A: GroupId = 300;
 const GROUP_B: GroupId = 400;
@@ -37,7 +33,7 @@ const TENANT: &str = "acme";
 const TEST_AGENT: &str = "unit-test-agent";
 const SECRET: &str = "placement-test";
 
-fn current_isolation() -> IsolationLayer {
+fn current_isolation() -> crate::isolation::IsolationLayer {
     super::harness_support::current_isolation(TEST_AGENT)
 }
 
@@ -54,21 +50,14 @@ fn current_request(id: u64, method: Method) -> crate::protocol::Request {
     )
 }
 
-fn fresh_dir(tag: &str) -> String {
-    let d = std::env::temp_dir().join(format!("eg-placement-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d.to_string_lossy().to_string()
-}
-
 /// Bring up a one-node, two-group cluster. `GROUP_A`/`GROUP_B` both live on the same
 /// node so a move between them is exercised without needing real multi-node
 /// membership (the same simplification `reshard_harness` uses).
 async fn bring_up(
     dir: &str,
-    backend: Arc<dyn PersistenceBackend>,
-) -> (Arc<MultiRaft>, Arc<RwLock<ServerState>>) {
-    super::harness_support::start_single_node_groups(
+    backend: fixture::Backend,
+) -> (Arc<MultiRaft>, Arc<RwLock<crate::server::ServerState>>) {
+    fixture::start_single_node_groups(
         dir,
         backend,
         current_isolation(),
@@ -108,20 +97,16 @@ async fn write_via_owner(multi: &Arc<MultiRaft>, graph: &str, node_id: &str) -> 
     routed.handle.client_write(req).await.map(|_| ())
 }
 
-async fn has_node(state: &Arc<RwLock<ServerState>>, graph: &str, node_id: &str) -> bool {
+async fn has_node(
+    state: &Arc<RwLock<crate::server::ServerState>>,
+    graph: &str,
+    node_id: &str,
+) -> bool {
     let s = state.read().await;
     s.registry
         .get(graph)
         .map(|e| e.core.has_node(node_id))
         .unwrap_or(false)
-}
-
-async fn node_count(state: &Arc<RwLock<ServerState>>, graph: &str) -> usize {
-    let s = state.read().await;
-    s.registry
-        .get(graph)
-        .map(|e| e.core.node_count())
-        .unwrap_or(0)
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -130,9 +115,8 @@ async fn node_count(state: &Arc<RwLock<ServerState>>, graph: &str) -> usize {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn assign_then_route_returns_new_group_and_epoch() {
-    let dir = fresh_dir("assign");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "assign");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     // Before assignment the engine still returns a complete authoritative route.
@@ -185,9 +169,8 @@ async fn assign_then_route_returns_new_group_and_epoch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stale_epoch_request_gets_redirected() {
-    let dir = fresh_dir("stale");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "stale");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
     let placement = multi.placement();
 
@@ -235,9 +218,8 @@ async fn catalog_persists_and_reloads_with_epoch() {
     // `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("persist");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "persist");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let epoch = {
         let (multi, _state) = bring_up(&dir, backend.clone()).await;
         let epoch = multi
@@ -253,8 +235,7 @@ async fn catalog_persists_and_reloads_with_epoch() {
     backend.shutdown();
     drop(backend);
 
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen"));
+    let backend2 = fixture::open_backend(&dir).expect("reopen");
     let (multi2, state2) = bring_up(&dir, backend2.clone()).await;
     backend2.load_all(&state2).await.expect("load_all");
 
@@ -275,9 +256,8 @@ async fn catalog_persists_and_reloads_with_epoch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn online_move_preserves_data_and_lands_new_epoch() {
-    let dir = fresh_dir("move");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "move");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 
@@ -296,7 +276,7 @@ async fn online_move_preserves_data_and_lands_new_epoch() {
             .await
             .unwrap();
     }
-    assert_eq!(node_count(&state, &graph).await, 6, "6 nodes on A");
+    assert_eq!(fixture::node_count(&state, &graph).await, 6, "6 nodes on A");
 
     // ── ONLINE MOVE A→B (snapshot → catch-up → fenced cutover) ──
     let report = tenants
@@ -331,7 +311,7 @@ async fn online_move_preserves_data_and_lands_new_epoch() {
         .await
         .expect("write via B");
     assert!(has_node(&state, &graph, "post0").await);
-    assert_eq!(node_count(&state, &graph).await, 7);
+    assert_eq!(fixture::node_count(&state, &graph).await, 7);
 
     multi.stop_listener();
     backend.shutdown();
@@ -340,9 +320,8 @@ async fn online_move_preserves_data_and_lands_new_epoch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pre_cutover_move_abort_restores_source_and_journals_terminal_state() {
-    let dir = fresh_dir("move-abort");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "move-abort");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
     let graph = format!("{TENANT}:abort");
@@ -388,9 +367,8 @@ async fn pre_cutover_move_abort_restores_source_and_journals_terminal_state() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn orphaned_moving_partition_fails_recovery_closed() {
-    let dir = fresh_dir("move-orphan");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "move-orphan");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
     let range = (0u64, u64::MAX);
     multi
@@ -418,9 +396,8 @@ async fn orphaned_moving_partition_fails_recovery_closed() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn abort_intent_behind_committed_cutover_reconciles_forward() {
-    let dir = fresh_dir("move-abort-fence-race");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "move-abort-fence-race");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
     let range = (0u64, u64::MAX);
@@ -473,9 +450,8 @@ async fn abort_intent_behind_committed_cutover_reconciles_forward() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn split_lets_one_tenant_span_two_groups() {
-    let dir = fresh_dir("split");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "split");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     // Pick two workspace sub-keys whose stable hashes fall on either side of a
@@ -548,9 +524,8 @@ async fn wire_placement_route_resolves_through_dispatch() {
     use crate::protocol::ResultPayload;
     use crate::server::dispatch;
 
-    let dir = fresh_dir("wire-route");
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let dir = fixture::fresh_dir("eg-placement", "wire-route");
+    let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     // `MultiRaft::start` installs the live catalog into ServerState through the
     // shared construction seam. Re-assert that binding here so the served
