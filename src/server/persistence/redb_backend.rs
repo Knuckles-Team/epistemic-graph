@@ -2680,21 +2680,55 @@ impl PersistenceBackend for RedbBackend {
             .map_err(|_| "redb writer dropped cross-modal MutationBatch completion".to_string())?
     }
 
-    async fn read_mutation_batch(
-        &self,
-        graph_fname: &str,
-        batch_id: &str,
-    ) -> Result<Option<MutationBatchRecord>, String> {
+    /// Run one typed MVCC read on Tokio's blocking pool. Redb snapshot reads
+    /// are independent of the writer channel, but opening a snapshot and
+    /// decoding rows are still synchronous work; keeping that shell here makes
+    /// every typed adapter off-reactor without hiding its reader-specific
+    /// arguments or return type. When a tenant catalog is attached, retain the
+    /// routing read guard from shard resolution through the snapshot so an
+    /// online reshard cannot flip and purge the selected shard while this read
+    /// is waiting for the blocking pool.
+    async fn read_snapshot<T, F>(&self, graph_fname: &str, read: F) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: for<'a> FnOnce(&'a Database, crate::redb_store::DurableCrypto<'a>) -> Result<T, String>
+            + Send
+            + 'static,
+    {
+        let routing_guard = if self.catalog.is_some() {
+            Some(self.routing_epoch.clone().read_owned().await)
+        } else {
+            None
+        };
         let shard = self.shard_for(graph_fname);
         let db = shard
             .db
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
         #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        read_mutation_batch_record(&db, batch_id, crypto)
+        let cipher = shard.cipher.clone();
+        tokio::task::spawn_blocking(move || {
+            let _routing_guard = routing_guard;
+            #[cfg(feature = "security")]
+            let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
+            #[cfg(not(feature = "security"))]
+            let crypto = crate::redb_store::DurableCrypto::none();
+            read(db.as_ref(), crypto)
+        })
+        .await
+        .map_err(|error| format!("redb snapshot read join error: {error}"))?
+    }
+
+    async fn read_mutation_batch(
+        &self,
+        graph_fname: &str,
+        batch_id: &str,
+    ) -> Result<Option<MutationBatchRecord>, String> {
+        let batch_id = batch_id.to_owned();
+        self.read_snapshot(graph_fname, move |db, crypto| {
+            read_mutation_batch_record(db, &batch_id, crypto)
+        })
+        .await
     }
 
     async fn read_mutation_graph_version(&self, graph_fname: &str) -> Result<Option<u64>, String> {
@@ -2711,16 +2745,11 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
         batch_id: &str,
     ) -> Result<Vec<MutationOutboxRecord>, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        read_mutation_outbox_records(&db, batch_id, crypto)
+        let batch_id = batch_id.to_owned();
+        self.read_snapshot(graph_fname, move |db, crypto| {
+            read_mutation_outbox_records(db, &batch_id, crypto)
+        })
+        .await
     }
 
     async fn claim_mutation_outbox(
@@ -2803,16 +2832,14 @@ impl PersistenceBackend for RedbBackend {
         projection: &str,
         tenant: &str,
     ) -> Result<Option<MutationProjectionCursor>, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        read_mutation_projection_cursor_record(&db, graph_fname, projection, tenant, crypto)
+        let graph_fname = graph_fname.to_owned();
+        let routing_graph = graph_fname.clone();
+        let projection = projection.to_owned();
+        let tenant = tenant.to_owned();
+        self.read_snapshot(&routing_graph, move |db, crypto| {
+            read_mutation_projection_cursor_record(db, &graph_fname, &projection, &tenant, crypto)
+        })
+        .await
     }
 
     async fn read_mutation_lifecycle_head(
@@ -2906,16 +2933,13 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
         envelope_id: &str,
     ) -> Result<Option<ChangeEnvelopeRecord>, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        read_change_envelope_record(&db, graph_fname, envelope_id, crypto)
+        let graph_fname = graph_fname.to_owned();
+        let routing_graph = graph_fname.clone();
+        let envelope_id = envelope_id.to_owned();
+        self.read_snapshot(&routing_graph, move |db, crypto| {
+            read_change_envelope_record(db, &graph_fname, &envelope_id, crypto)
+        })
+        .await
     }
 
     async fn read_content_version(
@@ -2924,16 +2948,14 @@ impl PersistenceBackend for RedbBackend {
         tenant: &str,
         object_id: &str,
     ) -> Result<Option<ContentVersion>, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        read_content_version_record(&db, tenant, graph_fname, object_id, crypto)
+        let graph_fname = graph_fname.to_owned();
+        let routing_graph = graph_fname.clone();
+        let tenant = tenant.to_owned();
+        let object_id = object_id.to_owned();
+        self.read_snapshot(&routing_graph, move |db, crypto| {
+            read_content_version_record(db, &tenant, &graph_fname, &object_id, crypto)
+        })
+        .await
     }
 
     async fn read_change_cursor(
@@ -2943,16 +2965,15 @@ impl PersistenceBackend for RedbBackend {
         source: &str,
         partition: &str,
     ) -> Result<Option<ChangeCursor>, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        read_change_cursor_record(&db, tenant, graph_fname, source, partition, crypto)
+        let graph_fname = graph_fname.to_owned();
+        let routing_graph = graph_fname.clone();
+        let tenant = tenant.to_owned();
+        let source = source.to_owned();
+        let partition = partition.to_owned();
+        self.read_snapshot(&routing_graph, move |db, crypto| {
+            read_change_cursor_record(db, &tenant, &graph_fname, &source, &partition, crypto)
+        })
+        .await
     }
 
     async fn read_resource_reservation(
@@ -2960,16 +2981,13 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
         request: &crate::epistemic_operations::ResourceReservationStatusRequest,
     ) -> Result<crate::epistemic_operations::ResourceReservationResult, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        read_resource_reservation_record(&db, graph_fname, request, crypto)
+        let graph_fname = graph_fname.to_owned();
+        let routing_graph = graph_fname.clone();
+        let request = request.clone();
+        self.read_snapshot(&routing_graph, move |db, crypto| {
+            read_resource_reservation_record(db, &graph_fname, &request, crypto)
+        })
+        .await
     }
 
     async fn read_resource_reservation_status(
@@ -2977,16 +2995,13 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
         request: &crate::epistemic_operations::ResourceReservationStatusRequest,
     ) -> Result<crate::epistemic_operations::ResourceReservationStatusResult, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        read_resource_reservation_status_record(&db, graph_fname, request, crypto)
+        let graph_fname = graph_fname.to_owned();
+        let routing_graph = graph_fname.clone();
+        let request = request.clone();
+        self.read_snapshot(&routing_graph, move |db, crypto| {
+            read_resource_reservation_status_record(db, &graph_fname, &request, crypto)
+        })
+        .await
     }
 
     /// Execute the narrow native WorkItem claim-capability mint operation on
