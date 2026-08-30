@@ -33,6 +33,21 @@ use eg_modality::{
 use crate::model::{JustRule, TimeAxis};
 use crate::BeliefState;
 
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "belief states are computed views, not persisted values — CDC would require explicit materialization of beliefs as a separate store operation",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the belief",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "provenance is computed live from evidence; a belief state itself has no independent derivation history to store",
+    ),
+];
+
 impl ModalityContract for BeliefState {
     fn storage_kind(&self) -> &'static str {
         "epistemic"
@@ -168,18 +183,7 @@ impl ModalityContract for BeliefState {
     /// CDC would require a materialized belief store (a separate step); policy is at
     /// the graph-node layer; provenance is computed live from evidence, not stored.
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "belief states are computed views, not persisted values — CDC would require explicit materialization of beliefs as a separate store operation",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the belief",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "provenance is computed live from evidence; a belief state itself has no independent derivation history to store",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, TCK_NOT_APPLICABLE_REASONS)
     }
 }
 

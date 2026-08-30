@@ -86,8 +86,8 @@ pub use artifact::{
 };
 pub use capability::{IngestReport, ModalitySelfTest, NativeProductionProbe, StorageStats};
 pub use contract::{
-    staged_batch_ingest_report, staged_recovery_selfcheck, ConformanceTestable, GovernedModality,
-    ModalityContract,
+    staged_batch_ingest_report, staged_recovery_selfcheck, tck_not_applicable_reason,
+    ConformanceTestable, GovernedModality, ModalityContract,
 };
 pub use delta_store::{
     export_all, verify_round_trip, ExportedRows, IndexMembership, MutationDelta,

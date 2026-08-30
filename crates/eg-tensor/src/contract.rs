@@ -12,6 +12,21 @@ use eg_modality::{
 
 use crate::tensor::{Buffer, Tensor};
 
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "content-addressed immutable CAS value — no in-place mutation to capture; delete/GC is a store-layer refcount concern, not a modality-value capability",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the tensor",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "a bare numeric N-D array has no derivation history and no located-evidence artifact; lineage, where it exists, is recorded by the producing plan operator",
+    ),
+];
+
 impl ModalityContract for Tensor {
     fn storage_kind(&self) -> &'static str {
         "tensor"
@@ -137,18 +152,7 @@ impl ModalityContract for Tensor {
     ///   recorded by the producing plan operator, not the value (matches the existing
     ///   `provenance()`/`evidence_address()` returning `None`).
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "content-addressed immutable CAS value — no in-place mutation to capture; delete/GC is a store-layer refcount concern, not a modality-value capability",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the tensor",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "a bare numeric N-D array has no derivation history and no located-evidence artifact; lineage, where it exists, is recorded by the producing plan operator",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, TCK_NOT_APPLICABLE_REASONS)
     }
 }
 

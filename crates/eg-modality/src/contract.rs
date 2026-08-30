@@ -104,6 +104,20 @@ where
     }
 }
 
+/// Resolve a modality's audited TCK N/A reason without duplicating the lookup.
+///
+/// Each modality keeps its own reason table beside its contract implementation so
+/// the applicability decision remains explicit and reviewable; this helper shares
+/// only the common point-to-reason lookup and preserves `None` for all other points.
+pub fn tck_not_applicable_reason(
+    point: TckPoint,
+    reasons: &[(TckPoint, &'static str)],
+) -> Option<&'static str> {
+    reasons
+        .iter()
+        .find_map(|entry| (entry.0 == point).then_some(entry.1))
+}
+
 /// The seam every `eg-*` modality value type can implement. See the module docs for
 /// the v1-scoping rationale (4 core + 4 default-empty methods).
 pub trait ModalityContract {

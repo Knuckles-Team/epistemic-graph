@@ -24,6 +24,36 @@ use eg_modality::{
 use crate::store::SeriesMeta;
 use crate::traces::Span;
 
+const SERIES_META_TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "CDC applies to series points, not metadata — the metadata container is immutable once created; point append/delete is CDC-observable separately",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the series",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "series metadata has no derivation history — it is either asserted at series creation or implicit in the ingest pipeline",
+    ),
+];
+
+const SPAN_TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "CDC is implicit in OTLP ingest; span observation is append-only and immutable at the trace-store level",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the span",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "a span's own trace_id/span_id/parent_span_id IS the lineage (already captured in the span itself)",
+    ),
+];
+
 impl ModalityContract for SeriesMeta {
     fn storage_kind(&self) -> &'static str {
         "tsdb"
@@ -124,18 +154,7 @@ impl ModalityContract for SeriesMeta {
     /// actual points appended under this metadata; policy is at the graph-node layer;
     /// provenance is either asserted or implicit in the ingest pipeline, not in the schema.
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "CDC applies to series points, not metadata — the metadata container is immutable once created; point append/delete is CDC-observable separately",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the series",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "series metadata has no derivation history — it is either asserted at series creation or implicit in the ingest pipeline",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, SERIES_META_TCK_NOT_APPLICABLE_REASONS)
     }
 }
 
@@ -237,18 +256,7 @@ impl ModalityContract for Span {
     /// OTLP ingest; policy is at the graph-node layer; provenance is the trace
     /// itself (already captured in trace_id/span_id/parent_span_id).
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "CDC is implicit in OTLP ingest; span observation is append-only and immutable at the trace-store level",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the span",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "a span's own trace_id/span_id/parent_span_id IS the lineage (already captured in the span itself)",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, SPAN_TCK_NOT_APPLICABLE_REASONS)
     }
 }
 
