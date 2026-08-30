@@ -1446,7 +1446,7 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
     return evidence
 
 
-def _write_evidence(path: Path, evidence: dict[str, object]) -> None:
+def _prepare_evidence_parent(path: Path) -> Path:
     if not path.is_absolute() or path.name in {"", ".", ".."}:
         _fail("invalid_evidence_path")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -1456,6 +1456,37 @@ def _write_evidence(path: Path, evidence: dict[str, object]) -> None:
         _fail("invalid_evidence_parent")
     if parent != path.parent.absolute() or not parent.is_dir():
         _fail("evidence_parent_must_not_use_symlinks")
+    return parent
+
+
+def _write_evidence_bytes(descriptor: int, body: bytes) -> None:
+    view = memoryview(body)
+    while view:
+        written = os.write(descriptor, view)
+        if written <= 0:
+            _fail("evidence_write_failed")
+        view = view[written:]
+
+
+def _cleanup_evidence_files(
+    parent_descriptor: int | None,
+    temporary_descriptor: int | None,
+    temporary: str,
+) -> None:
+    if temporary_descriptor is not None:
+        os.close(temporary_descriptor)
+    if parent_descriptor is not None:
+        try:
+            os.unlink(temporary, dir_fd=parent_descriptor)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+        os.close(parent_descriptor)
+
+
+def _write_evidence(path: Path, evidence: dict[str, object]) -> None:
+    parent = _prepare_evidence_parent(path)
     body = (
         json.dumps(evidence, sort_keys=True, indent=2, ensure_ascii=True).encode(
             "utf-8"
@@ -1468,10 +1499,7 @@ def _write_evidence(path: Path, evidence: dict[str, object]) -> None:
     try:
         parent_descriptor = os.open(
             parent,
-            os.O_RDONLY
-            | os.O_DIRECTORY
-            | os.O_CLOEXEC
-            | getattr(os, "O_NOFOLLOW", 0),
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
         )
         temporary_descriptor = os.open(
             temporary,
@@ -1483,12 +1511,7 @@ def _write_evidence(path: Path, evidence: dict[str, object]) -> None:
             0o600,
             dir_fd=parent_descriptor,
         )
-        view = memoryview(body)
-        while view:
-            written = os.write(temporary_descriptor, view)
-            if written <= 0:
-                _fail("evidence_write_failed")
-            view = view[written:]
+        _write_evidence_bytes(temporary_descriptor, body)
         os.fsync(temporary_descriptor)
         os.close(temporary_descriptor)
         temporary_descriptor = None
@@ -1511,16 +1534,7 @@ def _write_evidence(path: Path, evidence: dict[str, object]) -> None:
             _fail("evidence_destination_must_be_new")
         _fail("evidence_write_failed")
     finally:
-        if temporary_descriptor is not None:
-            os.close(temporary_descriptor)
-        if parent_descriptor is not None:
-            try:
-                os.unlink(temporary, dir_fd=parent_descriptor)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                pass
-            os.close(parent_descriptor)
+        _cleanup_evidence_files(parent_descriptor, temporary_descriptor, temporary)
 
 
 def _parser() -> argparse.ArgumentParser:
