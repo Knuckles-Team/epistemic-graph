@@ -24,6 +24,20 @@ pub(crate) fn open_backend(dir: &str) -> Result<Backend, String> {
         .map_err(|error| format!("open redb {dir}: {error}"))
 }
 
+/// Create a fresh authoritative backend for a named harness scenario.
+pub(crate) fn fresh_backend(prefix: &str, tag: &str) -> (String, Backend) {
+    let dir = fresh_dir(prefix, tag);
+    let backend = open_backend(&dir).expect("open redb");
+    (dir, backend)
+}
+
+/// Close an authoritative backend before reopening the same durable store.
+pub(crate) fn reopen_backend(backend: Backend, dir: &str) -> Result<Backend, String> {
+    backend.shutdown();
+    drop(backend);
+    open_backend(dir)
+}
+
 /// Open an authoritative test backend with an explicit shard count.
 pub(crate) fn open_backend_with_shards(
     dir: &str,
