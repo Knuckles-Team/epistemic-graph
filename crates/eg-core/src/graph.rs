@@ -5150,6 +5150,11 @@ impl GraphCore {
     /// Property keys to pre-seed into the index on first build
     /// (`EPISTEMIC_GRAPH_INDEXED_PROPERTIES`, comma-separated). Empty when unset.
     fn seed_indexed_properties() -> Vec<String> {
+        Self::indexed_properties_from_env()
+    }
+
+    /// Parse the shared property-index seed setting for GraphCore and query providers.
+    pub fn indexed_properties_from_env() -> Vec<String> {
         Self::seed_indexed_values("EPISTEMIC_GRAPH_INDEXED_PROPERTIES")
     }
 

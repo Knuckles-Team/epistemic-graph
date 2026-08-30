@@ -707,16 +707,7 @@ impl PushdownRegistry {
     }
 
     fn seed_columns() -> Vec<String> {
-        std::env::var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES")
-            .ok()
-            .map(|s| {
-                s.split(',')
-                    .map(str::trim)
-                    .filter(|k| !k.is_empty())
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
+        eg_core::graph::GraphCore::indexed_properties_from_env()
     }
 
     /// Canonical string form of an Arrow cell at `(col, row)`, or `None` for null /
