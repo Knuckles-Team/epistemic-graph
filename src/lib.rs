@@ -119,6 +119,11 @@ pub mod crypto;
 // server/socket/HMAC. Gated on `embedded` (→ `redb`); needs NO `server` feature.
 #[cfg(feature = "embedded")]
 pub mod embedded;
+// Shared test-only filesystem helpers. Keeping the process/epoch-nanos path
+// construction in one owner prevents unit-test modules from drifting while
+// preserving each caller's existing path prefix and cleanup contract.
+#[cfg(test)]
+pub(crate) mod test_support;
 #[cfg(feature = "server")]
 pub mod server;
 // Canonical durable mutation classification/application is shared by the socket,
