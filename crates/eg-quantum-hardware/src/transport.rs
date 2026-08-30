@@ -15,6 +15,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use crate::error::HardwareError;
+
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
     pub status: u16,
@@ -60,6 +62,85 @@ pub struct HttpRequest {
 
 pub trait HttpTransport: Send + Sync {
     fn send(&self, req: HttpRequest) -> Result<HttpResponse, TransportError>;
+}
+
+/// Provider-facing request boundary shared by every hardware adapter.
+///
+/// Adapters still build their provider-specific URLs, headers, and envelopes,
+/// but this boundary owns the transport-to-domain error mapping and accepted
+/// HTTP-status policy. Keeping that policy here means Azure, Braket, and IBM
+/// all report network failures and provider rejections consistently without
+/// each adapter carrying a private copy of the same lifecycle plumbing.
+pub(crate) struct ProviderHttp<'a, T: HttpTransport + ?Sized> {
+    transport: &'a T,
+    provider: &'static str,
+}
+
+impl<'a, T: HttpTransport + ?Sized> ProviderHttp<'a, T> {
+    pub(crate) fn new(transport: &'a T, provider: &'static str) -> Self {
+        ProviderHttp {
+            transport,
+            provider,
+        }
+    }
+
+    pub(crate) fn send(&self, req: HttpRequest) -> Result<HttpResponse, HardwareError> {
+        self.transport
+            .send(req)
+            .map_err(|source| HardwareError::Transport {
+                provider: self.provider,
+                source,
+            })
+    }
+
+    pub(crate) fn send_checked(
+        &self,
+        req: HttpRequest,
+        accepted_statuses: &[u16],
+    ) -> Result<HttpResponse, HardwareError> {
+        let response = self.send(req)?;
+        if accepted_statuses.contains(&response.status) {
+            return Ok(response);
+        }
+        Err(HardwareError::ProviderRejected {
+            provider: self.provider,
+            status: response.status,
+            body: response.body.to_string(),
+        })
+    }
+
+    pub(crate) fn oauth_token(
+        &self,
+        req: HttpRequest,
+        token_name: &str,
+    ) -> Result<String, HardwareError> {
+        let response = self.send_checked(req, &[200])?;
+        response
+            .body
+            .get("access_token")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                HardwareError::UnexpectedResponse(
+                    format!("{token_name} token response missing access_token"),
+                    None,
+                )
+            })
+    }
+}
+
+fn count_entry((key, value): (&String, &serde_json::Value)) -> Option<(String, u64)> {
+    value.as_u64().map(|count| (key.clone(), count))
+}
+
+pub(crate) fn object_counts(
+    body: &serde_json::Value,
+    field: &str,
+) -> std::collections::BTreeMap<String, u64> {
+    let Some(object) = body.get(field).and_then(serde_json::Value::as_object) else {
+        return std::collections::BTreeMap::new();
+    };
+    object.iter().filter_map(count_entry).collect()
 }
 
 /// Forwarding impl so an `Arc<MockTransport>` (or any other shared transport) is

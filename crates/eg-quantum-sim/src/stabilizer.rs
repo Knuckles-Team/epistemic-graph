@@ -63,118 +63,26 @@ impl Tableau {
         }
     }
 
-    fn h(&mut self, a: u32) {
-        let a = a as usize;
-        for i in 0..2 * self.n {
-            self.r[i] ^= self.x[i][a] && self.z[i][a];
-            std::mem::swap(&mut self.x[i][a], &mut self.z[i][a]);
-        }
-    }
-
-    fn s(&mut self, a: u32) {
-        let a = a as usize;
-        for i in 0..2 * self.n {
-            self.r[i] ^= self.x[i][a] && self.z[i][a];
-            self.z[i][a] ^= self.x[i][a];
-        }
-    }
-
-    fn sdg(&mut self, a: u32) {
-        // S^-1 == S^3 (S^4 == I); three applications is simple and unambiguously
-        // correct against the single `s` primitive above, no separate formula to
-        // get wrong.
-        self.s(a);
-        self.s(a);
-        self.s(a);
-    }
-
-    /// Pauli-X conjugation: flips the phase of every row whose Pauli at qubit `a`
-    /// anticommutes with X (i.e. has a Z component: Z or Y).
-    fn x_gate(&mut self, a: u32) {
-        let a = a as usize;
-        for i in 0..2 * self.n {
-            self.r[i] ^= self.z[i][a];
-        }
-    }
-
-    /// Pauli-Z conjugation: flips the phase of every row whose Pauli at qubit `a`
-    /// anticommutes with Z (i.e. has an X component: X or Y).
-    fn z_gate(&mut self, a: u32) {
-        let a = a as usize;
-        for i in 0..2 * self.n {
-            self.r[i] ^= self.x[i][a];
-        }
-    }
-
-    /// Pauli-Y conjugation: flips the phase of every row whose Pauli at qubit `a`
-    /// anticommutes with Y (i.e. is X or Z, but not I or Y itself) -- exactly the
-    /// rows where `x XOR z` is true.
-    fn y_gate(&mut self, a: u32) {
-        let a = a as usize;
-        for i in 0..2 * self.n {
-            self.r[i] ^= self.x[i][a] ^ self.z[i][a];
-        }
-    }
-
-    fn swap(&mut self, a: u32, b: u32) {
-        let (a, b) = (a as usize, b as usize);
-        for i in 0..2 * self.n {
-            self.x[i].swap(a, b);
-            self.z[i].swap(a, b);
-        }
-    }
-
-    /// CNOT: control `a`, target `b`. The standard Aaronson-Gottesman update rule.
-    fn cnot(&mut self, a: u32, b: u32) {
-        let (a, b) = (a as usize, b as usize);
-        for i in 0..2 * self.n {
-            let (xa, za, xb, zb) = (self.x[i][a], self.z[i][a], self.x[i][b], self.z[i][b]);
-            self.r[i] ^= xa && zb && (xb ^ za ^ true);
-            self.x[i][b] ^= xa;
-            self.z[i][a] ^= zb;
-        }
-    }
-
-    /// CZ(a,b) = H(b) . CNOT(a,b) . H(b) -- standard decomposition, symmetric in a/b.
-    fn cz(&mut self, a: u32, b: u32) {
-        self.h(b);
-        self.cnot(a, b);
-        self.h(b);
-    }
-
-    /// CY(a,b) = S(b) . CNOT(a,b) . S†(b), since `S X S† = Y` exactly (verified by
-    /// direct 2x2 matrix multiplication: S=diag(1,i), S X S† = [[0,-i],[i,0]] = Y).
-    fn cy(&mut self, a: u32, b: u32) {
-        self.sdg(b);
-        self.cnot(a, b);
-        self.s(b);
-    }
-
-    /// The `g` phase-exponent function from Aaronson-Gottesman Section III: for two
-    /// single-qubit Paulis `P1=(x1,z1)`, `P2=(x2,z2)`, `P1 . P2 = i^g(x1,z1,x2,z2) .
-    /// P(x1^x2, z1^z2)`. All four branches independently verified by hand against
-    /// the six nontrivial Pauli products (XY=iZ, YX=-iZ, YZ=iX, ZY=-iX, ZX=iY,
-    /// XZ=-iY) in this lane's own derivation notes.
-    fn g(x1: bool, z1: bool, x2: bool, z2: bool) -> i32 {
-        let (x2, z2) = (x2 as i32, z2 as i32);
-        if !x1 && !z1 {
-            0
-        } else if x1 && z1 {
-            z2 - x2
-        } else if x1 && !z1 {
-            z2 * (2 * x2 - 1)
-        } else {
-            // !x1 && z1
-            x2 * (1 - 2 * z2)
-        }
+    /// Borrow the tableau as a gate-domain object.
+    pub fn clifford(&mut self) -> CliffordEvolution<'_> {
+        CliffordEvolution { tableau: self }
     }
 
     /// `rowsum(h, i)`: row `h` becomes `row(h) * row(i)` (Pauli-string
-    /// multiplication, phases combined via [`Tableau::g`]).
+    /// multiplication, phases combined via [`PauliBits::phase_exponent`]).
     fn rowsum(&mut self, h: usize, i: usize) {
         let mut sum: i32 = 2 * (self.r[h] as i32) + 2 * (self.r[i] as i32);
         for j in 0..self.n {
-            sum += Self::g(self.x[i][j], self.z[i][j], self.x[h][j], self.z[h][j]);
+            sum += PauliBits::phase_exponent(
+                PauliBits {
+                    x: self.x[i][j],
+                    z: self.z[i][j],
+                },
+                PauliBits {
+                    x: self.x[h][j],
+                    z: self.z[h][j],
+                },
+            );
         }
         let sum_mod4 = sum.rem_euclid(4);
         debug_assert!(
@@ -267,7 +175,16 @@ impl Tableau {
     ) {
         let mut sum: i32 = 2 * (*scratch_r as i32) + 2 * (row_r as i32);
         for j in 0..n {
-            sum += Self::g(row_x[j], row_z[j], scratch_x[j], scratch_z[j]);
+            sum += PauliBits::phase_exponent(
+                PauliBits {
+                    x: row_x[j],
+                    z: row_z[j],
+                },
+                PauliBits {
+                    x: scratch_x[j],
+                    z: scratch_z[j],
+                },
+            );
         }
         let sum_mod4 = sum.rem_euclid(4);
         *scratch_r = sum_mod4 == 2;
@@ -275,6 +192,135 @@ impl Tableau {
             scratch_x[j] ^= row_x[j];
             scratch_z[j] ^= row_z[j];
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PauliBits {
+    x: bool,
+    z: bool,
+}
+
+impl PauliBits {
+    /// The `g` phase-exponent function from Aaronson-Gottesman Section III: for two
+    /// single-qubit Paulis `P1=(x1,z1)`, `P2=(x2,z2)`, `P1 . P2 = i^g .
+    /// P(x1^x2, z1^z2)`. All four branches independently verified by hand against
+    /// the six nontrivial Pauli products (XY=iZ, YX=-iZ, YZ=iX, ZY=-iX, ZX=iY,
+    /// XZ=-iY) in this lane's own derivation notes.
+    fn phase_exponent(left: Self, right: Self) -> i32 {
+        let (x2, z2) = (right.x as i32, right.z as i32);
+        if !left.x && !left.z {
+            0
+        } else if left.x && left.z {
+            z2 - x2
+        } else if left.x {
+            z2 * (2 * x2 - 1)
+        } else {
+            // !left.x && left.z
+            x2 * (1 - 2 * z2)
+        }
+    }
+}
+
+/// A scoped gate-domain view over one stabilizer tableau.
+///
+/// `CliffordEvolution` owns a mutable view for the duration of a gate sequence,
+/// so gate updates have an explicit state owner without exposing tableau storage.
+pub struct CliffordEvolution<'a> {
+    tableau: &'a mut Tableau,
+}
+
+impl<'a> CliffordEvolution<'a> {
+    pub fn h(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.x[i][a] && self.tableau.z[i][a];
+            std::mem::swap(&mut self.tableau.x[i][a], &mut self.tableau.z[i][a]);
+        }
+    }
+
+    pub fn s(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.x[i][a] && self.tableau.z[i][a];
+            self.tableau.z[i][a] ^= self.tableau.x[i][a];
+        }
+    }
+
+    pub fn sdg(&mut self, a: u32) {
+        // S^-1 == S^3 (S^4 == I); three applications is simple and unambiguously
+        // correct against the single `s` primitive above, no separate formula to
+        // get wrong.
+        self.s(a);
+        self.s(a);
+        self.s(a);
+    }
+
+    /// Pauli-X conjugation: flips the phase of every row whose Pauli at qubit `a`
+    /// anticommutes with X (i.e. has a Z component: Z or Y).
+    pub fn x_gate(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.z[i][a];
+        }
+    }
+
+    /// Pauli-Z conjugation: flips the phase of every row whose Pauli at qubit `a`
+    /// anticommutes with Z (i.e. has an X component: X or Y).
+    pub fn z_gate(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.x[i][a];
+        }
+    }
+
+    /// Pauli-Y conjugation: flips the phase of every row whose Pauli at qubit `a`
+    /// anticommutes with Y (i.e. is X or Z, but not I or Y itself) -- exactly the
+    /// rows where `x XOR z` is true.
+    pub fn y_gate(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.x[i][a] ^ self.tableau.z[i][a];
+        }
+    }
+
+    pub fn swap(&mut self, a: u32, b: u32) {
+        let (a, b) = (a as usize, b as usize);
+        for i in 0..2 * self.tableau.n {
+            self.tableau.x[i].swap(a, b);
+            self.tableau.z[i].swap(a, b);
+        }
+    }
+
+    /// CNOT: control `a`, target `b`. The standard Aaronson-Gottesman update rule.
+    pub fn cnot(&mut self, a: u32, b: u32) {
+        let (a, b) = (a as usize, b as usize);
+        for i in 0..2 * self.tableau.n {
+            let (xa, za, xb, zb) = (
+                self.tableau.x[i][a],
+                self.tableau.z[i][a],
+                self.tableau.x[i][b],
+                self.tableau.z[i][b],
+            );
+            self.tableau.r[i] ^= xa && zb && (xb ^ za ^ true);
+            self.tableau.x[i][b] ^= xa;
+            self.tableau.z[i][a] ^= zb;
+        }
+    }
+
+    /// CZ(a,b) = H(b) . CNOT(a,b) . H(b) -- standard decomposition, symmetric in a/b.
+    pub fn cz(&mut self, a: u32, b: u32) {
+        self.h(b);
+        self.cnot(a, b);
+        self.h(b);
+    }
+
+    /// CY(a,b) = S(b) . CNOT(a,b) . S†(b), since `S X S† = Y` exactly (verified by
+    /// direct 2x2 matrix multiplication: S=diag(1,i), S X S† = [[0,-i],[i,0]] = Y).
+    pub fn cy(&mut self, a: u32, b: u32) {
+        self.sdg(b);
+        self.cnot(a, b);
+        self.s(b);
     }
 }
 
@@ -292,21 +338,21 @@ fn apply_clifford_gate(
     }
     match (g.controls.as_slice(), &g.gate) {
         ([], GateKind::Id) => {}
-        ([], GateKind::X) => tab.x_gate(g.qubits[0]),
-        ([], GateKind::Y) => tab.y_gate(g.qubits[0]),
-        ([], GateKind::Z) => tab.z_gate(g.qubits[0]),
-        ([], GateKind::H) => tab.h(g.qubits[0]),
-        ([], GateKind::S) => tab.s(g.qubits[0]),
-        ([], GateKind::Sdg) => tab.sdg(g.qubits[0]),
-        ([], GateKind::Swap) => tab.swap(g.qubits[0], g.qubits[1]),
+        ([], GateKind::X) => tab.clifford().x_gate(g.qubits[0]),
+        ([], GateKind::Y) => tab.clifford().y_gate(g.qubits[0]),
+        ([], GateKind::Z) => tab.clifford().z_gate(g.qubits[0]),
+        ([], GateKind::H) => tab.clifford().h(g.qubits[0]),
+        ([], GateKind::S) => tab.clifford().s(g.qubits[0]),
+        ([], GateKind::Sdg) => tab.clifford().sdg(g.qubits[0]),
+        ([], GateKind::Swap) => tab.clifford().swap(g.qubits[0], g.qubits[1]),
         ([ControlQubit { qubit: ctrl, state }], GateKind::X) => {
-            apply_single_controlled(tab, *ctrl, *state, g.qubits[0], Tableau::cnot)
+            apply_single_controlled(tab, *ctrl, *state, g.qubits[0], ControlledOperation::Cnot)
         }
         ([ControlQubit { qubit: ctrl, state }], GateKind::Y) => {
-            apply_single_controlled(tab, *ctrl, *state, g.qubits[0], Tableau::cy)
+            apply_single_controlled(tab, *ctrl, *state, g.qubits[0], ControlledOperation::Cy)
         }
         ([ControlQubit { qubit: ctrl, state }], GateKind::Z) => {
-            apply_single_controlled(tab, *ctrl, *state, g.qubits[0], Tableau::cz)
+            apply_single_controlled(tab, *ctrl, *state, g.qubits[0], ControlledOperation::Cz)
         }
         // is_clifford() already rejected every other shape; unreachable in practice,
         // but fail loudly rather than silently no-op if the IR's Clifford
@@ -316,23 +362,35 @@ fn apply_clifford_gate(
     Ok(())
 }
 
-/// A negative control (`ControlState::Zero`) is X-conjugated on the control qubit
+#[derive(Clone, Copy)]
+enum ControlledOperation {
+    Cnot,
+    Cy,
+    Cz,
+}
+
+/// A negative control (ControlState::Zero) is X-conjugated on the control qubit
 /// before and after the positive-control primitive -- the standard trick (fire on
-/// `|0>` == fire an X-sandwiched version of the `|1>`-firing gate).
+/// |0> == fire an X-sandwiched version of the |1>-firing gate).
 fn apply_single_controlled(
     tab: &mut Tableau,
     ctrl: u32,
     state: ControlState,
     target: u32,
-    op: fn(&mut Tableau, u32, u32),
+    op: ControlledOperation,
 ) {
     let negate = matches!(state, ControlState::Zero);
+    let mut evolution = tab.clifford();
     if negate {
-        tab.x_gate(ctrl);
+        evolution.x_gate(ctrl);
     }
-    op(&mut *tab, ctrl, target);
+    match op {
+        ControlledOperation::Cnot => evolution.cnot(ctrl, target),
+        ControlledOperation::Cy => evolution.cy(ctrl, target),
+        ControlledOperation::Cz => evolution.cz(ctrl, target),
+    }
     if negate {
-        tab.x_gate(ctrl);
+        evolution.x_gate(ctrl);
     }
 }
 
@@ -371,7 +429,7 @@ pub fn evolve(
             Instruction::Reset { qubit } => {
                 let outcome = tab.measure(*qubit, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
                 if outcome {
-                    tab.x_gate(*qubit);
+                    tab.clifford().x_gate(*qubit);
                 }
             }
             Instruction::Barrier { .. } => {}
@@ -568,6 +626,12 @@ impl QuantumBackend for StabilizerSimulator {
 mod tableau_tests {
     use super::*;
 
+    fn measure_pair(tab: &mut Tableau, rng: &mut eg_numeric::random::Generator) -> (bool, bool) {
+        let first = tab.measure(0, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+        let second = tab.measure(1, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+        (first, second)
+    }
+
     #[test]
     fn bell_pair_measurement_is_perfectly_correlated() {
         // H(0); CNOT(0,1); measure both. Across many seeds, qubit0's outcome must
@@ -577,11 +641,12 @@ mod tableau_tests {
         let mut saw_11 = false;
         for seed in 0..64u64 {
             let mut tab = Tableau::zero_state(2);
-            tab.h(0);
-            tab.cnot(0, 1);
+            let mut evolution = tab.clifford();
+            evolution.h(0);
+            evolution.cnot(0, 1);
+            drop(evolution);
             let mut rng = eg_numeric::random::Generator::new(seed);
-            let o0 = tab.measure(0, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
-            let o1 = tab.measure(1, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+            let (o0, o1) = measure_pair(&mut tab, &mut rng);
             assert_eq!(o0, o1, "Bell pair outcomes diverged at seed {seed}");
             saw_00 |= !o0;
             saw_11 |= o0;
@@ -593,12 +658,13 @@ mod tableau_tests {
     fn ghz_three_qubit_all_outcomes_equal() {
         for seed in 0..32u64 {
             let mut tab = Tableau::zero_state(3);
-            tab.h(0);
-            tab.cnot(0, 1);
-            tab.cnot(0, 2);
+            let mut evolution = tab.clifford();
+            evolution.h(0);
+            evolution.cnot(0, 1);
+            evolution.cnot(0, 2);
+            drop(evolution);
             let mut rng = eg_numeric::random::Generator::new(seed);
-            let o0 = tab.measure(0, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
-            let o1 = tab.measure(1, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+            let (o0, o1) = measure_pair(&mut tab, &mut rng);
             let o2 = tab.measure(2, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
             assert_eq!(o0, o1);
             assert_eq!(o1, o2);
@@ -614,15 +680,19 @@ mod tableau_tests {
         // must return exactly to X_i/Z_i generators with r all false).
         let base = Tableau::zero_state(2);
         let mut tab = base.clone();
-        tab.cz(0, 1);
-        tab.cz(0, 1);
+        let mut evolution = tab.clifford();
+        evolution.cz(0, 1);
+        evolution.cz(0, 1);
+        drop(evolution);
         assert_eq!(tab.x, base.x);
         assert_eq!(tab.z, base.z);
         assert_eq!(tab.r, base.r);
 
         let mut tab2 = base.clone();
-        tab2.cy(0, 1);
-        tab2.cy(0, 1);
+        let mut evolution = tab2.clifford();
+        evolution.cy(0, 1);
+        evolution.cy(0, 1);
+        drop(evolution);
         assert_eq!(tab2.x, base.x);
         assert_eq!(tab2.z, base.z);
         assert_eq!(tab2.r, base.r);
@@ -632,10 +702,13 @@ mod tableau_tests {
     fn swap_then_swap_is_identity() {
         let base = Tableau::zero_state(2);
         let mut tab = base.clone();
-        tab.h(0); // break the symmetry so swap is actually observable
+        let mut evolution = tab.clifford();
+        evolution.h(0); // break the symmetry so swap is actually observable
+        drop(evolution);
         let after_h = tab.clone();
-        tab.swap(0, 1);
-        tab.swap(0, 1);
+        let mut evolution = tab.clifford();
+        evolution.swap(0, 1);
+        evolution.swap(0, 1);
         assert_eq!(tab.x, after_h.x);
         assert_eq!(tab.z, after_h.z);
         assert_eq!(tab.r, after_h.r);

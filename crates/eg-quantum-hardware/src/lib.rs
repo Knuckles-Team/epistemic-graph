@@ -58,6 +58,7 @@
 pub mod credentials;
 pub mod error;
 pub mod quota;
+pub(crate) mod registry;
 pub mod transport;
 
 #[cfg(feature = "sigv4")]
