@@ -115,10 +115,7 @@ impl ModalityContract for AudioData {
     }
 
     fn backup_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        match decode_staged::<AudioData>(&self.txn_stage(id)) {
-            Ok(restored) if restored == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// Simulated single-node crash-and-recover through txn staging path.
