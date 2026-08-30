@@ -24,6 +24,10 @@ use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "served-spatial-completeness-secret";
 
+fn state() -> test_support::SharedState {
+    test_support::durable_state(SECRET, common::current_isolation())
+}
+
 /// L37 — a served `SpatialScan` pushes down into the MAINTAINED persistent
 /// `GraphSpatialIndex`, NOT eg-plan's ephemeral per-query fallback.
 ///
