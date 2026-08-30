@@ -2153,13 +2153,34 @@ fn materialize_classifications(
     written
 }
 
+struct WritebackNodeId(String);
+
+impl WritebackNodeId {
+    fn new(prefix: &str, parts: &[&str]) -> Self {
+        use sha2::{Digest, Sha256};
+
+        let mut hasher = Sha256::new();
+        hasher.update(prefix.as_bytes());
+        hasher.update([0u8]);
+        for (index, part) in parts.iter().enumerate() {
+            if index > 0 {
+                hasher.update([0u8]);
+            }
+            hasher.update(part.as_bytes());
+        }
+        Self(format!(
+            "{prefix}:{}",
+            hex::encode(&hasher.finalize()[..12])
+        ))
+    }
+
+    fn into_string(self) -> String {
+        self.0
+    }
+}
+
 fn classification_node_id(source: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(b"classification");
-    hasher.update([0u8]);
-    hasher.update(source.as_bytes());
-    format!("classification:{}", hex::encode(&hasher.finalize()[..12]))
+    WritebackNodeId::new("classification", &[source]).into_string()
 }
 
 // ─────────────────────────── Dimensionality reduction ───────────────────────────
@@ -2320,12 +2341,7 @@ fn materialize_embeddings(core: &GraphCore, out: &reduce::Reduction, ids: &[Stri
 }
 
 fn embedding2d_node_id(source: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(b"embedding2d");
-    hasher.update([0u8]);
-    hasher.update(source.as_bytes());
-    format!("embedding2d:{}", hex::encode(&hasher.finalize()[..12]))
+    WritebackNodeId::new("embedding2d", &[source]).into_string()
 }
 
 // ─────────────────────────── Sequential-pattern mining ───────────────────────────
@@ -3828,12 +3844,7 @@ fn materialize_risk_scores(
 }
 
 fn risk_score_node_id(of: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(b"risk_score");
-    hasher.update([0u8]);
-    hasher.update(of.as_bytes());
-    format!("risk_score:{}", hex::encode(&hasher.finalize()[..12]))
+    WritebackNodeId::new("risk_score", &[of]).into_string()
 }
 
 /// Quality = the node's OWN propagated share, already `[0,1]` (mass-conserving).
@@ -4834,30 +4845,14 @@ fn generated_by_edge(core: &GraphCore, source: &str, target: &str) {
 /// the same finding re-points at the same claim (idempotent replay + corroboration).
 #[cfg(feature = "epistemic")]
 fn claim_node_id(family: &str, mined_node_id: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut h = Sha256::new();
-    h.update(b"claim");
-    h.update([0u8]);
-    h.update(family.as_bytes());
-    h.update([0u8]);
-    h.update(mined_node_id.as_bytes());
-    format!("claim:{}", hex::encode(&h.finalize()[..12]))
+    WritebackNodeId::new("claim", &[family, mined_node_id]).into_string()
 }
 
 /// Deterministic `:Evidence` node id — ALSO folds in `provenance`, so two runs over
 /// DIFFERENT provenance produce distinct evidence nodes that both support the same claim.
 #[cfg(feature = "epistemic")]
 fn evidence_node_id(family: &str, mined_node_id: &str, provenance: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut h = Sha256::new();
-    h.update(b"evidence");
-    h.update([0u8]);
-    h.update(family.as_bytes());
-    h.update([0u8]);
-    h.update(mined_node_id.as_bytes());
-    h.update([0u8]);
-    h.update(provenance.as_bytes());
-    format!("evidence:{}", hex::encode(&h.finalize()[..12]))
+    WritebackNodeId::new("evidence", &[family, mined_node_id, provenance]).into_string()
 }
 
 /// Deterministic `:Activity` node id (CONCEPT:EG-P3-1) — folds in `(family, provenance)`,
@@ -4865,14 +4860,7 @@ fn evidence_node_id(family: &str, mined_node_id: &str, provenance: &str) -> Stri
 /// (idempotent, mirrors `evidence_node_id`'s dedup-by-provenance).
 #[cfg(feature = "epistemic")]
 fn activity_node_id(family: &str, provenance: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut h = Sha256::new();
-    h.update(b"activity");
-    h.update([0u8]);
-    h.update(family.as_bytes());
-    h.update([0u8]);
-    h.update(provenance.as_bytes());
-    format!("activity:{}", hex::encode(&h.finalize()[..12]))
+    WritebackNodeId::new("activity", &[family, provenance]).into_string()
 }
 
 // ── Per-family claim passes (mirror each `materialize_*` node/id + quality score) ──
