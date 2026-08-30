@@ -253,13 +253,8 @@ fn sqlite_type_name(t: PgColType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dashmap::DashMap;
-    use tokio::sync::Semaphore;
 
-    use crate::channels::ChannelManager;
     use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
-    use crate::registry::GraphRegistry;
-    use crate::server::txn::TxnIdGen;
 
     /// A minimal `ServerState` with a pre-created `__commons__` graph (the registry
     /// creates it), mirroring `tests/pgwire_roundtrip.rs::state_with`. Feature-gated
@@ -278,61 +273,13 @@ mod tests {
             teams: Vec::new(),
             roles: Vec::new(),
         });
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: "test-sqlite-wire-secret".to_string(),
-            #[cfg(feature = "kv")]
-            kv: None,
-            persist_dir: Some(
-                crate::server::sql_tables::test_persist_dir()
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        let mut state = ServerState::new_for_test("test-sqlite-wire-secret", isolation);
+        state.persist_dir = Some(
+            crate::server::sql_tables::test_persist_dir()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        Arc::new(RwLock::new(state))
     }
 
     fn test_session(state: &Arc<RwLock<ServerState>>) -> WireSession {

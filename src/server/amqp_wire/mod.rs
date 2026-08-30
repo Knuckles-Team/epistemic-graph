@@ -46,7 +46,7 @@
 //! RPC surface (`Method::StreamRead`) or a future STOMP/native frame. A `basic.consume`
 //! here maps to the DESTRUCTIVE queue-claim path (EG-275/280), not a stream replay.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 
 use crate::protocol::{Method, ResultPayload};
 use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
@@ -83,7 +83,7 @@ const C_CONFIRM: u16 = 85;
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
 
 fn next_req_id() -> u64 {
-    REQ_ID.fetch_add(1, Ordering::Relaxed)
+    REQ_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Derive the SASL PLAIN password for an AMQP principal.
@@ -150,27 +150,14 @@ async fn claim_one(
         },
     )
     .await;
-    let ResultPayload::Raw(bytes) = payload else {
-        return None;
-    };
-    let claimed: Option<(String, serde_json::Value)> = decode_broker_result(&bytes)?;
-    let (id, props) = claimed?;
-    let rk = props
-        .get("routing_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let ex = props
-        .get("exchange")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let body = props
-        .get("payload")
-        .and_then(|v| v.as_str())
-        .and_then(crate::broker::hex_decode)
-        .unwrap_or_default();
-    Some((id, rk, ex, body))
+    let claim = broker_wire::decode_claim(
+        payload,
+        MAX_AMQP_CONTENT_BYTES,
+        MAX_BROKER_RESULT_ITEMS,
+        None,
+        None,
+    )?;
+    Some((claim.node_id, claim.routing_key, claim.exchange, claim.body))
 }
 
 // ── Per-connection state ────────────────────────────────────────────────

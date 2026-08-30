@@ -43,7 +43,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::protocol::{Method, ResultPayload};
+use crate::protocol::Method;
 use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
 use crate::server::broker_wire::{
     derive_password as derive_mqtt_password_impl, verify_password as verify_mqtt_password_impl,
@@ -74,10 +74,6 @@ const MAX_MQTT_IDENTIFIER_BYTES: usize = 4 * 1024;
 const MAX_MQTT_TOPIC_BYTES: usize = u16::MAX as usize;
 const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
 const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
-
-fn decode_broker_result<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
-    broker_wire::decode_broker_result(bytes, MAX_MQTT_PACKET_BYTES, MAX_BROKER_RESULT_ITEMS)
-}
 
 // ── MQTT control packet types (high nibble of byte 1) ─────────────────────
 const PKT_CONNECT: u8 = 1;
@@ -175,43 +171,23 @@ async fn claim_one(
     queue: &str,
     consumer: &str,
 ) -> Option<(String, String, Vec<u8>)> {
-    let payload = broker_wire::engine_call(
+    let claim = broker_wire::claim_message(
         state,
         graph,
         actor,
         next_req_id,
-        Method::BrokerConsume {
-            queue: queue.to_string(),
-            group: "mqtt".to_string(),
-            consumer: consumer.to_string(),
-            now_ms: broker_wire::current_time_ms(),
-            lease_ms: BROKER_LEASE_MS,
-            prefetch: 1,
-        },
+        queue,
+        "mqtt",
+        consumer,
+        BROKER_LEASE_MS,
+        1,
+        MAX_MQTT_PACKET_BYTES,
+        MAX_BROKER_RESULT_ITEMS,
+        Some(MAX_MQTT_IDENTIFIER_BYTES),
+        Some(MAX_MQTT_TOPIC_BYTES),
     )
-    .await;
-    let ResultPayload::Raw(bytes) = payload else {
-        return None;
-    };
-    let claimed: Option<(String, serde_json::Value)> = decode_broker_result(&bytes)?;
-    let (id, props) = claimed?;
-    if id.len() > MAX_MQTT_IDENTIFIER_BYTES {
-        return None;
-    }
-    let rk = props
-        .get("routing_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if rk.len() > MAX_MQTT_TOPIC_BYTES {
-        return None;
-    }
-    let rk = rk.to_string();
-    let body = props
-        .get("payload")
-        .and_then(|v| v.as_str())
-        .and_then(crate::broker::hex_decode)
-        .unwrap_or_default();
-    Some((id, rk, body))
+    .await?;
+    Some((claim.node_id, claim.routing_key, claim.body))
 }
 
 // ── Topic ↔ routing-key translation (CONCEPT:EG-KG.query.mqtt-packet-codec) ──────────────────────
@@ -1067,25 +1043,22 @@ trait MqttCursorExt<'a> {
 impl<'a> MqttCursorExt<'a> for Cursor<'a> {
     fn take_props(&mut self) -> &'a [u8] {
         let rem = &self.b[self.i.min(self.b.len())..];
-        if let Some((plen, consumed)) = decode_remaining_length(rem) {
-            let Some(start) = self.i.checked_add(consumed) else {
-                self.valid = false;
-                self.i = self.b.len();
-                return &[];
-            };
-            let Some(end) = start.checked_add(plen).filter(|end| *end <= self.b.len()) else {
-                self.valid = false;
-                self.i = self.b.len();
-                return &[];
-            };
-            let out = &self.b[start..end];
-            self.i = end;
-            out
-        } else {
+        let Some((plen, consumed)) = decode_remaining_length(rem) else {
             self.valid = false;
             self.i = self.b.len();
-            &[]
-        }
+            return &[];
+        };
+        let Some(start) = self
+            .i
+            .checked_add(consumed)
+            .filter(|start| *start <= self.b.len())
+        else {
+            self.valid = false;
+            self.i = self.b.len();
+            return &[];
+        };
+        self.i = start;
+        self.take(plen)
     }
 
     fn mqtt_str(&mut self) -> String {
@@ -1352,12 +1325,21 @@ mod tests {
     /// persistence backend — a durable `RedbBackend` is wired in under
     /// `feature = "redb"` (which `mqtt-wire` does not itself require, but the round
     /// trip needs to actually publish/deliver a message).
+    fn test_agent_identity(agent_id: String) -> crate::isolation::AgentIdentity {
+        crate::isolation::AgentIdentity {
+            agent_id,
+            role: crate::isolation::AgentRole::Agent,
+            teams: Vec::new(),
+            roles: if cfg!(feature = "security") {
+                vec!["commons-user".to_string()]
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
     async fn test_state() -> Arc<RwLock<ServerState>> {
-        use crate::channels::ChannelManager;
         use crate::isolation::IsolationLayer;
-        use crate::registry::GraphRegistry;
-        use dashmap::DashMap;
-        use tokio::sync::Semaphore;
         let mut isolation = IsolationLayer::new();
         #[cfg(feature = "security")]
         {
@@ -1384,15 +1366,7 @@ mod tests {
         for principal in ["subscriber", "publisher"] {
             let actor_ref = crate::server::pseudonymous_broker_actor("test", principal)
                 .expect("test principal pseudonymizes");
-            isolation.register_agent(crate::isolation::AgentIdentity {
-                agent_id: actor_ref,
-                role: crate::isolation::AgentRole::Agent,
-                teams: Vec::new(),
-                #[cfg(feature = "security")]
-                roles: vec!["commons-user".to_string()],
-                #[cfg(not(feature = "security"))]
-                roles: Vec::new(),
-            });
+            isolation.register_agent(test_agent_identity(actor_ref));
         }
         #[cfg(feature = "redb")]
         let (persist_dir, persistence) = {
@@ -1430,57 +1404,10 @@ mod tests {
             Option<String>,
             Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
         ) = (None, None);
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: "test".to_string(),
-            persist_dir,
-            persistence,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        let mut state = ServerState::new_for_test("test", isolation);
+        state.persist_dir = persist_dir;
+        state.persistence = persistence;
+        Arc::new(RwLock::new(state))
     }
 
     async fn spawn_listener() -> String {
