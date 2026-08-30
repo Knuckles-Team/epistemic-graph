@@ -277,6 +277,29 @@ struct Consumer {
     consumer_id: String,
 }
 
+/// Mutable protocol state and engine context for one AMQP connection.
+struct ConnectionState {
+    state: Arc<RwLock<ServerState>>,
+    graph: String,
+    auth_secret: String,
+    consumers: Vec<Consumer>,
+    authenticated_actor: Option<String>,
+    delivery_tag: u64,
+    // delivery-tag → (queue, graph node id) for native broker acknowledgement.
+    unacked: std::collections::HashMap<u64, (String, String)>,
+    // CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms: channels switched into confirm mode + their
+    // per-channel 1-based publish sequence (the delivery-tag returned in basic.ack/nack).
+    confirm_channels: std::collections::HashSet<u16>,
+    publish_seq: std::collections::HashMap<u16, u64>,
+}
+
+/// Whether the connection should continue or close after a frame.
+#[derive(PartialEq, Eq)]
+enum FrameAction {
+    Continue,
+    Close,
+}
+
 /// Hard per-frame allocation ceiling for untrusted AMQP size prefixes.
 const MAX_AMQP_FRAME_BYTES: usize = 64 * 1024 * 1024;
 /// A content body is assembled from multiple frames, so it needs an independent
@@ -312,357 +335,564 @@ async fn handle_connection(
     graph: String,
     auth_secret: String,
 ) -> std::io::Result<()> {
-    // ── Protocol header ──
+    if !read_protocol_header(socket).await? {
+        return Ok(());
+    }
+    write_frame(socket, FRAME_METHOD, 0, &build_connection_start()).await?;
+
+    let mut ctx = ConnectionState {
+        state,
+        graph,
+        auth_secret,
+        consumers: Vec::new(),
+        authenticated_actor: None,
+        delivery_tag: 0,
+        unacked: std::collections::HashMap::new(),
+        confirm_channels: std::collections::HashSet::new(),
+        publish_seq: std::collections::HashMap::new(),
+    };
+
+    loop {
+        let Some(frame) = read_next_frame(socket, &mut ctx).await? else {
+            break;
+        };
+        if handle_frame(socket, &mut ctx, frame).await? == FrameAction::Close {
+            break;
+        }
+    }
+    Ok(())
+}
+
+async fn read_protocol_header(socket: &mut TcpStream) -> std::io::Result<bool> {
     let mut hdr = [0u8; 8];
     socket.read_exact(&mut hdr).await?;
     if &hdr != b"AMQP\x00\x00\x09\x01" {
         // Tell the client the version we speak, then close.
         socket.write_all(b"AMQP\x00\x00\x09\x01").await?;
-        return Ok(());
+        return Ok(false);
     }
-    // ── connection.start ──
-    write_frame(socket, FRAME_METHOD, 0, &build_connection_start()).await?;
+    Ok(true)
+}
 
-    let mut consumers: Vec<Consumer> = Vec::new();
-    let mut authenticated_actor: Option<String> = None;
-    let mut delivery_tag: u64 = 0;
-    // delivery-tag → (queue, graph node id) for native broker acknowledgement.
-    let mut unacked: std::collections::HashMap<u64, (String, String)> =
-        std::collections::HashMap::new();
-    // CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms: channels switched into confirm mode + their
-    // per-channel 1-based publish sequence (the delivery-tag returned in basic.ack/nack).
-    let mut confirm_channels: std::collections::HashSet<u16> = std::collections::HashSet::new();
-    let mut publish_seq: std::collections::HashMap<u16, u64> = std::collections::HashMap::new();
-
+async fn read_next_frame(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+) -> std::io::Result<Option<Frame>> {
     loop {
-        // When consumers are active, bound the read so the poll pump can run; else
-        // block until the next client frame.
-        let frame = if consumers.is_empty() {
-            match read_frame(socket).await? {
-                Some(f) => f,
-                None => break, // clean EOF
-            }
-        } else {
-            match tokio::time::timeout(std::time::Duration::from_millis(200), read_frame(socket))
-                .await
-            {
-                Ok(Ok(Some(f))) => f,
-                Ok(Ok(None)) => break,
-                Ok(Err(e)) => return Err(e),
-                Err(_) => {
-                    let actor = authenticated_actor
-                        .as_deref()
-                        .ok_or_else(|| invalid_data("AMQP authentication required"))?;
-                    // Poll timeout: pump deliveries to every active consumer.
-                    pump_consumers(
-                        socket,
-                        &state,
-                        &graph,
-                        actor,
-                        &consumers,
-                        &mut delivery_tag,
-                        &mut unacked,
-                    )
-                    .await?;
-                    continue;
-                }
-            }
-        };
-
-        match frame.kind {
-            FRAME_HEARTBEAT => return Err(invalid_data("AMQP heartbeats are not negotiated")),
-            FRAME_METHOD => {}
-            _ => return Err(invalid_data("unsupported AMQP frame type")),
+        if ctx.consumers.is_empty() {
+            return read_frame(socket).await;
         }
-        let Some(mc) = parse_method(&frame.payload) else {
-            continue;
-        };
-        let ch = frame.channel;
-
-        if (mc.class, mc.method) == (C_CONNECTION, 11) {
-            if authenticated_actor.is_some() {
-                return Err(invalid_data("duplicate AMQP authentication"));
-            }
-            let actor = authenticate_start_ok(mc.args, &auth_secret)
-                .ok_or_else(|| invalid_data("AMQP authentication failed"))?;
-            authenticated_actor = Some(actor);
-            write_frame(socket, FRAME_METHOD, 0, &build_connection_tune()).await?;
-            continue;
-        }
-        let actor = authenticated_actor
-            .as_deref()
-            .ok_or_else(|| invalid_data("AMQP authentication required"))?;
-
-        match (mc.class, mc.method) {
-            // connection.tune-ok → (await open)
-            (C_CONNECTION, 31) => {}
-            // connection.open → open-ok
-            (C_CONNECTION, 40) => {
-                write_frame(socket, FRAME_METHOD, 0, &build_connection_open_ok()).await?;
-            }
-            // connection.close → close-ok, then done
-            (C_CONNECTION, 50) => {
-                write_frame(socket, FRAME_METHOD, 0, &method_header(C_CONNECTION, 51)).await?;
-                break;
-            }
-            (C_CONNECTION, 51) => break, // close-ok
-            // channel.open → open-ok
-            (C_CHANNEL, 10) => {
-                let mut p = method_header(C_CHANNEL, 11);
-                put_longstr(&mut p, b""); // reserved-1
-                write_frame(socket, FRAME_METHOD, ch, &p).await?;
-            }
-            // channel.close → close-ok
-            (C_CHANNEL, 40) => {
-                write_frame(socket, FRAME_METHOD, ch, &method_header(C_CHANNEL, 41)).await?;
-            }
-            (C_CHANNEL, 41) => {} // channel.close-ok
-            // exchange.declare
-            (C_EXCHANGE, 10) => {
-                let mut c = Cursor::new(mc.args);
-                c.u16(); // reserved-1
-                let exchange = c.shortstr();
-                let kind = c.shortstr();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP exchange.declare arguments"));
-                }
-                let kind = if kind.is_empty() {
-                    "direct".into()
-                } else {
-                    kind
-                };
-                let _ = engine_call(
-                    &state,
-                    &graph,
-                    actor,
-                    Method::DeclareExchange { exchange, kind },
+        match tokio::time::timeout(std::time::Duration::from_millis(200), read_frame(socket)).await
+        {
+            Ok(result) => return result,
+            Err(_) => {
+                let actor = authenticated_actor(ctx)?;
+                // Poll timeout: pump deliveries to every active consumer.
+                pump_consumers(
+                    socket,
+                    &ctx.state,
+                    &ctx.graph,
+                    &actor,
+                    &ctx.consumers,
+                    &mut ctx.delivery_tag,
+                    &mut ctx.unacked,
                 )
-                .await;
-                write_frame(socket, FRAME_METHOD, ch, &method_header(C_EXCHANGE, 11)).await?;
+                .await?;
             }
-            // exchange.delete
-            (C_EXCHANGE, 20) => {
-                let mut c = Cursor::new(mc.args);
-                c.u16();
-                let exchange = c.shortstr();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP exchange.delete arguments"));
-                }
-                let _ =
-                    engine_call(&state, &graph, actor, Method::DeleteExchange { exchange }).await;
-                write_frame(socket, FRAME_METHOD, ch, &method_header(C_EXCHANGE, 21)).await?;
-            }
-            // queue.declare
-            (C_QUEUE, 10) => {
-                let mut c = Cursor::new(mc.args);
-                c.u16();
-                let mut queue = c.shortstr();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP queue.declare arguments"));
-                }
-                if queue.is_empty() {
-                    queue = format!("amq.gen-{}", next_req_id());
-                }
-                // Ensure the queue's durable seq counter exists so it is publishable.
-                let _ = engine_call(
-                    &state,
-                    &graph,
-                    actor,
-                    Method::BindQueue {
-                        exchange: String::new(),
-                        queue: queue.clone(),
-                        routing_key: queue.clone(),
-                    },
-                )
-                .await;
-                let mut p = method_header(C_QUEUE, 11);
-                put_shortstr(&mut p, queue.as_bytes());
-                put_u32(&mut p, 0); // message-count
-                put_u32(&mut p, 0); // consumer-count
-                write_frame(socket, FRAME_METHOD, ch, &p).await?;
-            }
-            // queue.bind
-            (C_QUEUE, 20) => {
-                let mut c = Cursor::new(mc.args);
-                c.u16();
-                let queue = c.shortstr();
-                let exchange = c.shortstr();
-                let routing_key = c.shortstr();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP queue.bind arguments"));
-                }
-                let _ = engine_call(
-                    &state,
-                    &graph,
-                    actor,
-                    Method::BindQueue {
-                        exchange,
-                        queue,
-                        routing_key,
-                    },
-                )
-                .await;
-                write_frame(socket, FRAME_METHOD, ch, &method_header(C_QUEUE, 21)).await?;
-            }
-            // queue.unbind
-            (C_QUEUE, 50) => {
-                let mut c = Cursor::new(mc.args);
-                c.u16();
-                let queue = c.shortstr();
-                let exchange = c.shortstr();
-                let routing_key = c.shortstr();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP queue.unbind arguments"));
-                }
-                let _ = engine_call(
-                    &state,
-                    &graph,
-                    actor,
-                    Method::UnbindQueue {
-                        exchange,
-                        queue,
-                        routing_key,
-                    },
-                )
-                .await;
-                write_frame(socket, FRAME_METHOD, ch, &method_header(C_QUEUE, 51)).await?;
-            }
-            // confirm.select → confirm.select-ok (CONCEPT:EG-KG.ingest.broker-reject-publish): enter confirm mode.
-            (C_CONFIRM, 10) => {
-                let nowait = mc
-                    .args
-                    .first()
-                    .map(|b| b & 0x01 != 0)
-                    .ok_or_else(|| invalid_data("invalid AMQP confirm.select arguments"))?;
-                if !confirm_channels.contains(&ch) && confirm_channels.len() >= MAX_AMQP_CHANNELS {
-                    return Err(invalid_data("AMQP channel limit exceeded"));
-                }
-                confirm_channels.insert(ch);
-                publish_seq.entry(ch).or_insert(0);
-                if !nowait {
-                    write_frame(socket, FRAME_METHOD, ch, &method_header(C_CONFIRM, 11)).await?;
-                }
-            }
-            // basic.publish → read content header (+ idempotency headers) + body, then
-            // publish; in confirm mode answer basic.ack / basic.nack (CONCEPT:EG-KG.ingest.broker-reject-publish).
-            (C_BASIC, 40) => {
-                let mut c = Cursor::new(mc.args);
-                c.u16(); // reserved-1
-                let exchange = c.shortstr();
-                let routing_key = c.shortstr();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP basic.publish arguments"));
-                }
-                let (props, body) = read_content(socket, ch).await?;
-                // Route EVERY publish through the idempotent path — with no producer-id
-                // it is byte-identical to a plain publish; with one it dedups (EG-314).
-                let result = engine_call(
-                    &state,
-                    &graph,
-                    actor,
-                    Method::PublishIdempotent {
-                        exchange,
-                        routing_key,
-                        payload: body,
-                        producer_id: props.producer_id,
-                        seq: props.producer_seq.unwrap_or(0),
-                        priority: props.priority,
-                        delay_ms: None,
-                        ttl_ms: None,
-                        now_ms: None,
-                    },
-                )
-                .await;
-                if confirm_channels.contains(&ch) {
-                    let confirmed = decode_confirmed(&result);
-                    let tag = {
-                        let e = publish_seq.entry(ch).or_insert(0);
-                        *e = (*e)
-                            .checked_add(1)
-                            .ok_or_else(|| invalid_data("AMQP publish sequence exhausted"))?;
-                        *e
-                    };
-                    let frame = if confirmed {
-                        build_basic_ack(tag, false)
-                    } else {
-                        build_basic_nack(tag, false, false)
-                    };
-                    write_frame(socket, FRAME_METHOD, ch, &frame).await?;
-                }
-            }
-            // basic.consume → consume-ok, register subscription
-            (C_BASIC, 20) => {
-                if consumers.len() >= MAX_AMQP_CONSUMERS {
-                    return Err(invalid_data("AMQP consumer limit exceeded"));
-                }
-                let mut c = Cursor::new(mc.args);
-                c.u16();
-                let queue = c.shortstr();
-                let mut tag = c.shortstr();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP basic.consume arguments"));
-                }
-                if tag.is_empty() {
-                    tag = format!("ctag-{}", next_req_id());
-                }
-                let mut p = method_header(C_BASIC, 21);
-                put_shortstr(&mut p, tag.as_bytes());
-                write_frame(socket, FRAME_METHOD, ch, &p).await?;
-                consumers.push(Consumer {
-                    channel: ch,
-                    tag,
-                    queue,
-                    consumer_id: format!("{actor}:{}", next_req_id()),
-                });
-            }
-            // basic.get → get-ok + content, or get-empty
-            (C_BASIC, 70) => {
-                if unacked.len() >= MAX_AMQP_UNACKED {
-                    return Err(invalid_data("AMQP unacknowledged delivery limit exceeded"));
-                }
-                let mut c = Cursor::new(mc.args);
-                c.u16();
-                let queue = c.shortstr();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP basic.get arguments"));
-                }
-                match claim_one(&state, &graph, actor, &queue, actor, 1).await {
-                    Some((node_id, rk, ex, body)) => {
-                        delivery_tag = delivery_tag
-                            .checked_add(1)
-                            .ok_or_else(|| invalid_data("AMQP delivery sequence exhausted"))?;
-                        unacked.insert(delivery_tag, (queue, node_id));
-                        let mut p = method_header(C_BASIC, 71); // get-ok
-                        put_u64(&mut p, delivery_tag);
-                        p.push(0); // redelivered = false
-                        put_shortstr(&mut p, ex.as_bytes());
-                        put_shortstr(&mut p, rk.as_bytes());
-                        put_u32(&mut p, 0); // message-count
-                        write_frame(socket, FRAME_METHOD, ch, &p).await?;
-                        write_content(socket, ch, &body).await?;
-                    }
-                    None => {
-                        let mut p = method_header(C_BASIC, 72); // get-empty
-                        put_shortstr(&mut p, b""); // reserved
-                        write_frame(socket, FRAME_METHOD, ch, &p).await?;
-                    }
-                }
-            }
-            // basic.ack
-            (C_BASIC, 80) => {
-                let mut c = Cursor::new(mc.args);
-                let tag = c.u64();
-                if !c.valid {
-                    return Err(invalid_data("invalid AMQP basic.ack arguments"));
-                }
-                if let Some((queue, node_id)) = unacked.remove(&tag) {
-                    ack_message(&state, &graph, actor, &queue, &node_id).await;
-                }
-            }
-            _ => return Err(invalid_data("unsupported AMQP method")),
         }
     }
-    Ok(())
+}
+
+async fn handle_frame(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+    frame: Frame,
+) -> std::io::Result<FrameAction> {
+    validate_frame_kind(frame.kind)?;
+    let Some(call) = parse_method(&frame.payload) else {
+        return Ok(FrameAction::Continue);
+    };
+    if (call.class, call.method) == (C_CONNECTION, 11) {
+        authenticate_connection(socket, ctx, call.args).await?;
+        return Ok(FrameAction::Continue);
+    }
+    let actor = authenticated_actor(ctx)?;
+    dispatch_method(socket, ctx, frame.channel, &actor, &call).await
+}
+
+fn validate_frame_kind(kind: u8) -> std::io::Result<()> {
+    match kind {
+        FRAME_HEARTBEAT => Err(invalid_data("AMQP heartbeats are not negotiated")),
+        FRAME_METHOD => Ok(()),
+        _ => Err(invalid_data("unsupported AMQP frame type")),
+    }
+}
+
+fn authenticated_actor(protocol: &ConnectionState) -> std::io::Result<String> {
+    protocol
+        .authenticated_actor
+        .clone()
+        .ok_or_else(|| invalid_data("AMQP authentication required"))
+}
+
+async fn authenticate_connection(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+    args: &[u8],
+) -> std::io::Result<()> {
+    if ctx.authenticated_actor.is_some() {
+        return Err(invalid_data("duplicate AMQP authentication"));
+    }
+    let actor = authenticate_start_ok(args, &ctx.auth_secret)
+        .ok_or_else(|| invalid_data("AMQP authentication failed"))?;
+    ctx.authenticated_actor = Some(actor);
+    write_frame(socket, FRAME_METHOD, 0, &build_connection_tune()).await
+}
+
+async fn dispatch_method(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+    channel: u16,
+    actor: &str,
+    call: &MethodCall<'_>,
+) -> std::io::Result<FrameAction> {
+    match call.class {
+        C_CONNECTION => handle_connection_method(socket, call.method).await,
+        C_CHANNEL => handle_channel_method(socket, channel, call.method).await,
+        C_EXCHANGE => handle_exchange_method(socket, ctx, channel, actor, call).await,
+        C_QUEUE => handle_queue_method(socket, ctx, channel, actor, call).await,
+        C_CONFIRM => handle_confirm_method(socket, ctx, channel, call).await,
+        C_BASIC => handle_basic_method(socket, ctx, channel, actor, call).await,
+        _ => Err(invalid_data("unsupported AMQP method")),
+    }
+}
+
+async fn handle_connection_method(
+    socket: &mut TcpStream,
+    method: u16,
+) -> std::io::Result<FrameAction> {
+    match method {
+        31 => Ok(FrameAction::Continue), // connection.tune-ok → (await open)
+        40 => {
+            write_frame(socket, FRAME_METHOD, 0, &build_connection_open_ok()).await?;
+            Ok(FrameAction::Continue)
+        }
+        50 => {
+            write_frame(socket, FRAME_METHOD, 0, &method_header(C_CONNECTION, 51)).await?;
+            Ok(FrameAction::Close)
+        }
+        51 => Ok(FrameAction::Close), // connection.close-ok
+        _ => Err(invalid_data("unsupported AMQP method")),
+    }
+}
+
+async fn handle_channel_method(
+    socket: &mut TcpStream,
+    channel: u16,
+    method: u16,
+) -> std::io::Result<FrameAction> {
+    match method {
+        10 => {
+            let mut p = method_header(C_CHANNEL, 11);
+            put_longstr(&mut p, b""); // reserved-1
+            write_frame(socket, FRAME_METHOD, channel, &p).await?;
+        }
+        40 => {
+            write_frame(socket, FRAME_METHOD, channel, &method_header(C_CHANNEL, 41)).await?;
+        }
+        41 => {} // channel.close-ok
+        _ => return Err(invalid_data("unsupported AMQP method")),
+    }
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_exchange_method(
+    socket: &mut TcpStream,
+    ctx: &ConnectionState,
+    channel: u16,
+    actor: &str,
+    call: &MethodCall<'_>,
+) -> std::io::Result<FrameAction> {
+    match call.method {
+        10 => handle_exchange_declare(socket, ctx, channel, actor, call.args).await,
+        20 => handle_exchange_delete(socket, ctx, channel, actor, call.args).await,
+        _ => Err(invalid_data("unsupported AMQP method")),
+    }
+}
+
+async fn handle_exchange_declare(
+    socket: &mut TcpStream,
+    ctx: &ConnectionState,
+    channel: u16,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    let mut c = Cursor::new(args);
+    c.u16(); // reserved-1
+    let exchange = c.shortstr();
+    let kind = c.shortstr();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP exchange.declare arguments"));
+    }
+    let kind = if kind.is_empty() {
+        "direct".into()
+    } else {
+        kind
+    };
+    let _ = engine_call(
+        &ctx.state,
+        &ctx.graph,
+        actor,
+        Method::DeclareExchange { exchange, kind },
+    )
+    .await;
+    write_frame(
+        socket,
+        FRAME_METHOD,
+        channel,
+        &method_header(C_EXCHANGE, 11),
+    )
+    .await?;
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_exchange_delete(
+    socket: &mut TcpStream,
+    ctx: &ConnectionState,
+    channel: u16,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    let mut c = Cursor::new(args);
+    c.u16();
+    let exchange = c.shortstr();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP exchange.delete arguments"));
+    }
+    let _ = engine_call(
+        &ctx.state,
+        &ctx.graph,
+        actor,
+        Method::DeleteExchange { exchange },
+    )
+    .await;
+    write_frame(
+        socket,
+        FRAME_METHOD,
+        channel,
+        &method_header(C_EXCHANGE, 21),
+    )
+    .await?;
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_queue_method(
+    socket: &mut TcpStream,
+    ctx: &ConnectionState,
+    channel: u16,
+    actor: &str,
+    call: &MethodCall<'_>,
+) -> std::io::Result<FrameAction> {
+    match call.method {
+        10 => handle_queue_declare(socket, ctx, channel, actor, call.args).await,
+        20 => handle_queue_bind(socket, ctx, channel, actor, call.args).await,
+        50 => handle_queue_unbind(socket, ctx, channel, actor, call.args).await,
+        _ => Err(invalid_data("unsupported AMQP method")),
+    }
+}
+
+async fn handle_queue_declare(
+    socket: &mut TcpStream,
+    ctx: &ConnectionState,
+    channel: u16,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    let mut c = Cursor::new(args);
+    c.u16();
+    let mut queue = c.shortstr();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP queue.declare arguments"));
+    }
+    if queue.is_empty() {
+        queue = format!("amq.gen-{}", next_req_id());
+    }
+    // Ensure the queue's durable seq counter exists so it is publishable.
+    let _ = engine_call(
+        &ctx.state,
+        &ctx.graph,
+        actor,
+        Method::BindQueue {
+            exchange: String::new(),
+            queue: queue.clone(),
+            routing_key: queue.clone(),
+        },
+    )
+    .await;
+    let mut p = method_header(C_QUEUE, 11);
+    put_shortstr(&mut p, queue.as_bytes());
+    put_u32(&mut p, 0); // message-count
+    put_u32(&mut p, 0); // consumer-count
+    write_frame(socket, FRAME_METHOD, channel, &p).await?;
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_queue_bind(
+    socket: &mut TcpStream,
+    ctx: &ConnectionState,
+    channel: u16,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    let mut c = Cursor::new(args);
+    c.u16();
+    let queue = c.shortstr();
+    let exchange = c.shortstr();
+    let routing_key = c.shortstr();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP queue.bind arguments"));
+    }
+    let _ = engine_call(
+        &ctx.state,
+        &ctx.graph,
+        actor,
+        Method::BindQueue {
+            exchange,
+            queue,
+            routing_key,
+        },
+    )
+    .await;
+    write_frame(socket, FRAME_METHOD, channel, &method_header(C_QUEUE, 21)).await?;
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_queue_unbind(
+    socket: &mut TcpStream,
+    ctx: &ConnectionState,
+    channel: u16,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    let mut c = Cursor::new(args);
+    c.u16();
+    let queue = c.shortstr();
+    let exchange = c.shortstr();
+    let routing_key = c.shortstr();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP queue.unbind arguments"));
+    }
+    let _ = engine_call(
+        &ctx.state,
+        &ctx.graph,
+        actor,
+        Method::UnbindQueue {
+            exchange,
+            queue,
+            routing_key,
+        },
+    )
+    .await;
+    write_frame(socket, FRAME_METHOD, channel, &method_header(C_QUEUE, 51)).await?;
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_confirm_method(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+    channel: u16,
+    call: &MethodCall<'_>,
+) -> std::io::Result<FrameAction> {
+    if call.method != 10 {
+        return Err(invalid_data("unsupported AMQP method"));
+    }
+    let nowait = call
+        .args
+        .first()
+        .map(|b| b & 0x01 != 0)
+        .ok_or_else(|| invalid_data("invalid AMQP confirm.select arguments"))?;
+    if !ctx.confirm_channels.contains(&channel) && ctx.confirm_channels.len() >= MAX_AMQP_CHANNELS {
+        return Err(invalid_data("AMQP channel limit exceeded"));
+    }
+    ctx.confirm_channels.insert(channel);
+    ctx.publish_seq.entry(channel).or_insert(0);
+    if !nowait {
+        write_frame(socket, FRAME_METHOD, channel, &method_header(C_CONFIRM, 11)).await?;
+    }
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_basic_method(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+    channel: u16,
+    actor: &str,
+    call: &MethodCall<'_>,
+) -> std::io::Result<FrameAction> {
+    match call.method {
+        20 => handle_basic_consume(socket, ctx, channel, actor, call.args).await,
+        40 => handle_basic_publish(socket, ctx, channel, actor, call.args).await,
+        70 => handle_basic_get(socket, ctx, channel, actor, call.args).await,
+        80 => handle_basic_ack(ctx, actor, call.args).await,
+        _ => Err(invalid_data("unsupported AMQP method")),
+    }
+}
+
+async fn handle_basic_publish(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+    channel: u16,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    let mut c = Cursor::new(args);
+    c.u16(); // reserved-1
+    let exchange = c.shortstr();
+    let routing_key = c.shortstr();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP basic.publish arguments"));
+    }
+    let (props, body) = read_content(socket, channel).await?;
+    // Route EVERY publish through the idempotent path — with no producer-id
+    // it is byte-identical to a plain publish; with one it dedups (EG-314).
+    let result = engine_call(
+        &ctx.state,
+        &ctx.graph,
+        actor,
+        Method::PublishIdempotent {
+            exchange,
+            routing_key,
+            payload: body,
+            producer_id: props.producer_id,
+            seq: props.producer_seq.unwrap_or(0),
+            priority: props.priority,
+            delay_ms: None,
+            ttl_ms: None,
+            now_ms: None,
+        },
+    )
+    .await;
+    if ctx.confirm_channels.contains(&channel) {
+        write_publish_confirmation(socket, ctx, channel, &result).await?;
+    }
+    Ok(FrameAction::Continue)
+}
+
+async fn write_publish_confirmation(
+    socket: &mut TcpStream,
+    protocol: &mut ConnectionState,
+    channel: u16,
+    result: &ResultPayload,
+) -> std::io::Result<()> {
+    let confirmed = decode_confirmed(result);
+    let tag = next_publish_sequence(protocol, channel)?;
+    let frame = if confirmed {
+        build_basic_ack(tag, false)
+    } else {
+        build_basic_nack(tag, false, false)
+    };
+    write_frame(socket, FRAME_METHOD, channel, &frame).await
+}
+
+fn next_publish_sequence(protocol: &mut ConnectionState, channel: u16) -> std::io::Result<u64> {
+    let entry = protocol.publish_seq.entry(channel).or_insert(0);
+    *entry = (*entry)
+        .checked_add(1)
+        .ok_or_else(|| invalid_data("AMQP publish sequence exhausted"))?;
+    Ok(*entry)
+}
+
+async fn handle_basic_consume(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+    channel: u16,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    if ctx.consumers.len() >= MAX_AMQP_CONSUMERS {
+        return Err(invalid_data("AMQP consumer limit exceeded"));
+    }
+    let mut c = Cursor::new(args);
+    c.u16();
+    let queue = c.shortstr();
+    let mut tag = c.shortstr();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP basic.consume arguments"));
+    }
+    if tag.is_empty() {
+        tag = format!("ctag-{}", next_req_id());
+    }
+    let mut p = method_header(C_BASIC, 21);
+    put_shortstr(&mut p, tag.as_bytes());
+    write_frame(socket, FRAME_METHOD, channel, &p).await?;
+    ctx.consumers.push(Consumer {
+        channel,
+        tag,
+        queue,
+        consumer_id: format!("{actor}:{}", next_req_id()),
+    });
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_basic_get(
+    socket: &mut TcpStream,
+    ctx: &mut ConnectionState,
+    channel: u16,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    if ctx.unacked.len() >= MAX_AMQP_UNACKED {
+        return Err(invalid_data("AMQP unacknowledged delivery limit exceeded"));
+    }
+    let mut c = Cursor::new(args);
+    c.u16();
+    let queue = c.shortstr();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP basic.get arguments"));
+    }
+    match claim_one(&ctx.state, &ctx.graph, actor, &queue, actor, 1).await {
+        Some((node_id, rk, ex, body)) => {
+            let tag = next_delivery_tag(&mut ctx.delivery_tag)?;
+            ctx.unacked.insert(tag, (queue, node_id));
+            let mut p = method_header(C_BASIC, 71); // get-ok
+            put_u64(&mut p, tag);
+            p.push(0); // redelivered = false
+            put_shortstr(&mut p, ex.as_bytes());
+            put_shortstr(&mut p, rk.as_bytes());
+            put_u32(&mut p, 0); // message-count
+            write_frame(socket, FRAME_METHOD, channel, &p).await?;
+            write_content(socket, channel, &body).await?;
+        }
+        None => {
+            let mut p = method_header(C_BASIC, 72); // get-empty
+            put_shortstr(&mut p, b""); // reserved
+            write_frame(socket, FRAME_METHOD, channel, &p).await?;
+        }
+    }
+    Ok(FrameAction::Continue)
+}
+
+fn next_delivery_tag(delivery_tag: &mut u64) -> std::io::Result<u64> {
+    *delivery_tag = (*delivery_tag)
+        .checked_add(1)
+        .ok_or_else(|| invalid_data("AMQP delivery sequence exhausted"))?;
+    Ok(*delivery_tag)
+}
+
+async fn handle_basic_ack(
+    ctx: &mut ConnectionState,
+    actor: &str,
+    args: &[u8],
+) -> std::io::Result<FrameAction> {
+    let mut c = Cursor::new(args);
+    let tag = c.u64();
+    if !c.valid {
+        return Err(invalid_data("invalid AMQP basic.ack arguments"));
+    }
+    if let Some((queue, node_id)) = ctx.unacked.remove(&tag) {
+        ack_message(&ctx.state, &ctx.graph, actor, &queue, &node_id).await;
+    }
+    Ok(FrameAction::Continue)
 }
 
 /// Deliver up to a bounded batch of pending messages to each active consumer.
@@ -693,13 +923,11 @@ async fn pump_consumers(
             else {
                 break;
             };
-            *delivery_tag = (*delivery_tag)
-                .checked_add(1)
-                .ok_or_else(|| invalid_data("AMQP delivery sequence exhausted"))?;
-            unacked.insert(*delivery_tag, (cons.queue.clone(), node_id));
+            let tag = next_delivery_tag(delivery_tag)?;
+            unacked.insert(tag, (cons.queue.clone(), node_id));
             let mut p = method_header(C_BASIC, 60); // basic.deliver
             put_shortstr(&mut p, cons.tag.as_bytes());
-            put_u64(&mut p, *delivery_tag);
+            put_u64(&mut p, tag);
             p.push(0); // redelivered = false
             put_shortstr(&mut p, ex.as_bytes());
             put_shortstr(&mut p, rk.as_bytes());
