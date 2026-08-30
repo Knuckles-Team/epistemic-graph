@@ -934,7 +934,79 @@ pub fn compute_verified_envelope_token(
 }
 
 #[cfg(test)]
-pub(crate) fn sign_current_test_request(secret: &str, mut request: Request) -> Request {
+pub(crate) fn sign_current_test_request(secret: &str, request: Request) -> Request {
+    sign_test_request_with_context(secret, request, "tenant-shared", vec!["test".to_string()])
+}
+
+/// Sign a request with the same fixed test policy as [`sign_current_test_request`],
+/// but preserve an explicitly supplied tenant and the empty role claim used by
+/// the older dispatch fixtures. This keeps tenant-boundary tests able to mint a
+/// deliberately foreign context without duplicating the envelope builder.
+#[cfg(test)]
+pub(crate) fn sign_current_test_request_in_tenant(
+    secret: &str,
+    tenant: &str,
+    request: Request,
+) -> Request {
+    sign_test_request_with_context(secret, request, tenant, Vec::new())
+}
+
+/// Build and sign the standard request shape used by dispatch fixtures while
+/// leaving the request's identity, tenant, graph, and method explicit at the
+/// call site. The envelope details remain centralized in
+/// [`sign_current_test_request_in_tenant`].
+#[cfg(test)]
+pub(crate) fn build_current_test_request(
+    secret: &str,
+    tenant: &str,
+    id: u64,
+    graph: &str,
+    agent_id: &str,
+    method: Method,
+) -> Request {
+    sign_current_test_request_in_tenant(
+        secret,
+        tenant,
+        Request {
+            id,
+            graph: graph.to_string(),
+            auth_token: String::new(),
+            agent_id: Some(agent_id.to_string()),
+            method,
+        },
+    )
+}
+
+/// Build the common-tenant form used by the ordinary dispatch fixtures.
+#[cfg(test)]
+pub(crate) fn build_shared_test_request(
+    secret: &str,
+    id: u64,
+    graph: &str,
+    agent_id: &str,
+    method: Method,
+) -> Request {
+    build_current_test_request(secret, "tenant-shared", id, graph, agent_id, method)
+}
+
+/// Keep direct test dispatches behind the same heap boundary as transport tasks.
+/// The full method router produces a large future, so callers must not embed it
+/// in another test future before polling.
+#[cfg(test)]
+pub(crate) fn dispatch_test_on_heap<'a>(
+    state: &'a std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
+    request: Request,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>> {
+    Box::pin(crate::server::dispatch(state, request))
+}
+
+#[cfg(test)]
+fn sign_test_request_with_context(
+    secret: &str,
+    mut request: Request,
+    tenant: &str,
+    roles: Vec<String>,
+) -> Request {
     const TEST_OPERATION_SIGNER_KEY: &str = "rust-unit-operation-signer-key";
     static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let agent_id = request.agent_id.as_deref().unwrap_or("system").to_string();
@@ -951,10 +1023,10 @@ pub(crate) fn sign_current_test_request(secret: &str, mut request: Request) -> R
     );
     let context = RequestContextClaims {
         principal: agent_id.clone(),
-        tenant: "tenant-shared".to_string(),
+        tenant: tenant.to_string(),
         audience: "epistemic-graph-test".to_string(),
         agent_id,
-        roles: vec!["test".to_string()],
+        roles,
         scopes: vec![if identity_bootstrap {
             "security:bootstrap".to_string()
         } else {
