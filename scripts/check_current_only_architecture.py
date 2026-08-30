@@ -93,57 +93,7 @@ def require_no_retired_graph_topology() -> None:
     require(not result.stdout, f"retired graph topology returned:\n{result.stdout}")
 
 
-def main() -> None:
-    require_no_retired_graph_topology()
-    protocol = read("crates/eg-types/src/protocol.rs")
-    wire = read("crates/eg-types/src/wire.rs")
-    schema = read("crates/eg-query/src/tables/schema.rs")
-    sql_exec = read("crates/eg-query/src/sql/exec.rs")
-    sql_mod = read("crates/eg-query/src/sql/mod.rs")
-    query_lib = read("crates/eg-query/src/lib.rs")
-    plan_exec = read("crates/eg-plan/src/exec.rs")
-    transport = read("src/server/transport.rs")
-    server = read("src/server/mod.rs")
-    server_main = read("src/main.rs")
-    external_compute_e2e = read("tests/external_compute_e2e.rs")
-    client = read("epistemic_graph/client.py")
-    pregel = read("src/raft/pregel.rs")
-    dist_handler = read("src/server/handlers/dist_compute.rs")
-    icv_policy = read("crates/eg-shacl/src/policy.rs")
-    rdf_guard = read("crates/eg-rdf/src/guard.rs")
-    rdf_update = read("crates/eg-rdf/src/update.rs")
-    rdf_handler = read("src/server/handlers/rdf.rs")
-    rbac = read("crates/eg-core/src/rbac.rs")
-    rbac_persist = read("crates/eg-core/src/rbac_persist.rs")
-    isolation = read("crates/eg-core/src/isolation.rs")
-    acl = read("crates/eg-types/src/acl.rs")
-    graph = read("crates/eg-core/src/graph.rs")
-    registry = read("crates/eg-core/src/registry.rs")
-    owl = read("crates/eg-rdf/src/owl.rs")
-    geometry = read("crates/eg-geo/src/geometry.rs")
-    mysql_packets = read("src/server/mysql_wire/packets.rs")
-    mysql_wire = read("src/server/mysql_wire/mod.rs")
-    auth = read("src/server/auth.rs")
-    dispatch = read("src/server/dispatch.rs")
-    raft = read("src/raft/mod.rs")
-    raft_store = read("src/raft/store.rs")
-    raw_rows = read("src/server/persistence/online_reshard.rs")
-    capabilities = read("crates/eg-capabilities/src/lib.rs")
-    mutation_runtime = read("src/server/mutation.rs")
-    mutation_apply = read("src/mutation_apply.rs")
-    # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
-    # single-writer guard into eg-core"): the base graph-mutation set and the
-    # `broker` family (CreateNodeIfAbsent, BrokerAckTag/NackTag/RenewTag among
-    # them) moved out of src/mutation_apply.rs's `apply` into
-    # eg_core::durable_apply::apply, which src/mutation_apply.rs now delegates to
-    # via its `_` arm. A check that reads only src/mutation_apply.rs therefore
-    # measures a partial universe post-hoist (BUG-CX-112) -- union both.
-    mutation_apply += "\n" + read("crates/eg-core/src/durable_apply.rs")
-    graph_handler = read("src/server/handlers/graph_ops.rs")
-    access = read("src/server/access.rs")
-    broker = read("crates/eg-core/src/broker.rs")
-    cdc = read("src/server/cdc.rs")
-
+def _check_protocol(protocol: str, wire: str) -> None:
     for helper in (
         "default_shuffle",
         "default_split_seed",
@@ -159,7 +109,7 @@ def main() -> None:
 
     request = delimited_body(protocol, "pub struct Request {", "\n}")
     require(
-        '#[serde(deny_unknown_fields)]\npub struct Request {' in protocol,
+        "#[serde(deny_unknown_fields)]\npub struct Request {" in protocol,
         "Request accepts unknown wire fields",
     )
     agent_id = re.search(r"(?m)^\s*pub agent_id:\s*Option<String>", request)
@@ -217,9 +167,15 @@ def main() -> None:
 
     require_required_fields(wire, "AsOf", ("axis",))
 
+
+def _check_query_contract(
+    schema: str, sql_exec: str, sql_mod: str, query_lib: str, plan_exec: str
+) -> None:
     column = delimited_body(schema, "pub struct Column {", "\n}")
     stored_function = delimited_body(schema, "pub struct StoredFunction {", "\n}")
-    require("serde(default" not in column, "Column still reads an older persisted schema")
+    require(
+        "serde(default" not in column, "Column still reads an older persisted schema"
+    )
     require(
         "serde(default" not in stored_function,
         "StoredFunction still synthesizes a missing language",
@@ -233,9 +189,16 @@ def main() -> None:
         "exec_sql_cancellable" not in sql_exec + sql_mod + query_lib,
         "the superseded SQL entry point is still exported",
     )
-    require(sql_exec.count("pub fn exec_sql(") == 1, "SQL must expose one canonical entry point")
-    signature = delimited_body(sql_exec, "pub fn exec_sql(", ") -> Result<QueryResult, String>")
-    require("cancel: &CancellationToken" in signature, "SQL cancellation is not required")
+    require(
+        sql_exec.count("pub fn exec_sql(") == 1,
+        "SQL must expose one canonical entry point",
+    )
+    signature = delimited_body(
+        sql_exec, "pub fn exec_sql(", ") -> Result<QueryResult, String>"
+    )
+    require(
+        "cancel: &CancellationToken" in signature, "SQL cancellation is not required"
+    )
 
     require(
         '"FOREIGN requires a bound foreign-source registry"' in plan_exec,
@@ -245,27 +208,36 @@ def main() -> None:
         '"FOREIGN requires federation support in this build"' in plan_exec,
         "FOREIGN still has a non-federation pass-through",
     )
-    require("None => Ok(input)" not in plan_exec, "FOREIGN retains an input pass-through")
+    require(
+        "None => Ok(input)" not in plan_exec, "FOREIGN retains an input pass-through"
+    )
     require(
         '"TensorOp requires a bound tensor store"' in plan_exec,
         "TensorOp does not require durable write-back",
     )
     tensor = delimited_body(plan_exec, "fn tensor_op(", "\n}")
-    require("-> Result<RowSet, String>" in tensor, "TensorOp cannot report a missing store")
-    require("if let Some(store)" not in tensor, "TensorOp retains validate-only execution")
+    require(
+        "-> Result<RowSet, String>" in tensor, "TensorOp cannot report a missing store"
+    )
+    require(
+        "if let Some(store)" not in tensor, "TensorOp retains validate-only execution"
+    )
 
+
+def _check_transport_contract(
+    transport: str, server: str, server_main: str, external_compute_e2e: str
+) -> None:
     require(
         "allow_plaintext_remote" not in transport,
         "native TCP retains a remote-plaintext override",
     )
     require(
-        "if !listener.local_addr()?.ip().is_loopback() && acceptor.is_none() {" in transport,
+        "if !listener.local_addr()?.ip().is_loopback() && acceptor.is_none() {"
+        in transport,
         "non-loopback native TCP is not unconditionally TLS-only",
     )
 
-    stack_constant = (
-        "pub const ENGINE_WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;"
-    )
+    stack_constant = "pub const ENGINE_WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;"
     require(stack_constant in server, "engine worker-stack safety margin drifted")
     require(
         ".stack_size(ENGINE_WORKER_STACK_BYTES)" in server
@@ -297,6 +269,8 @@ def main() -> None:
         "worker-stack safety relies on a process environment override",
     )
 
+
+def _check_client_basic_contract(client: str) -> None:
     require(
         '"GraphQl", {"query": query, "variables": variables}' in client,
         "the Python client omits the explicit GraphQL variables field",
@@ -313,6 +287,9 @@ def main() -> None:
         '"mode": mode' in client and 'mode: str = "Intervene"' in client,
         "the Python causal client does not encode its mode explicitly",
     )
+
+
+def _check_client_batch_contract(client: str) -> None:
     require(
         '"CreateNodeIfAbsent"' in client
         and '"node_id": node_id' in client
@@ -322,7 +299,8 @@ def main() -> None:
         "the Python client does not use the native binary MessagePack batch/lifecycle contract",
     )
     require(
-        "async def ack_tag(self, delivery_tag: int, *, consumer: str) -> bool:" in client
+        "async def ack_tag(self, delivery_tag: int, *, consumer: str) -> bool:"
+        in client
         and '"delivery_tag": int(delivery_tag), "consumer": consumer' in client,
         "the Python tag acknowledgement is not owner-fenced",
     )
@@ -352,6 +330,9 @@ def main() -> None:
         ),
         "the Python lease renewal is not owner-fenced and explicitly clocked",
     )
+
+
+def _check_graph_fencing(graph: str) -> None:
     require(
         "pub fn create_node_if_absent(" in graph
         and "self.txn()\n            .create_node_if_absent" in graph
@@ -362,13 +343,22 @@ def main() -> None:
         "native atomic create or broker fencing primitives are missing",
     )
     require(
-        "core.has_node(node_id)" not in delimited_body(
+        "core.has_node(node_id)"
+        not in delimited_body(
             graph,
             "    pub fn create_node_if_absent(",
             "\n    }",
         ),
         "create-if-absent regained a TOCTOU membership check outside GraphTxn",
     )
+
+
+def _check_mutation_routing(
+    mutation_runtime: str,
+    mutation_apply: str,
+    graph_handler: str,
+    access: str,
+) -> None:
     routed = delimited_body(
         mutation_runtime,
         "pub const GATEWAY_ROUTED: &[&str] = &[",
@@ -393,6 +383,9 @@ def main() -> None:
             f"Method::{method}" in access,
             f"{method} is absent from write-access classification",
         )
+
+
+def _check_mutation_prepublish(mutation_runtime: str) -> None:
     prepublish = delimited_body(
         mutation_runtime,
         "fn prepublish_success(core: &GraphCore, method: &Method) -> Option<ResultPayload> {",
@@ -405,6 +398,9 @@ def main() -> None:
         and "BrokerRenewTag" not in prepublish,
         "a state-dependent create/tag verdict is predicted before authoritative staging",
     )
+
+
+def _check_broker_fencing(broker: str, graph: str) -> None:
     require(
         "pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64, consumer: &str) -> bool"
         in broker
@@ -467,6 +463,9 @@ def main() -> None:
         "remove_node(lookup_id)" not in lease_verdict,
         "a failed current-generation renewal destroys the ack/nack lookup",
     )
+
+
+def _check_mutation_policy(capabilities: str, cdc: str) -> None:
     create_policy = delimited_body(
         capabilities,
         "Method::CreateNodeIfAbsent { .. } => MethodPolicy {",
@@ -488,27 +487,37 @@ def main() -> None:
     )
     require(
         "before: Some(_)" in create_cdc
-        and "A losing create is a durable false result, not a row update." in create_cdc,
+        and "A losing create is a durable false result, not a row update."
+        in create_cdc,
         "a losing create-if-absent emits a false row-update CDC event",
     )
 
+
+def _check_distributed_compute(pregel: str, dist_handler: str) -> None:
     require(
         "read_authority: &GraphReadAuthority" in pregel
         and "Option<&GraphReadAuthority>" not in pregel,
         "distributed compute can run without verified read authority",
     )
     require(
-        "core.topology_snapshot()" not in pregel and "run_distributed_authorized" not in pregel,
+        "core.topology_snapshot()" not in pregel
+        and "run_distributed_authorized" not in pregel,
         "distributed compute regained an unfiltered snapshot route",
     )
     require(
-        dist_handler.count("distributed materialized views require the universal read authority")
+        dist_handler.count(
+            "distributed materialized views require the universal read authority"
+        )
         >= 3,
         "a distributed materialized-view operation accepts missing authority",
     )
 
+
+def _check_rdf_integrity_policy(icv_policy: str, rdf_handler: str) -> None:
     require(
-        "IcvMode" not in icv_policy and "Warn" not in icv_policy and "Off" not in icv_policy,
+        "IcvMode" not in icv_policy
+        and "Warn" not in icv_policy
+        and "Off" not in icv_policy,
         "integrity policy regained a disabled or advisory mode",
     )
     require(
@@ -524,6 +533,9 @@ def main() -> None:
         "check_before_write(core, graph_name, &[], &removals)" in rdf_handler,
         "DropNamedGraph bypasses the mandatory integrity guard",
     )
+
+
+def _check_rdf_capability(capabilities: str) -> None:
     icv_capability = delimited_body(
         capabilities, "Method::IcvConfigure { .. } => MethodPolicy {", "\n        },"
     )
@@ -531,6 +543,9 @@ def main() -> None:
         'authz_action: "security:admin"' in icv_capability,
         "IcvConfigure is not restricted to administrative authority",
     )
+
+
+def _check_rdf_guard(rdf_guard: str, rdf_update: str) -> None:
     require(
         "fn active(" not in rdf_guard and "guard.active()" not in rdf_update,
         "RDF write guard regained an inactive bypass",
@@ -543,6 +558,8 @@ def main() -> None:
         "RDF UPDATE does not expose one mandatory guarded entry point",
     )
 
+
+def _check_rbac_store(rbac: str, isolation: str, rbac_persist: str) -> None:
     require("pub fn is_empty(&self)" not in rbac, "empty RBAC can bypass evaluation")
     require(
         "if !self.rbac.is_empty()" not in isolation
@@ -564,6 +581,9 @@ def main() -> None:
         and "None => BTreeMap::new()" not in rbac_persist,
         "durable RBAC state still synthesizes missing records",
     )
+
+
+def _check_identity_bootstrap_claim(auth: str) -> None:
     bootstrap_claim = delimited_body(
         auth,
         "pub(crate) fn allows_identity_bootstrap(&self) -> bool {",
@@ -576,6 +596,9 @@ def main() -> None:
         and 'self.claims.scopes[0] == "security:bootstrap"' in bootstrap_claim,
         "identity bootstrap claims are not exact self-registration authority",
     )
+
+
+def _check_identity_bootstrap_dispatch(dispatch: str) -> None:
     require(
         "state.isolation.identity_bootstrap_pending()" in dispatch
         and 'req.graph == "__commons__"' in dispatch
@@ -585,16 +608,26 @@ def main() -> None:
         and "try_bootstrap_system_identity" in dispatch,
         "served identity bootstrap is not the exact one-time transition",
     )
+
+
+def _check_identity_bootstrap_replication(raft: str, dispatch: str) -> None:
     require(
         "pub identity_bootstrap: bool" in raft
         and "identity_bootstrap: authority.identity_bootstrap" in dispatch
         and "replicated_identity_bootstrap_authorized()" in dispatch,
         "replicated identity bootstrap lost its verified one-time authority bit",
     )
+
+
+def _check_identity_order(dispatch: str) -> None:
     require(
-        'NativeMutationCommand::Identity { .. } => "__commons__".to_string()' in dispatch,
+        'NativeMutationCommand::Identity { .. } => "__commons__".to_string()'
+        in dispatch,
         "identity/RBAC commands are not totally ordered on the bootstrap authority graph",
     )
+
+
+def _check_raft_snapshot_shape(raft_store: str) -> None:
     raft_graph_snapshot = delimited_body(raft_store, "struct GraphSnapshot {", "\n}")
     require(
         "const RAFT_SNAPSHOT_SCHEMA_VERSION: u16 = 4;" in raft_store
@@ -615,10 +648,16 @@ def main() -> None:
         and "read_authoritative_graph_snapshot" in raft_store,
         "Raft snapshots regained a duplicate decoded/plaintext graph authority",
     )
+
+
+def _check_raft_snapshot_enumeration(raft_store: str) -> None:
     require(
         ".list()" in raft_store and ".all_entries()" not in raft_store,
         "Raft snapshot enumeration drops catalog-only/evicted graphs",
     )
+
+
+def _check_raft_snapshot_replacement(raft_store: str) -> None:
     require(
         "let stale_names =" in raft_store
         and "Raft snapshot omits the mandatory commons graph" in raft_store
@@ -626,18 +665,27 @@ def main() -> None:
         and "s.registry.delete_graph(&name)?;" in raft_store,
         "Raft snapshot install merges with stale graph authority instead of replacing it",
     )
+
+
+def _check_raft_restore(registry: str, raft_store: str) -> None:
     require(
         "pub fn install_committed_graph(" in registry
         and "GraphCore::from_snapshot(snapshot, committed_version)" in registry
         and "s.registry.install_committed_graph(" in raft_store,
         "Raft restore publishes an empty/partial core or loses durable incarnation identity",
     )
+
+
+def _check_raft_snapshot_validation(raft_store: str, raft: str) -> None:
     require(
         "self.validate_snapshot_graphs(&body.graphs)" in raft_store
         and "validate_replay_authentication(&server_secret)" in raft_store
         and "pub(crate) fn validate_replay_authentication(" in raft,
         "Raft snapshot install mutates state before validating the complete replay image",
     )
+
+
+def _check_raw_snapshot_identity(raw_rows: str) -> None:
     require(
         "pub(crate) fn durable_identity(" in raw_rows
         and "raw graph rows contain authority without durable identity" in raw_rows
@@ -645,7 +693,12 @@ def main() -> None:
         "raw snapshot/reshard imports do not validate their durable graph identity",
     )
 
-    for declaration in ("pub struct RequestContextClaims {", "pub struct AgentIdentity {"):
+
+def _check_acl_roles(acl: str) -> None:
+    for declaration in (
+        "pub struct RequestContextClaims {",
+        "pub struct AgentIdentity {",
+    ):
         body = delimited_body(acl, declaration, "\n}")
         roles = re.search(r"(?m)^\s*pub roles:\s*Vec<String>", body)
         require(roles is not None, f"{declaration} has no mandatory roles field")
@@ -656,6 +709,8 @@ def main() -> None:
             f"{declaration} accepts omitted roles",
         )
 
+
+def _check_graph_memory(graph: str) -> None:
     require(
         "DEFAULT_IMPORTANCE" not in graph
         and "pre-EG-222" not in graph
@@ -663,21 +718,32 @@ def main() -> None:
         and "Option<f64>" in graph,
         "memory maintenance still synthesizes an older importance value",
     )
+
+
+def _check_owl_bridge(owl: str) -> None:
     require(
-        "bridge_type_to_class(t: &str, class_base: &str) -> Result<String, String>" in owl
+        "bridge_type_to_class(t: &str, class_base: &str) -> Result<String, String>"
+        in owl
         and "class_base: Option<&str>" not in owl
-        and "t.to_string()" not in delimited_body(
-            owl, "pub fn bridge_type_to_class", "\n}"
-        ),
+        and "t.to_string()"
+        not in delimited_body(owl, "pub fn bridge_type_to_class", "\n}"),
         "OWL type bridging still permits a missing base or bare-string fallback",
     )
+
+
+def _check_geometry(geometry: str) -> None:
     polygon = delimited_body(geometry, "pub struct Polygon {", "\n}")
-    require("serde(default" not in polygon, "Polygon still synthesizes missing interiors")
+    require(
+        "serde(default" not in polygon, "Polygon still synthesizes missing interiors"
+    )
     require(
         "pub fn new(exterior: LineString, interiors: Vec<LineString>)" in geometry
         and "with_interiors" not in geometry,
         "Polygon retained its exterior-only constructor",
     )
+
+
+def _check_mysql(mysql_packets: str, mysql_wire: str) -> None:
     require(
         "build_eof" not in mysql_packets + mysql_wire
         and "build_resultset_end" in mysql_packets
@@ -685,6 +751,88 @@ def main() -> None:
         "MySQL retained the deprecated EOF/older-client result path",
     )
 
+
+def main() -> None:
+    require_no_retired_graph_topology()
+    protocol = read("crates/eg-types/src/protocol.rs")
+    wire = read("crates/eg-types/src/wire.rs")
+    schema = read("crates/eg-query/src/tables/schema.rs")
+    sql_exec = read("crates/eg-query/src/sql/exec.rs")
+    sql_mod = read("crates/eg-query/src/sql/mod.rs")
+    query_lib = read("crates/eg-query/src/lib.rs")
+    plan_exec = read("crates/eg-plan/src/exec.rs")
+    transport = read("src/server/transport.rs")
+    server = read("src/server/mod.rs")
+    server_main = read("src/main.rs")
+    external_compute_e2e = read("tests/external_compute_e2e.rs")
+    client = read("epistemic_graph/client.py")
+    pregel = read("src/raft/pregel.rs")
+    dist_handler = read("src/server/handlers/dist_compute.rs")
+    icv_policy = read("crates/eg-shacl/src/policy.rs")
+    rdf_guard = read("crates/eg-rdf/src/guard.rs")
+    rdf_update = read("crates/eg-rdf/src/update.rs")
+    rdf_handler = read("src/server/handlers/rdf.rs")
+    rbac = read("crates/eg-core/src/rbac.rs")
+    rbac_persist = read("crates/eg-core/src/rbac_persist.rs")
+    isolation = read("crates/eg-core/src/isolation.rs")
+    acl = read("crates/eg-types/src/acl.rs")
+    graph = read("crates/eg-core/src/graph.rs")
+    registry = read("crates/eg-core/src/registry.rs")
+    owl = read("crates/eg-rdf/src/owl.rs")
+    geometry = read("crates/eg-geo/src/geometry.rs")
+    mysql_packets = read("src/server/mysql_wire/packets.rs")
+    mysql_wire = read("src/server/mysql_wire/mod.rs")
+    auth = read("src/server/auth.rs")
+    dispatch = read("src/server/dispatch.rs")
+    raft = read("src/raft/mod.rs")
+    raft_store = read("src/raft/store.rs")
+    raw_rows = read("src/server/persistence/online_reshard.rs")
+    capabilities = read("crates/eg-capabilities/src/lib.rs")
+    mutation_runtime = read("src/server/mutation.rs")
+    mutation_apply = read("src/mutation_apply.rs")
+    # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
+    # single-writer guard into eg-core"): the base graph-mutation set and the
+    # `broker` family (CreateNodeIfAbsent, BrokerAckTag/NackTag/RenewTag among
+    # them) moved out of src/mutation_apply.rs's `apply` into
+    # eg_core::durable_apply::apply, which src/mutation_apply.rs now delegates to
+    # via its `_` arm. A check that reads only src/mutation_apply.rs therefore
+    # measures a partial universe post-hoist (BUG-CX-112) -- union both.
+    mutation_apply += "\n" + read("crates/eg-core/src/durable_apply.rs")
+    graph_handler = read("src/server/handlers/graph_ops.rs")
+    access = read("src/server/access.rs")
+    broker = read("crates/eg-core/src/broker.rs")
+    cdc = read("src/server/cdc.rs")
+
+    _check_protocol(protocol, wire)
+    _check_query_contract(schema, sql_exec, sql_mod, query_lib, plan_exec)
+    _check_transport_contract(transport, server, server_main, external_compute_e2e)
+    _check_client_basic_contract(client)
+    _check_client_batch_contract(client)
+    _check_graph_fencing(graph)
+    _check_mutation_routing(mutation_runtime, mutation_apply, graph_handler, access)
+    _check_mutation_prepublish(mutation_runtime)
+    _check_broker_fencing(broker, graph)
+    _check_mutation_policy(capabilities, cdc)
+    _check_distributed_compute(pregel, dist_handler)
+    _check_rdf_integrity_policy(icv_policy, rdf_handler)
+    _check_rdf_capability(capabilities)
+    _check_rdf_guard(rdf_guard, rdf_update)
+    _check_rbac_store(rbac, isolation, rbac_persist)
+    _check_identity_bootstrap_claim(auth)
+    _check_identity_bootstrap_dispatch(dispatch)
+    _check_identity_bootstrap_replication(raft, dispatch)
+    _check_identity_order(dispatch)
+    _check_raft_snapshot_shape(raft_store)
+    _check_raft_snapshot_enumeration(raft_store)
+    _check_raft_snapshot_replacement(raft_store)
+    _check_raft_restore(registry, raft_store)
+    _check_raft_snapshot_validation(raft_store, raft)
+    _check_raw_snapshot_identity(raw_rows)
+    _check_acl_roles(acl)
+    _check_graph_memory(graph)
+    _check_owl_bridge(owl)
+    _check_geometry(geometry)
+    _check_mysql(mysql_packets, mysql_wire)
     print("current-only architecture gate passed")
 
 
