@@ -5,6 +5,7 @@
 //! off-lock. The dispatch shell owns the cross-cutting write side-effects
 //! (dirty/WAL/gauge) — handlers here only produce the `Response`.
 
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -3421,6 +3422,1140 @@ fn expand_coarse_cluster_to_children(
     )
 }
 
+#[derive(Clone, Copy)]
+struct GraphOpsContext<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &'a str,
+    read_authority: &'a GraphReadAuthority,
+    core: &'a Arc<GraphCore>,
+    raw_core: &'a Arc<GraphCore>,
+    raw_ledger_len: u64,
+}
+
+/// Route gateway-owned node creation and removal operations.
+async fn try_handle_node_gateway_writes(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let _ = ctx;
+    ControlFlow::Break(match method {
+        Method::AddNode { .. } => unreachable!(
+            "AddNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::CreateNodeIfAbsent { .. } => unreachable!(
+            "CreateNodeIfAbsent is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::RemoveNode { .. } => unreachable!(
+            "RemoveNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle point and paginated node reads.
+async fn try_handle_node_reads(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext {
+        req_id,
+        read_authority,
+        core,
+        raw_core,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        Method::HasNode { node_id } => {
+            let g = &*core;
+            Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
+        }
+        Method::GetNodes => {
+            let g = &*core;
+            // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation): a `GetNodes` is an
+            // UNBOUNDED full-graph dump. On a large graph (e.g. `__commons__` with
+            // 166K+ nodes carrying 1024-dim embeddings) materializing every node's
+            // properties into ONE response frame is a gigabyte-scale payload that
+            // overruns/resets the client connection. Check the cheap topology count
+            // BEFORE building the Vec, and return a typed, catchable error instead of
+            // the pathological frame. The bounded reads (`GetNodesByLabel`, per-id)
+            // are intentionally unaffected.
+            if let Some(msg) = oversize_dump_error(g.node_count(), max_response_nodes()) {
+                return ControlFlow::Break(Response::err(req_id, msg));
+            }
+            let nodes: Vec<(String, serde_json::Value)> = g
+                .get_nodes()
+                .into_iter()
+                .map(|(k, p)| {
+                    let val = eg_types::msgpack::decode_property_value(&p)
+                        .unwrap_or(serde_json::json!({}));
+                    (k, val)
+                })
+                .collect();
+            Response::ok(req_id, ResultPayload::NodeList(nodes))
+        }
+        Method::GetNodesByLabel {
+            label,
+            after,
+            limit,
+        } => {
+            let g = &*core;
+            let nodes: Vec<(String, serde_json::Value)> = g
+                .get_nodes_by_label_page(&label, after.as_deref(), limit)
+                .into_iter()
+                .map(|(k, p)| {
+                    let val = eg_types::msgpack::decode_property_value(&p)
+                        .unwrap_or(serde_json::json!({}));
+                    (k, val)
+                })
+                .collect();
+            Response::ok(req_id, ResultPayload::NodeList(nodes))
+        }
+        Method::GetNodeProperties { node_id } => {
+            handle_get_node_properties(req_id, core, raw_core, read_authority, &node_id)
+        }
+        // CompareAndSetNodeFields/ClaimNext (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Route gateway-owned node coordination operations.
+async fn try_handle_node_gateway_claims(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let _ = ctx;
+    ControlFlow::Break(match method {
+        Method::CompareAndSetNodeFields { .. } => unreachable!(
+            "CompareAndSetNodeFields is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::ClaimNext { .. } => unreachable!(
+            "ClaimNext is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        // ── Message broker admin + data (CONCEPT:EG-KG.compute.message-broker-exchanges) ─────────────────
+        // Built on the KG-2.303 queue: exchanges/bindings are nodes on this target
+        // graph; publish routes + enqueues; consume/ack REUSE ClaimNext + CAS above.
+        // Same handler home + precedent as ClaimNext. Gated `broker`; a slim build
+        // drops the variants (they fall to the catch-all "not available").
+        // Broker/stream admin+data family (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above. `StreamRead`/
+        // `StreamCommittedOffset` are pure reads (not in GATEWAY_ROUTED) and keep
+        // their normal arms below.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Route broker exchange, queue, and publish operations.
+async fn try_handle_broker_exchange(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[cfg(not(feature = "broker"))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(feature = "broker")]
+    {
+        let _ = ctx;
+        ControlFlow::Break(match method {
+                #[cfg(feature = "broker")]
+                Method::DeclareExchange { .. } => unreachable!(
+                    "DeclareExchange is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                     route it through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::DeleteExchange { .. } => unreachable!(
+                    "DeleteExchange is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                     route it through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::BindQueue { .. } => unreachable!(
+                    "BindQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::UnbindQueue { .. } => unreachable!(
+                    "UnbindQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::Publish { .. } => unreachable!(
+                    "Publish is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::DeclareQueue { .. } => unreachable!(
+                    "DeclareQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::PublishEx { .. } => unreachable!(
+                    "PublishEx is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+            other => return ControlFlow::Continue(other),
+        })
+    }
+}
+
+/// Route broker consumption and acknowledgement operations.
+async fn try_handle_broker_consumption(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[cfg(not(feature = "broker"))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(feature = "broker")]
+    {
+        let _ = ctx;
+        ControlFlow::Break(match method {
+                #[cfg(feature = "broker")]
+                Method::BrokerConsume { .. } => unreachable!(
+                    "BrokerConsume is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                     route it through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::BrokerAck { .. } => unreachable!(
+                    "BrokerAck is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::BrokerReject { .. } => unreachable!(
+                    "BrokerReject is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::SweepExpired { .. } => unreachable!(
+                    "SweepExpired is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+            other => return ControlFlow::Continue(other),
+        })
+    }
+}
+
+/// Handle replayable stream operations.
+async fn try_handle_streams(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[cfg(not(feature = "broker"))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(feature = "broker")]
+    {
+        let GraphOpsContext { req_id, core, .. } = ctx;
+        ControlFlow::Break(match method {
+                #[cfg(feature = "broker")]
+                Method::StreamDeclare { .. } => unreachable!(
+                    "StreamDeclare is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                     route it through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::StreamPublish { .. } => unreachable!(
+                    "StreamPublish is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                     route it through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::StreamRead {
+                    stream,
+                    from_offset,
+                    max,
+                } => {
+                    let from = crate::broker::ReadFrom::from_wire(from_offset);
+                    let msgs = crate::broker::stream_read(core, &stream, from, max as usize);
+                    Response::ok(req_id, ResultPayload::raw(&msgs))
+                }
+                #[cfg(feature = "broker")]
+                Method::StreamTrim { .. } => unreachable!(
+                    "StreamTrim is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::StreamCommitOffset { .. } => unreachable!(
+                    "StreamCommitOffset is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                     route it through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::StreamCommittedOffset { stream, group } => {
+                    let committed = crate::broker::committed_offset(core, &stream, &group);
+                    Response::ok(req_id, ResultPayload::raw(&committed))
+                }
+            other => return ControlFlow::Continue(other),
+        })
+    }
+}
+
+/// Route broker publisher-confirm and tag operations.
+async fn try_handle_publisher_confirms(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[cfg(not(feature = "broker"))]
+    {
+        let _ = ctx;
+        ControlFlow::Continue(method)
+    }
+    #[cfg(feature = "broker")]
+    {
+        let _ = ctx;
+        ControlFlow::Break(match method {
+                #[cfg(feature = "broker")]
+                Method::PublishConfirmed { .. } => unreachable!(
+                    "PublishConfirmed is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                     route it through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::PublishIdempotent { .. } => unreachable!(
+                    "PublishIdempotent is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                     route it through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::BrokerAckTag { .. } => unreachable!(
+                    "BrokerAckTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::BrokerNackTag { .. } => unreachable!(
+                    "BrokerNackTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                #[cfg(feature = "broker")]
+                Method::BrokerRenewTag { .. } => unreachable!(
+                    "BrokerRenewTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                     through try_handle_gateway before it ever reaches this terminal handler"
+                ),
+                // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ────
+                // Route each Method to its eg-core `GraphCore` primitive. The mutating arms
+                // share the SAME durable/deterministic contract as the broker precedent: the
+                // dispatch shell records them (via `is_durable_mutation`) and `mutation_apply::apply`
+                // re-runs the SAME primitive over the same pre-image, and every generated id
+                // derives deterministically from sorted inputs / node-count / step ordinals,
+                // so a replayed WAL record reproduces byte-identical state. Reads are pure.
+                // CreateSummaryNode/Consolidate/Reinforce (CONCEPT:EG-P0-2 bypass guard):
+                // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above for why these
+                // are structurally unreachable here, not merely undocumented.
+            other => return ControlFlow::Continue(other),
+        })
+    }
+}
+
+/// Route memory maintenance operations.
+async fn try_handle_memory_maintenance(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let _ = ctx;
+    ControlFlow::Break(match method {
+        Method::CreateSummaryNode { .. } => unreachable!(
+            "CreateSummaryNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Consolidate { .. } => unreachable!(
+            "Consolidate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route \
+                 it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Reinforce { .. } => unreachable!(
+            "Reinforce is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        // DecayNode/DecayMemories/EvictBelow/Maintain (CONCEPT:EG-P0-2 bypass
+        // guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::DecayNode { .. } => unreachable!(
+            "DecayNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::DecayMemories { .. } => unreachable!(
+            "DecayMemories is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::EvictBelow { .. } => unreachable!(
+            "EvictBelow is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Maintain { .. } => unreachable!(
+            "Maintain is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle summary hierarchy reads.
+async fn try_handle_summary_reads(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::SummaryChildren { node_id } => {
+            Response::ok(req_id, ResultPayload::Ids(core.summary_children(&node_id)))
+        }
+        Method::SummariesAtLevel { level } => {
+            Response::ok(req_id, ResultPayload::Ids(core.summaries_at_level(level)))
+        }
+        // AddSceneObject/SetPose/Reparent (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle scene graph operations.
+async fn try_handle_scene_graph(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::AddSceneObject { .. } => unreachable!(
+            "AddSceneObject is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::SetPose { .. } => unreachable!(
+            "SetPose is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Reparent { .. } => unreachable!(
+            "Reparent is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::WorldTransform { node_id } => {
+            let payload = match core.world_transform(&node_id) {
+                Some(pose) => ResultPayload::Json(pose.to_json()),
+                None => ResultPayload::Json(serde_json::Value::Null),
+            };
+            Response::ok(req_id, payload)
+        }
+        Method::SceneChildren { node_id } => {
+            Response::ok(req_id, ResultPayload::Ids(core.scene_children(&node_id)))
+        }
+        // StartTrajectory/AppendStep (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle trajectory memory operations.
+async fn try_handle_trajectory_memory(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::StartTrajectory { .. } => unreachable!(
+            "StartTrajectory is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::AppendStep { .. } => unreachable!(
+            "AppendStep is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::DiscountedReturn { traj_id, gamma } => Response::ok(
+            req_id,
+            ResultPayload::Float(core.discounted_return(&traj_id, gamma)),
+        ),
+        Method::BestTrajectory { traj_ids, gamma } => Response::ok(
+            req_id,
+            ResultPayload::raw(&core.best_trajectory(&traj_ids, gamma)),
+        ),
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle batched and indexed node reads.
+async fn try_handle_node_batch(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::GetNodePropertiesBatch { node_ids } => {
+            handle_get_node_properties_batch(req_id, core, node_ids)
+        }
+        Method::HasNodesBatch { node_ids } => handle_has_nodes_batch(req_id, core, &node_ids),
+        Method::NodeCount => {
+            let g = &*core;
+            Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
+        }
+        Method::NodeIds => {
+            let g = &*core;
+            Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
+        }
+        Method::MatchOntologyTerms { query } => {
+            // CONCEPT:EG-ORCH.routing.lexical-capability-escalation — lexical capability gate; cached aho-corasick scan.
+            let g = &*core;
+            Response::ok(req_id, ResultPayload::raw(&g.match_ontology_terms(&query)))
+        }
+        // AddEmbedding (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
+        // the AddNode/RemoveNode comment above.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle semantic and embedding operations.
+async fn try_handle_semantic_compute(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::AddEmbedding { .. } => unreachable!(
+            "AddEmbedding is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::SemanticSearch {
+            query_embedding,
+            n_results,
+        } => handle_semantic_search(req_id, core, query_embedding, n_results).await,
+        Method::Discover {
+            keywords,
+            query_embedding,
+            k,
+        } => discover(core, &keywords, &query_embedding, k, req_id),
+        // CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
+        // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, no Python-extension FFI);
+        // a no-numeric build (e.g. `pi`) has no eg-numeric, so the op reports it's absent.
+        Method::BatchL2Normalize { vectors } => {
+            #[cfg(feature = "numeric")]
+            {
+                let out = eg_numeric::linalg::batch_l2_normalize(&vectors);
+                Response::ok(req_id, ResultPayload::raw(&out))
+            }
+            #[cfg(not(feature = "numeric"))]
+            {
+                let _ = vectors;
+                Response::err(
+                    req_id,
+                    "BatchL2Normalize requires the `numeric` feature (eg-numeric kernel)."
+                        .to_string(),
+                )
+            }
+        }
+        // AddEdge/RemoveEdge (CONCEPT:EG-P0-2 bypass guard): GATEWAY_ROUTED — see
+        // the AddNode/RemoveNode comment above for why these are structurally
+        // unreachable here, not merely undocumented.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Route gateway-owned edge mutations.
+async fn try_handle_edge_writes(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let _ = ctx;
+    ControlFlow::Break(match method {
+        Method::AddEdge { .. } => unreachable!(
+            "AddEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::RemoveEdge { .. } => unreachable!(
+            "RemoveEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        // InvalidateEdge/SupersedeEdge (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::InvalidateEdge { .. } => unreachable!(
+            "InvalidateEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::SupersedeEdge { .. } => unreachable!(
+            "SupersedeEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle point and paginated edge reads.
+async fn try_handle_edge_reads(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::HasEdge {
+            source_id,
+            target_id,
+        } => {
+            let g = &*core;
+            Response::ok(
+                req_id,
+                ResultPayload::Bool(g.has_edge(&source_id, &target_id)),
+            )
+        }
+        Method::GetEdges => {
+            let g = &*core;
+            // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation), the edge-count
+            // sibling of the `GetNodes` guard just above `try_handle`'s match:
+            // check the cheap O(1) edge count BEFORE building the Vec, and
+            // return a typed, catchable error instead of the pathological
+            // gigabyte-scale frame. `GetEdgesPage` (bounded pagination) is
+            // intentionally unaffected.
+            if let Some(msg) = oversize_edge_dump_error(g.edge_count(), max_response_edges()) {
+                return ControlFlow::Break(Response::err(req_id, msg));
+            }
+            Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
+        }
+        Method::GetEdgesPage { after, limit } => {
+            let g = &*core;
+            let after_ref = after
+                .as_ref()
+                .map(|(s, t, ord)| (s.as_str(), t.as_str(), *ord));
+            let edges = g.get_edges_page(after_ref, limit);
+            Response::ok(req_id, ResultPayload::raw(&edges))
+        }
+        Method::GetEdgeProperties {
+            source_id,
+            target_id,
+        } => {
+            let g = &*core;
+            let props = g.get_edge_properties(&source_id, &target_id);
+            let val: Vec<serde_json::Value> = props
+                .into_iter()
+                .map(|p| {
+                    eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}))
+                })
+                .collect();
+            Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
+        }
+        Method::GetEdgePropertiesBatch { edges } => {
+            handle_get_edge_properties_batch(req_id, core, edges)
+        }
+        // ClearGraph (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
+        // the AddNode/RemoveNode comment above.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle graph clearing and count reads.
+async fn try_handle_graph_counts(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::ClearGraph => unreachable!(
+            "ClearGraph is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::EdgeCount => {
+            let g = &*core;
+            Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
+        }
+        // TopologicalSort / FindCycle / GetShortestPath / components / blast
+        // radius / degree centrality are single-pass O(V+E); they run on a cheap
+        // topology snapshot (Phase C-B: the read algorithms take an unlocked
+        // GraphView, so the structural copy replaces the held read lock).
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle graph algorithms and metrics.
+async fn try_handle_graph_algorithms(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext {
+        req_id,
+        core,
+        raw_ledger_len,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        Method::TopologicalSort => handle_topological_sort(req_id, core),
+        Method::FindCycle => {
+            let g = core.topology_snapshot();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))),
+            )
+        }
+        Method::GetShortestPath {
+            source_id,
+            target_id,
+        } => {
+            let g = core.topology_snapshot();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::get_shortest_path(
+                    &g, &source_id, &target_id
+                ))),
+            )
+        }
+        Method::PageRank {
+            damping,
+            iterations,
+        } => handle_page_rank(req_id, core, damping, iterations).await,
+        Method::ConnectedComponents => {
+            let g = core.topology_snapshot();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::connected_components(
+                    &g
+                ))),
+            )
+        }
+        Method::StronglyConnectedComponents => {
+            let g = core.topology_snapshot();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(
+                    crate::algorithms::strongly_connected_components(&g)
+                )),
+            )
+        }
+        Method::MinimumSpanningTree => handle_minimum_spanning_tree(req_id, core).await,
+        Method::Metrics => handle_metrics(req_id, core, raw_ledger_len).await,
+        // EvictLRU/DecaySweep/TouchNodes/FromMsgpack/Reconcile (CONCEPT:EG-P0-2
+        // bypass guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode
+        // comment above. `ToMsgpack` is a pure read and keeps its normal arm.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Route lifecycle mutations and handle graph serialization.
+async fn try_handle_lifecycle_serialization(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+            Method::EvictLRU { .. } => unreachable!(
+                "EvictLRU is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+            ),
+            Method::DecaySweep { .. } => unreachable!(
+                "DecaySweep is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+            ),
+            Method::TouchNodes { .. } => unreachable!(
+                "TouchNodes is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+            ),
+            Method::ToMsgpack => handle_to_msgpack(req_id, core),
+            Method::FromMsgpack { .. } => unreachable!(
+                "FromMsgpack is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+            ),
+            Method::Reconcile { .. } => unreachable!(
+                "Reconcile is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+            ),
+            // ApplyMutation carries a SPARQL UPDATE string (governance / CDC mutation).
+            // Replaced the legacy naive `{ <s> <p> <o> }` string-split shim with the REAL
+            // SPARQL 1.1 UPDATE executor (CONCEPT:EG-KG.query.named-graph-support): a full spargebra parse + the
+            // native merge-aware property-graph write ops (INSERT/DELETE DATA, DELETE/INSERT
+            // … WHERE, CLEAR/CREATE/DROP GRAPH). Single-graph: every graph term routes to the
+            // request graph's core (true named-graph routing lives on the /sparql endpoint,
+            // which has the registry). `event_type` is now advisory (the query is
+            // self-describing). Gated `sparql`; a non-sparql build rejects it explicitly.
+            // ApplyMutation/RunDatalogReasoning (CONCEPT:EG-P0-2 bypass guard, L11):
+            // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+            Method::ApplyMutation { .. } => unreachable!(
+                "ApplyMutation is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+            ),
+            #[cfg(feature = "reasoning")]
+            Method::RunDatalogReasoning { .. } => unreachable!(
+                "RunDatalogReasoning is mutation::GATEWAY_ROUTED; dispatch_graph_op \
+                 must route it through try_handle_gateway before it ever reaches this terminal handler"
+            ),
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle graph neighbor queries.
+async fn try_handle_neighbor_queries(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::InDegree { node_id } => handle_in_degree(req_id, core, &node_id),
+        Method::OutDegree { node_id } => handle_out_degree(req_id, core, &node_id),
+        Method::GetPredecessors { node_id } => handle_get_predecessors(req_id, core, &node_id),
+        Method::GetSuccessors { node_id } => handle_get_successors(req_id, core, &node_id),
+        Method::GetNeighbors { node_id } => handle_get_neighbors(req_id, core, &node_id),
+        Method::GetNeighborsBatch { node_ids } => {
+            handle_get_neighbors_batch(req_id, core, node_ids)
+        }
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle centrality and blast-radius algorithms.
+async fn try_handle_centrality_algorithms(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::GetBlastRadius { node_id, max_depth } => {
+            let g = core.topology_snapshot();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(
+                    &g, &node_id, max_depth
+                ))),
+            )
+        }
+        Method::DegreeCentrality { node_id } => handle_degree_centrality(req_id, core, &node_id),
+        Method::DegreeCentralityAll => {
+            let g = core.topology_snapshot();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(
+                    &g
+                ))),
+            )
+        }
+        Method::BetweennessCentrality => handle_betweenness_centrality(req_id, core).await,
+        Method::PersonalizedPageRank {
+            seed_nodes,
+            damping,
+            iterations,
+        } => handle_personalized_page_rank(req_id, core, seed_nodes, damping, iterations).await,
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle community and similarity algorithms.
+async fn try_handle_community_algorithms(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::CommunityDetection { resolution } => {
+            handle_community_detection(req_id, core, resolution).await
+        }
+        // Stateless community detection over an inline call graph — no tenant load,
+        // no persistence, no graph lock. Builds a throwaway in-memory graph from the
+        // passed nodes/edges and runs detection off-reactor. Replaces the prior
+        // "bulk-load ~160k edges into a scratch tenant, detect, delete tenant"
+        // round-trip (the dominant ingest community cost + the tenant-sprawl source).
+        Method::CommunityDetectEphemeral {
+            node_ids,
+            edges,
+            resolution,
+        } => handle_community_detect_ephemeral(req_id, node_ids, edges, resolution).await,
+        // GraphColoring: greedy coloring is a single O(V+E) sweep over a cheap
+        // topology snapshot (Phase C-B: read algorithms take an unlocked view).
+        Method::GraphColoring => {
+            let g = core.topology_snapshot();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))),
+            )
+        }
+        Method::ComputeSimilarityEdges { threshold } => {
+            handle_compute_similarity_edges(req_id, core, threshold).await
+        }
+        Method::ResolveCandidates {
+            sim_threshold,
+            merge_threshold,
+            node_type,
+        } => {
+            handle_resolve_candidates(req_id, core, sim_threshold, merge_threshold, node_type).await
+        }
+        // ── VIZ-1: hierarchical cluster-tree RPCs (CONCEPT:EG-KG.compute.leiden-hierarchy) ──
+        // Same off-lock discipline as CommunityDetection/ResolveCandidates above —
+        // `analysis_snapshot` under the topo READ lock, the actual clustering runs
+        // on the blocking pool. See `Method::ClusterHierarchyRefresh`'s doc for why
+        // the persisted result is NOT a graph mutation (no GATEWAY_ROUTED routing,
+        // no WAL/CDC/audit — a plain durable side-cache keyed by graph name).
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle persisted cluster hierarchy visualization operations.
+async fn try_handle_hierarchy_visualization(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext {
+        state,
+        req_id,
+        graph_name,
+        core,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        Method::ClusterHierarchyRefresh {
+            label,
+            resolution,
+            seed,
+        } => {
+            handle_cluster_hierarchy_refresh(
+                state, req_id, graph_name, core, label, resolution, seed,
+            )
+            .await
+        }
+        Method::ClusterHierarchyClusters {
+            level,
+            parent_cluster_id,
+        } => {
+            handle_cluster_hierarchy_clusters(state, req_id, graph_name, level, parent_cluster_id)
+                .await
+        }
+        Method::ClusterHierarchyExpand { cluster_id } => {
+            handle_cluster_hierarchy_expand(state, req_id, graph_name, core, cluster_id).await
+        }
+        // PruneByLifecycle (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED —
+        // see the AddNode/RemoveNode comment above.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle lifecycle and context operations.
+async fn try_handle_lifecycle_context(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext {
+        state,
+        req_id,
+        read_authority,
+        core,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        Method::PruneByLifecycle { .. } => unreachable!(
+            "PruneByLifecycle is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::GetContextView {
+            agent_id,
+            max_tokens,
+        } => {
+            let g = core.analysis_snapshot();
+            let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
+            match serde_json::to_value(&view) {
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                Err(e) => Response::err(req_id, e.to_string()),
+            }
+        }
+        // BatchUpdate (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::BatchUpdate { .. } => unreachable!(
+            "BatchUpdate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Vf2SubgraphMatch {
+            pattern_graph_name,
+            max_results,
+            max_steps,
+        } => {
+            handle_vf2_subgraph_match(
+                state,
+                req_id,
+                read_authority,
+                core,
+                pattern_graph_name,
+                max_results,
+                max_steps,
+            )
+            .await
+        }
+        // BUG A1 (2026-08-12): this used to read `core.get_ledger()` off the
+        // RLS-projected `core` shadowed above (`read_authority.project_core`),
+        // whose detached copy is built via `add_node_no_ledger`/
+        // `add_edge_no_ledger` (`access.rs::build_projection`'s own doc: "there
+        // is no longer a ledger to clear") and therefore NEVER carries a
+        // ledger. Because `security` (hence `GraphReadAuthority::is_active()`)
+        // is compiled into the default `full` build, that made `GetLedger`
+        // return `[]` on EVERY request in production, indistinguishable from
+        // "nothing to sync" — and `agent_utilities.workflows.epistemic_sync`'s
+        // `flush_ledger_to_backend` (a real production sync path) silently
+        // flushed nothing as a result.
+        //
+        // The mutation ledger is process-observability, not row-visible data
+        // (same reasoning `raw_ledger_len` above already established for
+        // `Metrics.total_mutations`), and it is authorized by its own
+        // dedicated `ledger:read` RBAC action (`eg_capabilities::policy`),
+        // enforced upstream in `dispatch.rs` (`verified_context.allows_method`)
+        // BEFORE any handler runs — so routing it through row-level RLS here
+        // was a redundant SECOND gate that, instead of narrowing visibility,
+        // destroyed the data outright. It now reads `raw_core` (captured
+        // before the projection, for the identical reason `raw_ledger_len`
+        // was) and is classified `NON_ROW_SCOPED` in access.rs's read-method
+        // audit table, not `RLS_ROUTED`.
+        //
+        // The response is a typed `LedgerReadResult`, not a bare array, so
+        // "genuinely empty" and "could not be read for this scope" can never
+        // collapse into the same indistinguishable `[]` again.
+        //
+        // BUG A1 follow-up (2026-08-12): fixing the query above is NOT
+        // sufficient on its own — `raw_core.get_ledger()` is a purely
+        // IN-MEMORY, capped ring (`GraphCore::push_ledger`'s doc), not part
+        // of the durable path at all. Cold-tenant idle offload/hibernate,
+        // `MAX_RESIDENT_GRAPHS` eviction + lazy rehydrate, a process
+        // restart, or simply exceeding the cap can all empty or truncate it
+        // while the underlying mutations remain fully durable in redb — a
+        // SEPARATE, real gap from the RLS-projection bug above, of the same
+        // "ephemeral buffer callers assume is durable" shape `CdcHub`
+        // (`src/server/cdc.rs`) also has. `watermark` is what makes that
+        // honest: it is the sequence of the oldest entry `entries` can
+        // vouch for, so a caller comparing it across reads can detect
+        // truncation instead of inferring completeness from a merely
+        // nonzero read.
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle mutation ledger reads and gateway-owned ledger writes.
+async fn try_handle_ledger(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext {
+        req_id, raw_core, ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        Method::GetLedger => Response::ok(
+            req_id,
+            ResultPayload::Json(serde_json::json!(LedgerReadResult::populated(
+                raw_core.get_ledger(),
+                raw_core.ledger_watermark(),
+            ))),
+        ),
+
+        // ClearLedger/ApplyLedger (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::ClearLedger => unreachable!(
+            "ClearLedger is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::ApplyLedger { .. } => unreachable!(
+            "ApplyLedger is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+                 through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle subgraph extraction and forking.
+async fn try_handle_subgraph_reads(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext { req_id, core, .. } = ctx;
+    ControlFlow::Break(match method {
+        Method::GetSubgraph { node_ids } => handle_get_subgraph(req_id, core, &node_ids),
+        Method::Fork => handle_fork(req_id, core),
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle cross-graph union reads.
+async fn try_handle_cross_graph_union(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext {
+        state,
+        req_id,
+        read_authority,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        Method::UnionGetNodeProperties { graphs, node_id } => {
+            handle_union_get_node_properties(state, req_id, read_authority, graphs, node_id).await
+        }
+        Method::UnionGetNodesByLabel {
+            graphs,
+            label,
+            limit,
+        } => {
+            handle_union_get_nodes_by_label(state, req_id, read_authority, graphs, label, limit)
+                .await
+        }
+        Method::UnionGetNeighbors { graphs, node_id } => {
+            handle_union_get_neighbors(state, req_id, read_authority, graphs, node_id).await
+        }
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Handle subgraph comparison and compaction operations.
+async fn try_handle_subgraph_comparison(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let GraphOpsContext {
+        state,
+        req_id,
+        read_authority,
+        core,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        Method::DiffAgainst { other_graph } => {
+            handle_diff_against(state, req_id, read_authority, core, other_graph).await
+        }
+        // CompactNodesByType (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED
+        // — see the AddNode/RemoveNode comment above.
+        Method::CompactNodesByType { .. } => unreachable!(
+            "CompactNodesByType is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+                 route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// Run the graph-operation domains in the same order as the original terminal
+/// match. Each domain returns Continue for methods owned by a later domain;
+/// the final response remains the terminal catch-all for unsupported methods.
+async fn try_handle_graph_domains(
+    ctx: GraphOpsContext<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let mut method = method;
+    method = try_handle_node_gateway_writes(ctx, method).await?;
+    method = try_handle_node_reads(ctx, method).await?;
+    method = try_handle_node_gateway_claims(ctx, method).await?;
+    method = try_handle_broker_exchange(ctx, method).await?;
+    method = try_handle_broker_consumption(ctx, method).await?;
+    method = try_handle_streams(ctx, method).await?;
+    method = try_handle_publisher_confirms(ctx, method).await?;
+    method = try_handle_memory_maintenance(ctx, method).await?;
+    method = try_handle_summary_reads(ctx, method).await?;
+    method = try_handle_scene_graph(ctx, method).await?;
+    method = try_handle_trajectory_memory(ctx, method).await?;
+    method = try_handle_node_batch(ctx, method).await?;
+    method = try_handle_semantic_compute(ctx, method).await?;
+    method = try_handle_edge_writes(ctx, method).await?;
+    method = try_handle_edge_reads(ctx, method).await?;
+    method = try_handle_graph_counts(ctx, method).await?;
+    method = try_handle_graph_algorithms(ctx, method).await?;
+    method = try_handle_lifecycle_serialization(ctx, method).await?;
+    method = try_handle_neighbor_queries(ctx, method).await?;
+    method = try_handle_centrality_algorithms(ctx, method).await?;
+    method = try_handle_community_algorithms(ctx, method).await?;
+    method = try_handle_hierarchy_visualization(ctx, method).await?;
+    method = try_handle_lifecycle_context(ctx, method).await?;
+    method = try_handle_ledger(ctx, method).await?;
+    method = try_handle_subgraph_reads(ctx, method).await?;
+    method = try_handle_cross_graph_union(ctx, method).await?;
+    let _ = try_handle_subgraph_comparison(ctx, method).await?;
+    ControlFlow::Break(Response::err(
+        ctx.req_id,
+        "Method not available in this server build (unknown method, or a feature — finance/datascience/reasoning/query — not enabled)",
+    ))
+}
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
 /// chain (it owns the catch-all), so it returns a `Response` directly.
 pub(crate) async fn try_handle(
@@ -3499,744 +4634,20 @@ pub(crate) async fn try_handle(
         _ => {}
     }
     let core = read_authority.project_core(&core);
-    match method {
-        // AddNode/RemoveNode (CONCEPT:EG-P0-2 bypass guard): these — along with
-        // AddEdge/RemoveEdge/CreateSummaryNode/Consolidate/Reinforce below — are
-        // GATEWAY_ROUTED. `dispatch_graph_op` calls `try_handle_gateway` BEFORE
-        // this terminal handler, so a routed method is intercepted and returns
-        // through `commit_mutation` long before reaching this `match` — this
-        // arm is structurally unreachable, not merely undocumented. Kept as an
-        // explicit `unreachable!()` (rather than deleting the arm and falling
-        // into the wildcard read-only-methods-only assumption below) so a
-        // regression in the dispatch-side routing — e.g. someone re-adding a
-        // direct call path that skips `try_handle_gateway` — fails LOUDLY here
-        // instead of silently re-mutating `eg-core` outside the gateway.
-        Method::AddNode { .. } => unreachable!(
-            "AddNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::CreateNodeIfAbsent { .. } => unreachable!(
-            "CreateNodeIfAbsent is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::RemoveNode { .. } => unreachable!(
-            "RemoveNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::HasNode { node_id } => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
+    let ctx = GraphOpsContext {
+        state,
+        req_id,
+        graph_name,
+        read_authority,
+        core: &core,
+        raw_core: &raw_core,
+        raw_ledger_len,
+    };
+    match try_handle_graph_domains(ctx, method).await {
+        ControlFlow::Break(response) => response,
+        ControlFlow::Continue(_) => {
+            unreachable!("graph-operation domain routing must terminate in its catch-all")
         }
-        Method::GetNodes => {
-            let g = &*core;
-            // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation): a `GetNodes` is an
-            // UNBOUNDED full-graph dump. On a large graph (e.g. `__commons__` with
-            // 166K+ nodes carrying 1024-dim embeddings) materializing every node's
-            // properties into ONE response frame is a gigabyte-scale payload that
-            // overruns/resets the client connection. Check the cheap topology count
-            // BEFORE building the Vec, and return a typed, catchable error instead of
-            // the pathological frame. The bounded reads (`GetNodesByLabel`, per-id)
-            // are intentionally unaffected.
-            if let Some(msg) = oversize_dump_error(g.node_count(), max_response_nodes()) {
-                return Response::err(req_id, msg);
-            }
-            let nodes: Vec<(String, serde_json::Value)> = g
-                .get_nodes()
-                .into_iter()
-                .map(|(k, p)| {
-                    let val = eg_types::msgpack::decode_property_value(&p)
-                        .unwrap_or(serde_json::json!({}));
-                    (k, val)
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::NodeList(nodes))
-        }
-        Method::GetNodesByLabel {
-            label,
-            after,
-            limit,
-        } => {
-            let g = &*core;
-            let nodes: Vec<(String, serde_json::Value)> = g
-                .get_nodes_by_label_page(&label, after.as_deref(), limit)
-                .into_iter()
-                .map(|(k, p)| {
-                    let val = eg_types::msgpack::decode_property_value(&p)
-                        .unwrap_or(serde_json::json!({}));
-                    (k, val)
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::NodeList(nodes))
-        }
-        Method::GetNodeProperties { node_id } => {
-            handle_get_node_properties(req_id, &core, &raw_core, read_authority, &node_id)
-        }
-        // CompareAndSetNodeFields/ClaimNext (CONCEPT:EG-P0-2 bypass guard, L11):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
-        Method::CompareAndSetNodeFields { .. } => unreachable!(
-            "CompareAndSetNodeFields is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::ClaimNext { .. } => unreachable!(
-            "ClaimNext is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        // ── Message broker admin + data (CONCEPT:EG-KG.compute.message-broker-exchanges) ─────────────────
-        // Built on the KG-2.303 queue: exchanges/bindings are nodes on this target
-        // graph; publish routes + enqueues; consume/ack REUSE ClaimNext + CAS above.
-        // Same handler home + precedent as ClaimNext. Gated `broker`; a slim build
-        // drops the variants (they fall to the catch-all "not available").
-        // Broker/stream admin+data family (CONCEPT:EG-P0-2 bypass guard, L11):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above. `StreamRead`/
-        // `StreamCommittedOffset` are pure reads (not in GATEWAY_ROUTED) and keep
-        // their normal arms below.
-        #[cfg(feature = "broker")]
-        Method::DeclareExchange { .. } => unreachable!(
-            "DeclareExchange is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::DeleteExchange { .. } => unreachable!(
-            "DeleteExchange is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::BindQueue { .. } => unreachable!(
-            "BindQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::UnbindQueue { .. } => unreachable!(
-            "UnbindQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::Publish { .. } => unreachable!(
-            "Publish is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::DeclareQueue { .. } => unreachable!(
-            "DeclareQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::PublishEx { .. } => unreachable!(
-            "PublishEx is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::BrokerConsume { .. } => unreachable!(
-            "BrokerConsume is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::BrokerAck { .. } => unreachable!(
-            "BrokerAck is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::BrokerReject { .. } => unreachable!(
-            "BrokerReject is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::SweepExpired { .. } => unreachable!(
-            "SweepExpired is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::StreamDeclare { .. } => unreachable!(
-            "StreamDeclare is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::StreamPublish { .. } => unreachable!(
-            "StreamPublish is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::StreamRead {
-            stream,
-            from_offset,
-            max,
-        } => {
-            let from = crate::broker::ReadFrom::from_wire(from_offset);
-            let msgs = crate::broker::stream_read(&core, &stream, from, max as usize);
-            Response::ok(req_id, ResultPayload::raw(&msgs))
-        }
-        #[cfg(feature = "broker")]
-        Method::StreamTrim { .. } => unreachable!(
-            "StreamTrim is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::StreamCommitOffset { .. } => unreachable!(
-            "StreamCommitOffset is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::StreamCommittedOffset { stream, group } => {
-            let committed = crate::broker::committed_offset(&core, &stream, &group);
-            Response::ok(req_id, ResultPayload::raw(&committed))
-        }
-        #[cfg(feature = "broker")]
-        Method::PublishConfirmed { .. } => unreachable!(
-            "PublishConfirmed is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::PublishIdempotent { .. } => unreachable!(
-            "PublishIdempotent is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::BrokerAckTag { .. } => unreachable!(
-            "BrokerAckTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::BrokerNackTag { .. } => unreachable!(
-            "BrokerNackTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "broker")]
-        Method::BrokerRenewTag { .. } => unreachable!(
-            "BrokerRenewTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ────
-        // Route each Method to its eg-core `GraphCore` primitive. The mutating arms
-        // share the SAME durable/deterministic contract as the broker precedent: the
-        // dispatch shell records them (via `is_durable_mutation`) and `mutation_apply::apply`
-        // re-runs the SAME primitive over the same pre-image, and every generated id
-        // derives deterministically from sorted inputs / node-count / step ordinals,
-        // so a replayed WAL record reproduces byte-identical state. Reads are pure.
-        // CreateSummaryNode/Consolidate/Reinforce (CONCEPT:EG-P0-2 bypass guard):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above for why these
-        // are structurally unreachable here, not merely undocumented.
-        Method::CreateSummaryNode { .. } => unreachable!(
-            "CreateSummaryNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::Consolidate { .. } => unreachable!(
-            "Consolidate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route \
-             it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::Reinforce { .. } => unreachable!(
-            "Reinforce is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        // DecayNode/DecayMemories/EvictBelow/Maintain (CONCEPT:EG-P0-2 bypass
-        // guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
-        Method::DecayNode { .. } => unreachable!(
-            "DecayNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::DecayMemories { .. } => unreachable!(
-            "DecayMemories is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::EvictBelow { .. } => unreachable!(
-            "EvictBelow is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::Maintain { .. } => unreachable!(
-            "Maintain is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::SummaryChildren { node_id } => {
-            Response::ok(req_id, ResultPayload::Ids(core.summary_children(&node_id)))
-        }
-        Method::SummariesAtLevel { level } => {
-            Response::ok(req_id, ResultPayload::Ids(core.summaries_at_level(level)))
-        }
-        // AddSceneObject/SetPose/Reparent (CONCEPT:EG-P0-2 bypass guard, L11):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
-        Method::AddSceneObject { .. } => unreachable!(
-            "AddSceneObject is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::SetPose { .. } => unreachable!(
-            "SetPose is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::Reparent { .. } => unreachable!(
-            "Reparent is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::WorldTransform { node_id } => {
-            let payload = match core.world_transform(&node_id) {
-                Some(pose) => ResultPayload::Json(pose.to_json()),
-                None => ResultPayload::Json(serde_json::Value::Null),
-            };
-            Response::ok(req_id, payload)
-        }
-        Method::SceneChildren { node_id } => {
-            Response::ok(req_id, ResultPayload::Ids(core.scene_children(&node_id)))
-        }
-        // StartTrajectory/AppendStep (CONCEPT:EG-P0-2 bypass guard, L11):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
-        Method::StartTrajectory { .. } => unreachable!(
-            "StartTrajectory is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::AppendStep { .. } => unreachable!(
-            "AppendStep is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::DiscountedReturn { traj_id, gamma } => Response::ok(
-            req_id,
-            ResultPayload::Float(core.discounted_return(&traj_id, gamma)),
-        ),
-        Method::BestTrajectory { traj_ids, gamma } => Response::ok(
-            req_id,
-            ResultPayload::raw(&core.best_trajectory(&traj_ids, gamma)),
-        ),
-        Method::GetNodePropertiesBatch { node_ids } => {
-            handle_get_node_properties_batch(req_id, &core, node_ids)
-        }
-        Method::HasNodesBatch { node_ids } => handle_has_nodes_batch(req_id, &core, &node_ids),
-        Method::NodeCount => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
-        }
-        Method::NodeIds => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
-        }
-        Method::MatchOntologyTerms { query } => {
-            // CONCEPT:EG-ORCH.routing.lexical-capability-escalation — lexical capability gate; cached aho-corasick scan.
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::raw(&g.match_ontology_terms(&query)))
-        }
-        // AddEmbedding (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
-        // the AddNode/RemoveNode comment above.
-        Method::AddEmbedding { .. } => unreachable!(
-            "AddEmbedding is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::SemanticSearch {
-            query_embedding,
-            n_results,
-        } => handle_semantic_search(req_id, &core, query_embedding, n_results).await,
-        Method::Discover {
-            keywords,
-            query_embedding,
-            k,
-        } => discover(&core, &keywords, &query_embedding, k, req_id),
-        // CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
-        // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, no Python-extension FFI);
-        // a no-numeric build (e.g. `pi`) has no eg-numeric, so the op reports it's absent.
-        Method::BatchL2Normalize { vectors } => {
-            #[cfg(feature = "numeric")]
-            {
-                let out = eg_numeric::linalg::batch_l2_normalize(&vectors);
-                Response::ok(req_id, ResultPayload::raw(&out))
-            }
-            #[cfg(not(feature = "numeric"))]
-            {
-                let _ = vectors;
-                Response::err(
-                    req_id,
-                    "BatchL2Normalize requires the `numeric` feature (eg-numeric kernel)."
-                        .to_string(),
-                )
-            }
-        }
-        // AddEdge/RemoveEdge (CONCEPT:EG-P0-2 bypass guard): GATEWAY_ROUTED — see
-        // the AddNode/RemoveNode comment above for why these are structurally
-        // unreachable here, not merely undocumented.
-        Method::AddEdge { .. } => unreachable!(
-            "AddEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::RemoveEdge { .. } => unreachable!(
-            "RemoveEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        // InvalidateEdge/SupersedeEdge (CONCEPT:EG-P0-2 bypass guard, L11):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
-        Method::InvalidateEdge { .. } => unreachable!(
-            "InvalidateEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::SupersedeEdge { .. } => unreachable!(
-            "SupersedeEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::HasEdge {
-            source_id,
-            target_id,
-        } => {
-            let g = &*core;
-            Response::ok(
-                req_id,
-                ResultPayload::Bool(g.has_edge(&source_id, &target_id)),
-            )
-        }
-        Method::GetEdges => {
-            let g = &*core;
-            // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation), the edge-count
-            // sibling of the `GetNodes` guard just above `try_handle`'s match:
-            // check the cheap O(1) edge count BEFORE building the Vec, and
-            // return a typed, catchable error instead of the pathological
-            // gigabyte-scale frame. `GetEdgesPage` (bounded pagination) is
-            // intentionally unaffected.
-            if let Some(msg) = oversize_edge_dump_error(g.edge_count(), max_response_edges()) {
-                return Response::err(req_id, msg);
-            }
-            Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
-        }
-        Method::GetEdgesPage { after, limit } => {
-            let g = &*core;
-            let after_ref = after
-                .as_ref()
-                .map(|(s, t, ord)| (s.as_str(), t.as_str(), *ord));
-            let edges = g.get_edges_page(after_ref, limit);
-            Response::ok(req_id, ResultPayload::raw(&edges))
-        }
-        Method::GetEdgeProperties {
-            source_id,
-            target_id,
-        } => {
-            let g = &*core;
-            let props = g.get_edge_properties(&source_id, &target_id);
-            let val: Vec<serde_json::Value> = props
-                .into_iter()
-                .map(|p| {
-                    eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}))
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
-        }
-        Method::GetEdgePropertiesBatch { edges } => {
-            handle_get_edge_properties_batch(req_id, &core, edges)
-        }
-        // ClearGraph (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
-        // the AddNode/RemoveNode comment above.
-        Method::ClearGraph => unreachable!(
-            "ClearGraph is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::EdgeCount => {
-            let g = &*core;
-            Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
-        }
-        // TopologicalSort / FindCycle / GetShortestPath / components / blast
-        // radius / degree centrality are single-pass O(V+E); they run on a cheap
-        // topology snapshot (Phase C-B: the read algorithms take an unlocked
-        // GraphView, so the structural copy replaces the held read lock).
-        Method::TopologicalSort => handle_topological_sort(req_id, &core),
-        Method::FindCycle => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))),
-            )
-        }
-        Method::GetShortestPath {
-            source_id,
-            target_id,
-        } => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::get_shortest_path(
-                    &g, &source_id, &target_id
-                ))),
-            )
-        }
-        Method::PageRank {
-            damping,
-            iterations,
-        } => handle_page_rank(req_id, &core, damping, iterations).await,
-        Method::ConnectedComponents => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::connected_components(
-                    &g
-                ))),
-            )
-        }
-        Method::StronglyConnectedComponents => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(
-                    crate::algorithms::strongly_connected_components(&g)
-                )),
-            )
-        }
-        Method::MinimumSpanningTree => handle_minimum_spanning_tree(req_id, &core).await,
-        Method::Metrics => handle_metrics(req_id, &core, raw_ledger_len).await,
-        // EvictLRU/DecaySweep/TouchNodes/FromMsgpack/Reconcile (CONCEPT:EG-P0-2
-        // bypass guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode
-        // comment above. `ToMsgpack` is a pure read and keeps its normal arm.
-        Method::EvictLRU { .. } => unreachable!(
-            "EvictLRU is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::DecaySweep { .. } => unreachable!(
-            "DecaySweep is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::TouchNodes { .. } => unreachable!(
-            "TouchNodes is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::ToMsgpack => handle_to_msgpack(req_id, &core),
-        Method::FromMsgpack { .. } => unreachable!(
-            "FromMsgpack is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::Reconcile { .. } => unreachable!(
-            "Reconcile is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        // ApplyMutation carries a SPARQL UPDATE string (governance / CDC mutation).
-        // Replaced the legacy naive `{ <s> <p> <o> }` string-split shim with the REAL
-        // SPARQL 1.1 UPDATE executor (CONCEPT:EG-KG.query.named-graph-support): a full spargebra parse + the
-        // native merge-aware property-graph write ops (INSERT/DELETE DATA, DELETE/INSERT
-        // … WHERE, CLEAR/CREATE/DROP GRAPH). Single-graph: every graph term routes to the
-        // request graph's core (true named-graph routing lives on the /sparql endpoint,
-        // which has the registry). `event_type` is now advisory (the query is
-        // self-describing). Gated `sparql`; a non-sparql build rejects it explicitly.
-        // ApplyMutation/RunDatalogReasoning (CONCEPT:EG-P0-2 bypass guard, L11):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
-        Method::ApplyMutation { .. } => unreachable!(
-            "ApplyMutation is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        #[cfg(feature = "reasoning")]
-        Method::RunDatalogReasoning { .. } => unreachable!(
-            "RunDatalogReasoning is mutation::GATEWAY_ROUTED; dispatch_graph_op \
-             must route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::InDegree { node_id } => handle_in_degree(req_id, &core, &node_id),
-        Method::OutDegree { node_id } => handle_out_degree(req_id, &core, &node_id),
-        Method::GetPredecessors { node_id } => handle_get_predecessors(req_id, &core, &node_id),
-        Method::GetSuccessors { node_id } => handle_get_successors(req_id, &core, &node_id),
-        Method::GetNeighbors { node_id } => handle_get_neighbors(req_id, &core, &node_id),
-        Method::GetNeighborsBatch { node_ids } => {
-            handle_get_neighbors_batch(req_id, &core, node_ids)
-        }
-        Method::GetBlastRadius { node_id, max_depth } => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(
-                    &g, &node_id, max_depth
-                ))),
-            )
-        }
-        Method::DegreeCentrality { node_id } => handle_degree_centrality(req_id, &core, &node_id),
-        Method::DegreeCentralityAll => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(
-                    &g
-                ))),
-            )
-        }
-        Method::BetweennessCentrality => handle_betweenness_centrality(req_id, &core).await,
-        Method::PersonalizedPageRank {
-            seed_nodes,
-            damping,
-            iterations,
-        } => handle_personalized_page_rank(req_id, &core, seed_nodes, damping, iterations).await,
-        Method::CommunityDetection { resolution } => {
-            handle_community_detection(req_id, &core, resolution).await
-        }
-        // Stateless community detection over an inline call graph — no tenant load,
-        // no persistence, no graph lock. Builds a throwaway in-memory graph from the
-        // passed nodes/edges and runs detection off-reactor. Replaces the prior
-        // "bulk-load ~160k edges into a scratch tenant, detect, delete tenant"
-        // round-trip (the dominant ingest community cost + the tenant-sprawl source).
-        Method::CommunityDetectEphemeral {
-            node_ids,
-            edges,
-            resolution,
-        } => handle_community_detect_ephemeral(req_id, node_ids, edges, resolution).await,
-        // GraphColoring: greedy coloring is a single O(V+E) sweep over a cheap
-        // topology snapshot (Phase C-B: read algorithms take an unlocked view).
-        Method::GraphColoring => {
-            let g = core.topology_snapshot();
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))),
-            )
-        }
-        Method::ComputeSimilarityEdges { threshold } => {
-            handle_compute_similarity_edges(req_id, &core, threshold).await
-        }
-        Method::ResolveCandidates {
-            sim_threshold,
-            merge_threshold,
-            node_type,
-        } => {
-            handle_resolve_candidates(req_id, &core, sim_threshold, merge_threshold, node_type)
-                .await
-        }
-        // ── VIZ-1: hierarchical cluster-tree RPCs (CONCEPT:EG-KG.compute.leiden-hierarchy) ──
-        // Same off-lock discipline as CommunityDetection/ResolveCandidates above —
-        // `analysis_snapshot` under the topo READ lock, the actual clustering runs
-        // on the blocking pool. See `Method::ClusterHierarchyRefresh`'s doc for why
-        // the persisted result is NOT a graph mutation (no GATEWAY_ROUTED routing,
-        // no WAL/CDC/audit — a plain durable side-cache keyed by graph name).
-        Method::ClusterHierarchyRefresh {
-            label,
-            resolution,
-            seed,
-        } => {
-            handle_cluster_hierarchy_refresh(
-                state, req_id, graph_name, &core, label, resolution, seed,
-            )
-            .await
-        }
-        Method::ClusterHierarchyClusters {
-            level,
-            parent_cluster_id,
-        } => {
-            handle_cluster_hierarchy_clusters(state, req_id, graph_name, level, parent_cluster_id)
-                .await
-        }
-        Method::ClusterHierarchyExpand { cluster_id } => {
-            handle_cluster_hierarchy_expand(state, req_id, graph_name, &core, cluster_id).await
-        }
-        // PruneByLifecycle (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED —
-        // see the AddNode/RemoveNode comment above.
-        Method::PruneByLifecycle { .. } => unreachable!(
-            "PruneByLifecycle is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::GetContextView {
-            agent_id,
-            max_tokens,
-        } => {
-            let g = core.analysis_snapshot();
-            let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
-            match serde_json::to_value(&view) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        // BatchUpdate (CONCEPT:EG-P0-2 bypass guard, L11):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
-        Method::BatchUpdate { .. } => unreachable!(
-            "BatchUpdate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::Vf2SubgraphMatch {
-            pattern_graph_name,
-            max_results,
-            max_steps,
-        } => {
-            handle_vf2_subgraph_match(
-                state,
-                req_id,
-                read_authority,
-                &core,
-                pattern_graph_name,
-                max_results,
-                max_steps,
-            )
-            .await
-        }
-        // BUG A1 (2026-08-12): this used to read `core.get_ledger()` off the
-        // RLS-projected `core` shadowed above (`read_authority.project_core`),
-        // whose detached copy is built via `add_node_no_ledger`/
-        // `add_edge_no_ledger` (`access.rs::build_projection`'s own doc: "there
-        // is no longer a ledger to clear") and therefore NEVER carries a
-        // ledger. Because `security` (hence `GraphReadAuthority::is_active()`)
-        // is compiled into the default `full` build, that made `GetLedger`
-        // return `[]` on EVERY request in production, indistinguishable from
-        // "nothing to sync" — and `agent_utilities.workflows.epistemic_sync`'s
-        // `flush_ledger_to_backend` (a real production sync path) silently
-        // flushed nothing as a result.
-        //
-        // The mutation ledger is process-observability, not row-visible data
-        // (same reasoning `raw_ledger_len` above already established for
-        // `Metrics.total_mutations`), and it is authorized by its own
-        // dedicated `ledger:read` RBAC action (`eg_capabilities::policy`),
-        // enforced upstream in `dispatch.rs` (`verified_context.allows_method`)
-        // BEFORE any handler runs — so routing it through row-level RLS here
-        // was a redundant SECOND gate that, instead of narrowing visibility,
-        // destroyed the data outright. It now reads `raw_core` (captured
-        // before the projection, for the identical reason `raw_ledger_len`
-        // was) and is classified `NON_ROW_SCOPED` in access.rs's read-method
-        // audit table, not `RLS_ROUTED`.
-        //
-        // The response is a typed `LedgerReadResult`, not a bare array, so
-        // "genuinely empty" and "could not be read for this scope" can never
-        // collapse into the same indistinguishable `[]` again.
-        //
-        // BUG A1 follow-up (2026-08-12): fixing the query above is NOT
-        // sufficient on its own — `raw_core.get_ledger()` is a purely
-        // IN-MEMORY, capped ring (`GraphCore::push_ledger`'s doc), not part
-        // of the durable path at all. Cold-tenant idle offload/hibernate,
-        // `MAX_RESIDENT_GRAPHS` eviction + lazy rehydrate, a process
-        // restart, or simply exceeding the cap can all empty or truncate it
-        // while the underlying mutations remain fully durable in redb — a
-        // SEPARATE, real gap from the RLS-projection bug above, of the same
-        // "ephemeral buffer callers assume is durable" shape `CdcHub`
-        // (`src/server/cdc.rs`) also has. `watermark` is what makes that
-        // honest: it is the sequence of the oldest entry `entries` can
-        // vouch for, so a caller comparing it across reads can detect
-        // truncation instead of inferring completeness from a merely
-        // nonzero read.
-        Method::GetLedger => Response::ok(
-            req_id,
-            ResultPayload::Json(serde_json::json!(LedgerReadResult::populated(
-                raw_core.get_ledger(),
-                raw_core.ledger_watermark(),
-            ))),
-        ),
-
-        // ClearLedger/ApplyLedger (CONCEPT:EG-P0-2 bypass guard, L11):
-        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
-        Method::ClearLedger => unreachable!(
-            "ClearLedger is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::ApplyLedger { .. } => unreachable!(
-            "ApplyLedger is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
-             through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::GetSubgraph { node_ids } => handle_get_subgraph(req_id, &core, &node_ids),
-        Method::Fork => handle_fork(req_id, &core),
-        Method::UnionGetNodeProperties { graphs, node_id } => {
-            handle_union_get_node_properties(state, req_id, read_authority, graphs, node_id).await
-        }
-        Method::UnionGetNodesByLabel {
-            graphs,
-            label,
-            limit,
-        } => {
-            handle_union_get_nodes_by_label(state, req_id, read_authority, graphs, label, limit)
-                .await
-        }
-        Method::UnionGetNeighbors { graphs, node_id } => {
-            handle_union_get_neighbors(state, req_id, read_authority, graphs, node_id).await
-        }
-        Method::DiffAgainst { other_graph } => {
-            handle_diff_against(state, req_id, read_authority, &core, other_graph).await
-        }
-        // CompactNodesByType (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED
-        // — see the AddNode/RemoveNode comment above.
-        Method::CompactNodesByType { .. } => unreachable!(
-            "CompactNodesByType is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        // Catch-all: an unknown graph method, OR a feature-gated method whose
-        // feature (finance / datascience / reasoning / query) was not built in.
-        _ => Response::err(
-            req_id,
-            "Method not available in this server build (unknown method, or a \
-             feature — finance/datascience/reasoning/query — not enabled)",
-        ),
     }
 }
 
