@@ -1,3 +1,7 @@
+// Each integration-test crate compiles this shared fixture module independently
+// and intentionally uses only the helpers needed by that target.
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use epistemic_graph::isolation::IsolationLayer;
@@ -181,12 +185,10 @@ pub async fn dispatch(
     Box::pin(epistemic_graph::server::dispatch(state, request)).await
 }
 
-#[allow(dead_code)]
 pub fn json_bytes(value: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&value).expect("encode JSON test value")
 }
 
-#[allow(dead_code)]
 pub fn edge_properties(tag: &str) -> Vec<u8> {
     json_bytes(serde_json::json!({"tag": tag}))
 }

@@ -50,6 +50,7 @@ async fn create_graph(state: &test_support::SharedState, id: u64, name: &str) ->
     test_support::dispatch(
         state,
         test_support::request(
+            SECRET,
             id,
             name,
             Method::CreateGraph {
@@ -70,6 +71,7 @@ async fn add_node(
     test_support::dispatch(
         state,
         test_support::request(
+            SECRET,
             id,
             graph,
             Method::AddNode {
