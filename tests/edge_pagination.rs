@@ -18,82 +18,21 @@
 #![cfg(all(feature = "server", feature = "security"))]
 
 mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
 
-use std::sync::Arc;
-
-use dashmap::DashMap;
-use tokio::sync::{RwLock, Semaphore};
-
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
 
 const SECRET: &str = "edge-pagination-secret";
 
-fn state() -> Arc<RwLock<ServerState>> {
-    let (persist_dir, persistence) = common::tempdir_persistence();
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
-        persist_dir,
-        persistence,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
+fn state() -> test_support::SharedState {
+    test_support::durable_state(SECRET, common::current_isolation())
 }
 
-fn req(id: u64, method: Method) -> Request {
-    common::signed_request(SECRET, id, "g", method)
-}
-
-async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, node_id: &str) {
-    let resp = Box::pin(dispatch(
+async fn add_node(state: &test_support::SharedState, id: u64, node_id: &str) {
+    let resp = test_support::dispatch(
         state,
-        req(
+        test_support::commons_request(
             id,
             Method::AddNode {
                 node_id: node_id.to_string(),
@@ -101,24 +40,23 @@ async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, node_id: &str) {
                     .unwrap(),
             },
         ),
-    ))
+    )
     .await;
     assert!(resp.error.is_none(), "add_node {node_id}: {:?}", resp.error);
 }
 
-async fn add_edge(state: &Arc<RwLock<ServerState>>, id: u64, src: &str, tgt: &str, tag: &str) {
-    let resp = Box::pin(dispatch(
+async fn add_edge(state: &test_support::SharedState, id: u64, src: &str, tgt: &str, tag: &str) {
+    let resp = test_support::dispatch(
         state,
-        req(
+        test_support::commons_request(
             id,
             Method::AddEdge {
                 source_id: src.to_string(),
                 target_id: tgt.to_string(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"tag": tag}))
-                    .unwrap(),
+                properties_msgpack: test_support::edge_properties(tag),
             },
         ),
-    ))
+    )
     .await;
     assert!(
         resp.error.is_none(),
@@ -168,7 +106,11 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
 
     // Reference: the unbounded dump (well under the cap, so this is unaffected
     // by the new oversize guard).
-    let full = Box::pin(dispatch(&state, req(20, Method::GetEdges))).await;
+    let full = test_support::dispatch(
+        &state,
+        test_support::commons_request(SECRET, 20, Method::GetEdges),
+    )
+    .await;
     let mut full_rows = edge_list_rows(&full);
     full_rows.sort();
     assert_eq!(
@@ -182,16 +124,16 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
     let mut paged: Vec<(String, String, u32, Vec<u8>)> = Vec::new();
     let mut next_id = 100u64;
     loop {
-        let resp = Box::pin(dispatch(
+        let resp = test_support::dispatch(
             &state,
-            req(
+            test_support::commons_request(
                 next_id,
                 Method::GetEdgesPage {
                     after: after.clone(),
                     limit: 1,
                 },
             ),
-        ))
+        )
         .await;
         next_id += 1;
         let rows = page_rows(&resp);
@@ -247,16 +189,16 @@ async fn edges_page_limit_zero_returns_everything_in_one_call() {
     add_edge(&state, 1, "a", "b", "only").await;
     add_edge(&state, 2, "a", "c", "only").await;
 
-    let resp = Box::pin(dispatch(
+    let resp = test_support::dispatch(
         &state,
-        req(
+        test_support::commons_request(
             3,
             Method::GetEdgesPage {
                 after: None,
                 limit: 0,
             },
         ),
-    ))
+    )
     .await;
     let rows = page_rows(&resp);
     assert_eq!(rows.len(), 2, "limit=0 must return every edge uncapped");
@@ -273,16 +215,16 @@ async fn edges_page_on_empty_graph_returns_empty_first_page() {
             .create_graph("g", GraphType::Commons, None)
             .unwrap();
     }
-    let resp = Box::pin(dispatch(
+    let resp = test_support::dispatch(
         &state,
-        req(
+        test_support::commons_request(
             1,
             Method::GetEdgesPage {
                 after: None,
                 limit: 10,
             },
         ),
-    ))
+    )
     .await;
     assert!(page_rows(&resp).is_empty());
 }

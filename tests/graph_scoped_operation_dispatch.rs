@@ -21,83 +21,29 @@
 #![cfg(all(feature = "server", feature = "security"))]
 
 mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
 
-use std::sync::Arc;
-
-use dashmap::DashMap;
-use tokio::sync::{RwLock, Semaphore};
-
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::protocol::{CypherMode, GraphType, Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::protocol::{CypherMode, GraphType, Method, Response, ResultPayload};
 
 const SECRET: &str = "cx-eg-06-dispatch-graph-op-inner-secret";
 
-fn state() -> Arc<RwLock<ServerState>> {
-    let (persist_dir, persistence) = common::tempdir_persistence();
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
-        persist_dir,
-        persistence,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
+fn state() -> test_support::SharedState {
+    test_support::durable_state(SECRET, common::current_isolation())
 }
 
-fn req(id: u64, graph: &str, method: Method) -> Request {
-    common::signed_request(SECRET, id, graph, method)
+async fn call(state: &test_support::SharedState, id: u64, graph: &str, method: Method) -> Response {
+    test_support::dispatch(state, test_support::request(SECRET, id, graph, method)).await
 }
 
-async fn call(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str, method: Method) -> Response {
-    Box::pin(dispatch(state, req(id, graph, method))).await
+async fn dispatch(
+    state: &test_support::SharedState,
+    request: epistemic_graph::protocol::Request,
+) -> Response {
+    test_support::dispatch(state, request).await
 }
 
-async fn create_graph(state: &Arc<RwLock<ServerState>>, id: u64, name: &str) -> Response {
+async fn create_graph(state: &test_support::SharedState, id: u64, name: &str) -> Response {
     call(
         state,
         id,
@@ -111,7 +57,7 @@ async fn create_graph(state: &Arc<RwLock<ServerState>>, id: u64, name: &str) -> 
 }
 
 async fn add_node(
-    state: &Arc<RwLock<ServerState>>,
+    state: &test_support::SharedState,
     id: u64,
     graph: &str,
     node_id: &str,

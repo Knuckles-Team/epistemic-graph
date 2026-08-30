@@ -10,90 +10,47 @@
 ))]
 
 mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
 
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
 use arrow::ipc::reader::StreamReader;
-use dashmap::DashMap;
-use tokio::sync::{RwLock, Semaphore};
 
 use eg_types::jobs::{JobKind, JobOp, SubmitJobSpec};
-use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::knowledge_stream::{
     KnowledgeResultFamily, KnowledgeStreamBatchV1, KnowledgeStreamProjection, KnowledgeStreamQuery,
     KnowledgeStreamRequestV1, KNOWLEDGE_STREAM_SCHEMA_VERSION,
 };
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
+use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
-use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "external-compute-contract-secret";
 const GRAPH: &str = "__commons__";
 
-fn state(persist_dir: String) -> Arc<RwLock<ServerState>> {
+fn state(persist_dir: String) -> test_support::SharedState {
     let persistence: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open(persist_dir.clone(), DurabilityPolicy::Each, 64)
             .expect("open authoritative persistence"),
     );
-    Arc::new(RwLock::new(ServerState {
-        cold_tracker: Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
-        persist_dir: Some(persist_dir),
-        persistence: Some(persistence),
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
+    test_support::state_with(
+        SECRET,
+        common::current_isolation(),
+        Some(persist_dir),
+        Some(persistence),
+    )
 }
 
 fn request(id: u64, method: Method) -> epistemic_graph::protocol::Request {
-    common::signed_request(SECRET, id, GRAPH, method)
+    test_support::request(SECRET, id, GRAPH, method)
+}
+
+async fn dispatch(state: &test_support::SharedState, request: Request) -> Response {
+    test_support::dispatch(state, request).await
 }
 
 fn success_json(response: Response) -> serde_json::Value {
