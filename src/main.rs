@@ -1642,102 +1642,121 @@ async fn spawn_mysql_listener(
     }
     Ok(())
 }
-async fn spawn_mssql_listener(
-    _state: &Arc<tokio::sync::RwLock<ServerState>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "mssql-wire")]
-    let state = _state;
-    // ── MSSQL TDS wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server) ─────────────────
-    // Opt-in AND feature-gated, mirroring pgwire: the listener starts ONLY when the
-    // binary is built `--features mssql-wire` AND EPISTEMIC_GRAPH_MSSQL_ADDR is set.
-    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:1433`. Direct TDS is authenticated loopback-only; remote clients
-    // terminate TLS/mTLS at an identity-binding gateway that forwards to loopback.
-    #[cfg(feature = "mssql-wire")]
-    if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::mssql_wire::MSSQL_ADDR_ENV)
-            .ok()
-            .as_deref(),
-        "127.0.0.1:1433",
-    ) {
-        let mssql_auth_secret = state.read().await.auth_secret.clone();
-        epistemic_graph::server::mssql_wire::validate_startup_policy(&addr, &mssql_auth_secret)?;
-        let mssql_state = state.clone();
-        info!("mssql-wire: enabling the configured authenticated loopback listener");
+async fn spawn_authenticated_wire_listener<Serve, ServeFuture>(
+    state: &Arc<tokio::sync::RwLock<ServerState>>,
+    addr: Option<String>,
+    service_name: &'static str,
+    enable_message: &'static str,
+    validate: fn(&str, &str) -> std::io::Result<()>,
+    serve: Serve,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    Serve: FnOnce(String, Arc<tokio::sync::RwLock<ServerState>>) -> ServeFuture + Send + 'static,
+    ServeFuture: std::future::Future<Output = std::io::Result<()>> + Send + 'static,
+{
+    if let Some(addr) = addr {
+        let auth_secret = state.read().await.auth_secret.clone();
+        validate(&addr, &auth_secret)?;
+        let listener_state = state.clone();
+        info!("{enable_message}");
         tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::mssql_wire::serve(&addr, mssql_state).await {
-                tracing::error!("mssql-wire server error: {}", e);
+            if let Err(error) = serve(addr, listener_state).await {
+                tracing::error!("{service_name} server error: {}", error);
             }
         });
     }
     Ok(())
 }
-async fn spawn_amqp_listener(
-    _state: &Arc<tokio::sync::RwLock<ServerState>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "amqp-wire")]
-    let state = _state;
-    // ── AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.compute.message-broker-exchanges) ────────────────
-    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-    // the binary is built `--features amqp-wire` AND EPISTEMIC_GRAPH_AMQP_ADDR is set.
-    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:5672`. Direct AMQP is authenticated loopback-only; remote clients
-    // terminate TLS/mTLS at an identity-binding gateway. Maps AMQP
-    // exchange/queue/basic.* onto the `broker` primitives (KG-2.303 queue) via dispatch.
-    #[cfg(feature = "amqp-wire")]
-    if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::amqp_wire::AMQP_ADDR_ENV)
-            .ok()
-            .as_deref(),
-        "127.0.0.1:5672",
-    ) {
-        let amqp_auth_secret = state.read().await.auth_secret.clone();
-        epistemic_graph::server::amqp_wire::validate_startup_policy(&addr, &amqp_auth_secret)?;
-        let amqp_state = state.clone();
-        info!("amqp-wire: enabling the configured authenticated loopback listener");
-        tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::amqp_wire::serve(&addr, amqp_state).await {
-                tracing::error!("amqp-wire server error: {}", e);
+macro_rules! define_authenticated_wire_listener {
+    (
+        $function:ident,
+        $feature:literal,
+        $module:ident,
+        $addr_env:ident,
+        $default_addr:literal,
+        $service_name:literal,
+        $enable_message:literal $(,)?
+    ) => {
+        async fn $function(
+            _state: &Arc<tokio::sync::RwLock<ServerState>>,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            #[cfg(feature = $feature)]
+            {
+                spawn_authenticated_wire_listener(
+                    _state,
+                    resolve_listener_addr(
+                        std::env::var(epistemic_graph::server::$module::$addr_env)
+                            .ok()
+                            .as_deref(),
+                        $default_addr,
+                    ),
+                    $service_name,
+                    $enable_message,
+                    epistemic_graph::server::$module::validate_startup_policy,
+                    |addr, state| async move {
+                        epistemic_graph::server::$module::serve(&addr, state).await
+                    },
+                )
+                .await?;
             }
-        });
-    }
-    Ok(())
+            Ok(())
+        }
+    };
 }
-async fn spawn_bolt_listener(
-    _state: &Arc<tokio::sync::RwLock<ServerState>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "bolt-wire")]
-    let state = _state;
-    // ── Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol) ─────────────────
-    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-    // the binary is built `--features bolt-wire` AND EPISTEMIC_GRAPH_BOLT_ADDR is set.
-    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:7687` (the Neo4j default); non-loopback requires the protected-ingress
-    // policy. A native hand-rolled Bolt v4.4 server (PackStream v2 + chunked framing)
-    // that routes RUN's Cypher straight to the eg-query cypher engine, so a Neo4j driver
-    // runs Cypher over a graph directly.
-    #[cfg(feature = "bolt-wire")]
-    if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::bolt_wire::BOLT_ADDR_ENV)
-            .ok()
-            .as_deref(),
-        "127.0.0.1:7687",
-    ) {
-        let bolt_auth_secret = state.read().await.auth_secret.clone();
-        epistemic_graph::server::bolt_wire::validate_startup_policy(&addr, &bolt_auth_secret)?;
-        let bolt_state = state.clone();
-        info!("bolt-wire: enabling the configured loopback listener");
-        tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::bolt_wire::serve(&addr, bolt_state).await {
-                tracing::error!("bolt-wire server error: {}", e);
-            }
-        });
-    }
-    Ok(())
-}
+
+// ── MSSQL TDS wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server) ─────────────────
+// Opt-in AND feature-gated, mirroring pgwire: the listener starts ONLY when the
+// binary is built `--features mssql-wire` AND EPISTEMIC_GRAPH_MSSQL_ADDR is set.
+// With the feature off, or on but unset, this is a no-op. Deploy-configurable
+// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// `127.0.0.1:1433`. Direct TDS is authenticated loopback-only; remote clients
+// terminate TLS/mTLS at an identity-binding gateway that forwards to loopback.
+define_authenticated_wire_listener!(
+    spawn_mssql_listener,
+    "mssql-wire",
+    mssql_wire,
+    MSSQL_ADDR_ENV,
+    "127.0.0.1:1433",
+    "mssql-wire",
+    "mssql-wire: enabling the configured authenticated loopback listener",
+);
+
+// ── AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.compute.message-broker-exchanges) ────────────────
+// Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+// the binary is built `--features amqp-wire` AND EPISTEMIC_GRAPH_AMQP_ADDR is set.
+// With the feature off, or on but unset, this is a no-op. Deploy-configurable
+// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// `127.0.0.1:5672`. Direct AMQP is authenticated loopback-only; remote clients
+// terminate TLS/mTLS at an identity-binding gateway. Maps AMQP
+// exchange/queue/basic.* onto the `broker` primitives (KG-2.303 queue) via dispatch.
+define_authenticated_wire_listener!(
+    spawn_amqp_listener,
+    "amqp-wire",
+    amqp_wire,
+    AMQP_ADDR_ENV,
+    "127.0.0.1:5672",
+    "amqp-wire",
+    "amqp-wire: enabling the configured authenticated loopback listener",
+);
+
+// ── Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol) ─────────────────
+// Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+// the binary is built `--features bolt-wire` AND EPISTEMIC_GRAPH_BOLT_ADDR is set.
+// With the feature off, or on but unset, this is a no-op. Deploy-configurable
+// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// `127.0.0.1:7687` (the Neo4j default); non-loopback requires the protected-ingress
+// policy. A native hand-rolled Bolt v4.4 server (PackStream v2 + chunked framing)
+// that routes RUN's Cypher straight to the eg-query cypher engine, so a Neo4j driver
+// runs Cypher over a graph directly.
+define_authenticated_wire_listener!(
+    spawn_bolt_listener,
+    "bolt-wire",
+    bolt_wire,
+    BOLT_ADDR_ENV,
+    "127.0.0.1:7687",
+    "bolt-wire",
+    "bolt-wire: enabling the configured loopback listener",
+);
 async fn spawn_redis_listener(
     _state: &Arc<tokio::sync::RwLock<ServerState>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1768,74 +1787,45 @@ async fn spawn_redis_listener(
     }
     Ok(())
 }
-async fn spawn_mqtt_listener(
-    _state: &Arc<tokio::sync::RwLock<ServerState>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "mqtt-wire")]
-    let state = _state;
-    // ── MQTT 3.1.1 wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec) ────────────────
-    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-    // the binary is built `--features mqtt-wire` AND EPISTEMIC_GRAPH_MQTT_ADDR is set.
-    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:1883` (the MQTT default). Direct MQTT is authenticated loopback-only;
-    // remote clients terminate TLS/mTLS at an identity-binding gateway. A native
-    // hand-rolled MQTT server mapping CONNECT/PUBLISH/SUBSCRIBE onto
-    // the `broker` topic exchange (KG-2.303 queue) via dispatch, so an MQTT client
-    // pub/subs directly against the engine.
-    #[cfg(feature = "mqtt-wire")]
-    if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::mqtt_wire::MQTT_ADDR_ENV)
-            .ok()
-            .as_deref(),
-        "127.0.0.1:1883",
-    ) {
-        let mqtt_auth_secret = state.read().await.auth_secret.clone();
-        epistemic_graph::server::mqtt_wire::validate_startup_policy(&addr, &mqtt_auth_secret)?;
-        let mqtt_state = state.clone();
-        info!("mqtt-wire: enabling the configured authenticated loopback listener");
-        tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::mqtt_wire::serve(&addr, mqtt_state).await {
-                tracing::error!("mqtt-wire server error: {}", e);
-            }
-        });
-    }
-    Ok(())
-}
-async fn spawn_stomp_listener(
-    _state: &Arc<tokio::sync::RwLock<ServerState>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "stomp-wire")]
-    let state = _state;
-    // ── STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) ─────────────────
-    // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-    // the binary is built `--features stomp-wire` AND EPISTEMIC_GRAPH_STOMP_ADDR is set.
-    // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:61613` (the STOMP default). Direct STOMP is authenticated
-    // loopback-only; remote clients terminate TLS/mTLS at an identity-binding gateway.
-    // A native hand-rolled STOMP text-frame server mapping SEND/SUBSCRIBE onto
-    // the `broker` primitives (destinations → exchange + per-subscription queues) via
-    // dispatch, so a STOMP client pub/subs directly against the engine.
-    #[cfg(feature = "stomp-wire")]
-    if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::stomp_wire::STOMP_ADDR_ENV)
-            .ok()
-            .as_deref(),
-        "127.0.0.1:61613",
-    ) {
-        let stomp_auth_secret = state.read().await.auth_secret.clone();
-        epistemic_graph::server::stomp_wire::validate_startup_policy(&addr, &stomp_auth_secret)?;
-        let stomp_state = state.clone();
-        info!("stomp-wire: enabling the configured authenticated loopback listener");
-        tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::stomp_wire::serve(&addr, stomp_state).await {
-                tracing::error!("stomp-wire server error: {}", e);
-            }
-        });
-    }
-    Ok(())
-}
+// ── MQTT 3.1.1 wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec) ────────────────
+// Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+// the binary is built `--features mqtt-wire` AND EPISTEMIC_GRAPH_MQTT_ADDR is set.
+// With the feature off, or on but unset, this is a no-op. Deploy-configurable
+// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// `127.0.0.1:1883` (the MQTT default). Direct MQTT is authenticated loopback-only;
+// remote clients terminate TLS/mTLS at an identity-binding gateway. A native
+// hand-rolled MQTT server mapping CONNECT/PUBLISH/SUBSCRIBE onto
+// the `broker` topic exchange (KG-2.303 queue) via dispatch, so an MQTT client
+// pub/subs directly against the engine.
+define_authenticated_wire_listener!(
+    spawn_mqtt_listener,
+    "mqtt-wire",
+    mqtt_wire,
+    MQTT_ADDR_ENV,
+    "127.0.0.1:1883",
+    "mqtt-wire",
+    "mqtt-wire: enabling the configured authenticated loopback listener",
+);
+
+// ── STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) ─────────────────
+// Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
+// the binary is built `--features stomp-wire` AND EPISTEMIC_GRAPH_STOMP_ADDR is set.
+// With the feature off, or on but unset, this is a no-op. Deploy-configurable
+// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// `127.0.0.1:61613` (the STOMP default). Direct STOMP is authenticated
+// loopback-only; remote clients terminate TLS/mTLS at an identity-binding gateway.
+// A native hand-rolled STOMP text-frame server mapping SEND/SUBSCRIBE onto
+// the `broker` primitives (destinations → exchange + per-subscription queues) via
+// dispatch, so a STOMP client pub/subs directly against the engine.
+define_authenticated_wire_listener!(
+    spawn_stomp_listener,
+    "stomp-wire",
+    stomp_wire,
+    STOMP_ADDR_ENV,
+    "127.0.0.1:61613",
+    "stomp-wire",
+    "stomp-wire: enabling the configured authenticated loopback listener",
+);
 async fn spawn_s3_listener(
     _state: &Arc<tokio::sync::RwLock<ServerState>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
