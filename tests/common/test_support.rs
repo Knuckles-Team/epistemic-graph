@@ -11,8 +11,27 @@ use epistemic_graph::server::persistence::PersistenceBackend;
 use epistemic_graph::server::ServerState;
 use tokio::sync::RwLock;
 
+#[cfg(feature = "redb")]
+use epistemic_graph::durability::DurabilityPolicy;
+#[cfg(feature = "redb")]
+use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+
 pub type SharedPersistence = Arc<dyn PersistenceBackend>;
 pub type SharedState = Arc<RwLock<ServerState>>;
+
+/// Open the standard redb-backed integration-test persistence tier.
+///
+/// Keeping the policy and queue capacity here makes durable fixtures use one
+/// contract while preserving the backend's original error for callers that
+/// need to retry an in-process reopen after shutdown.
+#[cfg(feature = "redb")]
+pub fn open_redb_backend(dir: String) -> Result<SharedPersistence, String> {
+    Ok(Arc::new(RedbBackend::open(
+        dir,
+        DurabilityPolicy::Each,
+        8192,
+    )?))
+}
 
 /// Provision the process-wide data-at-rest key once before a redb backend opens.
 ///

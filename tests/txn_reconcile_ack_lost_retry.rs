@@ -23,13 +23,8 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use std::sync::Arc;
-
-use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
 use epistemic_graph::server::dispatch;
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
 
 const SECRET: &str = "txn-reconcile-ack-lost-secret";
 
@@ -82,8 +77,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
         "txn-reconcile-ack-lost-retry-test-key",
     );
 
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192).unwrap());
+    let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
     let state = test_support::state_with(
         SECRET,
         common::current_isolation(),

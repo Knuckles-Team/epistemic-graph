@@ -23,19 +23,14 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use std::sync::Arc;
-
-use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
 
 const SECRET: &str = "gql-crossmodal-durable-secret";
 const GRAPH: &str = "gqlxmdurable"; // lowercase-alnum ⇒ sanitize() is identity ⇒ fname == GRAPH
 const NODE: &str = "<http://ex/n1>"; // lower_triples subject id for <http://ex/n1>
 
 /// A fully-featured `ServerState` backed by the given redb persistence tier.
-fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> test_support::SharedState {
+fn state_with(backend: test_support::SharedPersistence, dir: String) -> test_support::SharedState {
     let isolation = common::current_isolation();
     test_support::state_with(SECRET, isolation, Some(dir), Some(backend))
 }
@@ -68,8 +63,7 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     let dir_s = dir.to_string_lossy().to_string();
 
     // ── Phase 1: open the durable tier, create the graph, run the cross-modal txn ──
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192).unwrap());
+    let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
     let state = state_with(backend.clone(), dir_s.clone());
 
     // Create the graph (dispatch registers it in BOTH the registry and the durable tier).
@@ -150,11 +144,11 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     drop(backend);
     drop(state);
 
-    let reopened: Arc<dyn PersistenceBackend> = {
+    let reopened = {
         let mut attempt = 0;
         loop {
-            match RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192) {
-                Ok(backend) => break Arc::new(backend),
+            match test_support::open_redb_backend(dir_s.clone()) {
+                Ok(backend) => break backend,
                 Err(error) if attempt < 100 => {
                     attempt += 1;
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
