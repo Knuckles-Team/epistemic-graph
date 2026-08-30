@@ -48,12 +48,11 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::protocol::{Method, Request, ResultPayload};
+use crate::protocol::{Method, ResultPayload};
 use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
 use crate::server::broker_wire::{
     derive_password as derive_amqp_password_impl, verify_password as verify_amqp_password_impl,
 };
-use crate::server::dispatch::dispatch_authenticated_broker_actor;
 use crate::server::ServerState;
 
 /// Env var: when set (and the binary is built `--features amqp-wire`), the AMQP wire
@@ -126,46 +125,6 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
     }
 }
 
-// ── Engine bridge ─────────────────────────────────────────────────────────
-
-/// Run one broker `Method` through the engine dispatch against the broker graph,
-/// authenticating exactly as an RPC client would (compute the per-request HMAC token).
-async fn engine_call(
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    actor: &str,
-    method: Method,
-) -> ResultPayload {
-    let id = next_req_id();
-    let req = Request {
-        id,
-        graph: graph.to_string(),
-        auth_token: String::new(),
-        agent_id: None,
-        method,
-    };
-    // `dispatch_authenticated_broker_actor` returns an ENORMOUS future under
-    // `--features full` (the whole graph-op dispatch state machine inlined into
-    // one poll chain); awaiting it un-boxed here inlines that state machine into
-    // this fn's own future and overflows the poll-time stack. This is the FOURTH
-    // instance of the same trap found in production code — after
-    // `transport::handle_connection` and both `mqtt_wire`/`stomp_wire`'s
-    // `engine_call` — and it is latent here only because no test currently drives
-    // an AMQP connection deep enough to reach it. Box::pin it, matching every
-    // other production callsite of a dispatch entrypoint.
-    let resp = Box::pin(dispatch_authenticated_broker_actor(state, req, actor)).await;
-    resp.result.unwrap_or(ResultPayload::Bool(false))
-}
-
-fn current_time_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
-}
-
 /// Claim one deliverable message through the native broker lifecycle. Returns
 /// `(node_id, routing_key, exchange, body)` or `None`.
 async fn claim_one(
@@ -176,15 +135,16 @@ async fn claim_one(
     consumer: &str,
     prefetch: u32,
 ) -> Option<(String, String, String, Vec<u8>)> {
-    let payload = engine_call(
+    let payload = broker_wire::engine_call(
         state,
         graph,
         actor,
+        next_req_id,
         Method::BrokerConsume {
             queue: queue.to_string(),
             group: "amqp".to_string(),
             consumer: consumer.to_string(),
-            now_ms: current_time_ms(),
+            now_ms: broker_wire::current_time_ms(),
             lease_ms: BROKER_LEASE_MS,
             prefetch,
         },
@@ -211,26 +171,6 @@ async fn claim_one(
         .and_then(crate::broker::hex_decode)
         .unwrap_or_default();
     Some((id, rk, ex, body))
-}
-
-/// Finalize a delivered message through the native broker acknowledgement path.
-async fn ack_message(
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    actor: &str,
-    queue: &str,
-    node_id: &str,
-) {
-    let _ = engine_call(
-        state,
-        graph,
-        actor,
-        Method::BrokerAck {
-            queue: queue.to_string(),
-            node_id: node_id.to_string(),
-        },
-    )
-    .await;
 }
 
 // ── Per-connection state ────────────────────────────────────────────────
@@ -547,10 +487,11 @@ async fn handle_exchange_declare(mut method: MethodContext<'_>) -> FrameResult {
     } else {
         kind
     };
-    let _ = engine_call(
+    let _ = broker_wire::engine_call(
         &method.ctx.state,
         &method.ctx.graph,
         method.actor,
+        next_req_id,
         Method::DeclareExchange { exchange, kind },
     )
     .await;
@@ -560,10 +501,11 @@ async fn handle_exchange_declare(mut method: MethodContext<'_>) -> FrameResult {
 
 async fn handle_exchange_delete(mut method: MethodContext<'_>) -> FrameResult {
     let [exchange] = method.shortstr_args::<1>("invalid AMQP exchange.delete arguments")?;
-    let _ = engine_call(
+    let _ = broker_wire::engine_call(
         &method.ctx.state,
         &method.ctx.graph,
         method.actor,
+        next_req_id,
         Method::DeleteExchange { exchange },
     )
     .await;
@@ -586,10 +528,11 @@ async fn handle_queue_declare(mut method: MethodContext<'_>) -> FrameResult {
         queue = format!("amq.gen-{}", next_req_id());
     }
     // Ensure the queue's durable seq counter exists so it is publishable.
-    let _ = engine_call(
+    let _ = broker_wire::engine_call(
         &method.ctx.state,
         &method.ctx.graph,
         method.actor,
+        next_req_id,
         Method::BindQueue {
             exchange: String::new(),
             queue: queue.clone(),
@@ -608,10 +551,11 @@ async fn handle_queue_declare(mut method: MethodContext<'_>) -> FrameResult {
 async fn handle_queue_bind(mut method: MethodContext<'_>) -> FrameResult {
     let [queue, exchange, routing_key] =
         method.shortstr_args::<3>("invalid AMQP queue.bind arguments")?;
-    let _ = engine_call(
+    let _ = broker_wire::engine_call(
         &method.ctx.state,
         &method.ctx.graph,
         method.actor,
+        next_req_id,
         Method::BindQueue {
             exchange,
             queue,
@@ -626,10 +570,11 @@ async fn handle_queue_bind(mut method: MethodContext<'_>) -> FrameResult {
 async fn handle_queue_unbind(mut method: MethodContext<'_>) -> FrameResult {
     let [queue, exchange, routing_key] =
         method.shortstr_args::<3>("invalid AMQP queue.unbind arguments")?;
-    let _ = engine_call(
+    let _ = broker_wire::engine_call(
         &method.ctx.state,
         &method.ctx.graph,
         method.actor,
+        next_req_id,
         Method::UnbindQueue {
             exchange,
             queue,
@@ -699,10 +644,11 @@ async fn handle_basic_publish(
     let (props, body) = read_content(socket, channel).await?;
     // Route EVERY publish through the idempotent path — with no producer-id
     // it is byte-identical to a plain publish; with one it dedups (EG-314).
-    let result = engine_call(
+    let result = broker_wire::engine_call(
         &ctx.state,
         &ctx.graph,
         actor,
+        next_req_id,
         Method::PublishIdempotent {
             exchange,
             routing_key,
@@ -834,7 +780,8 @@ async fn handle_basic_ack(
         return Err(invalid_data("invalid AMQP basic.ack arguments"));
     }
     if let Some((queue, node_id)) = ctx.unacked.remove(&tag) {
-        ack_message(&ctx.state, &ctx.graph, actor, &queue, &node_id).await;
+        broker_wire::ack_message(&ctx.state, &ctx.graph, actor, next_req_id, &queue, &node_id)
+            .await;
     }
     Ok(FrameAction::Continue)
 }
@@ -1274,61 +1221,15 @@ fn put_longstr(v: &mut Vec<u8>, s: &[u8]) {
 }
 
 /// A minimal read cursor over AMQP method argument bytes.
-struct Cursor<'a> {
-    b: &'a [u8],
-    i: usize,
-    valid: bool,
+type Cursor<'a> = broker_wire::ByteCursor<'a>;
+
+trait AmqpCursorExt<'a> {
+    fn shortstr(&mut self) -> String;
+    fn longstr_slice(&mut self) -> &'a [u8];
+    fn field_value(&mut self) -> Option<FieldVal>;
 }
 
-impl<'a> Cursor<'a> {
-    fn new(b: &'a [u8]) -> Self {
-        Self {
-            b,
-            i: 0,
-            valid: true,
-        }
-    }
-    fn u8(&mut self) -> u8 {
-        if self.i >= self.b.len() {
-            self.valid = false;
-            return 0;
-        }
-        let x = self.b[self.i];
-        self.i += 1;
-        x
-    }
-    fn u16(&mut self) -> u16 {
-        let Some(end) = self.i.checked_add(2).filter(|end| *end <= self.b.len()) else {
-            self.valid = false;
-            self.i = self.b.len();
-            return 0;
-        };
-        let x = u16::from_be_bytes([self.b[self.i], self.b[self.i + 1]]);
-        self.i = end;
-        x
-    }
-    fn u32(&mut self) -> u32 {
-        let Some(end) = self.i.checked_add(4).filter(|end| *end <= self.b.len()) else {
-            self.valid = false;
-            self.i = self.b.len();
-            return 0;
-        };
-        let mut a = [0u8; 4];
-        a.copy_from_slice(&self.b[self.i..end]);
-        self.i = end;
-        u32::from_be_bytes(a)
-    }
-    fn u64(&mut self) -> u64 {
-        let Some(end) = self.i.checked_add(8).filter(|end| *end <= self.b.len()) else {
-            self.valid = false;
-            self.i = self.b.len();
-            return 0;
-        };
-        let mut a = [0u8; 8];
-        a.copy_from_slice(&self.b[self.i..end]);
-        self.i = end;
-        u64::from_be_bytes(a)
-    }
+impl<'a> AmqpCursorExt<'a> for Cursor<'a> {
     fn shortstr(&mut self) -> String {
         if self.i >= self.b.len() {
             self.valid = false;
@@ -1351,28 +1252,12 @@ impl<'a> Cursor<'a> {
         self.i = end;
         s
     }
-    /// Bytes remaining in the buffer.
-    fn remaining(&self) -> usize {
-        self.b.len().saturating_sub(self.i)
-    }
-    /// Read exactly `n` bytes, failing the cursor on truncation.
-    fn take(&mut self, n: usize) -> &'a [u8] {
-        let Some(end) = self.i.checked_add(n).filter(|end| *end <= self.b.len()) else {
-            self.valid = false;
-            self.i = self.b.len();
-            return &[];
-        };
-        let out = &self.b[self.i..end];
-        self.i = end;
-        out
-    }
-    /// A `u32`-length-prefixed byte block (AMQP `longstr` / field-table framing).
+
     fn longstr_slice(&mut self) -> &'a [u8] {
         let len = self.u32() as usize;
         self.take(len)
     }
-    /// Decode one AMQP field-table value by its 1-byte type tag (CONCEPT:EG-KG.ingest.broker-reject-publish). Returns
-    /// `None` when the tag is unknown (its width is undeterminable → the caller stops).
+
     fn field_value(&mut self) -> Option<FieldVal> {
         if self.remaining() == 0 {
             return None;

@@ -68,7 +68,8 @@ use tracing::Instrument;
 
 use crate::protocol::Response;
 use crate::write_coalescer::{
-    operations_applied, queue_admitted, queue_released, BatchStats, CoalescerConfig,
+    new_registry, operations_applied, queue_admitted, queue_released, registry_with_config,
+    BatchStats, BatchStatsHandle, CoalescerConfig,
 };
 
 /// Keep a panic-isolating child future from outliving the graph worker if the
@@ -163,7 +164,7 @@ pub struct RoutedGraphWriter {
     /// order an explicit linearization order across concurrent producers.
     admission: std::sync::Mutex<AdmissionState>,
     config: CoalescerConfig,
-    stats: Arc<BatchStats>,
+    stats: BatchStatsHandle,
 }
 
 #[derive(Debug, Default)]
@@ -177,8 +178,8 @@ impl RoutedGraphWriter {
     /// every job it flushes).
     pub fn spawn(graph_name: String, config: CoalescerConfig) -> Arc<Self> {
         let (tx, rx) = mpsc::channel::<(u64, RoutedCommitJob)>(config.queue_capacity);
-        let stats = Arc::new(BatchStats::default());
-        tokio::spawn(run_worker(graph_name, rx, config, stats.clone()));
+        let stats = BatchStatsHandle::new();
+        tokio::spawn(run_worker(graph_name, rx, config, stats.clone_arc()));
         Arc::new(Self {
             tx,
             admission: std::sync::Mutex::new(AdmissionState::default()),
@@ -393,18 +394,14 @@ pub struct RoutedWriteCoalescerRegistry {
 impl RoutedWriteCoalescerRegistry {
     /// Build an always-on, hardware-sized bounded coalescer registry.
     pub fn new() -> Self {
-        Self {
-            writers: DashMap::new(),
-            config: CoalescerConfig::auto(),
-        }
+        let (writers, config) = new_registry();
+        Self { writers, config }
     }
 
     /// Explicit constructor (tests): coalescing on, with the given config.
     pub fn with_config(config: CoalescerConfig) -> Self {
-        Self {
-            writers: DashMap::new(),
-            config,
-        }
+        let (writers, config) = registry_with_config(config);
+        Self { writers, config }
     }
 
     /// Get (or lazily create) the writer for `graph_name`, spawning its worker

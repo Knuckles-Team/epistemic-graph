@@ -70,6 +70,35 @@ impl BatchStats {
     }
 }
 
+/// Shared ownership of one graph's coalescing counters. Both coalescer flavors
+/// expose the same `Arc<BatchStats>` API while their workers retain one identity.
+#[derive(Debug)]
+pub(crate) struct BatchStatsHandle(Arc<BatchStats>);
+
+impl BatchStatsHandle {
+    pub(crate) fn new() -> Self {
+        Self(Arc::new(BatchStats::default()))
+    }
+
+    pub(crate) fn clone_arc(&self) -> Arc<BatchStats> {
+        Arc::clone(&self.0)
+    }
+}
+
+impl AsRef<Arc<BatchStats>> for BatchStatsHandle {
+    fn as_ref(&self) -> &Arc<BatchStats> {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for BatchStatsHandle {
+    type Target = Arc<BatchStats>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 // Process-wide queue telemetry is kept in atomics rather than a per-graph
 // registry.  The queues themselves remain one bounded channel per resident
 // graph, while ResourceStats can expose their aggregate depth/bytes without
@@ -269,6 +298,18 @@ impl Default for CoalescerConfig {
     }
 }
 
+/// Build the shared map/configuration pair used by both coalescer registries.
+pub(crate) fn new_registry<V>() -> (DashMap<String, V>, CoalescerConfig) {
+    (DashMap::new(), CoalescerConfig::auto())
+}
+
+/// Build a registry pair with an explicit test/runtime configuration.
+pub(crate) fn registry_with_config<V>(
+    config: CoalescerConfig,
+) -> (DashMap<String, V>, CoalescerConfig) {
+    (DashMap::new(), config)
+}
+
 /// Per-graph write coalescer: a bounded channel + one drain worker over a graph's
 /// [`GraphCore`]. Cloneable via `Arc`; held in [`WriteCoalescerRegistry`].
 pub struct GraphWriter {
@@ -283,7 +324,7 @@ pub struct GraphWriter {
     /// between concurrent producers.
     admission: Mutex<AdmissionState>,
     config: CoalescerConfig,
-    stats: Arc<BatchStats>,
+    stats: BatchStatsHandle,
 }
 
 #[derive(Debug, Default)]
@@ -296,8 +337,8 @@ impl GraphWriter {
     /// the only writer of this graph's topology lock on the coalesced path).
     pub fn spawn(graph_name: String, core: Arc<GraphCore>, config: CoalescerConfig) -> Arc<Self> {
         let (tx, rx) = mpsc::channel::<(u64, Instant, WriteOp)>(config.queue_capacity);
-        let stats = Arc::new(BatchStats::default());
-        tokio::spawn(run_worker(graph_name, core, rx, config, stats.clone()));
+        let stats = BatchStatsHandle::new();
+        tokio::spawn(run_worker(graph_name, core, rx, config, stats.clone_arc()));
         Arc::new(Self {
             tx,
             admission: Mutex::new(AdmissionState::default()),
@@ -309,7 +350,7 @@ impl GraphWriter {
     /// Coalescing counters for this graph (batches vs ops). Mainly for tests /
     /// in-process diagnostics; the Prometheus counters are the operator surface.
     pub fn stats(&self) -> &Arc<BatchStats> {
-        &self.stats
+        self.stats.as_ref()
     }
 
     /// Try to enqueue a pre-built op (its oneshot reply already wired) onto this
@@ -686,18 +727,14 @@ pub struct WriteCoalescerRegistry {
 impl WriteCoalescerRegistry {
     /// Build an always-on, hardware-sized bounded coalescer registry.
     pub fn new() -> Self {
-        Self {
-            writers: DashMap::new(),
-            config: CoalescerConfig::auto(),
-        }
+        let (writers, config) = new_registry();
+        Self { writers, config }
     }
 
     /// Explicit constructor (tests): coalescing on, with the given config.
     pub fn with_config(config: CoalescerConfig) -> Self {
-        Self {
-            writers: DashMap::new(),
-            config,
-        }
+        let (writers, config) = registry_with_config(config);
+        Self { writers, config }
     }
 
     /// Get (or lazily create) the writer for `graph_name`, spawning its worker over

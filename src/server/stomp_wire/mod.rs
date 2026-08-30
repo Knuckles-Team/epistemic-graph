@@ -34,13 +34,12 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::protocol::Method;
 use crate::protocol::ResultPayload;
-use crate::protocol::{Method, Request};
 use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
 use crate::server::broker_wire::{
     derive_password as derive_stomp_passcode_impl, verify_password as verify_stomp_passcode_impl,
 };
-use crate::server::dispatch::dispatch_authenticated_broker_actor;
 use crate::server::ServerState;
 
 /// Env var: when set (and the binary is built `--features stomp-wire`), the STOMP wire
@@ -137,42 +136,6 @@ async fn accept_loop(
     }
 }
 
-// ── Engine bridge (identical shape to amqp-wire) ──────────────────────────
-
-async fn engine_call(
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    actor: &str,
-    method: Method,
-) -> ResultPayload {
-    let id = next_req_id();
-    let req = Request {
-        id,
-        graph: graph.to_string(),
-        auth_token: String::new(),
-        agent_id: None,
-        method,
-    };
-    // `dispatch_authenticated_broker_actor` bottoms out in the same ENORMOUS
-    // `dispatch()` future under `--features full` that `transport::handle_connection`
-    // and `server::mod.rs::dispatch_on_heap` route around (see their doc comments) —
-    // awaiting it un-boxed inline overflows the poll-time call stack once a broker
-    // request finally reaches deep enough into the dispatch chain (only reachable
-    // after this connection's identity clears isolation ACL, so it was latent until
-    // then). Box::pin it, matching every OTHER production callsite.
-    let resp = Box::pin(dispatch_authenticated_broker_actor(state, req, actor)).await;
-    resp.result.unwrap_or(ResultPayload::Bool(false))
-}
-
-fn current_time_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
-}
-
 /// Claim one deliverable message through the native broker lifecycle. Returns
 /// `(node_id, routing_key, body)` or `None`.
 async fn claim_one(
@@ -182,15 +145,16 @@ async fn claim_one(
     queue: &str,
     consumer: &str,
 ) -> Option<(String, String, Vec<u8>)> {
-    let payload = engine_call(
+    let payload = broker_wire::engine_call(
         state,
         graph,
         actor,
+        next_req_id,
         Method::BrokerConsume {
             queue: queue.to_string(),
             group: "stomp".to_string(),
             consumer: consumer.to_string(),
-            now_ms: current_time_ms(),
+            now_ms: broker_wire::current_time_ms(),
             lease_ms: BROKER_LEASE_MS,
             prefetch: BROKER_PREFETCH,
         },
@@ -220,26 +184,6 @@ async fn claim_one(
     Some((id, rk, body))
 }
 
-/// Finalize a delivered message through the native broker acknowledgement path.
-async fn ack_message(
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    actor: &str,
-    queue: &str,
-    node_id: &str,
-) {
-    let _ = engine_call(
-        state,
-        graph,
-        actor,
-        Method::BrokerAck {
-            queue: queue.to_string(),
-            node_id: node_id.to_string(),
-        },
-    )
-    .await;
-}
-
 /// Return a claimed message to the claimable pool through the native rejection path.
 async fn requeue_message(
     state: &Arc<RwLock<ServerState>>,
@@ -248,15 +192,16 @@ async fn requeue_message(
     queue: &str,
     node_id: &str,
 ) {
-    let _ = engine_call(
+    let _ = broker_wire::engine_call(
         state,
         graph,
         actor,
+        next_req_id,
         Method::BrokerReject {
             queue: queue.to_string(),
             node_id: node_id.to_string(),
             requeue: true,
-            now_ms: current_time_ms(),
+            now_ms: broker_wire::current_time_ms(),
         },
     )
     .await;
@@ -406,10 +351,11 @@ async fn handle_frame(
             return Err(invalid_data("STOMP authentication failed"));
         }
         let actor = crate::server::pseudonymous_broker_actor(auth_secret, &principal)?;
-        let _ = engine_call(
+        let _ = broker_wire::engine_call(
             state,
             graph,
             &actor,
+            next_req_id,
             Method::DeclareExchange {
                 exchange: exchange.to_string(),
                 kind: "direct".to_string(),
@@ -440,10 +386,11 @@ async fn handle_frame(
     match frame.command.as_str() {
         "SEND" => {
             let destination = required_header(frame, "destination")?;
-            let _ = engine_call(
+            let _ = broker_wire::engine_call(
                 state,
                 graph,
                 actor,
+                next_req_id,
                 Method::Publish {
                     exchange: exchange.to_string(),
                     routing_key: destination.clone(),
@@ -467,10 +414,11 @@ async fn handle_frame(
                 .ok_or_else(|| invalid_data("invalid STOMP acknowledgement mode"))?;
             let queue = format!("stomp.{}", next_req_id());
             // Bind the per-subscription queue to the destination (exact match).
-            let _ = engine_call(
+            let _ = broker_wire::engine_call(
                 state,
                 graph,
                 actor,
+                next_req_id,
                 Method::BindQueue {
                     exchange: exchange.to_string(),
                     queue: queue.clone(),
@@ -491,10 +439,11 @@ async fn handle_frame(
             let sub_id = required_header(frame, "id")?;
             if let Some(pos) = subs.iter().position(|s| s.id == sub_id) {
                 let s = subs.remove(pos);
-                let _ = engine_call(
+                let _ = broker_wire::engine_call(
                     state,
                     graph,
                     actor,
+                    next_req_id,
                     Method::UnbindQueue {
                         exchange: exchange.to_string(),
                         queue: s.queue.clone(),
@@ -509,7 +458,7 @@ async fn handle_frame(
             // STOMP 1.2 ACK carries the message's `ack` id in the `id` header.
             let ack_id = required_header(frame, "id")?;
             if let Some((queue, node_id)) = unacked.remove(&ack_id) {
-                ack_message(state, graph, actor, &queue, &node_id).await;
+                broker_wire::ack_message(state, graph, actor, next_req_id, &queue, &node_id).await;
             }
             maybe_receipt(socket, frame).await?;
         }
@@ -593,7 +542,10 @@ async fn pump_subscriptions(
             );
             write_frame(socket, &msg).await?;
             match sub.ack {
-                AckMode::Auto => ack_message(state, graph, actor, &sub.queue, &node_id).await,
+                AckMode::Auto => {
+                    broker_wire::ack_message(state, graph, actor, next_req_id, &sub.queue, &node_id)
+                        .await
+                }
                 AckMode::Client | AckMode::ClientIndividual => {
                     unacked.insert(node_id.clone(), (sub.queue.clone(), node_id));
                 }
