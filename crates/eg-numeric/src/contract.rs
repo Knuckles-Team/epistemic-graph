@@ -8,8 +8,8 @@
 //! `Array2<f64>: Serialize` at all.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, IngestReport, ModalityContract,
-    ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
+    encode_staged, ConformanceTestable, IngestReport, ModalityContract, ModalitySelfTest,
+    RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::cluster::KMeansResult;
@@ -49,17 +49,11 @@ impl ModalityContract for KMeansResult {
     /// Batch ingest = parse a `KMeansResult` back from its serialized form. Streaming
     /// is N/A: a clustering result is a static snapshot, not an append stream.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<KMeansResult>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "a clustering result is a static snapshot, not an append stream",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "a clustering result is a static snapshot, not an append stream",
+        )
     }
 
     /// Real storage stats from the serialized KMeansResult: logical size from
@@ -87,11 +81,7 @@ impl ModalityContract for KMeansResult {
     /// Stage the result as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered result is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<KMeansResult>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// Clustering results have no CDC, policy, or provenance of their own (parallel

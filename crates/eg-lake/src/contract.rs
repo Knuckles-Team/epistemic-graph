@@ -13,8 +13,8 @@
 //! the trait's module docs describe.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, IngestReport, ModalityContract,
-    ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
+    encode_staged, ConformanceTestable, IngestReport, ModalityContract, ModalitySelfTest,
+    RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
@@ -66,15 +66,7 @@ impl ModalityContract for LakeBatch {
 
     /// Batch ingest = parse a `LakeBatch` back from serialized form. Streaming N/A.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<LakeBatch>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable("a table batch is not a stream"),
-        }
+        eg_modality::staged_batch_ingest_report(self, id, "a table batch is not a stream")
     }
 
     /// Real storage stats: serialized size; element count is row count.
@@ -88,11 +80,7 @@ impl ModalityContract for LakeBatch {
 
     /// Simulated crash-and-recover through txn staging.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<LakeBatch>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// N/A: batch is a materialization unit, not durable itself.

@@ -11,9 +11,8 @@
 //! `sub ⊑ sup`) -> `detail`, `confidence -> confidence`.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::owl::ProofNode;
@@ -91,17 +90,11 @@ impl ModalityContract for ProofNode {
     /// Batch ingest = parse a `ProofNode` back from its serialized form. Streaming
     /// is N/A: an OWL proof tree is a whole derivation structure, not an append stream.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<ProofNode>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "an OWL proof tree is a whole derivation structure, not an append stream",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "an OWL proof tree is a whole derivation structure, not an append stream",
+        )
     }
 
     /// Real storage stats from the serialized ProofNode: logical size from encoded
@@ -133,11 +126,7 @@ impl ModalityContract for ProofNode {
     /// Stage the proof node as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered proof is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<ProofNode>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// OWL proof trees have no CDC or policy of their own (parallel to other

@@ -62,7 +62,47 @@ use crate::native::{NativeIndexKey, NativePredicate};
 use crate::provenance::Provenance;
 use crate::rowset::RowSetShape;
 use crate::tck::TckPoint;
-use crate::txn::StagedWrite;
+use crate::txn::{decode_staged, StagedWrite};
+
+/// Run the standard batch-only ingest self-check for a staged modality value.
+///
+/// Whole-value modalities all exercise ingest by staging their value and decoding
+/// the payload back into the same type. Keeping that operation here preserves the
+/// contract-specific streaming reason while giving every caller one implementation
+/// of the batch validation.
+pub fn staged_batch_ingest_report<T>(
+    value: &T,
+    id: &str,
+    streaming_na_reason: &'static str,
+) -> IngestReport
+where
+    T: ModalityContract + PartialEq + serde::de::DeserializeOwned,
+{
+    let staged = value.txn_stage(id);
+    let batch = match decode_staged::<T>(&staged) {
+        Ok(round_trip) if round_trip == *value => ModalitySelfTest::Passed,
+        _ => ModalitySelfTest::Failed,
+    };
+    IngestReport {
+        batch,
+        streaming: ModalitySelfTest::NotApplicable(streaming_na_reason),
+    }
+}
+
+/// Run the standard staged-write recovery self-check for a modality value.
+///
+/// The staged payload is the WAL analogue used by every contract implementation:
+/// stage the value, replay-decode its payload, and require equality with the source.
+pub fn staged_recovery_selfcheck<T>(value: &T, id: &str) -> ModalitySelfTest
+where
+    T: ModalityContract + PartialEq + serde::de::DeserializeOwned,
+{
+    let staged = value.txn_stage(id);
+    match decode_staged::<T>(&staged) {
+        Ok(recovered) if recovered == *value => ModalitySelfTest::Passed,
+        _ => ModalitySelfTest::Failed,
+    }
+}
 
 /// The seam every `eg-*` modality value type can implement. See the module docs for
 /// the v1-scoping rationale (4 core + 4 default-empty methods).

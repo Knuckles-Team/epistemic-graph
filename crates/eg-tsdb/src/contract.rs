@@ -17,9 +17,8 @@
 //! for `ConformanceTestable`.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, OpaqueRef, Provenance, RowSetShape, StagedWrite,
-    StorageStats, TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, OpaqueRef, Provenance, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::store::SeriesMeta;
@@ -86,17 +85,11 @@ impl ModalityContract for SeriesMeta {
     /// is N/A: series metadata is a scalar, not an append stream (the series POINTS
     /// are appended; the metadata describes them, not the stream itself).
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<SeriesMeta>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "series metadata is a scalar container descriptor, not an append stream (points are appended under it)",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "series metadata is a scalar container descriptor, not an append stream (points are appended under it)",
+        )
     }
 
     /// Real storage stats from the serialized metadata: logical size from encoded
@@ -124,11 +117,7 @@ impl ModalityContract for SeriesMeta {
     /// Stage the metadata as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered metadata is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<SeriesMeta>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// Series metadata has no CDC, policy, or provenance of its own: CDC is for the
@@ -210,17 +199,11 @@ impl ModalityContract for Span {
     /// a single span is a whole unit, not an append stream (the trace as a whole may be
     /// streamed in, but individual spans are atomic).
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<Span>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "a span is a whole observed unit; tracing streams are reconstructed from individual spans",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "a span is a whole observed unit; tracing streams are reconstructed from individual spans",
+        )
     }
 
     /// Real storage stats from the serialized Span: logical size from encoded length;
@@ -247,11 +230,7 @@ impl ModalityContract for Span {
     /// Stage the span as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered span is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<Span>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// Spans have no CDC, policy, or provenance of their own: CDC is implicit in

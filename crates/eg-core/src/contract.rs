@@ -9,8 +9,8 @@
 //! not invented.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, IngestReport, ModalityContract,
-    ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
+    encode_staged, ConformanceTestable, IngestReport, ModalityContract, ModalitySelfTest,
+    RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::index::NodeChange;
@@ -45,15 +45,7 @@ impl ModalityContract for NodeChange {
 
     /// Batch ingest = round-trip through serialization.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<NodeChange>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable("a node change record is not a stream"),
-        }
+        eg_modality::staged_batch_ingest_report(self, id, "a node change record is not a stream")
     }
 
     /// Real storage stats.
@@ -67,11 +59,7 @@ impl ModalityContract for NodeChange {
 
     /// Simulated crash-and-recover.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<NodeChange>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// N/A: change records are CDC events, not durable values.

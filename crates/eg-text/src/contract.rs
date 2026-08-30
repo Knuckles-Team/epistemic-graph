@@ -12,8 +12,8 @@
 //! returns `None`; a caller with the original text can bind a real snippet range.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::{CitationSpan, TableSpan, TextHit};
@@ -98,17 +98,11 @@ impl ModalityContract for TextHit {
     /// Batch ingest = parse a `TextHit` back from its serialized form. Streaming
     /// is genuinely N/A: a BM25 hit is a scalar query result, not an append stream.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<TextHit>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "a BM25 hit is a scalar query result, not an append stream",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "a BM25 hit is a scalar query result, not an append stream",
+        )
     }
 
     /// Real storage stats from the serialized TextHit: logical size from encoded
@@ -137,11 +131,7 @@ impl ModalityContract for TextHit {
     /// Stage the hit as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered hit is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<TextHit>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// A BM25 hit has no CDC, policy, or provenance of its own (parallel to query

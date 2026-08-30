@@ -7,9 +7,8 @@
 //! window buffering — that maps directly onto `txn_stage`).
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 use serde_json::{Map, Value};
 
@@ -75,17 +74,11 @@ impl ModalityContract for Event {
     /// genuinely N/A: a single event is a whole unit; streaming is an aggregate of
     /// many events (CEP windowing happens at the pattern engine level, not the value).
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<Event>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "a single event is a whole unit; CEP streaming is reconstructed at the pattern engine level",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "a single event is a whole unit; CEP streaming is reconstructed at the pattern engine level",
+        )
     }
 
     /// Real storage stats from the serialized Event: logical size from encoded
@@ -115,11 +108,7 @@ impl ModalityContract for Event {
     /// Stage the event as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered event is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<Event>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// Events have policy and provenance concerns at the CEP/pattern layer, not at

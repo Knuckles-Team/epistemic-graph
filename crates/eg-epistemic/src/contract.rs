@@ -26,9 +26,8 @@
 //! meaningful for it"), not a gap in this retrofit.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::model::{JustRule, TimeAxis};
@@ -130,17 +129,11 @@ impl ModalityContract for BeliefState {
     /// Batch ingest = parse a `BeliefState` back from its serialized form. Streaming
     /// is N/A: a belief is a scalar computed value, not an append stream.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<BeliefState>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "a belief state is a scalar computed value, not an append stream",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "a belief state is a scalar computed value, not an append stream",
+        )
     }
 
     /// Real storage stats from the serialized BeliefState: logical size from encoded
@@ -168,11 +161,7 @@ impl ModalityContract for BeliefState {
     /// Stage the belief as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered belief is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<BeliefState>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// Belief states are computed views with no CDC, policy, or independent provenance:
