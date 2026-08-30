@@ -278,7 +278,21 @@ fn tsne(
         100.0
     };
 
-    // High-D squared distances.
+    let d2 = squared_distance_matrix(rows);
+    let p = gaussian_affinities(&d2, perp.ln());
+    let pj = symmetrize_affinities(&p);
+
+    let mut rng = SplitMix64::new(seed);
+    let mut y: Vec<Vec<f64>> = (0..n)
+        .map(|_| (0..dims).map(|_| 1e-4 * rng.next_gauss()).collect())
+        .collect();
+    optimize_tsne(&mut y, &pj, epochs, lr, dims);
+    y
+}
+
+/// Compute the symmetric pairwise squared-distance matrix used by t-SNE.
+fn squared_distance_matrix(rows: &[Point]) -> Vec<Vec<f64>> {
+    let n = rows.len();
     let mut d2 = vec![vec![0.0f64; n]; n];
     for i in 0..n {
         for j in (i + 1)..n {
@@ -287,124 +301,198 @@ fn tsne(
             d2[j][i] = v;
         }
     }
-    // Per-point Gaussian P via binary search on beta = 1/(2σ²) to hit the target perp.
-    let target = perp.ln();
-    let mut p = vec![vec![0.0f64; n]; n];
-    for i in 0..n {
-        let (mut beta, mut lo, mut hi) = (1.0f64, f64::NEG_INFINITY, f64::INFINITY);
-        for _ in 0..50 {
-            let mut sum = 0.0;
-            let mut row = vec![0.0f64; n];
-            for j in 0..n {
-                if i != j {
-                    row[j] = (-beta * d2[i][j]).exp();
-                    sum += row[j];
-                }
-            }
-            let sum = sum.max(1e-12);
-            let mut h = 0.0;
-            for (j, &rv) in row.iter().enumerate() {
-                if i != j {
-                    let pij = rv / sum;
-                    if pij > 1e-12 {
-                        h += -pij * pij.ln();
-                    }
-                }
-            }
-            let diff = h - target;
-            if diff.abs() < 1e-5 {
-                for j in 0..n {
-                    p[i][j] = row[j] / sum;
-                }
-                break;
-            }
-            if diff > 0.0 {
-                lo = beta;
-                beta = if hi.is_infinite() {
-                    beta * 2.0
-                } else {
-                    (beta + hi) / 2.0
-                };
-            } else {
-                hi = beta;
-                beta = if lo.is_infinite() {
-                    beta / 2.0
-                } else {
-                    (beta + lo) / 2.0
-                };
-            }
-            for j in 0..n {
-                p[i][j] = row[j] / sum;
+    d2
+}
+
+/// Calibrate one Gaussian affinity row so its entropy matches the target log-perplexity.
+fn gaussian_affinity_row(distances: &[f64], diagonal: usize, target: f64) -> Vec<f64> {
+    let n = distances.len();
+    let (mut beta, mut lo, mut hi) = (1.0f64, f64::NEG_INFINITY, f64::INFINITY);
+    let mut normalized = vec![0.0f64; n];
+    for _ in 0..50 {
+        let (row, sum) = gaussian_weights(distances, diagonal, beta);
+        let h = gaussian_entropy(&row, diagonal, sum);
+        normalized = normalize_probabilities(&row, sum);
+        let diff = h - target;
+        if diff.abs() < 1e-5 {
+            break;
+        }
+        beta = update_gaussian_beta(beta, diff, &mut lo, &mut hi);
+    }
+    normalized
+}
+
+/// Compute one unnormalized Gaussian affinity row and its safe normalizer.
+fn gaussian_weights(distances: &[f64], diagonal: usize, beta: f64) -> (Vec<f64>, f64) {
+    let n = distances.len();
+    let mut sum = 0.0;
+    let mut row = vec![0.0f64; n];
+    for j in 0..n {
+        if diagonal != j {
+            row[j] = (-beta * distances[j]).exp();
+            sum += row[j];
+        }
+    }
+    (row, sum.max(1e-12))
+}
+
+/// Compute the Shannon entropy of one normalized Gaussian affinity row.
+fn gaussian_entropy(row: &[f64], diagonal: usize, sum: f64) -> f64 {
+    let mut entropy = 0.0;
+    for (j, &rv) in row.iter().enumerate() {
+        if diagonal != j {
+            let pij = rv / sum;
+            if pij > 1e-12 {
+                entropy += -pij * pij.ln();
             }
         }
     }
-    // Symmetrize + normalize; early exaggeration.
-    let mut pj = vec![vec![0.0f64; n]; n];
+    entropy
+}
+
+/// Normalize one Gaussian affinity row without changing its element order.
+fn normalize_probabilities(row: &[f64], sum: f64) -> Vec<f64> {
+    row.iter().map(|value| value / sum).collect()
+}
+
+/// Update the binary-search bounds for one Gaussian entropy measurement.
+fn update_gaussian_beta(beta: f64, diff: f64, lo: &mut f64, hi: &mut f64) -> f64 {
+    if diff > 0.0 {
+        *lo = beta;
+        if hi.is_infinite() {
+            beta * 2.0
+        } else {
+            (beta + *hi) / 2.0
+        }
+    } else {
+        *hi = beta;
+        if lo.is_infinite() {
+            beta / 2.0
+        } else {
+            (beta + *lo) / 2.0
+        }
+    }
+}
+
+/// Build all per-point Gaussian affinities from the pairwise distance matrix.
+fn gaussian_affinities(d2: &[Vec<f64>], target: f64) -> Vec<Vec<f64>> {
+    d2.iter()
+        .enumerate()
+        .map(|(i, distances)| gaussian_affinity_row(distances, i, target))
+        .collect()
+}
+
+/// Symmetrize and normalize high-dimensional affinities for the t-SNE objective.
+fn symmetrize_affinities(p: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let n = p.len();
     let denom = (2 * n) as f64;
+    let mut pj = vec![vec![0.0f64; n]; n];
     for i in 0..n {
         for j in 0..n {
             pj[i][j] = ((p[i][j] + p[j][i]) / denom).max(1e-12);
         }
     }
+    pj
+}
 
-    let mut rng = SplitMix64::new(seed);
-    let mut y: Vec<Vec<f64>> = (0..n)
-        .map(|_| (0..dims).map(|_| 1e-4 * rng.next_gauss()).collect())
-        .collect();
-    // Delta-bar-delta adaptive gains + momentum (the standard t-SNE optimizer) — far
-    // better convergence than a fixed step, which matters for neighbor preservation.
+/// Run the delta-bar-delta t-SNE optimizer with momentum and recentering.
+fn optimize_tsne(y: &mut [Vec<f64>], pj: &[Vec<f64>], epochs: usize, lr: f64, dims: usize) {
+    let n = y.len();
     let mut vel = vec![vec![0.0f64; dims]; n];
     let mut gains = vec![vec![1.0f64; dims]; n];
-
     for epoch in 0..epochs {
         let exaggeration = if epoch < 100 { 4.0 } else { 1.0 };
         let momentum = if epoch < 100 { 0.5 } else { 0.8 };
-        // Low-D Student-t affinities Q.
-        let mut num = vec![vec![0.0f64; n]; n];
-        let mut qsum = 0.0;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let dist = sq_dist(&y[i], &y[j]);
-                let v = 1.0 / (1.0 + dist);
-                num[i][j] = v;
-                num[j][i] = v;
-                qsum += 2.0 * v;
-            }
-        }
-        let qsum = qsum.max(1e-12);
-        // Gradient dY_i = 4 Σ_j (P_ij·ex − Q_ij)(Y_i−Y_j)·num_ij.
-        for i in 0..n {
-            let mut grad = vec![0.0f64; dims];
-            for j in 0..n {
-                if i == j {
-                    continue;
-                }
-                let q = (num[i][j] / qsum).max(1e-12);
-                let mult = 4.0 * (pj[i][j] * exaggeration - q) * num[i][j];
-                for d in 0..dims {
-                    grad[d] += mult * (y[i][d] - y[j][d]);
-                }
-            }
-            for d in 0..dims {
-                // Adaptive gain: grow when the gradient keeps its sign, shrink on a flip.
-                if grad[d].signum() != vel[i][d].signum() {
-                    gains[i][d] += 0.2;
-                } else {
-                    gains[i][d] *= 0.8;
-                }
-                gains[i][d] = gains[i][d].max(0.01);
-                vel[i][d] = momentum * vel[i][d] - lr * gains[i][d] * grad[d];
-            }
-        }
+        let (num, qsum) = student_t_affinities(y);
+        update_tsne_velocity(
+            y,
+            pj,
+            &num,
+            qsum,
+            exaggeration,
+            momentum,
+            lr,
+            &mut vel,
+            &mut gains,
+            dims,
+        );
         for i in 0..n {
             for d in 0..dims {
                 y[i][d] += vel[i][d];
             }
         }
-        // Re-center each epoch to keep the layout stable.
-        recenter(&mut y, dims);
+        recenter(y, dims);
     }
-    y
+}
+
+/// Compute the low-dimensional Student-t numerators and their normalization sum.
+fn student_t_affinities(y: &[Vec<f64>]) -> (Vec<Vec<f64>>, f64) {
+    let n = y.len();
+    let mut num = vec![vec![0.0f64; n]; n];
+    let mut qsum = 0.0;
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let dist = sq_dist(&y[i], &y[j]);
+            let v = 1.0 / (1.0 + dist);
+            num[i][j] = v;
+            num[j][i] = v;
+            qsum += 2.0 * v;
+        }
+    }
+    (num, qsum.max(1e-12))
+}
+
+/// Apply one gradient step to all low-dimensional coordinates' velocities.
+fn update_tsne_velocity(
+    y: &[Vec<f64>],
+    pj: &[Vec<f64>],
+    num: &[Vec<f64>],
+    qsum: f64,
+    exaggeration: f64,
+    momentum: f64,
+    lr: f64,
+    vel: &mut [Vec<f64>],
+    gains: &mut [Vec<f64>],
+    dims: usize,
+) {
+    let n = y.len();
+    for i in 0..n {
+        let grad = tsne_gradient(y, pj, num, qsum, exaggeration, i, dims);
+        for d in 0..dims {
+            if grad[d].signum() != vel[i][d].signum() {
+                gains[i][d] += 0.2;
+            } else {
+                gains[i][d] *= 0.8;
+            }
+            gains[i][d] = gains[i][d].max(0.01);
+            vel[i][d] = momentum * vel[i][d] - lr * gains[i][d] * grad[d];
+        }
+    }
+}
+
+/// Compute one t-SNE gradient row from the symmetric affinity matrices.
+fn tsne_gradient(
+    y: &[Vec<f64>],
+    pj: &[Vec<f64>],
+    num: &[Vec<f64>],
+    qsum: f64,
+    exaggeration: f64,
+    i: usize,
+    dims: usize,
+) -> Vec<f64> {
+    let n = y.len();
+    let mut grad = vec![0.0f64; dims];
+    for j in 0..n {
+        if i == j {
+            continue;
+        }
+        let q = (num[i][j] / qsum).max(1e-12);
+        let mult = 4.0 * (pj[i][j] * exaggeration - q) * num[i][j];
+        for d in 0..dims {
+            grad[d] += mult * (y[i][d] - y[j][d]);
+        }
+    }
+    grad
 }
 
 // ─────────────────────────── UMAP ───────────────────────────
