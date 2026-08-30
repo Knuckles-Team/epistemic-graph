@@ -450,6 +450,9 @@ mod tests {
     //! end-to-end through the shared `WireSession` execution core (CONCEPT:EG-KG.query.kg-2).
     use super::*;
     use crate::isolation::IsolationLayer;
+    use crate::server::handlers::query::current_auth_test_support::{
+        grant_commons_user, register_commons_agent,
+    };
     use crate::server::ServerState;
     use eg_query::{TypedColumn, TypedQueryResult};
     use tokio::net::TcpStream;
@@ -497,33 +500,12 @@ mod tests {
     /// RBAC grants, authenticated agent, and row data needed by the round-trip.
     fn seeded_state() -> Arc<RwLock<ServerState>> {
         let mut isolation = IsolationLayer::new();
-        #[cfg(feature = "security")]
-        {
-            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-            isolation.add_role(Role::new("commons-user"));
-            let commons_graph = ResourceSelector::Graph("__commons__".to_string());
-            for action in [RbacAction::Read, RbacAction::Write] {
-                isolation.add_grant(Grant {
-                    role: "commons-user".to_string(),
-                    resource: commons_graph.clone(),
-                    action,
-                    effect: GrantEffect::Allow,
-                });
-            }
-        }
+        grant_commons_user(&mut isolation);
         // Agent id "tester" matches the MySQL native-password handshake's
         // authenticated username used by `client_connect` below — the wire
         // session's ACL actor is bound to that literal username (see
         // `bind_authenticated_sql_actor`'s `agent_id` param).
-        isolation.register_agent(crate::isolation::AgentIdentity {
-            agent_id: "tester".to_string(),
-            role: crate::isolation::AgentRole::Agent,
-            teams: Vec::new(),
-            #[cfg(feature = "security")]
-            roles: vec!["commons-user".to_string()],
-            #[cfg(not(feature = "security"))]
-            roles: Vec::new(),
-        });
+        register_commons_agent(&mut isolation, "tester");
         let mut state = ServerState::new_for_test("test", isolation);
         state.persist_dir = Some(
             crate::server::sql_tables::test_persist_dir()
