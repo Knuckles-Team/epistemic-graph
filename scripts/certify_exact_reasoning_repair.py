@@ -254,49 +254,42 @@ def _seed(engine: ExactEngine) -> None:
     _with_client(engine, GRAPH, write)
 
 
-def _causal_cases(engine: ExactEngine) -> dict[str, dict[str, object]]:
-    variables = [
-        {"id": "z", "parents": [], "bias": 0.0, "noise_var": 1.0},
-        {"id": "x", "parents": [["z", 1.0]], "bias": 0.0, "noise_var": 0.25},
-        {
-            "id": "y",
-            "parents": [["z", 1.0], ["x", 0.5]],
-            "bias": 0.0,
-            "noise_var": 0.25,
-        },
-    ]
-
-    def queries(client: Any) -> tuple[dict[str, Any], ...]:
-        intervene = client.query.causal_estimate(
-            variables,
-            {"x": 2.0},
-            mode="Intervene",
-        )
-        repeated = client.query.causal_estimate(
-            variables,
-            {"x": 2.0},
-            mode="Intervene",
-        )
-        observe = client.query.causal_estimate(
-            variables,
-            {"x": 2.0},
-            mode="Observe",
-        )
-        counterfactual = client.query.causal_counterfactual(
-            variables,
-            {"z": 1.0, "x": 1.0, "y": 1.5},
-            {"x": 2.0},
-        )
-        counterfactual_repeated = client.query.causal_counterfactual(
-            variables,
-            {"z": 1.0, "x": 1.0, "y": 1.5},
-            {"x": 2.0},
-        )
-        return intervene, repeated, observe, counterfactual, counterfactual_repeated
-
-    intervene, repeated, observe, counterfactual, counterfactual_repeated = (
-        _with_client(engine, GRAPH, queries)
+def _causal_queries(
+    client: Any, variables: list[dict[str, object]]
+) -> tuple[dict[str, Any], ...]:
+    intervene = client.query.causal_estimate(
+        variables,
+        {"x": 2.0},
+        mode="Intervene",
     )
+    repeated = client.query.causal_estimate(
+        variables,
+        {"x": 2.0},
+        mode="Intervene",
+    )
+    observe = client.query.causal_estimate(
+        variables,
+        {"x": 2.0},
+        mode="Observe",
+    )
+    counterfactual = client.query.causal_counterfactual(
+        variables,
+        {"z": 1.0, "x": 1.0, "y": 1.5},
+        {"x": 2.0},
+    )
+    counterfactual_repeated = client.query.causal_counterfactual(
+        variables,
+        {"z": 1.0, "x": 1.0, "y": 1.5},
+        {"x": 2.0},
+    )
+    return intervene, repeated, observe, counterfactual, counterfactual_repeated
+
+
+def _validate_causal_estimates(
+    intervene: dict[str, Any],
+    repeated: dict[str, Any],
+    observe: dict[str, Any],
+) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]]]:
     do_estimates = _estimates(intervene)
     _estimates(repeated)
     observed_estimates = _estimates(observe)
@@ -310,10 +303,15 @@ def _causal_cases(engine: ExactEngine) -> dict[str, dict[str, object]]:
         _fail("causal_structural_effect_invalid")
     if abs(observed_estimates["z"]["mean"] - do_estimates["z"]["mean"]) < 1e-6:
         _fail("causal_observation_intervention_not_distinct")
+    return do_estimates, observed_estimates
 
+
+def _validate_causal_counterfactual(
+    counterfactual: dict[str, Any], repeated: dict[str, Any]
+) -> dict[str, float]:
     values = _counterfactual_values(counterfactual)
-    repeated_values = _counterfactual_values(counterfactual_repeated)
-    if canonical_digest(counterfactual) != canonical_digest(counterfactual_repeated):
+    repeated_values = _counterfactual_values(repeated)
+    if canonical_digest(counterfactual) != canonical_digest(repeated):
         _fail("causal_counterfactual_not_deterministic")
     if (
         set(values) != {"z", "x", "y"}
@@ -323,7 +321,29 @@ def _causal_cases(engine: ExactEngine) -> dict[str, dict[str, object]]:
         or values != repeated_values
     ):
         _fail("causal_counterfactual_invalid")
+    return values
 
+
+def _causal_cases(engine: ExactEngine) -> dict[str, dict[str, object]]:
+    variables = [
+        {"id": "z", "parents": [], "bias": 0.0, "noise_var": 1.0},
+        {"id": "x", "parents": [["z", 1.0]], "bias": 0.0, "noise_var": 0.25},
+        {
+            "id": "y",
+            "parents": [["z", 1.0], ["x", 0.5]],
+            "bias": 0.0,
+            "noise_var": 0.25,
+        },
+    ]
+    (
+        intervene,
+        repeated,
+        observe,
+        counterfactual,
+        counterfactual_repeated,
+    ) = _with_client(engine, GRAPH, lambda client: _causal_queries(client, variables))
+    do_estimates, _ = _validate_causal_estimates(intervene, repeated, observe)
+    values = _validate_causal_counterfactual(counterfactual, counterfactual_repeated)
     return {
         "causal_recomputation": {
             "deterministic": True,
