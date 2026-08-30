@@ -289,6 +289,37 @@ pub async fn unified_query(
     .await
 }
 
+/// Add nodes whose single indexed property has a caller-selected key, retaining the
+/// served write path and request sequencing used by differential index tests.
+pub async fn add_nodes_with_property(
+    state: &SharedState,
+    auth_secret: &str,
+    nodes: &[(&str, &str)],
+    node_type: &str,
+    property_value: &str,
+) -> Vec<(String, Response)> {
+    let mut responses = Vec::with_capacity(nodes.len());
+    for (index, (id, key)) in nodes.iter().enumerate() {
+        let response = dispatch(
+            state,
+            commons_request(
+                auth_secret,
+                index as u64 + 1,
+                Method::AddNode {
+                    node_id: (*id).to_string(),
+                    properties_msgpack: json_bytes(serde_json::json!({
+                        "type": node_type,
+                        (*key): property_value,
+                    })),
+                },
+            ),
+        )
+        .await;
+        responses.push(((*id).to_string(), response));
+    }
+    responses
+}
+
 pub fn edge_rows(response: &Response) -> Vec<(String, String, Vec<u8>)> {
     assert!(response.error.is_none(), "GetEdges: {:?}", response.error);
     match &response.result {

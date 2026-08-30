@@ -54,21 +54,15 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
     // (matches BOTH the persistent index and the ephemeral fallback). `noncanonical`
     // carries the SAME point under `geom` — the fallback's alias, which the persistent
     // index does not recognize.
-    for (id, key) in [("canonical", "geometry"), ("noncanonical", "geom")] {
-        let r = Box::pin(dispatch(
-            &state,
-            test_support::commons_request(
-                SECRET,
-                if id == "canonical" { 1 } else { 2 },
-                Method::AddNode {
-                    node_id: id.to_string(),
-                    properties_msgpack: test_support::json_bytes(
-                        json!({ "type": "City", key: "POINT (1 1)" }),
-                    ),
-                },
-            ),
-        ))
-        .await;
+    for (id, r) in test_support::add_nodes_with_property(
+        &state,
+        SECRET,
+        &[("canonical", "geometry"), ("noncanonical", "geom")],
+        "City",
+        "POINT (1 1)",
+    )
+    .await
+    {
         assert!(r.error.is_none(), "AddNode {id}: {:?}", r.error);
     }
 
