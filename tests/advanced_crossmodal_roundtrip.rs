@@ -1320,22 +1320,13 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
     // ── K1 reopen: the fused cross-modal read (nodes + edges + semantic) DECRYPTS. ──
     // Reopening the SAME redb file IN-PROCESS races the just-dropped `backend`'s file
     // lock actually releasing (the write-coalescer worker's async exit has no
-    // `JoinHandle` here to await directly), so bound it with a short retry rather
+    // `JoinHandle` here to await directly), so use the shared bounded retry rather
     // than a flat sleep -- identical rationale to the redb_backend.rs reopen tests.
-    let reopened = {
-        let mut attempt = 0;
-        loop {
-            match RedbBackend::open(dir_s.clone(), policy(), 64) {
-                Ok(backend) => break backend,
-                Err(error) if attempt < 100 => {
-                    attempt += 1;
-                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                    let _ = error;
-                }
-                Err(error) => panic!("reopen K1: {error:?}"),
-            }
-        }
-    };
+    let reopened = test_support::reopen_with_bounded_retry(
+        || RedbBackend::open(dir_s.clone(), policy(), 64),
+        "reopen K1",
+    )
+    .await;
     let dump = reopened
         .read_graph_dump_blocking("__commons__")
         .expect("read_graph_dump under K1")

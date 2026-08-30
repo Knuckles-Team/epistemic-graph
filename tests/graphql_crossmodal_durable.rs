@@ -137,27 +137,18 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     // redb keeps its advisory per-file lock until then (`state` holds its own `Arc`
     // clone of `backend`, so both must go). Reopening the SAME file IN-PROCESS then
     // races that drop's async teardown actually releasing the lock (no `JoinHandle` to
-    // await here), so bound it with a short retry rather than a flat sleep -- identical
+    // await here), so use the shared bounded retry rather than a flat sleep -- identical
     // rationale to `redb_backend::tests::delete_then_recreate_same_name_keeps_new_writes`
     // and `advanced_crossmodal_roundtrip.rs::encryption_at_rest_wrong_key_fails_eg394`.
     backend.shutdown();
     drop(backend);
     drop(state);
 
-    let reopened = {
-        let mut attempt = 0;
-        loop {
-            match test_support::open_redb_backend(dir_s.clone()) {
-                Ok(backend) => break backend,
-                Err(error) if attempt < 100 => {
-                    attempt += 1;
-                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                    let _ = error;
-                }
-                Err(error) => panic!("reopen durable tier: {error:?}"),
-            }
-        }
-    };
+    let reopened = test_support::reopen_with_bounded_retry(
+        || test_support::open_redb_backend(dir_s.clone()),
+        "reopen durable tier",
+    )
+    .await;
 
     // The committed node must be on disk — read it back from the durable tier.
     let blob = reopened
