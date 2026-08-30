@@ -34,11 +34,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::protocol::Method;
 use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
-use crate::server::broker_wire::{
-    derive_password as derive_stomp_passcode_impl, verify_password as verify_stomp_passcode_impl,
-};
 use crate::server::ServerState;
 
 /// Env var: when set (and the binary is built `--features stomp-wire`), the STOMP wire
@@ -82,17 +78,43 @@ fn next_req_id() -> u64 {
 
 /// Derive the STOMP CONNECT passcode for a principal.
 pub fn derive_stomp_passcode(secret: &str, principal: &str) -> String {
-    derive_stomp_passcode_impl(WIRE, secret, principal)
+    broker_wire::derive_password(WIRE, secret, principal)
 }
 
 fn verify_stomp_passcode(secret: &str, principal: &str, passcode: &str) -> bool {
-    verify_stomp_passcode_impl(
+    broker_wire::verify_password(
         WIRE,
         secret,
         principal,
         passcode.as_bytes(),
         MAX_STOMP_IDENTIFIER_BYTES,
     )
+}
+
+/// Broker dispatch context for one authenticated STOMP connection.
+///
+/// Keeping the graph, actor, and request-id boundary together makes every
+/// STOMP broker operation take the same authenticated dispatch path while the
+/// wire-specific command handlers continue to own protocol parsing and errors.
+struct StompBroker<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    graph: &'a str,
+    actor: &'a str,
+}
+
+impl<'a> StompBroker<'a> {
+    fn new(state: &'a Arc<RwLock<ServerState>>, graph: &'a str, actor: &'a str) -> Self {
+        Self {
+            state,
+            graph,
+            actor,
+        }
+    }
+
+    async fn dispatch(&self, method: crate::protocol::Method) {
+        let _ =
+            broker_wire::engine_call(self.state, self.graph, self.actor, next_req_id, method).await;
+    }
 }
 
 /// Fail closed before binding the plaintext STOMP listener.
@@ -148,19 +170,14 @@ async fn requeue_message(
     queue: &str,
     node_id: &str,
 ) {
-    let _ = broker_wire::engine_call(
-        state,
-        graph,
-        actor,
-        next_req_id,
-        Method::BrokerReject {
+    StompBroker::new(state, graph, actor)
+        .dispatch(crate::protocol::Method::BrokerReject {
             queue: queue.to_string(),
             node_id: node_id.to_string(),
             requeue: true,
             now_ms: broker_wire::current_time_ms(),
-        },
-    )
-    .await;
+        })
+        .await;
 }
 
 // ── Per-connection state ──────────────────────────────────────────────────
@@ -307,17 +324,12 @@ async fn handle_frame(
             return Err(invalid_data("STOMP authentication failed"));
         }
         let actor = crate::server::pseudonymous_broker_actor(auth_secret, &principal)?;
-        let _ = broker_wire::engine_call(
-            state,
-            graph,
-            &actor,
-            next_req_id,
-            Method::DeclareExchange {
+        StompBroker::new(state, graph, &actor)
+            .dispatch(crate::protocol::Method::DeclareExchange {
                 exchange: exchange.to_string(),
                 kind: "direct".to_string(),
-            },
-        )
-        .await;
+            })
+            .await;
         *authenticated_actor = Some(actor);
         let session = format!("stomp-{}", next_req_id());
         let connected_frame = Frame::new(
@@ -339,21 +351,17 @@ async fn handle_frame(
     if frame.header("transaction").is_some() {
         return Err(invalid_data("STOMP transactions are unsupported"));
     }
+    let broker = StompBroker::new(state, graph, actor);
     match frame.command.as_str() {
         "SEND" => {
             let destination = required_header(frame, "destination")?;
-            let _ = broker_wire::engine_call(
-                state,
-                graph,
-                actor,
-                next_req_id,
-                Method::Publish {
+            broker
+                .dispatch(crate::protocol::Method::Publish {
                     exchange: exchange.to_string(),
                     routing_key: destination.clone(),
                     payload: frame.body.clone(),
-                },
-            )
-            .await;
+                })
+                .await;
             maybe_receipt(socket, frame).await?;
         }
         "SUBSCRIBE" => {
@@ -370,18 +378,13 @@ async fn handle_frame(
                 .ok_or_else(|| invalid_data("invalid STOMP acknowledgement mode"))?;
             let queue = format!("stomp.{}", next_req_id());
             // Bind the per-subscription queue to the destination (exact match).
-            let _ = broker_wire::engine_call(
-                state,
-                graph,
-                actor,
-                next_req_id,
-                Method::BindQueue {
+            broker
+                .dispatch(crate::protocol::Method::BindQueue {
                     exchange: exchange.to_string(),
                     queue: queue.clone(),
                     routing_key: destination.clone(),
-                },
-            )
-            .await;
+                })
+                .await;
             subs.push(Subscription {
                 id: sub_id,
                 destination,
@@ -395,18 +398,13 @@ async fn handle_frame(
             let sub_id = required_header(frame, "id")?;
             if let Some(pos) = subs.iter().position(|s| s.id == sub_id) {
                 let s = subs.remove(pos);
-                let _ = broker_wire::engine_call(
-                    state,
-                    graph,
-                    actor,
-                    next_req_id,
-                    Method::UnbindQueue {
+                broker
+                    .dispatch(crate::protocol::Method::UnbindQueue {
                         exchange: exchange.to_string(),
                         queue: s.queue.clone(),
                         routing_key: s.destination.clone(),
-                    },
-                )
-                .await;
+                    })
+                    .await;
             }
             maybe_receipt(socket, frame).await?;
         }
