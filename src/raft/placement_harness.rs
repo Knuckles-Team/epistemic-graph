@@ -16,92 +16,42 @@
 //!   * **Split spans two groups.** One tenant's two workspaces resolve to two
 //!     DIFFERENT groups after `placement_split`.
 
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use openraft::BasicNode;
 use tokio::sync::RwLock;
 
 use super::multi::MultiRaft;
 use super::placement::split_tenant_key;
 use super::reshard::TenantManager;
-use super::{AppCtx, GroupId, NodeId, RaftRequest};
-use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+use super::{GroupId, RaftRequest};
 use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
-use crate::protocol::{GraphType, Method, Request};
+use crate::protocol::{GraphType, Method};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
-use crate::server::{compute_verified_envelope_token, ServerState, VerifiedEnvelopeParams};
+use crate::server::ServerState;
 
 const GROUP_A: GroupId = 300;
 const GROUP_B: GroupId = 400;
 const TENANT: &str = "acme";
 const TEST_AGENT: &str = "unit-test-agent";
 const SECRET: &str = "placement-test";
-static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 fn current_isolation() -> IsolationLayer {
-    let mut isolation = IsolationLayer::new();
-    isolation.register_agent(AgentIdentity {
-        agent_id: TEST_AGENT.to_string(),
-        role: AgentRole::System,
-        teams: Vec::new(),
-        roles: Vec::new(),
-    });
-    isolation
+    super::harness_support::current_isolation(TEST_AGENT)
 }
 
-fn current_request(id: u64, method: Method) -> Request {
-    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-    std::env::set_var(
-        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-        std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-    );
-    let context = RequestContextClaims {
-        principal: TEST_AGENT.to_string(),
-        tenant: "tenant-shared".to_string(),
-        audience: "epistemic-graph-test".to_string(),
-        agent_id: TEST_AGENT.to_string(),
-        roles: Vec::new(),
-        scopes: vec!["*".to_string()],
-        policy_version: "policy-test".to_string(),
-        delegation: Vec::new(),
-        node: None,
-        priority: None,
-    };
-    let mut request = Request {
+fn current_request(id: u64, method: Method) -> crate::protocol::Request {
+    super::harness_support::signed_request(
         id,
-        graph: "__commons__".to_string(),
-        auth_token: String::new(),
-        agent_id: Some(TEST_AGENT.to_string()),
+        "__commons__",
         method,
-    };
-    let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let issued_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("the system clock is after the Unix epoch");
-    let nonce = format!(
-        "placement-{}-{id}-{sequence}-{}",
-        std::process::id(),
-        issued_at.as_nanos()
-    );
-    let idempotency_key = format!("placement-request-{id}-{sequence}");
-    request.auth_token = compute_verified_envelope_token(
         SECRET,
-        &request,
-        &VerifiedEnvelopeParams {
-            context: &context,
-            timestamp: issued_at.as_secs(),
-            nonce: &nonce,
-            idempotency_key: &idempotency_key,
-        },
-    );
-    request
+        TEST_AGENT,
+        "placement",
+        "placement-request",
+        "epistemic-graph-unit-auth",
+    )
 }
 
 fn fresh_dir(tag: &str) -> String {
@@ -111,26 +61,6 @@ fn fresh_dir(tag: &str) -> String {
     d.to_string_lossy().to_string()
 }
 
-fn free_port() -> u16 {
-    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    l.local_addr().unwrap().port()
-}
-
-async fn wait_until<F, Fut>(timeout: Duration, mut pred: F) -> Result<(), ()>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = bool>,
-{
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if pred().await {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(120)).await;
-    }
-    Err(())
-}
-
 /// Bring up a one-node, two-group cluster. `GROUP_A`/`GROUP_B` both live on the same
 /// node so a move between them is exercised without needing real multi-node
 /// membership (the same simplification `reshard_harness` uses).
@@ -138,46 +68,14 @@ async fn bring_up(
     dir: &str,
     backend: Arc<dyn PersistenceBackend>,
 ) -> (Arc<MultiRaft>, Arc<RwLock<ServerState>>) {
-    let state = super::harness_support::make_state(
+    super::harness_support::start_single_node_groups(
         dir,
-        backend.clone(),
+        backend,
         current_isolation(),
         "placement-test",
+        &[GROUP_A, GROUP_B, super::DEFAULT_GROUP],
     )
-    .await;
-    let ctx = AppCtx {
-        state: state.clone(),
-        router: None,
-    };
-    let port = free_port();
-    let node_id: NodeId = 1;
-    let peers: BTreeMap<NodeId, BasicNode> =
-        [(node_id, BasicNode::new(format!("127.0.0.1:{port}")))].into();
-
-    let multi = MultiRaft::start(node_id, format!("127.0.0.1:{port}"), backend.clone(), ctx)
-        .await
-        .expect("start multi");
-    multi
-        .create_group(GROUP_A, peers.clone(), true)
-        .await
-        .unwrap();
-    multi
-        .create_group(GROUP_B, peers.clone(), true)
-        .await
-        .unwrap();
-    // DEFAULT_GROUP (0) backs the placement catalog itself.
-    multi.ensure_group(super::DEFAULT_GROUP).await.unwrap();
-
-    for gid in [GROUP_A, GROUP_B, super::DEFAULT_GROUP] {
-        let g = multi.group(gid).await.expect("group exists");
-        wait_until(Duration::from_secs(15), || {
-            let g = g.clone();
-            async move { g.current_leader().await == Some(node_id) }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("group {gid} must elect a leader"));
-    }
-    (multi, state)
+    .await
 }
 
 /// Write `node_id` into `graph` through whichever group currently owns it.

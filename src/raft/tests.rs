@@ -27,11 +27,8 @@ use tokio::sync::RwLock;
 use super::config::RaftClusterConfig;
 use super::node::{self, StartedNode};
 use super::{NodeId, RaftRequest};
-use crate::channels::ChannelManager;
 use crate::durability::DurabilityPolicy;
-use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
-use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
@@ -55,56 +52,13 @@ async fn make_state_with_backend(
         .register_graph("__commons__", "__commons__", GraphType::Commons)
         .await
         .expect("register mandatory commons graph");
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: "raft-test".to_string(),
-        persist_dir: Some(dir.to_string()),
-        persistence: Some(backend),
-        max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
-        read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
-        per_graph_inflight: Arc::new(dashmap::DashMap::new()),
-        per_graph_inflight_limit: 16,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(dashmap::DashMap::new()),
-        txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-            crate::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-    }))
+    super::harness_support::make_state_with_cdc(
+        dir,
+        backend,
+        crate::isolation::IsolationLayer::new(),
+        "raft-test",
+    )
+    .await
 }
 
 fn peer_map(ports: &[u16]) -> BTreeMap<NodeId, BasicNode> {
@@ -180,7 +134,8 @@ fn dispatch_on_heap<'a>(
     state: &'a Arc<RwLock<ServerState>>,
     request: crate::protocol::Request,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>> {
-    Box::pin(crate::server::dispatch(state, request))
+    let dispatched = crate::server::dispatch(state, request);
+    Box::pin(dispatched)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2399,67 +2354,24 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
 /// replication, not one the test simply asserts knows something it was never told.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     use super::multi::MultiRaft;
-    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
-    use crate::protocol::{Request, ResultPayload};
-    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+    use crate::acl::{AgentIdentity, AgentRole};
+    use crate::protocol::ResultPayload;
 
     const TEST_AGENT: &str = "raft-admin-wire-test-agent";
     const SECRET: &str = "raft-test";
-    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-    std::env::set_var(
-        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-        std::env::temp_dir().join(format!("eg-raft-admin-wire-auth-{}", std::process::id())),
-    );
-
-    fn signed_request(id: u64, method: Method) -> Request {
-        let context = RequestContextClaims {
-            principal: TEST_AGENT.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: TEST_AGENT.to_string(),
-            roles: Vec::new(),
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
-        let mut request = Request {
+    fn signed_request(id: u64, method: Method) -> crate::protocol::Request {
+        super::harness_support::signed_request(
             id,
-            graph: "__commons__".to_string(),
-            auth_token: String::new(),
-            agent_id: Some(TEST_AGENT.to_string()),
+            "__commons__",
             method,
-        };
-        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let issued_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the system clock is after the Unix epoch");
-        let nonce = format!(
-            "raft-admin-{}-{id}-{sequence}-{}",
-            std::process::id(),
-            issued_at.as_nanos()
-        );
-        let idempotency_key = format!("raft-admin-request-{id}-{sequence}");
-        request.auth_token = compute_verified_envelope_token(
             SECRET,
-            &request,
-            &VerifiedEnvelopeParams {
-                context: &context,
-                timestamp: issued_at.as_secs(),
-                nonce: &nonce,
-                idempotency_key: &idempotency_key,
-            },
-        );
-        request
+            TEST_AGENT,
+            "raft-admin",
+            "raft-admin-request",
+            "eg-raft-admin-wire-auth",
+        )
     }
 
     let root = std::env::temp_dir().join(format!("eg-wire-raft-admin-{}", std::process::id()));
