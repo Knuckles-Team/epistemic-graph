@@ -46,8 +46,8 @@
 //! RPC surface (`Method::StreamRead`) or a future STOMP/native frame. A `basic.consume`
 //! here maps to the DESTRUCTIVE queue-claim path (EG-275/280), not a stream replay.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -56,8 +56,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
 use crate::protocol::{Method, Request, ResultPayload};
-use crate::server::dispatch::dispatch_authenticated_broker_actor;
 use crate::server::ServerState;
+use crate::server::dispatch::dispatch_authenticated_broker_actor;
 
 /// Env var: when set (and the binary is built `--features amqp-wire`), the AMQP wire
 /// listener binds this address (documented loopback default `127.0.0.1:5672`). Unset ⇒
@@ -300,6 +300,27 @@ enum FrameAction {
     Close,
 }
 
+type FrameResult = std::io::Result<FrameAction>;
+
+/// Shared wire context for handlers that only borrow connection state.
+struct MethodContext<'a> {
+    socket: &'a mut TcpStream,
+    ctx: &'a ConnectionState,
+    channel: u16,
+    actor: &'a str,
+    args: &'a [u8],
+}
+
+impl MethodContext<'_> {
+    fn shortstr_args<const N: usize>(&self, error: &'static str) -> std::io::Result<[String; N]> {
+        parse_shortstr_args(self.args, error)
+    }
+
+    async fn write_method(&mut self, payload: &[u8]) -> std::io::Result<()> {
+        write_frame(self.socket, FRAME_METHOD, self.channel, payload).await
+    }
+}
+
 /// Hard per-frame allocation ceiling for untrusted AMQP size prefixes.
 const MAX_AMQP_FRAME_BYTES: usize = 64 * 1024 * 1024;
 /// A content body is assembled from multiple frames, so it needs an independent
@@ -315,6 +336,19 @@ const BROKER_PREFETCH: u32 = 32;
 
 fn invalid_data(message: &'static str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+}
+
+fn parse_shortstr_args<const N: usize>(
+    args: &[u8],
+    error: &'static str,
+) -> std::io::Result<[String; N]> {
+    let mut cursor = Cursor::new(args);
+    cursor.u16(); // reserved-1
+    let values = std::array::from_fn(|_| cursor.shortstr());
+    cursor
+        .valid
+        .then_some(values)
+        .ok_or_else(|| invalid_data(error))
 }
 
 fn decode_broker_result<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
@@ -459,8 +493,32 @@ async fn dispatch_method(
     match call.class {
         C_CONNECTION => handle_connection_method(socket, call.method).await,
         C_CHANNEL => handle_channel_method(socket, channel, call.method).await,
-        C_EXCHANGE => handle_exchange_method(socket, ctx, channel, actor, call).await,
-        C_QUEUE => handle_queue_method(socket, ctx, channel, actor, call).await,
+        C_EXCHANGE => {
+            handle_exchange_method(
+                MethodContext {
+                    socket,
+                    ctx,
+                    channel,
+                    actor,
+                    args: call.args,
+                },
+                call.method,
+            )
+            .await
+        }
+        C_QUEUE => {
+            handle_queue_method(
+                MethodContext {
+                    socket,
+                    ctx,
+                    channel,
+                    actor,
+                    args: call.args,
+                },
+                call.method,
+            )
+            .await
+        }
         C_CONFIRM => handle_confirm_method(socket, ctx, channel, call).await,
         C_BASIC => handle_basic_method(socket, ctx, channel, actor, call).await,
         _ => Err(invalid_data("unsupported AMQP method")),
@@ -506,122 +564,64 @@ async fn handle_channel_method(
     Ok(FrameAction::Continue)
 }
 
-async fn handle_exchange_method(
-    socket: &mut TcpStream,
-    ctx: &ConnectionState,
-    channel: u16,
-    actor: &str,
-    call: &MethodCall<'_>,
-) -> std::io::Result<FrameAction> {
-    match call.method {
-        10 => handle_exchange_declare(socket, ctx, channel, actor, call.args).await,
-        20 => handle_exchange_delete(socket, ctx, channel, actor, call.args).await,
+async fn handle_exchange_method(method: MethodContext<'_>, method_id: u16) -> FrameResult {
+    match method_id {
+        10 => handle_exchange_declare(method).await,
+        20 => handle_exchange_delete(method).await,
         _ => Err(invalid_data("unsupported AMQP method")),
     }
 }
 
-async fn handle_exchange_declare(
-    socket: &mut TcpStream,
-    ctx: &ConnectionState,
-    channel: u16,
-    actor: &str,
-    args: &[u8],
-) -> std::io::Result<FrameAction> {
-    let mut c = Cursor::new(args);
-    c.u16(); // reserved-1
-    let exchange = c.shortstr();
-    let kind = c.shortstr();
-    if !c.valid {
-        return Err(invalid_data("invalid AMQP exchange.declare arguments"));
-    }
+async fn handle_exchange_declare(mut method: MethodContext<'_>) -> FrameResult {
+    let [exchange, kind] = method.shortstr_args::<2>("invalid AMQP exchange.declare arguments")?;
     let kind = if kind.is_empty() {
         "direct".into()
     } else {
         kind
     };
     let _ = engine_call(
-        &ctx.state,
-        &ctx.graph,
-        actor,
+        &method.ctx.state,
+        &method.ctx.graph,
+        method.actor,
         Method::DeclareExchange { exchange, kind },
     )
     .await;
-    write_frame(
-        socket,
-        FRAME_METHOD,
-        channel,
-        &method_header(C_EXCHANGE, 11),
-    )
-    .await?;
+    method.write_method(&method_header(C_EXCHANGE, 11)).await?;
     Ok(FrameAction::Continue)
 }
 
-async fn handle_exchange_delete(
-    socket: &mut TcpStream,
-    ctx: &ConnectionState,
-    channel: u16,
-    actor: &str,
-    args: &[u8],
-) -> std::io::Result<FrameAction> {
-    let mut c = Cursor::new(args);
-    c.u16();
-    let exchange = c.shortstr();
-    if !c.valid {
-        return Err(invalid_data("invalid AMQP exchange.delete arguments"));
-    }
+async fn handle_exchange_delete(mut method: MethodContext<'_>) -> FrameResult {
+    let [exchange] = method.shortstr_args::<1>("invalid AMQP exchange.delete arguments")?;
     let _ = engine_call(
-        &ctx.state,
-        &ctx.graph,
-        actor,
+        &method.ctx.state,
+        &method.ctx.graph,
+        method.actor,
         Method::DeleteExchange { exchange },
     )
     .await;
-    write_frame(
-        socket,
-        FRAME_METHOD,
-        channel,
-        &method_header(C_EXCHANGE, 21),
-    )
-    .await?;
+    method.write_method(&method_header(C_EXCHANGE, 21)).await?;
     Ok(FrameAction::Continue)
 }
 
-async fn handle_queue_method(
-    socket: &mut TcpStream,
-    ctx: &ConnectionState,
-    channel: u16,
-    actor: &str,
-    call: &MethodCall<'_>,
-) -> std::io::Result<FrameAction> {
-    match call.method {
-        10 => handle_queue_declare(socket, ctx, channel, actor, call.args).await,
-        20 => handle_queue_bind(socket, ctx, channel, actor, call.args).await,
-        50 => handle_queue_unbind(socket, ctx, channel, actor, call.args).await,
+async fn handle_queue_method(method: MethodContext<'_>, method_id: u16) -> FrameResult {
+    match method_id {
+        10 => handle_queue_declare(method).await,
+        20 => handle_queue_bind(method).await,
+        50 => handle_queue_unbind(method).await,
         _ => Err(invalid_data("unsupported AMQP method")),
     }
 }
 
-async fn handle_queue_declare(
-    socket: &mut TcpStream,
-    ctx: &ConnectionState,
-    channel: u16,
-    actor: &str,
-    args: &[u8],
-) -> std::io::Result<FrameAction> {
-    let mut c = Cursor::new(args);
-    c.u16();
-    let mut queue = c.shortstr();
-    if !c.valid {
-        return Err(invalid_data("invalid AMQP queue.declare arguments"));
-    }
+async fn handle_queue_declare(mut method: MethodContext<'_>) -> FrameResult {
+    let [mut queue] = method.shortstr_args::<1>("invalid AMQP queue.declare arguments")?;
     if queue.is_empty() {
         queue = format!("amq.gen-{}", next_req_id());
     }
     // Ensure the queue's durable seq counter exists so it is publishable.
     let _ = engine_call(
-        &ctx.state,
-        &ctx.graph,
-        actor,
+        &method.ctx.state,
+        &method.ctx.graph,
+        method.actor,
         Method::BindQueue {
             exchange: String::new(),
             queue: queue.clone(),
@@ -633,29 +633,17 @@ async fn handle_queue_declare(
     put_shortstr(&mut p, queue.as_bytes());
     put_u32(&mut p, 0); // message-count
     put_u32(&mut p, 0); // consumer-count
-    write_frame(socket, FRAME_METHOD, channel, &p).await?;
+    method.write_method(&p).await?;
     Ok(FrameAction::Continue)
 }
 
-async fn handle_queue_bind(
-    socket: &mut TcpStream,
-    ctx: &ConnectionState,
-    channel: u16,
-    actor: &str,
-    args: &[u8],
-) -> std::io::Result<FrameAction> {
-    let mut c = Cursor::new(args);
-    c.u16();
-    let queue = c.shortstr();
-    let exchange = c.shortstr();
-    let routing_key = c.shortstr();
-    if !c.valid {
-        return Err(invalid_data("invalid AMQP queue.bind arguments"));
-    }
+async fn handle_queue_bind(mut method: MethodContext<'_>) -> FrameResult {
+    let [queue, exchange, routing_key] =
+        method.shortstr_args::<3>("invalid AMQP queue.bind arguments")?;
     let _ = engine_call(
-        &ctx.state,
-        &ctx.graph,
-        actor,
+        &method.ctx.state,
+        &method.ctx.graph,
+        method.actor,
         Method::BindQueue {
             exchange,
             queue,
@@ -663,29 +651,17 @@ async fn handle_queue_bind(
         },
     )
     .await;
-    write_frame(socket, FRAME_METHOD, channel, &method_header(C_QUEUE, 21)).await?;
+    method.write_method(&method_header(C_QUEUE, 21)).await?;
     Ok(FrameAction::Continue)
 }
 
-async fn handle_queue_unbind(
-    socket: &mut TcpStream,
-    ctx: &ConnectionState,
-    channel: u16,
-    actor: &str,
-    args: &[u8],
-) -> std::io::Result<FrameAction> {
-    let mut c = Cursor::new(args);
-    c.u16();
-    let queue = c.shortstr();
-    let exchange = c.shortstr();
-    let routing_key = c.shortstr();
-    if !c.valid {
-        return Err(invalid_data("invalid AMQP queue.unbind arguments"));
-    }
+async fn handle_queue_unbind(mut method: MethodContext<'_>) -> FrameResult {
+    let [queue, exchange, routing_key] =
+        method.shortstr_args::<3>("invalid AMQP queue.unbind arguments")?;
     let _ = engine_call(
-        &ctx.state,
-        &ctx.graph,
-        actor,
+        &method.ctx.state,
+        &method.ctx.graph,
+        method.actor,
         Method::UnbindQueue {
             exchange,
             queue,
@@ -693,7 +669,7 @@ async fn handle_queue_unbind(
         },
     )
     .await;
-    write_frame(socket, FRAME_METHOD, channel, &method_header(C_QUEUE, 51)).await?;
+    method.write_method(&method_header(C_QUEUE, 51)).await?;
     Ok(FrameAction::Continue)
 }
 
