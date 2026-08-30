@@ -43,13 +43,11 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::protocol::Request;
 use crate::protocol::{Method, ResultPayload};
 use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
 use crate::server::broker_wire::{
     derive_password as derive_mqtt_password_impl, verify_password as verify_mqtt_password_impl,
 };
-use crate::server::dispatch::dispatch_authenticated_broker_actor;
 use crate::server::ServerState;
 
 /// Env var: when set (and the binary is built `--features mqtt-wire`), the MQTT wire
@@ -168,42 +166,6 @@ async fn accept_loop(
     }
 }
 
-// ── Engine bridge (identical shape to amqp-wire) ──────────────────────────
-
-async fn engine_call(
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    actor: &str,
-    method: Method,
-) -> ResultPayload {
-    let id = next_req_id();
-    let req = Request {
-        id,
-        graph: graph.to_string(),
-        auth_token: String::new(),
-        agent_id: None,
-        method,
-    };
-    // `dispatch_authenticated_broker_actor` bottoms out in the same ENORMOUS
-    // `dispatch()` future under `--features full` that `transport::handle_connection`
-    // and `server::mod.rs::dispatch_on_heap` route around (see their doc comments) —
-    // awaiting it un-boxed inline overflows the poll-time call stack once a broker
-    // request finally reaches deep enough into the dispatch chain (only reachable
-    // after this connection's identity clears isolation ACL, so it was latent until
-    // then). Box::pin it, matching every OTHER production callsite.
-    let resp = Box::pin(dispatch_authenticated_broker_actor(state, req, actor)).await;
-    resp.result.unwrap_or(ResultPayload::Bool(false))
-}
-
-fn current_time_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
-}
-
 /// Claim one deliverable message through the native broker lifecycle. Returns
 /// `(node_id, routing_key, body)` or `None`.
 async fn claim_one(
@@ -213,15 +175,16 @@ async fn claim_one(
     queue: &str,
     consumer: &str,
 ) -> Option<(String, String, Vec<u8>)> {
-    let payload = engine_call(
+    let payload = broker_wire::engine_call(
         state,
         graph,
         actor,
+        next_req_id,
         Method::BrokerConsume {
             queue: queue.to_string(),
             group: "mqtt".to_string(),
             consumer: consumer.to_string(),
-            now_ms: current_time_ms(),
+            now_ms: broker_wire::current_time_ms(),
             lease_ms: BROKER_LEASE_MS,
             prefetch: 1,
         },
@@ -249,26 +212,6 @@ async fn claim_one(
         .and_then(crate::broker::hex_decode)
         .unwrap_or_default();
     Some((id, rk, body))
-}
-
-/// Finalize a delivered message through the native broker acknowledgement path.
-async fn ack_message(
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    actor: &str,
-    queue: &str,
-    node_id: &str,
-) {
-    let _ = engine_call(
-        state,
-        graph,
-        actor,
-        Method::BrokerAck {
-            queue: queue.to_string(),
-            node_id: node_id.to_string(),
-        },
-    )
-    .await;
 }
 
 // ── Topic ↔ routing-key translation (CONCEPT:EG-KG.query.mqtt-packet-codec) ──────────────────────
@@ -485,10 +428,11 @@ impl MqttSession {
         write_packet(socket, PKT_CONNACK << 4, &build_connack(version)).await?;
 
         // Ensure the shared broker TOPIC exchange exists (idempotent).
-        let _ = engine_call(
+        let _ = broker_wire::engine_call(
             &state,
             &graph,
             &actor,
+            next_req_id,
             Method::DeclareExchange {
                 exchange: exchange.clone(),
                 kind: "topic".to_string(),
@@ -581,10 +525,11 @@ impl MqttSession {
         mut payload: Vec<u8>,
     ) -> std::io::Result<()> {
         let packet = parse_publish(&mut payload, self.version, flags)?;
-        let _ = engine_call(
+        let _ = broker_wire::engine_call(
             &self.state,
             &self.graph,
             &self.actor,
+            next_req_id,
             Method::PublishIdempotent {
                 exchange: self.exchange.clone(),
                 routing_key: mqtt_topic_to_key(&packet.topic),
@@ -641,10 +586,11 @@ impl MqttSession {
                 SubscriptionDecision::Reject => granted.push(0x80),
                 SubscriptionDecision::Duplicate => granted.push(0x00),
                 SubscriptionDecision::Bind(next_bytes) => {
-                    let _ = engine_call(
+                    let _ = broker_wire::engine_call(
                         &self.state,
                         &self.graph,
                         &self.actor,
+                        next_req_id,
                         Method::BindQueue {
                             exchange: self.exchange.clone(),
                             queue: self.session_queue.clone(),
@@ -729,10 +675,11 @@ async fn teardown_session(session: &MqttSession) {
 }
 
 async fn unbind_pattern(session: &MqttSession, pattern: &str) {
-    let _ = engine_call(
+    let _ = broker_wire::engine_call(
         &session.state,
         &session.graph,
         &session.actor,
+        next_req_id,
         Method::UnbindQueue {
             exchange: session.exchange.clone(),
             queue: session.session_queue.clone(),
@@ -857,7 +804,7 @@ async fn pump_subscription(
         // Header byte: PUBLISH, QoS 0 (flags 0).
         write_packet(socket, PKT_PUBLISH << 4, &p).await?;
         // QoS-0 delivery: finalize immediately.
-        ack_message(state, graph, actor, queue, &node_id).await;
+        broker_wire::ack_message(state, graph, actor, next_req_id, queue, &node_id).await;
     }
     Ok(())
 }
@@ -1102,64 +1049,22 @@ fn build_unsuback(packet_id: u16, count: usize, version: u8) -> Vec<u8> {
 // ── Read cursor over packet bytes ─────────────────────────────────────────
 
 /// A minimal read cursor over MQTT variable-header / payload bytes.
-struct Cursor<'a> {
-    b: &'a [u8],
-    i: usize,
-    valid: bool,
+type Cursor<'a> = broker_wire::ByteCursor<'a>;
+
+trait MqttCursorExt<'a> {
+    /// Read an MQTT variable-byte-length-prefixed block.
+    fn take_props(&mut self) -> &'a [u8];
+    /// Read a length-prefixed UTF-8 MQTT string.
+    fn mqtt_str(&mut self) -> String;
+    /// Skip an MQTT 5.0 property block.
+    fn skip_props(&mut self);
+    /// Read an MQTT variable-byte integer.
+    fn varint(&mut self) -> usize;
+    /// Consume the remainder of the packet.
+    fn rest(&mut self) -> Vec<u8>;
 }
 
-impl<'a> Cursor<'a> {
-    fn new(b: &'a [u8]) -> Self {
-        Self {
-            b,
-            i: 0,
-            valid: true,
-        }
-    }
-    fn u8(&mut self) -> u8 {
-        if self.i >= self.b.len() {
-            self.valid = false;
-            return 0;
-        }
-        let x = self.b[self.i];
-        self.i += 1;
-        x
-    }
-    fn u16(&mut self) -> u16 {
-        if self.i + 2 > self.b.len() {
-            self.valid = false;
-            self.i = self.b.len();
-            return 0;
-        }
-        let x = u16::from_be_bytes([self.b[self.i], self.b[self.i + 1]]);
-        self.i += 2;
-        x
-    }
-    fn u32(&mut self) -> u32 {
-        if self.i + 4 > self.b.len() {
-            self.valid = false;
-            self.i = self.b.len();
-            return 0;
-        }
-        let mut a = [0u8; 4];
-        a.copy_from_slice(&self.b[self.i..self.i + 4]);
-        self.i += 4;
-        u32::from_be_bytes(a)
-    }
-    /// Read `n` bytes (clamped), advancing the cursor.
-    fn take(&mut self, n: usize) -> &'a [u8] {
-        let Some(end) = self.i.checked_add(n).filter(|end| *end <= self.b.len()) else {
-            self.valid = false;
-            self.i = self.b.len();
-            return &[];
-        };
-        let out = &self.b[self.i..end];
-        self.i = end;
-        out
-    }
-    /// A variable-byte-length-prefixed MQTT binary block (a `u16`-length-prefixed slot
-    /// is `mqtt_str`; this is the property-block form). Returns the block bytes and
-    /// advances past them (CONCEPT:EG-KG.ingest.mqtt-publish-property-block — reach the PUBLISH property block).
+impl<'a> MqttCursorExt<'a> for Cursor<'a> {
     fn take_props(&mut self) -> &'a [u8] {
         let rem = &self.b[self.i.min(self.b.len())..];
         if let Some((plen, consumed)) = decode_remaining_length(rem) {
@@ -1182,7 +1087,7 @@ impl<'a> Cursor<'a> {
             &[]
         }
     }
-    /// A length-prefixed UTF-8 MQTT string.
+
     fn mqtt_str(&mut self) -> String {
         let len = self.u16() as usize;
         let Some(end) = self.i.checked_add(len).filter(|end| *end <= self.b.len()) else {
@@ -1200,7 +1105,7 @@ impl<'a> Cursor<'a> {
         self.i = end;
         s
     }
-    /// Skip an MQTT 5.0 property block (a variable-byte length then that many bytes).
+
     fn skip_props(&mut self) {
         if let Some((plen, consumed)) = decode_remaining_length(&self.b[self.i.min(self.b.len())..])
         {
@@ -1220,11 +1125,7 @@ impl<'a> Cursor<'a> {
             self.i = self.b.len();
         }
     }
-    fn remaining(&self) -> usize {
-        self.b.len().saturating_sub(self.i)
-    }
-    /// Read an MQTT variable-byte integer, advancing the cursor (used for the MQTT 5.0
-    /// Subscription-Identifier property).
+
     fn varint(&mut self) -> usize {
         let rem = &self.b[self.i.min(self.b.len())..];
         if let Some((val, consumed)) = decode_remaining_length(rem) {
@@ -1246,6 +1147,7 @@ impl<'a> Cursor<'a> {
             0
         }
     }
+
     fn rest(&mut self) -> Vec<u8> {
         let out = self.b[self.i.min(self.b.len())..].to_vec();
         self.i = self.b.len();
