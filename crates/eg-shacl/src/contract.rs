@@ -12,9 +12,8 @@
 //! full field-by-field mapping).
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::report::{Severity, ValidationResult};
@@ -100,17 +99,11 @@ impl ModalityContract for ValidationResult {
 
     /// Batch ingest = parse a `ValidationResult` back from serialized form. Streaming N/A.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<ValidationResult>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "a validation result is a structural fact, not an append stream",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "a validation result is a structural fact, not an append stream",
+        )
     }
 
     /// Real storage stats: serialized size; element count is 1 (single result).
@@ -131,11 +124,7 @@ impl ModalityContract for ValidationResult {
 
     /// Simulated crash-and-recover through txn staging.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<ValidationResult>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// Validation results have no CDC or policy of their own.

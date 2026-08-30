@@ -15,9 +15,8 @@
 //! governed evidence boundary.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, OpaqueRef, Provenance, RowSetShape, StagedWrite,
-    StorageStats, TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, OpaqueRef, Provenance, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::algorithms::MergeProposal;
@@ -72,17 +71,11 @@ impl ModalityContract for MergeProposal {
 
     /// Batch ingest = parse a `MergeProposal` back from serialized form. Streaming N/A.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<MergeProposal>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "a merge proposal is a query result, not an append stream",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "a merge proposal is a query result, not an append stream",
+        )
     }
 
     /// Real storage stats: serialized size; element count is number of members.
@@ -103,11 +96,7 @@ impl ModalityContract for MergeProposal {
 
     /// Simulated crash-and-recover through txn staging.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<MergeProposal>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// Proposals have no CDC or policy of their own.

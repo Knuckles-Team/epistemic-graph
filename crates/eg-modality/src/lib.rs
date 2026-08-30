@@ -85,7 +85,10 @@ pub use artifact::{
     Rendition, RenditionId, ResourceId, Segment, SegmentId, SegmentKind, ARTIFACT_PROTOCOL_VERSION,
 };
 pub use capability::{IngestReport, ModalitySelfTest, NativeProductionProbe, StorageStats};
-pub use contract::{ConformanceTestable, GovernedModality, ModalityContract};
+pub use contract::{
+    staged_batch_ingest_report, staged_recovery_selfcheck, ConformanceTestable, GovernedModality,
+    ModalityContract,
+};
 pub use delta_store::{
     export_all, verify_round_trip, ExportedRows, IndexMembership, MutationDelta,
 };

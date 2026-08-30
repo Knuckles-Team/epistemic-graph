@@ -11,9 +11,8 @@
 //! accordingly (see the method doc comment below for the full mapping).
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::report::NodeResult;
@@ -79,15 +78,7 @@ impl ModalityContract for NodeResult {
 
     /// Batch ingest = parse a `NodeResult` back from serialized form. Streaming N/A.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<NodeResult>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable("validation result is not a stream"),
-        }
+        eg_modality::staged_batch_ingest_report(self, id, "validation result is not a stream")
     }
 
     /// Real storage stats.
@@ -106,11 +97,7 @@ impl ModalityContract for NodeResult {
 
     /// Simulated crash-and-recover.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<NodeResult>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// No CDC or policy of its own.

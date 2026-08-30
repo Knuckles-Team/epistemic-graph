@@ -121,11 +121,7 @@ impl ModalityContract for ImageData {
     /// Stage the image as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered image is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<ImageData>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 }
 

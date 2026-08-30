@@ -6,9 +6,8 @@
 //! `eg-modality`'s crate docs / README for the retrofit-order rationale.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    encode_staged, ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract,
+    ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::flat::FlatIndex;
@@ -61,17 +60,11 @@ impl ModalityContract for FlatIndex {
     /// staging. Streaming is genuinely N/A: a vector index is a whole structure,
     /// not an append stream.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<FlatIndex>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable(
-                "a vector index is a whole structure, not an append stream",
-            ),
-        }
+        eg_modality::staged_batch_ingest_report(
+            self,
+            id,
+            "a vector index is a whole structure, not an append stream",
+        )
     }
 
     /// Real storage stats from the serialized index: logical size from the encoded
@@ -101,11 +94,7 @@ impl ModalityContract for FlatIndex {
     /// Stage the index as an in-txn write; the staged payload IS the WAL record;
     /// on "restart" replay-decode it and confirm the recovered index is intact.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<FlatIndex>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// A vector index has no CDC, policy, or provenance of its own (parallel to

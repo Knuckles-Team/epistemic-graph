@@ -14,8 +14,8 @@
 //! dependencies at all) is completely unaffected.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, IngestReport, ModalityContract,
-    ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
+    encode_staged, ConformanceTestable, IngestReport, ModalityContract, ModalitySelfTest,
+    RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::compress::StoredBlock;
@@ -46,15 +46,7 @@ impl ModalityContract for StoredBlock {
 
     /// Batch ingest = round-trip through serialization.
     fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<StoredBlock>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        IngestReport {
-            batch,
-            streaming: ModalitySelfTest::NotApplicable("a cached block is not a stream"),
-        }
+        eg_modality::staged_batch_ingest_report(self, id, "a cached block is not a stream")
     }
 
     /// Real storage stats: serialized size; element count is 1 (a single block).
@@ -68,11 +60,7 @@ impl ModalityContract for StoredBlock {
 
     /// Simulated crash-and-recover.
     fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        let staged: StagedWrite = self.txn_stage(id);
-        match decode_staged::<StoredBlock>(&staged) {
-            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
+        eg_modality::staged_recovery_selfcheck(self, id)
     }
 
     /// N/A: cache block durability is tiering-layer concern.
