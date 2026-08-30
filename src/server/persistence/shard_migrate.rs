@@ -417,23 +417,9 @@ fn copy_provenance_anchor_members_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_provenance_anchor_members = wtx
-        .open_table(PROVENANCE_ANCHOR_MEMBERS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(PROVENANCE_ANCHOR_MEMBERS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, seq) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_provenance_anchor_members
-                    .insert((graph, seq), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, PROVENANCE_ANCHOR_MEMBERS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// work_item_command_sequence — graph -> monotonic native WorkItem command sequence (BUG-CX-054 class).
@@ -443,23 +429,9 @@ fn copy_work_item_command_sequence_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_work_item_command_sequence = wtx
-        .open_table(WORK_ITEM_COMMAND_SEQUENCE)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(WORK_ITEM_COMMAND_SEQUENCE) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let graph = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_work_item_command_sequence
-                    .insert(graph, v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, WORK_ITEM_COMMAND_SEQUENCE, |key| {
+        shard_index(*key, new_k) == dest_idx
+    })
 }
 
 /// Every RESOURCE_* table for ONE source (BUG-CX-054): reservations, tenant index,
@@ -510,23 +482,9 @@ fn copy_resource_reservations_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_reservations = wtx
-        .open_table(RESOURCE_RESERVATIONS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_RESERVATIONS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, reservation_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_reservations
-                    .insert((graph, reservation_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_RESERVATIONS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// resource_reservation_tenant_index — (graph, tenant, index_key) -> reservation_id (BUG-CX-054).
@@ -536,23 +494,9 @@ fn copy_resource_reservation_tenant_index_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_reservation_tenant_index = wtx
-        .open_table(RESOURCE_RESERVATION_TENANT_INDEX)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, tenant, index_key) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_reservation_tenant_index
-                    .insert((graph, tenant, index_key), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_RESERVATION_TENANT_INDEX, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// resource_reservation_attempts — (graph, reservation_id, attempt_seq) -> attempt row (BUG-CX-054).
@@ -562,23 +506,9 @@ fn copy_resource_reservation_attempts_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_reservation_attempts = wtx
-        .open_table(RESOURCE_RESERVATION_ATTEMPTS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_RESERVATION_ATTEMPTS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, reservation_id, attempt_seq) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_reservation_attempts
-                    .insert((graph, reservation_id, attempt_seq), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_RESERVATION_ATTEMPTS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// resource_hosts — (graph, host_id) -> host row (BUG-CX-054).
@@ -588,21 +518,9 @@ fn copy_resource_hosts_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_hosts = wtx.open_table(RESOURCE_HOSTS).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_HOSTS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, host_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_hosts
-                    .insert((graph, host_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_HOSTS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// resource_exclusivity + fairness + concurrency + anti_affinity + disk_policies for ONE source (BUG-CX-054).
@@ -643,23 +561,9 @@ fn copy_resource_exclusivity_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_exclusivity = wtx
-        .open_table(RESOURCE_EXCLUSIVITY)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_EXCLUSIVITY) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, key) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_exclusivity
-                    .insert((graph, key), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_EXCLUSIVITY, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// resource_fairness — (graph, key) -> fairness row (BUG-CX-054).
@@ -669,23 +573,9 @@ fn copy_resource_fairness_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_fairness = wtx
-        .open_table(RESOURCE_FAIRNESS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_FAIRNESS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, key) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_fairness
-                    .insert((graph, key), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_FAIRNESS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// resource_concurrency — (graph, key) -> concurrency count (BUG-CX-054).
@@ -695,23 +585,9 @@ fn copy_resource_concurrency_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_concurrency = wtx
-        .open_table(RESOURCE_CONCURRENCY)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_CONCURRENCY) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, key) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_concurrency
-                    .insert((graph, key), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_CONCURRENCY, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// resource_anti_affinity — (graph, key, reservation_id) -> ts (BUG-CX-054).
@@ -721,23 +597,9 @@ fn copy_resource_anti_affinity_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_anti_affinity = wtx
-        .open_table(RESOURCE_ANTI_AFFINITY)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_ANTI_AFFINITY) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, key, reservation_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_anti_affinity
-                    .insert((graph, key, reservation_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_ANTI_AFFINITY, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// resource_disk_policies — (graph, key) -> disk policy row (BUG-CX-054).
@@ -747,23 +609,9 @@ fn copy_resource_disk_policies_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_resource_disk_policies = wtx
-        .open_table(RESOURCE_DISK_POLICIES)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(RESOURCE_DISK_POLICIES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, key) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_resource_disk_policies
-                    .insert((graph, key), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, RESOURCE_DISK_POLICIES, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// Every development_lane_* table for ONE source (BUG-CX-054/BUG-CX-096): all 10
@@ -813,23 +661,9 @@ fn copy_holds_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_holds = wtx
-        .open_table(development_lane::HOLDS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::HOLDS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, hold_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_holds
-                    .insert((graph, hold_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::HOLDS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane_counters — (graph, counter) -> counter blob (BUG-CX-054).
@@ -839,23 +673,9 @@ fn copy_lane_counters_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_lane_counters = wtx
-        .open_table(development_lane::COUNTERS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::COUNTERS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, counter) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_lane_counters
-                    .insert((graph, counter), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::COUNTERS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane_pressure_index — 6-tuple key -> marker byte (BUG-CX-054).
@@ -865,23 +685,9 @@ fn copy_lane_pressure_index_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_lane_pressure_index = wtx
-        .open_table(development_lane::PRESSURE_INDEX)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::PRESSURE_INDEX) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, tenant, lane, repository, ts, kind) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_lane_pressure_index
-                    .insert((graph, tenant, lane, repository, ts, kind), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::PRESSURE_INDEX, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane_policies — (graph, policy_id) -> policy row (BUG-CX-096).
@@ -891,23 +697,9 @@ fn copy_lane_policies_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_lane_policies = wtx
-        .open_table(development_lane::POLICIES)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::POLICIES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, policy_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_lane_policies
-                    .insert((graph, policy_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::POLICIES, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane tenant/lane/repository_branch/worktree secondary indexes for ONE source (BUG-CX-096).
@@ -943,23 +735,9 @@ fn copy_lane_tenant_index_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_lane_tenant_index = wtx
-        .open_table(development_lane::TENANT_INDEX)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::TENANT_INDEX) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, tenant, index_key) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_lane_tenant_index
-                    .insert((graph, tenant, index_key), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::TENANT_INDEX, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane_lane_index — (graph, lane, index_key) -> hold_id (BUG-CX-096).
@@ -969,23 +747,9 @@ fn copy_lane_index_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_lane_index = wtx
-        .open_table(development_lane::LANE_INDEX)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::LANE_INDEX) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, lane, index_key) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_lane_index
-                    .insert((graph, lane, index_key), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::LANE_INDEX, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane_repository_branch_index — (graph, repository, branch) -> hold_id (BUG-CX-096).
@@ -995,23 +759,9 @@ fn copy_repository_branch_index_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_repository_branch_index = wtx
-        .open_table(development_lane::REPOSITORY_BRANCH_INDEX)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::REPOSITORY_BRANCH_INDEX) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, repository, branch) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_repository_branch_index
-                    .insert((graph, repository, branch), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::REPOSITORY_BRANCH_INDEX, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane_worktree_index — (graph, worktree) -> hold_id (BUG-CX-096).
@@ -1021,23 +771,9 @@ fn copy_worktree_index_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_worktree_index = wtx
-        .open_table(development_lane::WORKTREE_INDEX)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::WORKTREE_INDEX) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, worktree) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_worktree_index
-                    .insert((graph, worktree), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::WORKTREE_INDEX, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane work_item_index + invocations for ONE source (BUG-CX-096).
@@ -1066,23 +802,9 @@ fn copy_work_item_index_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_work_item_index = wtx
-        .open_table(development_lane::WORK_ITEM_INDEX)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::WORK_ITEM_INDEX) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, work_item_id, seq) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_work_item_index
-                    .insert((graph, work_item_id, seq), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::WORK_ITEM_INDEX, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// development_lane_invocations — (graph, hold_id, invocation_id) -> invocation row (BUG-CX-096).
@@ -1092,23 +814,9 @@ fn copy_lane_invocations_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_lane_invocations = wtx
-        .open_table(development_lane::INVOCATIONS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(development_lane::INVOCATIONS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, hold_id, invocation_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_lane_invocations
-                    .insert((graph, hold_id, invocation_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, development_lane::INVOCATIONS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// capacity_cells + leases + usage + idempotency for ONE source (undocumented BUG-CX-054-class gap).
@@ -1145,23 +853,9 @@ fn copy_capacity_cells_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_capacity_cells = wtx
-        .open_table(capacity_lease::CELLS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(capacity_lease::CELLS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, cell_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_capacity_cells
-                    .insert((graph, cell_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, capacity_lease::CELLS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// capacity_leases — (graph, lease_id) -> lease row (BUG-CX-054 class, undocumented).
@@ -1171,23 +865,9 @@ fn copy_capacity_leases_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_capacity_leases = wtx
-        .open_table(capacity_lease::LEASES)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(capacity_lease::LEASES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, lease_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_capacity_leases
-                    .insert((graph, lease_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, capacity_lease::LEASES, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// capacity_usage — (graph, cell_id) -> usage row (BUG-CX-054 class, undocumented).
@@ -1197,23 +877,9 @@ fn copy_capacity_usage_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_capacity_usage = wtx
-        .open_table(capacity_lease::USAGE)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(capacity_lease::USAGE) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, cell_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_capacity_usage
-                    .insert((graph, cell_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, capacity_lease::USAGE, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// capacity_idempotency — (graph, tenant, key) -> replay row (BUG-CX-054 class, undocumented).
@@ -1223,23 +889,9 @@ fn copy_capacity_idempotency_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_capacity_idempotency = wtx
-        .open_table(capacity_lease::IDEMPOTENCY)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(capacity_lease::IDEMPOTENCY) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, tenant, key) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_capacity_idempotency
-                    .insert((graph, tenant, key), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, capacity_lease::IDEMPOTENCY, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// work_item_claim_capabilities + invocations + native_work_item_authority for ONE source (BUG-CX-054 + undocumented gap).
@@ -1272,23 +924,9 @@ fn copy_capability_capabilities_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_capability_capabilities = wtx
-        .open_table(work_item_capability::CAPABILITIES)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(work_item_capability::CAPABILITIES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, digest) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_capability_capabilities
-                    .insert((graph, digest), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, work_item_capability::CAPABILITIES, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// work_item_claim_capability_invocations — (graph, digest) -> invocation row (BUG-CX-054 class, undocumented).
@@ -1298,23 +936,9 @@ fn copy_capability_invocations_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_capability_invocations = wtx
-        .open_table(work_item_capability::INVOCATIONS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(work_item_capability::INVOCATIONS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, digest) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_capability_invocations
-                    .insert((graph, digest), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, work_item_capability::INVOCATIONS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// native_work_item_authority — (graph, work_item_id) -> claim-authority row (BUG-CX-054).
@@ -1324,23 +948,9 @@ fn copy_native_work_items_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_native_work_items = wtx
-        .open_table(work_item_capability::NATIVE_WORK_ITEMS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(work_item_capability::NATIVE_WORK_ITEMS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, work_item_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_native_work_items
-                    .insert((graph, work_item_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, work_item_capability::NATIVE_WORK_ITEMS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 // ── per-table, per-source copy steps ────────────────────────────────────────
@@ -1355,6 +965,37 @@ fn copy_native_work_items_for_source(
 // error-propagation as a branch, same as an `if`, so a long straight-line chain of
 // fallible calls is exactly as "complex" by this measure as the same number of
 // conditionals — hence splitting by TABLE, not just by control-flow shape).
+
+/// Copy a source table while preserving the per-table loop's open, iteration, and
+/// insertion order. The route callback receives the decoded key and decides whether the
+/// row belongs in the destination.
+fn copy_routed_table_for_source<K, V, F>(
+    rtx: &redb::ReadTransaction,
+    wtx: &redb::WriteTransaction,
+    table: redb::TableDefinition<'static, K, V>,
+    route: F,
+) -> Result<u64, String>
+where
+    K: redb::Key + 'static,
+    V: redb::Value + 'static,
+    F: for<'a> Fn(&K::SelfType<'a>) -> bool,
+{
+    let mut destination = wtx.open_table(table).map_err(|e| e.to_string())?;
+    let mut count = 0u64;
+    if let Ok(source) = rtx.open_table(table) {
+        for row in source.iter().map_err(|e| e.to_string())? {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            let key = key.value();
+            if route(&key) {
+                destination
+                    .insert(key, value.value())
+                    .map_err(|e| e.to_string())?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
 
 /// graph_meta — routes by graph, also enumerates graphs. Returns the number of
 /// PREVIOUSLY UNSEEN graphs this call added to `seen_graphs` (the caller sums this
@@ -1390,21 +1031,7 @@ fn copy_nodes_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(NODES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (g, id) = k.value();
-            if shard_index(g, new_k) == dest_idx {
-                d_nodes
-                    .insert((g, id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, NODES, |key| shard_index(key.0, new_k) == dest_idx)
 }
 
 /// edges — (graph, src, tgt, ord) -> blob.
@@ -1414,21 +1041,7 @@ fn copy_edges_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(EDGES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (g, s, t2, o) = k.value();
-            if shard_index(g, new_k) == dest_idx {
-                d_edges
-                    .insert((g, s, t2, o), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, EDGES, |key| shard_index(key.0, new_k) == dest_idx)
 }
 
 /// ledger — (graph, seq) -> line.
@@ -1438,21 +1051,9 @@ fn copy_ledger_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(LEDGER) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (g, seq) = k.value();
-            if shard_index(g, new_k) == dest_idx {
-                d_ledger
-                    .insert((g, seq), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, LEDGER, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// semantic — graph -> blob.
@@ -1462,19 +1063,9 @@ fn copy_semantic_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(SEMANTIC) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let g = k.value();
-            if shard_index(g, new_k) == dest_idx {
-                d_semantic.insert(g, v.value()).map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, SEMANTIC, |key| {
+        shard_index(*key, new_k) == dest_idx
+    })
 }
 
 /// audit — (graph, seq) -> chained blob (copy VERBATIM to keep the chain).
@@ -1484,21 +1075,7 @@ fn copy_audit_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(AUDIT) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (g, seq) = k.value();
-            if shard_index(g, new_k) == dest_idx {
-                d_audit
-                    .insert((g, seq), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, AUDIT, |key| shard_index(key.0, new_k) == dest_idx)
 }
 
 /// mutation_idempotency — (tenant, graph, key) -> batch_id, routed by graph. Also
@@ -1612,23 +1189,9 @@ fn copy_mutation_projection_cursor_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_mutation_projection = wtx
-        .open_table(MUTATION_PROJECTION_CURSOR)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(MUTATION_PROJECTION_CURSOR) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (tenant, graph, projection) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_mutation_projection
-                    .insert((tenant, graph, projection), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, MUTATION_PROJECTION_CURSOR, |key| {
+        shard_index(key.1, new_k) == dest_idx
+    })
 }
 
 /// mutation_graph_version — graph -> version, routed by graph.
@@ -1638,23 +1201,9 @@ fn copy_mutation_graph_version_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_mutation_version = wtx
-        .open_table(MUTATION_GRAPH_VERSION)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(MUTATION_GRAPH_VERSION) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let graph = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_mutation_version
-                    .insert(graph, v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, MUTATION_GRAPH_VERSION, |key| {
+        shard_index(*key, new_k) == dest_idx
+    })
 }
 
 /// mutation_fence — graph -> (placement_epoch, fencing_token), routed by graph.
@@ -1664,21 +1213,9 @@ fn copy_mutation_fence_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_mutation_fence = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(MUTATION_FENCE) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let graph = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_mutation_fence
-                    .insert(graph, v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, MUTATION_FENCE, |key| {
+        shard_index(*key, new_k) == dest_idx
+    })
 }
 
 /// mutation_lifecycle_head — graph -> latest lifecycle batch id, routed by graph.
@@ -1688,23 +1225,9 @@ fn copy_mutation_lifecycle_head_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_mutation_lifecycle = wtx
-        .open_table(MUTATION_LIFECYCLE_HEAD)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(MUTATION_LIFECYCLE_HEAD) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let graph = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_mutation_lifecycle
-                    .insert(graph, v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, MUTATION_LIFECYCLE_HEAD, |key| {
+        shard_index(*key, new_k) == dest_idx
+    })
 }
 
 /// change_envelopes — (graph, envelope_id) -> envelope, routed by graph.
@@ -1714,23 +1237,9 @@ fn copy_change_envelopes_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_envelopes = wtx
-        .open_table(CHANGE_ENVELOPES)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(CHANGE_ENVELOPES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, envelope_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_change_envelopes
-                    .insert((graph, envelope_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, CHANGE_ENVELOPES, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// content_versions — (graph, source_id, content_id) -> version, routed by graph.
@@ -1740,23 +1249,9 @@ fn copy_content_versions_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_content_versions = wtx
-        .open_table(CONTENT_VERSIONS)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(CONTENT_VERSIONS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, source_id, content_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_content_versions
-                    .insert((graph, source_id, content_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, CONTENT_VERSIONS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// change_cursors — (graph, source_id, stream, partition) -> cursor, routed by graph.
@@ -1766,21 +1261,9 @@ fn copy_change_cursors_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(CHANGE_CURSORS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, source_id, stream, partition) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_change_cursors
-                    .insert((graph, source_id, stream, partition), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, CHANGE_CURSORS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// change_blobs — (graph, envelope_id, object_id) -> blob, routed by graph.
@@ -1790,21 +1273,9 @@ fn copy_change_blobs_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_blobs = wtx.open_table(CHANGE_BLOBS).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(CHANGE_BLOBS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, envelope_id, object_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_change_blobs
-                    .insert((graph, envelope_id, object_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, CHANGE_BLOBS, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// change_features — (graph, envelope_id, object_id) -> features, routed by graph.
@@ -1814,21 +1285,9 @@ fn copy_change_features_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_features = wtx.open_table(CHANGE_FEATURES).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(CHANGE_FEATURES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, envelope_id, object_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_change_features
-                    .insert((graph, envelope_id, object_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, CHANGE_FEATURES, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// change_evidence — (graph, envelope_id, object_id) -> evidence, routed by graph.
@@ -1838,21 +1297,9 @@ fn copy_change_evidence_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_evidence = wtx.open_table(CHANGE_EVIDENCE).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(CHANGE_EVIDENCE) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, envelope_id, object_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_change_evidence
-                    .insert((graph, envelope_id, object_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, CHANGE_EVIDENCE, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// change_policies — (graph, envelope_id, object_id) -> policy, routed by graph.
@@ -1862,21 +1309,9 @@ fn copy_change_policies_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_policies = wtx.open_table(CHANGE_POLICIES).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(CHANGE_POLICIES) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, envelope_id, object_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_change_policies
-                    .insert((graph, envelope_id, object_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, CHANGE_POLICIES, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// change_lineage — (graph, envelope_id, object_id) -> lineage, routed by graph.
@@ -1886,21 +1321,9 @@ fn copy_change_lineage_for_source(
     dest_idx: usize,
     new_k: usize,
 ) -> Result<u64, String> {
-    let mut d_change_lineage = wtx.open_table(CHANGE_LINEAGE).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(CHANGE_LINEAGE) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            let (graph, envelope_id, object_id) = k.value();
-            if shard_index(graph, new_k) == dest_idx {
-                d_change_lineage
-                    .insert((graph, envelope_id, object_id), v.value())
-                    .map_err(|e| e.to_string())?;
-                count += 1;
-            }
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, CHANGE_LINEAGE, |key| {
+        shard_index(key.0, new_k) == dest_idx
+    })
 }
 
 /// Copy the GLOBAL (non-per-graph) durable tables from every source into `dest_idx`'s
@@ -2138,18 +1561,7 @@ fn copy_plan_matviews_for_source(
     rtx: &redb::ReadTransaction,
     wtx: &redb::WriteTransaction,
 ) -> Result<u64, String> {
-    let mut d_plan_matviews = wtx.open_table(PLAN_MATVIEWS).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(PLAN_MATVIEWS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            d_plan_matviews
-                .insert(k.value(), v.value())
-                .map_err(|e| e.to_string())?;
-            count += 1;
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, PLAN_MATVIEWS, |_| true)
 }
 
 /// matview_operator_state — name -> incremental-matview operator-state snapshot,
@@ -2159,20 +1571,7 @@ fn copy_matview_operator_state_for_source(
     rtx: &redb::ReadTransaction,
     wtx: &redb::WriteTransaction,
 ) -> Result<u64, String> {
-    let mut d_matview_operator_state = wtx
-        .open_table(MATVIEW_OPERATOR_STATE)
-        .map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(MATVIEW_OPERATOR_STATE) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            d_matview_operator_state
-                .insert(k.value(), v.value())
-                .map_err(|e| e.to_string())?;
-            count += 1;
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, MATVIEW_OPERATOR_STATE, |_| true)
 }
 
 /// xshard_prepare — (txn_id, group_id) -> staged write-set, shard-0 only.
@@ -2220,18 +1619,7 @@ fn copy_matviews_for_source(
     rtx: &redb::ReadTransaction,
     wtx: &redb::WriteTransaction,
 ) -> Result<u64, String> {
-    let mut d_matviews = wtx.open_table(MATVIEWS).map_err(|e| e.to_string())?;
-    let mut count = 0u64;
-    if let Ok(t) = rtx.open_table(MATVIEWS) {
-        for row in t.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            d_matviews
-                .insert(k.value(), v.value())
-                .map_err(|e| e.to_string())?;
-            count += 1;
-        }
-    }
-    Ok(count)
+    copy_routed_table_for_source(rtx, wtx, MATVIEWS, |_| true)
 }
 
 /// Migrate the store under `persist_dir` to `new_k` IN PLACE (CONCEPT:EG-KG.sharding.atomic-shard-swap): the new
