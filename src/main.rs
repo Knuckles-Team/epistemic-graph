@@ -961,6 +961,42 @@ async fn spawn_optional_service_listeners(
     iceberg_addr_arg: Option<&str>,
     graphql_addr_arg: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    spawn_metrics_listener(metrics_addr_arg).await?;
+    spawn_sparql_listener(state, sparql_addr_arg).await?;
+    spawn_policy_export_listener(policy_export_addr_arg).await?;
+    run_fuseki_startup_health_check();
+    spawn_federated_listener(state, federated_addr_arg).await?;
+    spawn_graphql_listener(
+        state,
+        graphql_addr_arg,
+        graphql_max_connections,
+        graphql_max_session_secs,
+    )
+    .await?;
+    spawn_obs_listener(state, obs_addr_arg).await?;
+    spawn_viz_interactive_listener(state, viz_interactive_addr_arg).await?;
+    spawn_iceberg_listener(state, iceberg_addr_arg).await?;
+    spawn_lake_materialize_sweep(state).await;
+    spawn_pgwire_listener(state).await?;
+    spawn_sqlite_listener(state).await?;
+    spawn_mysql_listener(state).await?;
+    spawn_mssql_listener(state).await?;
+    spawn_amqp_listener(state).await?;
+    spawn_bolt_listener(state).await?;
+    spawn_redis_listener(state).await?;
+    spawn_mqtt_listener(state).await?;
+    spawn_stomp_listener(state).await?;
+    spawn_s3_listener(state).await?;
+    spawn_kvcache_listener(state).await?;
+    recover_durable_catalog(state).await?;
+    #[cfg(feature = "epistemic-tms")]
+    epistemic_graph::server::reasoning_projection::spawn(state.clone());
+    Ok(())
+}
+
+async fn spawn_metrics_listener(
+    metrics_addr_arg: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // ── Prometheus metrics endpoint (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
     // Opt-in + deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): bound only when
     // --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is set. A bare enable token
@@ -986,7 +1022,14 @@ async fn spawn_optional_service_listeners(
             metrics_addr
         );
     }
-
+    Ok(())
+}
+async fn spawn_sparql_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+    sparql_addr_arg: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "sparql-http")]
+    let state = _state;
     // ── W3C SPARQL 1.1 HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support) ────────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // sparql-http` AND --sparql-addr / EPISTEMIC_GRAPH_SPARQL_ADDR is set. With the
@@ -1011,7 +1054,11 @@ async fn spawn_optional_service_listeners(
     if sparql_addr.is_some() {
         tracing::warn!("--sparql-addr ignored: binary built without the `sparql-http` feature");
     }
-
+    Ok(())
+}
+async fn spawn_policy_export_listener(
+    policy_export_addr_arg: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // ── CA-16 (DEC-CA-04) `/policy/export` HTTP listener ────────────────────────
     // Opt-in AND feature-gated, exactly like the SPARQL/metrics listeners above:
     // starts only when built `--features policy_export` AND
@@ -1034,7 +1081,9 @@ async fn spawn_optional_service_listeners(
             "--policy-export-addr ignored: binary built without the `policy_export` feature"
         );
     }
-
+    Ok(())
+}
+fn run_fuseki_startup_health_check() {
     // ── Fuseki SERVICE-federation startup health-check (CA-12, feature `sparql-fuseki`) ──
     // Best-effort and LOGGED, not enforced (matches the lane's W03 completion evidence:
     // "Startup log shows reachability result", not "startup refuses to serve"). Runs the
@@ -1056,7 +1105,13 @@ async fn spawn_optional_service_listeners(
             _ => tracing::warn!("{}", outcome.summary()),
         }
     }
-
+}
+async fn spawn_federated_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+    federated_addr_arg: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "federation-search")]
+    let state = _state;
     // ── Super-cluster federated search (CONCEPT:EG-KG.ontology.federation-client) ──────────────────
     // Opt-in AND feature-gated: the `/federated` listener starts ONLY when built
     // `--features federation-search` AND --federated-addr / EPISTEMIC_GRAPH_FEDERATED_ADDR
@@ -1083,7 +1138,16 @@ async fn spawn_optional_service_listeners(
             "--federated-addr ignored: binary built without the `federation-search` feature"
         );
     }
-
+    Ok(())
+}
+async fn spawn_graphql_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+    graphql_addr_arg: Option<&str>,
+    _graphql_max_connections: usize,
+    _graphql_max_session_secs: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "graphql")]
+    let state = _state;
     // ── GraphQL subscription SSE carrier (CONCEPT:EG-KG.compute.cdc-event-emit) ────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features graphql`
     // AND --graphql-addr / EPISTEMIC_GRAPH_GRAPHQL_ADDR is set. With the feature off, or
@@ -1136,7 +1200,14 @@ async fn spawn_optional_service_listeners(
     if graphql_addr.is_some() {
         tracing::warn!("--graphql-addr ignored: binary built without the `graphql` feature");
     }
-
+    Ok(())
+}
+async fn spawn_obs_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+    obs_addr_arg: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "obs")]
+    let state = _state;
     // ── Observability log ingestion (CONCEPT:AU-KG.ingest.self-ingest/161) ─────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features obs`
     // AND --obs-addr / EPISTEMIC_GRAPH_OBS_ADDR is set. With the feature off, or
@@ -1165,50 +1236,8 @@ async fn spawn_optional_service_listeners(
                 );
                 let obs_state = std::sync::Arc::new(obs_state);
 
-                // ── Trace durable-tier sweep (BUG-016, CONCEPT:EG-OS.observability.trace-assembly) ─────
-                // Periodically snapshot the native span store to durable storage
-                // (`ObsState::persist_traces`) so a restart does not silently drop
-                // every span the in-memory hot tier holds -- the in-RAM store stays
-                // the search/assembly path unchanged; this is the WAL-checkpoint-
-                // shaped durable cold tier BUG-016's frozen design calls for.
-                // Reuses the SAME interval-task cadence shape the provenance-
-                // anchoring sweep above establishes -- NO new scheduler. OFF by
-                // default: arm with `EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS=N`.
                 #[cfg(feature = "traces")]
-                {
-                    let interval_secs = std::env::var("EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS")
-                        .ok()
-                        .and_then(|s| s.trim().parse::<u64>().ok())
-                        .unwrap_or(0);
-                    if interval_secs > 0 {
-                        let traces_obs_state = obs_state.clone();
-                        info!(
-                            "Observability: durably snapshotting native trace spans every {}s \
-                             (BUG-016, CONCEPT:EG-OS.observability.trace-assembly)",
-                            interval_secs
-                        );
-                        tokio::spawn(async move {
-                            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
-                                interval_secs,
-                            ));
-                            ticker.tick().await; // consume the immediate first tick
-                            loop {
-                                ticker.tick().await;
-                                let __loop_tick_started = std::time::Instant::now();
-                                if let Err(error) = traces_obs_state.persist_traces() {
-                                    tracing::warn!(
-                                        %error,
-                                        "trace snapshot sweep: persist_traces failed, will retry next tick"
-                                    );
-                                }
-                                epistemic_graph::metrics::loop_tick(
-                                    "obs_traces_persist",
-                                    __loop_tick_started.elapsed().as_secs_f64(),
-                                );
-                            }
-                        });
-                    }
-                }
+                spawn_obs_trace_persist_sweep(&obs_state);
 
                 let obs_security_state = state.clone();
                 tokio::spawn(async move {
@@ -1231,7 +1260,62 @@ async fn spawn_optional_service_listeners(
     if obs_addr.is_some() {
         tracing::warn!("--obs-addr ignored: binary built without the `obs` feature");
     }
-
+    Ok(())
+}
+#[cfg(feature = "traces")]
+fn spawn_obs_trace_persist_sweep(
+    obs_state: &std::sync::Arc<epistemic_graph::server::obs::ObsState>,
+) {
+    // ── Trace durable-tier sweep (BUG-016, CONCEPT:EG-OS.observability.trace-assembly) ─────
+    // Periodically snapshot the native span store to durable storage
+    // (`ObsState::persist_traces`) so a restart does not silently drop
+    // every span the in-memory hot tier holds -- the in-RAM store stays
+    // the search/assembly path unchanged; this is the WAL-checkpoint-
+    // shaped durable cold tier BUG-016's frozen design calls for.
+    // Reuses the SAME interval-task cadence shape the provenance-
+    // anchoring sweep above establishes -- NO new scheduler. OFF by
+    // default: arm with `EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS=N`.
+    #[cfg(feature = "traces")]
+    {
+        let interval_secs = std::env::var("EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if interval_secs > 0 {
+            let traces_obs_state = obs_state.clone();
+            info!(
+                "Observability: durably snapshotting native trace spans every {}s \
+                 (BUG-016, CONCEPT:EG-OS.observability.trace-assembly)",
+                interval_secs
+            );
+            tokio::spawn(async move {
+                let mut ticker =
+                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                ticker.tick().await; // consume the immediate first tick
+                loop {
+                    ticker.tick().await;
+                    let __loop_tick_started = std::time::Instant::now();
+                    if let Err(error) = traces_obs_state.persist_traces() {
+                        tracing::warn!(
+                            %error,
+                            "trace snapshot sweep: persist_traces failed, will retry next tick"
+                        );
+                    }
+                    epistemic_graph::metrics::loop_tick(
+                        "obs_traces_persist",
+                        __loop_tick_started.elapsed().as_secs_f64(),
+                    );
+                }
+            });
+        }
+    }
+}
+async fn spawn_viz_interactive_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+    viz_interactive_addr_arg: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "viz-interactive")]
+    let state = _state;
     // ── Interactive native-visualization surface (D-VZ-1 lane V3b) ─────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // viz-interactive` AND --viz-interactive-addr /
@@ -1279,7 +1363,14 @@ async fn spawn_optional_service_listeners(
             "--viz-interactive-addr ignored: binary built without the `viz-interactive` feature"
         );
     }
-
+    Ok(())
+}
+async fn spawn_iceberg_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+    iceberg_addr_arg: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "lake-rest")]
+    let state = _state;
     // ── Iceberg-REST catalog (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────────────────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // lake-rest` AND --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR is set. With the
@@ -1324,7 +1415,11 @@ async fn spawn_optional_service_listeners(
     if iceberg_addr.is_some() {
         tracing::warn!("--iceberg-addr ignored: binary built without the `lake-rest` feature");
     }
-
+    Ok(())
+}
+async fn spawn_lake_materialize_sweep(_state: &Arc<tokio::sync::RwLock<ServerState>>) {
+    #[cfg(feature = "lake")]
+    let state = _state;
     // ── WAL/series → lakehouse materialization sweep (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────
     // Opt-in AND feature-gated: only runs when built `--features lake` AND a positive
     // interval is configured via EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS
@@ -1412,7 +1507,12 @@ async fn spawn_optional_service_listeners(
             });
         }
     }
-
+}
+async fn spawn_pgwire_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "pgwire")]
+    let state = _state;
     // ── Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python) ───────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
     // `--features pgwire` AND EPISTEMIC_GRAPH_PGWIRE_ADDR is set. With the feature
@@ -1448,7 +1548,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_sqlite_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "sqlite-wire")]
+    let state = _state;
     // ── SQLite-compatible served surface (CONCEPT:EG-KG.query.concept-3) ────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // sqlite-wire` AND EPISTEMIC_GRAPH_SQLITE_ADDR is set. With the feature off, or on
@@ -1478,7 +1584,13 @@ async fn spawn_optional_service_listeners(
             Err(e) => tracing::error!("sqlite-wire bind {} failed: {}", addr, e),
         }
     }
-
+    Ok(())
+}
+async fn spawn_mysql_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "mysql-wire")]
+    let state = _state;
     // ── MySQL / MariaDB wire-protocol listener (CONCEPT:EG-KG.query.kg-2) ──────────
     // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
     // `--features mysql-wire` AND EPISTEMIC_GRAPH_MYSQL_ADDR is set. With the feature
@@ -1516,7 +1628,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_mssql_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "mssql-wire")]
+    let state = _state;
     // ── MSSQL TDS wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server) ─────────────────
     // Opt-in AND feature-gated, mirroring pgwire: the listener starts ONLY when the
     // binary is built `--features mssql-wire` AND EPISTEMIC_GRAPH_MSSQL_ADDR is set.
@@ -1541,7 +1659,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_amqp_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "amqp-wire")]
+    let state = _state;
     // ── AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.compute.message-broker-exchanges) ────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features amqp-wire` AND EPISTEMIC_GRAPH_AMQP_ADDR is set.
@@ -1567,7 +1691,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_bolt_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "bolt-wire")]
+    let state = _state;
     // ── Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol) ─────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features bolt-wire` AND EPISTEMIC_GRAPH_BOLT_ADDR is set.
@@ -1594,7 +1724,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_redis_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "redis-wire")]
+    let state = _state;
     // ── Redis RESP wire-protocol listener (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features redis-wire` AND EPISTEMIC_GRAPH_REDIS_ADDR is set.
@@ -1618,7 +1754,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_mqtt_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "mqtt-wire")]
+    let state = _state;
     // ── MQTT 3.1.1 wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec) ────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features mqtt-wire` AND EPISTEMIC_GRAPH_MQTT_ADDR is set.
@@ -1646,7 +1788,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_stomp_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "stomp-wire")]
+    let state = _state;
     // ── STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) ─────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
     // the binary is built `--features stomp-wire` AND EPISTEMIC_GRAPH_STOMP_ADDR is set.
@@ -1674,7 +1822,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_s3_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "s3-api")]
+    let state = _state;
     // ── S3-compatible object-storage REST surface (CONCEPT:EG-KG.ontology.object-put-get-head) ────────
     // Opt-in AND feature-gated, mirroring the obs listener: it starts ONLY when the
     // binary is built `--features s3-api` AND EPISTEMIC_GRAPH_S3_ADDR is set. With the
@@ -1699,7 +1853,13 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn spawn_kvcache_listener(
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "kvcache-server")]
+    let state = _state;
     // ── Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co) ─────────────────────
     // Opt-in AND feature-gated, mirroring the s3 listener: it starts ONLY when the
     // binary is built `--features kvcache-server` AND EPISTEMIC_GRAPH_KVCACHE_ADDR is
@@ -1729,7 +1889,11 @@ async fn spawn_optional_service_listeners(
             }
         });
     }
-
+    Ok(())
+}
+async fn recover_durable_catalog(
+    state: &Arc<tokio::sync::RwLock<ServerState>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Recover the durable catalog first; graph material is paged in on demand.
     // This bounded current path is the only served startup mode.
     let persistence_for_load = { state.read().await.persistence.clone() };
@@ -1741,7 +1905,7 @@ async fn spawn_optional_service_listeners(
             Err(error) => {
                 return Err(
                     format!("durable recovery failed; refusing availability: {error}").into(),
-                )
+                );
             }
         }
         p.register_graph(
@@ -1790,18 +1954,14 @@ async fn spawn_optional_service_listeners(
                         report.series_reconciled, report.points_replayed
                     ),
                     Ok(_) => {}
-                    Err(error) => {
-                        return Err(format!(
-                            "time-series startup reconciliation failed; refusing availability: {error}"
-                        )
-                        .into())
-                    }
+                    Err(error) => return Err(format!(
+                        "time-series startup reconciliation failed; refusing availability: {error}"
+                    )
+                    .into()),
                 }
             }
         }
     }
-    #[cfg(feature = "epistemic-tms")]
-    epistemic_graph::server::reasoning_projection::spawn(state.clone());
     Ok(())
 }
 
