@@ -16768,14 +16768,7 @@ mod security_tests {
 
     /// A throwaway temp dir under the scratch space.
     fn tempdir() -> std::path::PathBuf {
-        let base = std::env::temp_dir().join(format!(
-            "eg-sec-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let base = crate::test_support::temp_dir("eg-sec", "test");
         std::fs::create_dir_all(&base).unwrap();
         base
     }
