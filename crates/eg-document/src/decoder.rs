@@ -5,6 +5,8 @@
 //! and rendered-page formats enter through governed renditions produced by their
 //! owning decoder; the native runtime accepts the current UTF-8 contract directly.
 
+use std::borrow::Cow;
+
 use crate::document::{
     BlockKind, DocumentData, LayoutBlock, LexicalPosting, Page, Span, Table, TableCell,
 };
@@ -44,73 +46,8 @@ impl DocumentDecoder for NativeTextDecoder {
         if bytes.is_empty() || bytes.len() > MAX_SOURCE_BYTES {
             return None;
         }
-        // HTML source is valid UTF-8, so without this it would decode as raw
-        // markup (every tag treated as document text). Stripped text still
-        // flows through the exact same page/block/table/lexeme extraction
-        // below — content_hash(bytes) at the end still hashes the ORIGINAL
-        // source bytes, not the stripped text, preserving source identity.
-        let stripped_html;
-        let text: &str = if crate::html::looks_like_html(bytes) {
-            stripped_html = crate::html::strip_to_text(bytes)?;
-            &stripped_html
-        } else {
-            std::str::from_utf8(bytes).ok()?
-        };
-        let mut pages = Vec::new();
-        let mut postings = Vec::new();
-        let mut total_blocks = 0usize;
-        let mut page_start = 0usize;
-
-        for (page_index, raw_page) in text.split_inclusive('\u{000c}').enumerate() {
-            if page_index >= MAX_PAGES {
-                return None;
-            }
-            let page_text = raw_page.strip_suffix('\u{000c}').unwrap_or(raw_page);
-            let mut blocks = Vec::new();
-            let mut line_start = page_start;
-            for raw_line in page_text.split_inclusive('\n') {
-                let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
-                let leading_bytes = line.len() - line.trim_start().len();
-                let leading = line.get(..leading_bytes)?.chars().count();
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    total_blocks += 1;
-                    if total_blocks > MAX_BLOCKS {
-                        return None;
-                    }
-                    let start = line_start.checked_add(leading)?;
-                    let end = start.checked_add(trimmed.chars().count())?;
-                    let kind = classify(trimmed);
-                    let block = if kind == BlockKind::Table {
-                        let columns = trimmed
-                            .split('|')
-                            .filter(|cell| !cell.trim().is_empty())
-                            .count()
-                            .max(1);
-                        let cells = (0..columns).map(|col| TableCell { row: 0, col }).collect();
-                        let mut block =
-                            LayoutBlock::table(Table::new(1, columns).with_cells(cells));
-                        block.spans.push(Span::new(start, end));
-                        block
-                    } else {
-                        LayoutBlock::paragraph(vec![Span::new(start, end)]).with_kind(kind)
-                    };
-                    let block_number = blocks.len() as u32;
-                    blocks.push(block);
-                    index_lexemes(
-                        trimmed,
-                        start,
-                        page_index as u32 + 1,
-                        block_number,
-                        lexemes,
-                        &mut postings,
-                    )?;
-                }
-                line_start = line_start.checked_add(raw_line.chars().count())?;
-            }
-            pages.push(Page::new(page_index as u32 + 1, blocks));
-            page_start = page_start.checked_add(raw_page.chars().count())?;
-        }
+        let text = decode_source(bytes)?;
+        let (pages, postings) = decode_pages(&text, lexemes)?;
 
         if pages.is_empty() || postings.is_empty() {
             return None;
@@ -120,6 +57,125 @@ impl DocumentDecoder for NativeTextDecoder {
                 .with_pages(pages)
                 .with_lexical_postings(postings),
         )
+    }
+}
+
+// HTML source is valid UTF-8, so without this it would decode as raw markup
+// (every tag treated as document text). The returned text still flows through
+// the same page/block/table/lexeme extraction as native UTF-8 input.
+fn decode_source(bytes: &[u8]) -> Option<Cow<'_, str>> {
+    if crate::html::looks_like_html(bytes) {
+        Some(Cow::Owned(crate::html::strip_to_text(bytes)?))
+    } else {
+        Some(Cow::Borrowed(std::str::from_utf8(bytes).ok()?))
+    }
+}
+
+fn decode_pages(
+    text: &str,
+    lexemes: &dyn LexemeEncoder,
+) -> Option<(Vec<Page>, Vec<LexicalPosting>)> {
+    let mut pages = Vec::new();
+    let mut postings = Vec::new();
+    let mut total_blocks = 0usize;
+    let mut page_start = 0usize;
+
+    for (page_index, raw_page) in text.split_inclusive('\u{000c}').enumerate() {
+        if page_index >= MAX_PAGES {
+            return None;
+        }
+        let page = decode_page(
+            raw_page,
+            page_index,
+            page_start,
+            &mut total_blocks,
+            lexemes,
+            &mut postings,
+        )?;
+        pages.push(page);
+        page_start = page_start.checked_add(raw_page.chars().count())?;
+    }
+
+    Some((pages, postings))
+}
+
+fn decode_page(
+    raw_page: &str,
+    page_index: usize,
+    page_start: usize,
+    total_blocks: &mut usize,
+    lexemes: &dyn LexemeEncoder,
+    postings: &mut Vec<LexicalPosting>,
+) -> Option<Page> {
+    let page_text = raw_page.strip_suffix('\u{000c}').unwrap_or(raw_page);
+    let mut blocks = Vec::new();
+    let mut line_start = page_start;
+    for raw_line in page_text.split_inclusive('\n') {
+        decode_line(
+            raw_line,
+            line_start,
+            page_index,
+            blocks.len() as u32,
+            total_blocks,
+            lexemes,
+            postings,
+            &mut blocks,
+        )?;
+        line_start = line_start.checked_add(raw_line.chars().count())?;
+    }
+    Some(Page::new(page_index as u32 + 1, blocks))
+}
+
+fn decode_line(
+    raw_line: &str,
+    line_start: usize,
+    page_index: usize,
+    block_number: u32,
+    total_blocks: &mut usize,
+    lexemes: &dyn LexemeEncoder,
+    postings: &mut Vec<LexicalPosting>,
+    blocks: &mut Vec<LayoutBlock>,
+) -> Option<()> {
+    let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+    let leading_bytes = line.len() - line.trim_start().len();
+    let leading = line.get(..leading_bytes)?.chars().count();
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Some(());
+    }
+
+    *total_blocks += 1;
+    if *total_blocks > MAX_BLOCKS {
+        return None;
+    }
+    let start = line_start.checked_add(leading)?;
+    let end = start.checked_add(trimmed.chars().count())?;
+    blocks.push(build_block(trimmed, start, end));
+    index_lexemes(
+        trimmed,
+        start,
+        page_index as u32 + 1,
+        block_number,
+        lexemes,
+        postings,
+    )?;
+    Some(())
+}
+
+fn build_block(trimmed: &str, start: usize, end: usize) -> LayoutBlock {
+    let kind = classify(trimmed);
+    if kind == BlockKind::Table {
+        let columns = trimmed
+            .split('|')
+            .filter(|cell| !cell.trim().is_empty())
+            .count()
+            .max(1);
+        let cells = (0..columns).map(|col| TableCell { row: 0, col }).collect();
+        let mut block = LayoutBlock::table(Table::new(1, columns).with_cells(cells));
+        block.spans.push(Span::new(start, end));
+        block
+    } else {
+        LayoutBlock::paragraph(vec![Span::new(start, end)]).with_kind(kind)
     }
 }
 
