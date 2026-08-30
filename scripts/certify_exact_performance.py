@@ -1320,6 +1320,103 @@ def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=5)
 
 
+def _validate_scenario_probe_identity(
+    result: dict[str, Any], scenario: dict[str, Any]
+) -> None:
+    if (
+        result["schema_version"] != SCHEMA_VERSION
+        or result["protocol"] != "g37.performance-probe.v1"
+        or result["scenario_id"] != scenario["scenario_id"]
+        or result["driver"] != scenario["driver"]
+    ):
+        raise CertificationError("scenario_probe_identity_mismatch")
+
+
+def _validate_scenario_probe_equivalence(
+    row_result: dict[str, Any], row_contract: dict[str, Any]
+) -> None:
+    equivalence = row_result["equivalence"]
+    if (
+        not isinstance(equivalence, dict)
+        or set(equivalence) != set(row_contract["equivalence_checks"])
+        or any(not isinstance(outcome, bool) for outcome in equivalence.values())
+    ):
+        raise CertificationError("invalid_scenario_probe_equivalence")
+
+
+def _validate_scenario_probe_latency(samples: Any, repetitions: int) -> list[int]:
+    if (
+        not isinstance(samples, list)
+        or len(samples) != repetitions
+        or any(
+            isinstance(sample, bool) or not isinstance(sample, int) or sample <= 0
+            for sample in samples
+        )
+    ):
+        raise CertificationError("invalid_scenario_probe_latency")
+    return samples
+
+
+def _validate_scenario_probe_scale(
+    value: Any, expected_scale: int, repetitions: int
+) -> tuple[dict[str, Any], list[int]]:
+    scale_result = _exact_keys(
+        value,
+        {"scale", "work_units", "memory_bytes", "latency_ns"},
+        "scenario_probe_scale",
+    )
+    if scale_result["scale"] != expected_scale:
+        raise CertificationError("invalid_scenario_probe_scales")
+    for field in ("work_units", "memory_bytes"):
+        measured = scale_result[field]
+        if isinstance(measured, bool) or not isinstance(measured, int) or measured <= 0:
+            raise CertificationError("invalid_scenario_probe_measurement")
+    samples = _validate_scenario_probe_latency(scale_result["latency_ns"], repetitions)
+    return scale_result, samples
+
+
+def _validate_scenario_probe_scales(
+    row_result: dict[str, Any], expected_scales: list[int], repetitions: int
+) -> None:
+    scale_results = row_result["scales"]
+    if not isinstance(scale_results, list) or len(scale_results) != len(
+        expected_scales
+    ):
+        raise CertificationError("invalid_scenario_probe_scales")
+    all_latency_samples: list[int] = []
+    for scale_result_untyped, expected_scale in zip(
+        scale_results, expected_scales, strict=True
+    ):
+        _, samples = _validate_scenario_probe_scale(
+            scale_result_untyped, expected_scale, repetitions
+        )
+        all_latency_samples.extend(samples)
+    # An exact timing probe cannot legitimately report one repeated literal for
+    # every repetition at every scale. Reject the characteristic constant-output
+    # shape so a placeholder driver cannot manufacture passing evidence. O(1)
+    # algorithms remain valid: their work counters may be constant, but their
+    # independently-clocked observations are not a hard-coded scalar.
+    if len(set(all_latency_samples)) == 1:
+        raise CertificationError("constant_scenario_probe_evidence")
+
+
+def _validate_scenario_probe_row(
+    value: Any,
+    row_contract: dict[str, Any],
+    expected_scales: list[int],
+    repetitions: int,
+) -> None:
+    row_result = _exact_keys(
+        value,
+        {"row_id", "scales", "equivalence"},
+        "scenario_probe_row",
+    )
+    if row_result["row_id"] != row_contract["row_id"]:
+        raise CertificationError("invalid_scenario_probe_row_coverage")
+    _validate_scenario_probe_equivalence(row_result, row_contract)
+    _validate_scenario_probe_scales(row_result, expected_scales, repetitions)
+
+
 def _validate_scenario_probe_result(
     value: Any, scenario: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1328,77 +1425,18 @@ def _validate_scenario_probe_result(
         {"schema_version", "protocol", "scenario_id", "driver", "rows"},
         "scenario_probe_result",
     )
-    if (
-        result["schema_version"] != SCHEMA_VERSION
-        or result["protocol"] != "g37.performance-probe.v1"
-        or result["scenario_id"] != scenario["scenario_id"]
-        or result["driver"] != scenario["driver"]
-    ):
-        raise CertificationError("scenario_probe_identity_mismatch")
+    _validate_scenario_probe_identity(result, scenario)
     rows = result["rows"]
     expected_rows = scenario["rows"]
     if not isinstance(rows, list) or len(rows) != len(expected_rows):
         raise CertificationError("invalid_scenario_probe_row_coverage")
     for row_result_untyped, row_contract in zip(rows, expected_rows, strict=True):
-        row_result = _exact_keys(
+        _validate_scenario_probe_row(
             row_result_untyped,
-            {"row_id", "scales", "equivalence"},
-            "scenario_probe_row",
+            row_contract,
+            scenario["scales"],
+            scenario["repetitions"],
         )
-        if row_result["row_id"] != row_contract["row_id"]:
-            raise CertificationError("invalid_scenario_probe_row_coverage")
-        equivalence = row_result["equivalence"]
-        if (
-            not isinstance(equivalence, dict)
-            or set(equivalence) != set(row_contract["equivalence_checks"])
-            or any(not isinstance(outcome, bool) for outcome in equivalence.values())
-        ):
-            raise CertificationError("invalid_scenario_probe_equivalence")
-        scale_results = row_result["scales"]
-        if (
-            not isinstance(scale_results, list)
-            or len(scale_results) != len(scenario["scales"])
-        ):
-            raise CertificationError("invalid_scenario_probe_scales")
-        all_latency_samples: list[int] = []
-        for scale_result_untyped, expected_scale in zip(
-            scale_results, scenario["scales"], strict=True
-        ):
-            scale_result = _exact_keys(
-                scale_result_untyped,
-                {"scale", "work_units", "memory_bytes", "latency_ns"},
-                "scenario_probe_scale",
-            )
-            if scale_result["scale"] != expected_scale:
-                raise CertificationError("invalid_scenario_probe_scales")
-            for field in ("work_units", "memory_bytes"):
-                measured = scale_result[field]
-                if (
-                    isinstance(measured, bool)
-                    or not isinstance(measured, int)
-                    or measured <= 0
-                ):
-                    raise CertificationError("invalid_scenario_probe_measurement")
-            samples = scale_result["latency_ns"]
-            if (
-                not isinstance(samples, list)
-                or len(samples) != scenario["repetitions"]
-                or any(
-                    isinstance(sample, bool)
-                    or not isinstance(sample, int)
-                    or sample <= 0
-                    for sample in samples
-                )
-            ):
-                raise CertificationError("invalid_scenario_probe_latency")
-            all_latency_samples.extend(samples)
-        # An exact timing probe cannot legitimately report one repeated literal for
-        # every repetition at every scale. Reject the characteristic constant-output
-        # shape so a placeholder driver cannot manufacture passing evidence. O(1)
-        # algorithms remain valid: their work counters may be constant, but their
-        # independently-clocked observations are not a hard-coded scalar.
-        if len(set(all_latency_samples)) == 1:
-            raise CertificationError("constant_scenario_probe_evidence")
     return result
 
 
