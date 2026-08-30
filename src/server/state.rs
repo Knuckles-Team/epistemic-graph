@@ -406,17 +406,11 @@ mod placement_authority_tests {
 }
 
 impl ServerState {
-    /// Build the explicit empty state used by unit and integration tests that
-    /// exercise dispatch without a durable backend. Keeping every field in one
-    /// constructor makes a newly feature-gated field fail here at compile time
-    /// instead of silently disappearing from one test target.
-    ///
-    /// This is public because Cargo compiles integration-test crates as
-    /// dependants of the library, so their fixtures cannot use a `pub(crate)`
-    /// test-only constructor.
-    #[doc(hidden)]
-    pub fn new_for_test(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
-        let state = Self {
+    /// Compose the production server state with every feature-gated field
+    /// initialized. Runtime-specific capacity, persistence, and backend values
+    /// are supplied by the startup orchestrator after this baseline is built.
+    pub fn new(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
+        Self {
             registry: GraphRegistry::new(),
             isolation,
             channels: ChannelManager::new(),
@@ -454,13 +448,9 @@ impl ServerState {
             tsdb_store: None,
             #[cfg(feature = "streaming")]
             cdc: Some({
-                let hub = Arc::new(crate::server::cdc::CdcHub::new());
-                // CA-11 (DEC-CA-03): install the Kafka sink if configured. See
-                // `main.rs`'s equivalent construction site and `cdc_sink`'s
-                // module doc for the no-op-when-unset rollback contract.
-                #[cfg(feature = "cdc-kafka")]
-                crate::server::cdc_sink::install_from_env(&hub);
-                hub
+                // Keep field composition side-effect-free. Production startup
+                // installs the optional Kafka sink after constructing state.
+                Arc::new(crate::server::cdc::CdcHub::new())
             }),
             #[cfg(feature = "wasm-udf")]
             udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
@@ -472,7 +462,20 @@ impl ServerState {
             kv: None,
             #[cfg(feature = "lake")]
             lake: Arc::new(crate::server::lake::LakeManager::new()),
-        };
+        }
+    }
+
+    /// Build the explicit empty state used by unit and integration tests that
+    /// exercise dispatch without a durable backend. Keeping every field in one
+    /// constructor makes a newly feature-gated field fail here at compile time
+    /// instead of silently disappearing from one test target.
+    ///
+    /// This is public because Cargo compiles integration-test crates as
+    /// dependants of the library, so their fixtures cannot use a `pub(crate)`
+    /// test-only constructor.
+    #[doc(hidden)]
+    pub fn new_for_test(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
+        let state = Self::new(auth_secret, isolation);
         #[cfg(feature = "raft")]
         let state = {
             let mut state = state;
