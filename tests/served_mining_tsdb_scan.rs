@@ -20,103 +20,53 @@
 #![cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
 
 mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
 
 use std::sync::Arc;
 
-use dashmap::DashMap;
-use tokio::sync::{RwLock, Semaphore};
-
 use eg_plan::{Op, Plan};
 use eg_tsdb::store::SeriesStore;
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::protocol::{
-    AnomalyAlgorithm, Method, Request, Response, ResultPayload, SvmKernel,
-};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::protocol::{AnomalyAlgorithm, Method, Response, ResultPayload, SvmKernel};
 
 const SECRET: &str = "served-mining-tsdb-scan-secret";
 
 /// A fresh, temp-file-backed `SeriesStore` — real durable storage, not an in-memory stub.
 fn tmp_series() -> Arc<SeriesStore> {
-    let path = std::env::temp_dir().join(format!(
-        "eg-mining-tsdb-scan-{}-{}.redb",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    Arc::new(SeriesStore::open(&path).expect("open temp series store"))
+    test_support::temporary_series("mining-tsdb-scan")
 }
 
-fn state(tsdb_store: Option<Arc<SeriesStore>>) -> Arc<RwLock<ServerState>> {
+fn state(tsdb_store: Option<Arc<SeriesStore>>) -> test_support::SharedState {
     let (persist_dir, persistence) = common::tempdir_persistence();
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
+    test_support::state_with_tsdb(
+        SECRET,
+        common::current_isolation(),
         persist_dir,
         persistence,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
         tsdb_store,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
-}
-
-fn req(id: u64, method: Method) -> Request {
-    common::signed_request(SECRET, id, "__commons__", method)
+    )
 }
 
 fn pack_points(points: &[(i64, Vec<f64>)]) -> Vec<u8> {
     rmp_serde::to_vec_named(&points.to_vec()).unwrap()
 }
 
+fn req(id: u64, method: Method) -> epistemic_graph::protocol::Request {
+    test_support::commons_request(SECRET, id, method)
+}
+
+async fn dispatch(
+    state: &test_support::SharedState,
+    request: epistemic_graph::protocol::Request,
+) -> Response {
+    test_support::dispatch(state, request).await
+}
+
 /// Seed one series (`cpu`) with 5 points — 4 unremarkable and one clear outlier — through
 /// the SERVED `Method::TsAppend` write path (the same MutationBatch-compiled path a real
 /// client uses), so the read side below exercises genuine end-to-end wiring rather than a
 /// backdoor write straight into the store.
-async fn seed_series(state: &Arc<RwLock<ServerState>>) {
+async fn seed_series(state: &test_support::SharedState) {
     let points: Vec<(i64, Vec<f64>)> = vec![
         (1_000_000_000, vec![10.0]),
         (2_000_000_000, vec![11.0]),

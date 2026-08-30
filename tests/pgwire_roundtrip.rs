@@ -16,160 +16,35 @@
 
 #![cfg(feature = "pgwire")]
 
+mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
+
 use std::sync::Arc;
 
-use dashmap::DashMap;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::RwLock;
 
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::isolation::IsolationLayer;
+use epistemic_graph::isolation::{AgentIdentity, AgentRole, IsolationLayer};
 use epistemic_graph::registry::GraphRegistry;
+use epistemic_graph::server::persistence::PersistenceBackend;
 use epistemic_graph::server::pgwire;
-use epistemic_graph::server::txn::TxnIdGen;
 use epistemic_graph::server::ServerState;
 
-use epistemic_graph::server::persistence::PersistenceBackend;
-
 fn sql_test_persist_dir() -> String {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-test");
-    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-    std::env::temp_dir()
-        .join(format!(
-            "epistemic-graph-pgwire-test-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ))
-        .to_string_lossy()
-        .into_owned()
-}
-
-/// Grant the `commons-user` RBAC role Read+Write on `__commons__` (mirrors
-/// `server::mod::tests::multi_tenant_state`'s identical role) and register `agent_id`
-/// as holding it. Under the mandatory-RBAC flip (`feature = "security"`), a pgwire
-/// connection's user IS the ACL actor (`server::pgwire::auth`), so every fixture
-/// identity that needs to reach `__commons__` must be provisioned this way — there is
-/// no more "Commons is open to all" fallback for a non-`System` identity.
-#[allow(unused_variables)]
-fn grant_commons_access(isolation: &mut IsolationLayer, agent_id: &str) {
-    #[cfg(feature = "security")]
-    {
-        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-        use epistemic_graph::isolation::AgentIdentity;
-        use epistemic_graph::isolation::AgentRole;
-        isolation.add_role(Role::new("commons-user"));
-        isolation.add_grant(Grant {
-            role: "commons-user".to_string(),
-            resource: ResourceSelector::Graph("__commons__".to_string()),
-            action: RbacAction::Read,
-            effect: GrantEffect::Allow,
-        });
-        isolation.add_grant(Grant {
-            role: "commons-user".to_string(),
-            resource: ResourceSelector::Graph("__commons__".to_string()),
-            action: RbacAction::Write,
-            effect: GrantEffect::Allow,
-        });
-        isolation.register_agent(AgentIdentity {
-            agent_id: agent_id.to_string(),
-            role: AgentRole::Agent,
-            teams: Vec::new(),
-            roles: vec!["commons-user".to_string()],
-        });
-    }
+    test_support::sql_test_persist_dir("pgwire")
 }
 
 /// Build a minimal `ServerState` with one seeded node so a wire SELECT has rows to
 /// return. `__commons__` is pre-created by the registry.
-fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<ServerState>> {
-    let registry = GraphRegistry::new();
-    // Seed three nodes directly via the graph core (the engine write API). Tagged
-    // `_visibility: "public"` + `_owner: "tester"` since default-deny RLS
-    // (`IsolationLayer::can_see_row`) hides any untagged, unowned row from a
-    // non-`System` actor — the pgwire connection runs as `tester`, not `System`.
-    // BUG-064 (`crates/eg-core/src/isolation.rs::row_visibility`) no longer
-    // trusts a bare `_visibility: "public"` tag on an UNOWNED row with no
-    // `_grants`, so every seeded/inserted row below also carries `_owner`.
-    {
-        let core = registry.get("__commons__").unwrap().core.clone();
-        for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-            let blob = rmp_serde::to_vec_named(
-                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public", "_owner": "tester"}),
-            )
-            .unwrap();
-            core.add_node(id.to_string(), blob);
-        }
-    }
-    let mut isolation = IsolationLayer::new();
-    grant_commons_access(&mut isolation, "tester");
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry,
-        isolation,
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: "test".to_string(),
-        #[cfg(feature = "kv")]
-        kv: None,
-        persist_dir: Some(sql_test_persist_dir()),
-        persistence,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        // A real per-test served time-series store (mirrors `server::mod::tests::test_state`
-        // / `served_mining_tsdb_scan.rs` / `advanced_crossmodal_roundtrip.rs`'s identical
-        // wiring): committing a staged `TxnAddMeasurement` now requires a served store to
-        // project into (`project_committed_measurements`), and a `None` store fails closed
-        // at COMMIT with "committed measurements require the served time-series store".
-        #[cfg(feature = "tsdb")]
-        tsdb_store: Some({
-            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 =
-                std::sync::atomic::AtomicU64::new(1);
-            let path = std::env::temp_dir().join(format!(
-                "eg-pgwire-tsdb-test-{}-{}.redb",
-                std::process::id(),
-                NEXT_TSDB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            std::sync::Arc::new(
-                eg_tsdb::store::SeriesStore::open(&path).expect("open test series store"),
-            )
-        }),
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
+fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> test_support::SharedState {
+    state_with_dir(persistence, sql_test_persist_dir())
+}
+
+fn state_with_dir(
+    persistence: Option<Arc<dyn PersistenceBackend>>,
+    persist_dir: String,
+) -> test_support::SharedState {
+    test_support::seeded_wire_state("test", "tester", Some(persist_dir), persistence)
 }
 
 /// The cache-only default state (no durable tier) the original round-trip tests use.
@@ -185,32 +60,11 @@ fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<Se
 /// the first backend opens.
 #[cfg(feature = "redb")]
 fn default_persistence() -> Option<Arc<dyn PersistenceBackend>> {
-    use epistemic_graph::durability::DurabilityPolicy;
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-    ENCRYPTION_KEY.call_once(|| {
-        std::env::set_var(
-            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-            "pgwire-roundtrip-recovery-key",
-        );
-    });
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let dir = std::env::temp_dir().join(format!(
-        "epistemic-graph-pgwire-persist-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create pgwire persist dir");
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(
-            dir.to_string_lossy().into_owned(),
-            DurabilityPolicy::Each,
-            4096,
-        )
-        .expect("open tempdir redb backend"),
+    std::env::set_var(
+        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+        "pgwire-roundtrip-recovery-key",
     );
-    Some(backend)
+    common::tempdir_persistence().1
 }
 
 /// `redb`-off fallback: no durable gateway exists, so this stays `None` (a build
@@ -220,7 +74,7 @@ fn default_persistence() -> Option<Arc<dyn PersistenceBackend>> {
     None
 }
 
-fn seeded_state() -> Arc<RwLock<ServerState>> {
+fn seeded_state() -> test_support::SharedState {
     state_with(default_persistence())
 }
 
@@ -250,6 +104,53 @@ fn reopen_redb_with_retry(
         }
     }
     panic!("reopen redb backend at {dir} after bounded retry: {last_err:?}");
+}
+
+#[cfg(feature = "redb")]
+fn interval_backend(label: &str) -> (String, Arc<dyn PersistenceBackend>) {
+    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let dir = std::env::temp_dir().join(format!(
+        "eg-pgwire-{label}-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let dir_s = dir.to_string_lossy().into_owned();
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(
+            dir_s.clone(),
+            epistemic_graph::durability::DurabilityPolicy::Interval(
+                std::time::Duration::from_millis(20),
+            ),
+            64,
+        )
+        .expect("open redb backend"),
+    );
+    (dir_s, backend)
+}
+
+#[cfg(feature = "redb")]
+async fn reopened_node(
+    dir: &str,
+    node_id: &str,
+) -> (
+    epistemic_graph::server::persistence::redb_backend::RedbBackend,
+    Option<Vec<u8>>,
+) {
+    let reopened = reopen_redb_with_retry(
+        dir,
+        epistemic_graph::durability::DurabilityPolicy::Interval(std::time::Duration::from_millis(
+            20,
+        )),
+        64,
+    );
+    let stored = reopened
+        .read_node("__commons__", node_id)
+        .await
+        .expect("read_node");
+    (reopened, stored)
 }
 
 /// Bind the listener on an ephemeral port with mandatory SCRAM authentication.
@@ -351,13 +252,7 @@ async fn wire_select_returns_seeded_rows() {
 
     // simple_query yields a mix of RowDescription/Row/CommandComplete messages;
     // pull the data rows.
-    let ids: Vec<String> = rows
-        .into_iter()
-        .filter_map(|m| match m {
-            tokio_postgres::SimpleQueryMessage::Row(r) => Some(r.get(0).unwrap().to_string()),
-            _ => None,
-        })
-        .collect();
+    let ids = simple_ids(rows);
     assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
 }
 
@@ -407,13 +302,7 @@ async fn wire_insert_then_select_round_trip() {
         )
         .await
         .expect("INSERT");
-    let affected = insert
-        .iter()
-        .find_map(|m| match m {
-            tokio_postgres::SimpleQueryMessage::CommandComplete(n) => Some(*n),
-            _ => None,
-        })
-        .expect("INSERT CommandComplete");
+    let affected = command_count(&insert);
     assert_eq!(affected, 1, "one row inserted");
 
     // It must now be visible to a SELECT on the same connection.
@@ -421,13 +310,7 @@ async fn wire_insert_then_select_round_trip() {
         .simple_query("SELECT id FROM nodes WHERE rank = 9")
         .await
         .expect("SELECT after insert");
-    let ids: Vec<String> = rows
-        .into_iter()
-        .filter_map(|m| match m {
-            tokio_postgres::SimpleQueryMessage::Row(r) => Some(r.get(0).unwrap().to_string()),
-            _ => None,
-        })
-        .collect();
+    let ids = simple_ids(rows);
     assert_eq!(ids, vec!["n9".to_string()]);
 }
 
@@ -654,13 +537,7 @@ async fn wire_insert_awaits_durable_backend() {
         .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('w1', 'Agent', 4)")
         .await
         .expect("INSERT");
-    let affected = insert
-        .iter()
-        .find_map(|m| match m {
-            tokio_postgres::SimpleQueryMessage::CommandComplete(n) => Some(*n),
-            _ => None,
-        })
-        .expect("INSERT CommandComplete");
+    let affected = command_count(&insert);
     assert_eq!(affected, 1);
 
     assert_eq!(
@@ -685,22 +562,8 @@ async fn wire_insert_awaits_durable_backend() {
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_insert_authoritative_is_durable_without_checkpoint() {
-    use epistemic_graph::durability::DurabilityPolicy;
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-
-    let dir = std::env::temp_dir().join(format!("eg-pgwire-durable-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let dir_s = dir.to_string_lossy().to_string();
-
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(
-            dir_s.clone(),
-            DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
-            64,
-        )
-        .expect("open redb backend"),
-    );
-    let state = state_with(Some(backend.clone()));
+    let (dir_s, backend) = interval_backend("durable");
+    let state = state_with_dir(Some(backend.clone()), dir_s.clone());
     let (addr, listener) = spawn_listener_abortable(state).await;
     let client = connect(&addr).await;
 
@@ -709,13 +572,7 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
         .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('d1', 'Agent', 7)")
         .await
         .expect("INSERT");
-    let affected = insert
-        .iter()
-        .find_map(|m| match m {
-            tokio_postgres::SimpleQueryMessage::CommandComplete(n) => Some(*n),
-            _ => None,
-        })
-        .expect("INSERT CommandComplete");
+    let affected = command_count(&insert);
     assert_eq!(affected, 1);
 
     // The wire write was acked ⇒ (commit-before-ack) it is on disk. Prove it is
@@ -733,15 +590,7 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
     let _ = listener.await;
     backend.shutdown();
     drop(backend);
-    let reopened = reopen_redb_with_retry(
-        &dir_s,
-        DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
-        64,
-    );
-    let stored = reopened
-        .read_node("__commons__", "d1")
-        .await
-        .expect("read_node");
+    let (reopened, stored) = reopened_node(&dir_s, "d1").await;
     assert!(
         stored.is_some(),
         "pgwire authoritative INSERT must be durable in redb WITHOUT a checkpoint"
@@ -753,7 +602,6 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
     assert_eq!(props.get("rank").and_then(|v| v.as_i64()), Some(7));
 
     reopened.shutdown();
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Extended-protocol durable-on-ack (CONCEPT:EG-KG.query.describe + KG-2.198): a parameterized
@@ -766,22 +614,8 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn extended_update_authoritative_is_durable_without_checkpoint() {
-    use epistemic_graph::durability::DurabilityPolicy;
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-
-    let dir = std::env::temp_dir().join(format!("eg-pgwire-ext-durable-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let dir_s = dir.to_string_lossy().to_string();
-
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(
-            dir_s.clone(),
-            DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
-            64,
-        )
-        .expect("open redb backend"),
-    );
-    let state = state_with(Some(backend.clone()));
+    let (dir_s, backend) = interval_backend("extended-durable");
+    let state = state_with_dir(Some(backend.clone()), dir_s.clone());
     let (addr, listener) = spawn_listener_abortable(state).await;
     let client = connect(&addr).await;
 
@@ -810,15 +644,7 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
     let _ = listener.await;
     backend.shutdown();
     drop(backend);
-    let reopened = reopen_redb_with_retry(
-        &dir_s,
-        DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
-        64,
-    );
-    let stored = reopened
-        .read_node("__commons__", "n1")
-        .await
-        .expect("read_node");
+    let (reopened, stored) = reopened_node(&dir_s, "n1").await;
     assert!(
         stored.is_some(),
         "extended-protocol authoritative UPDATE must be durable in redb WITHOUT a checkpoint"
@@ -832,7 +658,6 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
     );
 
     reopened.shutdown();
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -920,7 +745,6 @@ async fn catalog_introspection_then_select() {
 // one, and post-login queries run under the mapped engine AgentIdentity/ACL.
 // ───────────────────────────────────────────────────────────────────────────
 
-use epistemic_graph::isolation::{AgentIdentity, AgentRole};
 use epistemic_graph::server::pgwire::derive_pg_password;
 
 /// A SCRAM-auth state: a known engine secret + a registered identity so the
@@ -929,21 +753,7 @@ use epistemic_graph::server::pgwire::derive_pg_password;
 /// stays open to all authenticated agents.
 fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
     let mut registry = GraphRegistry::new();
-    // Tagged `_visibility: "public"` + `_owner: "worker"` for the same
-    // default-deny-RLS reason as `state_with` above — BUG-064 (see
-    // `crates/eg-core/src/isolation.rs::row_visibility`) no longer trusts a bare
-    // `_visibility: "public"` tag on an UNOWNED row with no `_grants`, so an
-    // explicit owner is required for the tag to be honored.
-    {
-        let core = registry.get("__commons__").unwrap().core.clone();
-        for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-            let blob = rmp_serde::to_vec_named(
-                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public", "_owner": "worker"}),
-            )
-            .unwrap();
-            core.add_node(id.to_string(), blob);
-        }
-    }
+    test_support::seed_wire_nodes(&registry, "worker");
     // A private per-agent graph owned by `worker`, plus a peer's private graph.
     registry
         .create_graph(
@@ -960,12 +770,10 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         )
         .unwrap();
 
-    let mut isolation = IsolationLayer::new();
+    let mut isolation = test_support::wire_isolation(&["worker", "peer"]);
     // `__commons__` stays reachable by every authenticated agent via the
     // `commons-user` role (there is no more pre-RBAC "Commons is open to all"
     // fall-through under `feature = "security"`).
-    grant_commons_access(&mut isolation, "worker");
-    grant_commons_access(&mut isolation, "peer");
     // Each agent additionally owns its own private `agent:*` graph — granted
     // explicitly (mirrors `server::mod::tests::multi_tenant_state`'s `owner-{w}`
     // pattern) so `scram_identity_drives_acl` can prove `worker` reaches its own
@@ -986,70 +794,30 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
             }
         }
     }
-    isolation.register_agent(AgentIdentity {
-        agent_id: "worker".to_string(),
-        role: AgentRole::Agent,
-        teams: vec![],
-        roles: vec!["commons-user".to_string(), "owner-worker".to_string()],
-    });
-    isolation.register_agent(AgentIdentity {
-        agent_id: "peer".to_string(),
-        role: AgentRole::Agent,
-        teams: vec![],
-        roles: vec!["commons-user".to_string(), "owner-peer".to_string()],
-    });
+    #[cfg(feature = "security")]
+    {
+        use epistemic_graph::isolation::{AgentIdentity, AgentRole};
+        isolation.register_agent(AgentIdentity {
+            agent_id: "worker".to_string(),
+            role: AgentRole::Agent,
+            teams: vec![],
+            roles: vec!["commons-user".to_string(), "owner-worker".to_string()],
+        });
+        isolation.register_agent(AgentIdentity {
+            agent_id: "peer".to_string(),
+            role: AgentRole::Agent,
+            teams: vec![],
+            roles: vec!["commons-user".to_string(), "owner-peer".to_string()],
+        });
+    }
 
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry,
+    test_support::state_with_registry(
+        secret,
         isolation,
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: secret.to_string(),
-        #[cfg(feature = "kv")]
-        kv: None,
-        persist_dir: Some(sql_test_persist_dir()),
-        persistence: None,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
+        registry,
+        Some(sql_test_persist_dir()),
+        None,
+    )
 }
 
 /// Connect with explicit user + password (SCRAM negotiated by tokio-postgres).
@@ -1069,6 +837,13 @@ async fn connect_scram(
     Ok(client)
 }
 
+async fn scram_client(secret: &str, addr: &str, user: &str) -> tokio_postgres::Client {
+    let password = derive_pg_password(secret, user);
+    connect_scram(addr, user, &password, "__commons__")
+        .await
+        .expect("SCRAM login")
+}
+
 /// SCRAM login SUCCEEDS with the derived password and a post-login query runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scram_login_succeeds_with_correct_password() {
@@ -1076,10 +851,7 @@ async fn scram_login_succeeds_with_correct_password() {
     let state = scram_state(secret);
     let addr = spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await;
 
-    let pw = derive_pg_password(secret, "worker");
-    let client = connect_scram(&addr, "worker", &pw, "__commons__")
-        .await
-        .expect("SCRAM login with correct derived password");
+    let client = scram_client(secret, &addr, "worker").await;
 
     // A query after login runs (against the open __commons__). `rank` is inferred
     // as a flat typed column off the seeded property blobs (the same convention
@@ -1129,10 +901,7 @@ async fn scram_identity_drives_acl() {
     let state = scram_state(secret);
     let addr = spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await;
 
-    let pw = derive_pg_password(secret, "worker");
-    let client = connect_scram(&addr, "worker", &pw, "__commons__")
-        .await
-        .expect("SCRAM login");
+    let client = scram_client(secret, &addr, "worker").await;
 
     // Owner reaches its own private graph.
     client
@@ -1186,6 +955,15 @@ fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+fn command_count(msgs: &[tokio_postgres::SimpleQueryMessage]) -> i64 {
+    msgs.iter()
+        .find_map(|m| match m {
+            tokio_postgres::SimpleQueryMessage::CommandComplete(n) => Some(*n),
+            _ => None,
+        })
+        .expect("INSERT CommandComplete")
 }
 
 /// A unique user-table name (the SQL table store is a process-global file, so a

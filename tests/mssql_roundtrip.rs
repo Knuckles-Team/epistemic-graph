@@ -11,20 +11,17 @@
 
 #![cfg(feature = "mssql-wire")]
 
+mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
+
 use std::sync::Arc;
 
-use dashmap::DashMap;
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{RwLock, Semaphore};
 
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::isolation::IsolationLayer;
-use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::mssql_wire::{self, derive_mssql_password, protocol};
-use epistemic_graph::server::txn::TxnIdGen;
-use epistemic_graph::server::ServerState;
 
 use protocol::{
     frame_message, parse_header, utf16le_bytes, utf16le_to_string, TdsType, HEADER_LEN, PKT_LOGIN7,
@@ -36,18 +33,7 @@ const TEST_SECRET: &str = "test";
 const TEST_USER: &str = "tester";
 
 fn sql_test_persist_dir() -> String {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-test");
-    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-    std::env::temp_dir()
-        .join(format!(
-            "epistemic-graph-mssql-test-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ))
-        .to_string_lossy()
-        .into_owned()
+    test_support::sql_test_persist_dir("mssql")
 }
 
 /// A real tempdir-backed `RedbBackend` (mirrors `common::tempdir_persistence()` /
@@ -62,32 +48,11 @@ fn sql_test_persist_dir() -> String {
 #[cfg(feature = "redb")]
 fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
 {
-    use epistemic_graph::durability::DurabilityPolicy;
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-    ENCRYPTION_KEY.call_once(|| {
-        std::env::set_var(
-            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-            "mssql-roundtrip-recovery-key",
-        );
-    });
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let dir = std::env::temp_dir().join(format!(
-        "epistemic-graph-mssql-persist-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create mssql persist dir");
-    let backend: Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> = Arc::new(
-        RedbBackend::open(
-            dir.to_string_lossy().into_owned(),
-            DurabilityPolicy::Each,
-            4096,
-        )
-        .expect("open tempdir redb backend"),
+    std::env::set_var(
+        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+        "mssql-roundtrip-recovery-key",
     );
-    Some(backend)
+    common::tempdir_persistence().1
 }
 
 #[cfg(not(feature = "redb"))]
@@ -98,116 +63,17 @@ fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence:
 
 /// Build a minimal authenticated `ServerState` seeded with three
 /// nodes so a wire SELECT returns rows. `__commons__` is pre-created by the registry.
-fn seeded_state() -> Arc<RwLock<ServerState>> {
-    let registry = GraphRegistry::new();
-    // Tagged `_visibility: "public"` + `_owner: "tester"`: default-deny RLS
-    // (`IsolationLayer::can_see_row`) hides any untagged, unowned row from a
-    // non-`System` actor, and the TDS wire connection runs as `tester`.
-    // BUG-064 (`crates/eg-core/src/isolation.rs::row_visibility`) no longer
-    // trusts a bare `_visibility: "public"` tag on an UNOWNED row with no
-    // `_grants`, so every seeded/inserted row also carries `_owner`.
-    {
-        let core = registry.get("__commons__").unwrap().core.clone();
-        for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-            let blob = rmp_serde::to_vec_named(
-                &serde_json::json!({"type": ty, "rank": rank, "_visibility": "public", "_owner": "tester"}),
-            )
-            .unwrap();
-            core.add_node(id.to_string(), blob);
-        }
-    }
-    // The TDS wire connection's `user` IS the ACL actor (`server::mssql_wire::auth`).
-    // Under the mandatory-RBAC flip (`feature = "security"`) there is no more
-    // "Commons is open to all" fallback for a non-`System` identity, so `tester` must
-    // be provisioned with a `commons-user` role granting Read+Write on `__commons__`
-    // (mirrors `server::mod::tests::multi_tenant_state`'s identical role).
-    let mut isolation = IsolationLayer::new();
-    #[cfg(feature = "security")]
-    {
-        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-        use epistemic_graph::isolation::{AgentIdentity, AgentRole};
-        isolation.add_role(Role::new("commons-user"));
-        for action in [RbacAction::Read, RbacAction::Write] {
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action,
-                effect: GrantEffect::Allow,
-            });
-        }
-        isolation.register_agent(AgentIdentity {
-            agent_id: TEST_USER.to_string(),
-            role: AgentRole::Agent,
-            teams: Vec::new(),
-            roles: vec!["commons-user".to_string()],
-        });
-    }
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry,
-        isolation,
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: TEST_SECRET.to_string(),
-        #[cfg(feature = "kv")]
-        kv: None,
-        persist_dir: Some(sql_test_persist_dir()),
-        persistence: default_persistence(),
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: Some({
-            static NEXT_TSDB_SEQ: std::sync::atomic::AtomicU64 =
-                std::sync::atomic::AtomicU64::new(1);
-            let path = std::env::temp_dir().join(format!(
-                "eg-mssql-tsdb-test-{}-{}.redb",
-                std::process::id(),
-                NEXT_TSDB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            std::sync::Arc::new(
-                eg_tsdb::store::SeriesStore::open(&path).expect("open test series store"),
-            )
-        }),
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
+fn seeded_state() -> test_support::SharedState {
+    test_support::seeded_wire_state(
+        TEST_SECRET,
+        TEST_USER,
+        Some(sql_test_persist_dir()),
+        default_persistence(),
+    )
 }
 
 /// Bind an ephemeral port, serve the TDS listener there, and return the address.
-async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
+async fn spawn_listener(state: test_support::SharedState) -> String {
     let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = probe.local_addr().unwrap().to_string();
     drop(probe);
