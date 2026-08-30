@@ -42,10 +42,6 @@ fn req(id: u64, graph: &str, method: Method) -> Request {
     test_support::request(SECRET, id, graph, method)
 }
 
-async fn dispatch(state: &test_support::SharedState, request: Request) -> Response {
-    test_support::dispatch(state, request).await
-}
-
 async fn create_graph(state: &test_support::SharedState, id: u64, name: &str) -> Response {
     call(
         state,
@@ -129,13 +125,13 @@ async fn t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger() {
             graph_type: GraphType::Global,
         },
     );
-    let first = Box::pin(dispatch(&state, request.clone())).await;
+    let first = Box::pin(test_support::dispatch(&state, request.clone())).await;
     assert!(
         first.error.is_none(),
         "first CreateGraph: {:?}",
         first.error
     );
-    let second = Box::pin(dispatch(&state, request.clone())).await;
+    let second = Box::pin(test_support::dispatch(&state, request.clone())).await;
     assert_eq!(
         second.error.as_deref(),
         Some("nonce already used (replay rejected)"),
@@ -613,7 +609,7 @@ async fn t20_unsigned_request_is_rejected_before_dispatch() {
         agent_id: Some(common::TEST_AGENT.to_string()),
         method: Method::Ping,
     };
-    let resp = Box::pin(dispatch(&state, bad)).await;
+    let resp = Box::pin(test_support::dispatch(&state, bad)).await;
     assert!(
         resp.error.is_some(),
         "an unsigned/garbage-token request must be rejected, got: {:?}",

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use epistemic_graph::isolation::IsolationLayer;
-use epistemic_graph::protocol::{Method, Request};
+use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::persistence::PersistenceBackend;
 use epistemic_graph::server::ServerState;
@@ -270,6 +270,26 @@ pub async fn dispatch(
     request: Request,
 ) -> epistemic_graph::protocol::Response {
     Box::pin(epistemic_graph::server::dispatch(state, request)).await
+}
+
+pub fn edge_rows(response: &Response) -> Vec<(String, String, Vec<u8>)> {
+    assert!(response.error.is_none(), "GetEdges: {:?}", response.error);
+    match &response.result {
+        Some(ResultPayload::EdgeList(rows)) => rows.clone(),
+        other => panic!("expected EdgeList, got {other:?}"),
+    }
+}
+
+pub fn edge_page_rows(response: &Response) -> Vec<(String, String, u32, Vec<u8>)> {
+    assert!(
+        response.error.is_none(),
+        "GetEdgesPage: {:?}",
+        response.error
+    );
+    match &response.result {
+        Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).unwrap(),
+        other => panic!("expected Raw, got {other:?}"),
+    }
 }
 
 pub fn json_bytes(value: serde_json::Value) -> Vec<u8> {

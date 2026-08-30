@@ -483,6 +483,23 @@ impl<W> CoalescerRegistryState<W> {
             config,
         }
     }
+
+    /// Return the cached writer for `graph_name`, creating it exactly once when
+    /// the name is first observed.  Both coalescer registries use this same
+    /// admission seam; only the concrete worker constructor differs.
+    pub(crate) fn writer_for<F>(&self, graph_name: &str, spawn: F) -> Arc<W>
+    where
+        F: FnOnce(String, CoalescerConfig) -> Arc<W>,
+    {
+        if let Some(writer) = self.writers.get(graph_name) {
+            return writer.clone();
+        }
+        let config = self.config;
+        self.writers
+            .entry(graph_name.to_string())
+            .or_insert_with(|| spawn(graph_name.to_string(), config))
+            .clone()
+    }
 }
 
 /// Per-graph write coalescer: a bounded channel + one drain worker over a graph's
@@ -827,15 +844,9 @@ impl WriteCoalescerRegistry {
     /// `core` on first use. The `core` passed must be the same `Arc` for a given
     /// name, so a graph has exactly one writer over its one core.
     pub fn writer_for(&self, graph_name: &str, core: &Arc<GraphCore>) -> Arc<GraphWriter> {
-        if let Some(w) = self.state.writers.get(graph_name) {
-            return w.clone();
-        }
-        let config = self.state.config;
-        self.state
-            .writers
-            .entry(graph_name.to_string())
-            .or_insert_with(|| GraphWriter::spawn(graph_name.to_string(), core.clone(), config))
-            .clone()
+        self.state.writer_for(graph_name, |name, config| {
+            GraphWriter::spawn(name, core.clone(), config)
+        })
     }
 
     /// Drop the cached writer for `graph_name` (CONCEPT:EG-KG.backend.many-repeated-create-delete). Called by

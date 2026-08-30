@@ -24,7 +24,10 @@ use std::time::Duration;
 
 use tokio::sync::RwLock;
 
-use super::cross_shard_txn::{CrossShardCoordinator, CrossShardTxn, GraphSlice, TxnOutcome};
+use super::cross_shard_txn::{
+    CrossShardCoordinator, CrossShardTxn, GraphSlice, LockTicket, OrderedLockManager, RecordKey,
+    TxnOutcome,
+};
 use super::harness::cluster::fixture;
 use super::harness::cluster::fixture::node_count;
 use super::multi::MultiRaft;
@@ -34,6 +37,9 @@ const GROUP_A: u64 = 100;
 const GROUP_B: u64 = 200;
 const GRAPH_A: &str = "shardA";
 const GRAPH_B: &str = "shardB";
+
+type HarnessState = Arc<RwLock<crate::server::ServerState>>;
+type Harness = (Arc<MultiRaft>, CrossShardCoordinator, HarnessState);
 
 /// The harness's isolation layer: one System-role identity for the harness's fixed test
 /// agent. The user-facing `BeginTxn`/`Commit` handler enforces a fail-closed graph ACL
@@ -69,14 +75,7 @@ fn fresh_dir(tag: &str) -> String {
 /// Bring up a one-node, two-group cluster over `dir`'s redb, with `shardA`→100 and
 /// `shardB`→200 assigned in the router. Returns the manager + the coordinator + the
 /// state (so the test can read graph data back and stop the listener).
-async fn bring_up(
-    dir: &str,
-    backend: fixture::Backend,
-) -> (
-    Arc<MultiRaft>,
-    CrossShardCoordinator,
-    Arc<RwLock<crate::server::ServerState>>,
-) {
+async fn bring_up(dir: &str, backend: fixture::Backend) -> Harness {
     let (multi, state) = fixture::start_single_node_groups(
         dir,
         backend.clone(),
@@ -90,6 +89,25 @@ async fn bring_up(
     let coord = CrossShardCoordinator::new(multi.clone(), backend);
     (multi, coord, state)
 }
+
+/// Reopen the default two-group fixture after a simulated process crash. The shutdown/drop
+/// boundary remains in this helper so every recovery scenario exercises the same file-lock
+/// release and fresh backend initialization before it begins recovery.
+async fn reopen_after_crash(dir: &str, backend: fixture::Backend) -> HarnessWithBackend {
+    backend.shutdown();
+    drop(backend);
+
+    let backend2 = fixture::open_backend(dir).expect("reopen redb");
+    let (multi2, coord2, state2) = bring_up(dir, backend2.clone()).await;
+    (backend2, multi2, coord2, state2)
+}
+
+type HarnessWithBackend = (
+    fixture::Backend,
+    Arc<MultiRaft>,
+    CrossShardCoordinator,
+    HarnessState,
+);
 
 /// A two-graph cross-shard txn inserting `a_node` into shardA and `b_node` into shardB.
 fn two_shard_txn(txn_id: &str, a_node: &str, b_node: &str) -> CrossShardTxn {
@@ -294,13 +312,8 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
         multi.close_group(GROUP_A).await.unwrap();
         multi.close_group(GROUP_B).await.unwrap();
     }
-    // Simulate a process restart: drop ALL handles to the backend so its writer
-    // thread + file lock release, then reopen a brand-new backend over the SAME files.
-    backend.shutdown();
-    drop(backend);
-
-    let backend2 = fixture::open_backend(&dir).expect("reopen redb");
-    let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
+    // Simulate a process restart and recover over the SAME durable files.
+    let (backend2, multi2, coord2, state2) = reopen_after_crash(&dir, backend).await;
 
     // RECOVERY: the in-doubt txn's decision is COMMIT → re-apply both slices.
     let resolved = coord2.recover_in_doubt().await.expect("recover");
@@ -365,11 +378,7 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
         multi.close_group(GROUP_A).await.unwrap();
         multi.close_group(GROUP_B).await.unwrap();
     }
-    backend.shutdown();
-    drop(backend);
-
-    let backend2 = fixture::open_backend(&dir).expect("reopen redb");
-    let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
+    let (backend2, multi2, coord2, state2) = reopen_after_crash(&dir, backend).await;
 
     let resolved = coord2.recover_in_doubt().await.expect("recover");
     assert_eq!(resolved, 1, "the in-doubt txn is resolved (as abort)");
@@ -428,6 +437,19 @@ async fn wire_user_graphs(state: &Arc<RwLock<crate::server::ServerState>>, multi
     let _ = s.registry.create_graph(GRAPH_B, GraphType::Global, None);
     let raft = s.raft.clone();
     s.install_multi_raft_placement_authority(raft, multi.clone());
+}
+
+/// Start the handler-driven fixture with both graph registrations and placement authority
+/// wired. Keeping this setup in one fixture preserves the user-wire scenarios' identical
+/// ACL, routing, and lifecycle configuration while avoiding per-test setup drift.
+async fn bring_up_user_graphs(
+    tag: &str,
+) -> (String, fixture::Backend, Arc<MultiRaft>, HarnessState) {
+    let dir = fresh_dir(tag);
+    let backend = fixture::open_backend(&dir).expect("open redb");
+    let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
+    wire_user_graphs(&state, &multi).await;
+    (dir, backend, multi, state)
 }
 
 /// Unwrap a handler `Response` to its `Bool` payload (the txn ack), or panic.
@@ -500,10 +522,7 @@ async fn begin_two_graph_txn(
 /// staged multi-graph write-set routed through the 2PC coordinator).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn user_multigraph_txn_commits_atomically_across_groups() {
-    let dir = fresh_dir("userhappy");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
-    wire_user_graphs(&state, &multi).await;
+    let (dir, backend, multi, state) = bring_up_user_graphs("userhappy").await;
 
     let txn_id = begin_two_graph_txn(&state, "ua1", "ub1").await;
     let committed = as_bool(
@@ -542,10 +561,7 @@ async fn user_multigraph_txn_commits_atomically_across_groups() {
 /// inherits the coordinator's atomicity under a participant kill (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn user_multigraph_txn_atomic_under_participant_kill() {
-    let dir = fresh_dir("userkill");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
-    wire_user_graphs(&state, &multi).await;
+    let (dir, backend, multi, state) = bring_up_user_graphs("userkill").await;
 
     // Stage the multi-graph txn first (both graphs resident), THEN kill participant B.
     let txn_id = begin_two_graph_txn(&state, "ua2", "ub2").await;
@@ -647,18 +663,37 @@ async fn read_only_participant_skips_prepare_and_phase2() {
 const GROUP_C: u64 = 300;
 const GRAPH_C: &str = "shardC";
 
-/// Add a THIRD single-member group (shardC→300) to an already-running node and wait
-/// for it to elect its leader (uses `ensure_group`, the self-bootstrap seam).
-async fn add_third_group(multi: &Arc<MultiRaft>) {
-    multi.ensure_group(GROUP_C).await.expect("ensure group C");
-    multi.router().assign(GRAPH_C, GROUP_C);
-    let g = multi.group(GROUP_C).await.expect("group C exists");
+/// Add a group to an already-running node and wait for its single local member to elect
+/// a leader. Every scenario uses the same bounded election wait and self-bootstrap seam.
+async fn ensure_group_leader(
+    multi: &Arc<MultiRaft>,
+    group_id: u64,
+    ensure_message: &str,
+    exists_message: &str,
+    leader_message: &str,
+) {
+    multi.ensure_group(group_id).await.expect(ensure_message);
+    let g = multi.group(group_id).await.expect(exists_message);
     fixture::wait_until(Duration::from_secs(15), || {
         let g = g.clone();
         async move { g.current_leader().await == Some(1u64) }
     })
     .await
-    .expect("group C must elect a leader");
+    .expect(leader_message);
+}
+
+/// Add a THIRD single-member group (shardC→300) to an already-running node and wait
+/// for it to elect its leader (uses `ensure_group`, the self-bootstrap seam).
+async fn add_third_group(multi: &Arc<MultiRaft>) {
+    ensure_group_leader(
+        multi,
+        GROUP_C,
+        "ensure group C",
+        "group C exists",
+        "group C must elect a leader",
+    )
+    .await;
+    multi.router().assign(GRAPH_C, GROUP_C);
 }
 
 /// A three-graph cross-shard txn inserting one node into each of shardA/B/C — three
@@ -795,17 +830,25 @@ const GROUP_D: u64 = 400;
 
 /// Add the decision group to a running node and wait for it to elect its leader.
 async fn add_decision_group(multi: &Arc<MultiRaft>) {
-    multi
-        .ensure_group(GROUP_D)
-        .await
-        .expect("ensure decision group D");
-    let g = multi.group(GROUP_D).await.expect("decision group D exists");
-    fixture::wait_until(Duration::from_secs(15), || {
-        let g = g.clone();
-        async move { g.current_leader().await == Some(1u64) }
-    })
-    .await
-    .expect("decision group D must elect a leader");
+    ensure_group_leader(
+        multi,
+        GROUP_D,
+        "ensure decision group D",
+        "decision group D exists",
+        "decision group D must elect a leader",
+    )
+    .await;
+}
+
+/// Start the non-blocking decision-group fixture shared by all four replicated-decision
+/// scenarios. The caller still owns the returned handles and therefore controls each test's
+/// crash, recovery, and cleanup boundary.
+async fn bring_up_nonblocking(tag: &str) -> (String, fixture::Backend, Harness) {
+    let dir = fresh_dir(tag);
+    let backend = fixture::open_backend(&dir).expect("open redb");
+    let harness = bring_up(&dir, backend.clone()).await;
+    add_decision_group(&harness.0).await;
+    (dir, backend, harness)
 }
 
 /// (a) ATOMICITY + the replicated-decision mechanic: a non-blocking cross-shard commit
@@ -813,10 +856,7 @@ async fn add_decision_group(multi: &Arc<MultiRaft>) {
 /// the replicated decision node is GC'd after resolution.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nonblocking_commit_is_atomic_via_replicated_decision() {
-    let dir = fresh_dir("nbhappy");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
-    add_decision_group(&multi).await;
+    let (dir, backend, (multi, coord, state)) = bring_up_nonblocking("nbhappy").await;
 
     let txn = two_shard_txn("t-nb-happy", "na1", "nb1");
     let outcome = coord
@@ -861,10 +901,7 @@ async fn nonblocking_commit_is_atomic_via_replicated_decision() {
 /// completion. Progress happens WITHOUT the original coordinator: no blocking window.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block() {
-    let dir = fresh_dir("nblive");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
-    add_decision_group(&multi).await;
+    let (dir, backend, (multi, coord, state)) = bring_up_nonblocking("nblive").await;
 
     let txn_id = "t-nb-live";
     let txn = two_shard_txn(txn_id, "la", "lb");
@@ -928,10 +965,7 @@ async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block
 /// NO partial commit, exactly as the 2PC path does for the same inputs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nonblocking_aborts_like_2pc_on_killed_participant() {
-    let dir = fresh_dir("nbabort");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
-    add_decision_group(&multi).await;
+    let (dir, backend, (multi, coord, state)) = bring_up_nonblocking("nbabort").await;
 
     // KILL participant B (close group 200) — it cannot prepare.
     multi.close_group(GROUP_B).await.unwrap();
@@ -977,10 +1011,7 @@ async fn nonblocking_aborts_like_2pc_on_killed_participant() {
 /// from an undecided crash, learned from the ABSENCE of a replicated decision).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
-    let dir = fresh_dir("nbpresumed");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
-    add_decision_group(&multi).await;
+    let (dir, backend, (multi, coord, state)) = bring_up_nonblocking("nbpresumed").await;
 
     let txn_id = "t-nb-presumed";
     let txn = two_shard_txn(txn_id, "pa", "pb");
@@ -1169,6 +1200,52 @@ fn decode_props(blob: Option<Vec<u8>>) -> Option<serde_json::Value> {
     blob.map(|b| rmp_serde::from_slice(&b).expect("decode props"))
 }
 
+/// Start the shared Calvin fixture used by both OLLP proofs. The returned coordinator is
+/// reference-counted because the stale-recon proof also moves it into an async acquisition
+/// closure while retaining it for the final read-back.
+async fn bring_up_calvin(
+    tag: &str,
+) -> (
+    String,
+    fixture::Backend,
+    Arc<MultiRaft>,
+    Arc<CrossShardCoordinator>,
+) {
+    let dir = fresh_dir(tag);
+    let backend = fixture::open_backend(&dir).expect("open redb");
+    let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
+    (dir, backend, multi, Arc::new(coord))
+}
+
+/// Spawn the ordered writer used by both stale-recon proofs. It waits on the lock-manager
+/// queue fact (not a timing assumption), mutates the shared reconnaissance seed, and releases
+/// the exclusive guard only after the committed write is complete.
+fn spawn_ordered_writer(
+    lockmgr: &Arc<OrderedLockManager>,
+    multi: Arc<MultiRaft>,
+    dir_key: RecordKey,
+    ticket: LockTicket,
+) -> tokio::task::JoinHandle<()> {
+    let lockmgr = lockmgr.clone();
+    tokio::spawn(async move {
+        let guard = lockmgr.granted(ticket).await;
+        fixture::wait_until(Duration::from_secs(5), || async {
+            lockmgr.queue_depth(&dir_key) >= 2
+        })
+        .await
+        .expect("ollp txn registers behind the writer on dir");
+        write_node(
+            &multi,
+            GROUP_A,
+            GRAPH_A,
+            "dir",
+            serde_json::json!({ "target": "k2" }),
+        )
+        .await;
+        guard.release();
+    })
+}
+
 /// EG-342: the OLLP reconnaissance + deterministic ordered read-lock phase gives FULL
 /// serializable isolation of CONFLICTING sequenced txns.
 ///
@@ -1189,10 +1266,7 @@ async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
     use super::cross_shard_txn::{CalvinSequencer, OrderedLockManager, RecordKey, RwSet};
     use std::collections::BTreeSet;
 
-    let dir = fresh_dir("calvinollp");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
-    let coord = Arc::new(coord);
+    let (dir, backend, multi, coord) = bring_up_calvin("calvinollp").await;
 
     // Seed the directory node the OLLP recon reads to discover its footprint. `dir` is
     // NOT written by either txn, so the recon of it is stable (no restart needed).
@@ -1347,10 +1421,7 @@ async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
     use super::cross_shard_txn::{CalvinSequencer, OrderedLockManager, RecordKey, RwSet};
     use std::collections::BTreeSet;
 
-    let dir = fresh_dir("calvinrestart");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
-    let coord = Arc::new(coord);
+    let (dir, backend, multi, coord) = bring_up_calvin("calvinrestart").await;
 
     // Seed the directory + both candidate targets. `dir` is what the writer mutates.
     write_node(
@@ -1391,27 +1462,7 @@ async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
     };
     let tw = lockmgr.register(s1, &rw_writer);
 
-    let (lm_w, mu_w, dk_w) = (lockmgr.clone(), multi.clone(), dir_key.clone());
-    let writer = tokio::spawn(async move {
-        let g = lm_w.granted(tw).await; // granted immediately (front, seq 1)
-                                        // Wait until the OLLP txn has registered its seq-2 shared request behind us on
-                                        // `dir` (a lock-manager fact — the recon has already read the OLD `dir`).
-        fixture::wait_until(Duration::from_secs(5), || async {
-            lm_w.queue_depth(&dk_w) >= 2
-        })
-        .await
-        .expect("ollp txn registers behind the writer on dir");
-        // NOW mutate the directory the OLLP recon depended on, then release.
-        write_node(
-            &mu_w,
-            GROUP_A,
-            GRAPH_A,
-            "dir",
-            serde_json::json!({ "target": "k2" }),
-        )
-        .await;
-        g.release();
-    });
+    let writer = spawn_ordered_writer(&lockmgr, multi.clone(), dir_key.clone(), tw);
 
     // ── T_ollp (seq 2, restart→seq 3): drive the OLLP restart loop. ─────────────────────
     let derive_dir = dir_key.clone();
@@ -1624,27 +1675,7 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
     };
     let tw = lockmgr.register(writer_seq, &rw_writer);
 
-    let (lm_w, mu_w, dk_w) = (lockmgr.clone(), multi.clone(), dir_key.clone());
-    let writer = tokio::spawn(async move {
-        let g = lm_w.granted(tw).await; // granted immediately (front of the queue)
-                                        // Wait until the OLLP txn's first attempt has registered behind us on `dir` (a
-                                        // lock-manager fact — its recon has already read the OLD `dir`).
-        fixture::wait_until(Duration::from_secs(5), || async {
-            lm_w.queue_depth(&dk_w) >= 2
-        })
-        .await
-        .expect("ollp txn registers behind the writer on dir");
-        // NOW mutate the directory the OLLP recon depended on, then release.
-        write_node(
-            &mu_w,
-            GROUP_A,
-            GRAPH_A,
-            "dir",
-            serde_json::json!({ "target": "k2" }),
-        )
-        .await;
-        g.release();
-    });
+    let writer = spawn_ordered_writer(&lockmgr, multi.clone(), dir_key.clone(), tw);
 
     // ── T_ollp: drive the multi-node epoch-routing OLLP restart loop. ──────────────────
     let derive_dir = dir_key.clone();
