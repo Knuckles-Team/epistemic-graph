@@ -42,6 +42,10 @@
 
 #![cfg(all(feature = "pgwire", feature = "redb"))]
 
+mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
+
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -177,50 +181,18 @@ fn state_with_sensor_seed() -> Arc<RwLock<ServerState>> {
     }))
 }
 
-async fn wait_for_listener_ready(addr: &str) {
-    for _ in 0..50 {
-        if tokio::net::TcpStream::connect(addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-}
-
 async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
-    let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = probe.local_addr().unwrap();
-    drop(probe);
-    let addr_s = addr.to_string();
-    let serve_addr = addr_s.clone();
-    tokio::spawn(async move {
-        let _ = pgwire::serve_with_auth(&serve_addr, state, pgwire::PgWireAuthMode::Scram).await;
-    });
-    wait_for_listener_ready(&addr_s).await;
-    addr_s
+    test_support::spawn_pgwire_listener(state, pgwire::PgWireAuthMode::Scram).await
 }
 
 async fn connect(addr: &str) -> tokio_postgres::Client {
-    let password = pgwire::derive_pg_password(AUTH_SECRET, AGENT);
-    let conn_str = format!(
-        "host=127.0.0.1 port={} user={AGENT} password={password} dbname=__commons__",
-        addr.rsplit(':').next().unwrap(),
-    );
-    let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
+    test_support::connect_pgwire(addr, AUTH_SECRET, AGENT, "__commons__")
         .await
-        .expect("pgwire connect");
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
-    client
+        .expect("pgwire connect")
 }
 
 fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> {
-    msgs.into_iter()
-        .filter_map(|m| match m {
-            tokio_postgres::SimpleQueryMessage::Row(r) => Some(r.get(0).unwrap().to_string()),
-            _ => None,
-        })
-        .collect()
+    test_support::simple_ids(msgs)
 }
 
 /// THE regression guard (NE-071): a `SERIALIZABLE` wire transaction's captured
