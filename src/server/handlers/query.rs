@@ -5512,6 +5512,18 @@ mod current_auth_test_support {
         build_shared_test_request(secret, id, graph, agent_id, method)
     }
 
+    #[cfg(feature = "redb")]
+    pub(super) fn open_test_backend(dir: String) -> Arc<dyn PersistenceBackend> {
+        Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open(
+                dir,
+                crate::durability::DurabilityPolicy::Each,
+                4096,
+            )
+            .expect("open test redb backend"),
+        )
+    }
+
     pub(super) fn state_with_backend(
         secret: &str,
         isolation: IsolationLayer,
@@ -5522,6 +5534,21 @@ mod current_auth_test_support {
         state.persist_dir = Some(dir);
         state.persistence = Some(backend);
         Arc::new(RwLock::new(state))
+    }
+
+    pub(super) mod prelude {
+        #[cfg(feature = "redb")]
+        pub(in super::super) use super::open_test_backend;
+        pub(in super::super) use super::{
+            current_isolation, current_isolation_with_agents, current_request, current_request_as,
+            state_with_backend,
+        };
+        pub(in super::super) use crate::acl::{AgentIdentity, AgentRole};
+        pub(in super::super) use crate::protocol::{Method, Request, Response, ResultPayload};
+        pub(in super::super) use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
+        pub(in super::super) use crate::server::state::ServerState;
+        pub(in super::super) use std::sync::Arc;
+        pub(in super::super) use tokio::sync::RwLock;
     }
 }
 
@@ -5663,17 +5690,11 @@ mod rls_no_exfiltrate_tests {
     test,
     feature = "result-cache",
     feature = "cypher",
-    feature = "streaming"
+    feature = "streaming",
+    feature = "redb"
 ))]
 mod result_cache_dispatch_tests {
-    use super::current_auth_test_support::{
-        current_isolation, current_request, state_with_backend,
-    };
-    use crate::protocol::{Method, Request, Response, ResultPayload};
-    use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
-    use crate::server::state::ServerState;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use super::current_auth_test_support::prelude::*;
 
     const SECRET: &str = "result-cache-test-secret";
 
@@ -5693,14 +5714,7 @@ mod result_cache_dispatch_tests {
             .to_string_lossy()
             .into_owned();
         std::fs::create_dir_all(&dir).expect("create test persist dir");
-        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-            crate::server::persistence::redb_backend::RedbBackend::open(
-                dir.clone(),
-                crate::durability::DurabilityPolicy::Each,
-                4096,
-            )
-            .expect("open test redb backend"),
-        );
+        let backend = open_test_backend(dir.clone());
         state_with_backend(SECRET, current_isolation(), dir, backend)
     }
 
@@ -5948,19 +5962,11 @@ mod result_cache_dispatch_tests {
     test,
     feature = "result-cache",
     feature = "cypher",
-    feature = "security"
+    feature = "security",
+    feature = "redb"
 ))]
 mod rls_aware_cache_no_cross_agent_leak {
-    use super::current_auth_test_support::{
-        current_isolation_with_agents, current_request_as, state_with_backend,
-    };
-    #[cfg(feature = "security")]
-    use crate::acl::{AgentIdentity, AgentRole};
-    use crate::protocol::{Method, Request, Response, ResultPayload};
-    use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
-    use crate::server::state::ServerState;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use super::current_auth_test_support::prelude::*;
 
     const SECRET: &str = "rls-cache-test-secret";
 
@@ -5976,14 +5982,7 @@ mod rls_aware_cache_no_cross_agent_leak {
             .to_string_lossy()
             .into_owned();
         std::fs::create_dir_all(&dir).expect("create test persist dir");
-        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-            crate::server::persistence::redb_backend::RedbBackend::open(
-                dir.clone(),
-                crate::durability::DurabilityPolicy::Each,
-                4096,
-            )
-            .expect("open test redb backend"),
-        );
+        let backend = open_test_backend(dir.clone());
         let mut isolation = current_isolation_with_agents(&["alice", "bob"]);
         // Under `security`, `check_access` defers entirely to RBAC -- the old
         // "`__commons__` is open to all authenticated agents" graph-type rule is
@@ -6290,16 +6289,15 @@ mod rls_aware_cache_no_cross_agent_leak {
 // later query sees; a Cypher CREATE is then visible to a MATCH; a wire `Sql`
 // CREATE TABLE + INSERT + SELECT round-trips; an `INSERT INTO nodes` is visible to a
 // SELECT; and the read paths still work.
-#[cfg(all(test, feature = "query", feature = "cypher", feature = "graphql"))]
+#[cfg(all(
+    test,
+    feature = "query",
+    feature = "cypher",
+    feature = "graphql",
+    feature = "redb"
+))]
 mod dispatch_write_tests {
-    use super::current_auth_test_support::{
-        current_isolation, current_request, state_with_backend,
-    };
-    use crate::protocol::{Method, Request, Response, ResultPayload};
-    use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
-    use crate::server::state::ServerState;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
+    use super::current_auth_test_support::prelude::*;
 
     const SECRET: &str = "dispatch-write-test-secret";
 
@@ -6314,14 +6312,7 @@ mod dispatch_write_tests {
             .to_string_lossy()
             .into_owned();
         std::fs::create_dir_all(&dir).expect("create test persist dir");
-        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-            crate::server::persistence::redb_backend::RedbBackend::open(
-                dir.clone(),
-                crate::durability::DurabilityPolicy::Each,
-                4096,
-            )
-            .expect("open test redb backend"),
-        );
+        let backend = open_test_backend(dir.clone());
         state_with_backend(SECRET, current_isolation(), dir, backend)
     }
 
@@ -6675,17 +6666,10 @@ mod dispatch_write_tests {
 // query issued INSIDE that txn (RYOW), while an identical OFF-txn query sees nothing
 // until COMMIT. Drives the real `dispatch` shell, so it exercises begin → stage →
 // overlaid query → commit exactly as a client would.
-#[cfg(all(test, feature = "query"))]
+#[cfg(all(test, feature = "query", feature = "redb", feature = "security"))]
 mod txn_ryow_dispatch_tests {
-    use super::current_auth_test_support::{
-        current_isolation, current_request, state_with_backend,
-    };
-    use crate::protocol::{Method, Request, Response, ResultPayload};
-    use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
-    use crate::server::state::ServerState;
+    use super::current_auth_test_support::prelude::*;
     use serde_json::json;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
 
     const SECRET: &str = "txn-ryow-test-secret";
 
@@ -6723,14 +6707,7 @@ mod txn_ryow_dispatch_tests {
             .to_string_lossy()
             .into_owned();
         std::fs::create_dir_all(&dir).expect("create test persist dir");
-        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-            crate::server::persistence::redb_backend::RedbBackend::open(
-                dir.clone(),
-                crate::durability::DurabilityPolicy::Each,
-                4096,
-            )
-            .expect("open test redb backend"),
-        );
+        let backend = open_test_backend(dir.clone());
         state_with_backend(SECRET, current_isolation(), dir, backend)
     }
 
