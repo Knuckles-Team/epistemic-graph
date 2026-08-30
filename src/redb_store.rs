@@ -10568,6 +10568,37 @@ fn apply_defer_work_item_row(
     )))
 }
 
+/// Read and decode one encrypted durable row while preserving each table's
+/// typed key and decoder.  A missing table is the same as a missing row: older
+/// stores may not have introduced every table yet, so callers must see a
+/// typed absence rather than a schema error.
+fn read_typed_durable_row<K, T, Decode>(
+    db: &Database,
+    table_definition: TableDefinition<'static, K, &[u8]>,
+    key: K::SelfType<'_>,
+    crypto: DurableCrypto<'_>,
+    decode: Decode,
+) -> Result<Option<T>, String>
+where
+    K: redb::Key + 'static,
+    Decode: FnOnce(&[u8]) -> Result<T, String>,
+{
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(table_definition) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    table
+        .get(key)
+        .map_err(|e| e.to_string())?
+        .map(|value| {
+            let bytes = crypto.unseal(value.value())?;
+            decode(&bytes)
+        })
+        .transpose()
+}
+
 /// Read one durable batch record from a snapshot.  Used by retry/recovery and by
 /// tests that close/reopen the database to model process death.
 pub(crate) fn read_mutation_batch(
@@ -10575,21 +10606,13 @@ pub(crate) fn read_mutation_batch(
     batch_id: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<MutationBatchRecord>, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let table = match rtx.open_table(MUTATION_BATCHES) {
-        Ok(table) => table,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.to_string()),
-    };
-    let record = table
-        .get(batch_id)
-        .map_err(|e| e.to_string())?
-        .map(|v| {
-            let bytes = crypto.unseal(v.value())?;
-            decode_mutation_batch_record(&bytes)
-        })
-        .transpose()?;
-    Ok(record)
+    read_typed_durable_row(
+        db,
+        MUTATION_BATCHES,
+        batch_id,
+        crypto,
+        decode_mutation_batch_record,
+    )
 }
 
 pub(crate) fn read_change_envelope(
@@ -10598,21 +10621,13 @@ pub(crate) fn read_change_envelope(
     envelope_id: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ChangeEnvelopeRecord>, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let table = match rtx.open_table(CHANGE_ENVELOPES) {
-        Ok(table) => table,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.to_string()),
-    };
-    let record = table
-        .get((graph_fname, envelope_id))
-        .map_err(|e| e.to_string())?
-        .map(|row| {
-            let bytes = crypto.unseal(row.value())?;
-            decode_durable(&bytes)
-        })
-        .transpose()?;
-    Ok(record)
+    read_typed_durable_row(
+        db,
+        CHANGE_ENVELOPES,
+        (graph_fname, envelope_id),
+        crypto,
+        decode_durable,
+    )
 }
 
 pub(crate) fn read_content_version(
@@ -10622,21 +10637,13 @@ pub(crate) fn read_content_version(
     object_id: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ContentVersion>, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let table = match rtx.open_table(CONTENT_VERSIONS) {
-        Ok(table) => table,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.to_string()),
-    };
-    let version = table
-        .get((graph_fname, tenant, object_id))
-        .map_err(|e| e.to_string())?
-        .map(|row| {
-            let bytes = crypto.unseal(row.value())?;
-            decode_durable(&bytes)
-        })
-        .transpose()?;
-    Ok(version)
+    read_typed_durable_row(
+        db,
+        CONTENT_VERSIONS,
+        (graph_fname, tenant, object_id),
+        crypto,
+        decode_durable,
+    )
 }
 
 pub(crate) fn read_change_cursor(
@@ -10647,21 +10654,13 @@ pub(crate) fn read_change_cursor(
     partition: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ChangeCursor>, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let table = match rtx.open_table(CHANGE_CURSORS) {
-        Ok(table) => table,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.to_string()),
-    };
-    let cursor = table
-        .get((graph_fname, tenant, source, partition))
-        .map_err(|e| e.to_string())?
-        .map(|row| {
-            let bytes = crypto.unseal(row.value())?;
-            decode_durable(&bytes)
-        })
-        .transpose()?;
-    Ok(cursor)
+    read_typed_durable_row(
+        db,
+        CHANGE_CURSORS,
+        (graph_fname, tenant, source, partition),
+        crypto,
+        decode_durable,
+    )
 }
 
 /// Read all immutable outbox rows for a batch in ordinal order.
@@ -11198,21 +11197,13 @@ pub(crate) fn read_mutation_projection_cursor(
     tenant: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<MutationProjectionCursor>, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let table = match rtx.open_table(MUTATION_PROJECTION_CURSOR) {
-        Ok(table) => table,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(error) => return Err(error.to_string()),
-    };
-    let cursor = table
-        .get((projection, tenant, graph_fname))
-        .map_err(|e| e.to_string())?
-        .map(|value| {
-            let bytes = crypto.unseal(value.value())?;
-            decode_mutation_projection_cursor(&bytes)
-        })
-        .transpose()?;
-    Ok(cursor)
+    read_typed_durable_row(
+        db,
+        MUTATION_PROJECTION_CURSOR,
+        (projection, tenant, graph_fname),
+        crypto,
+        decode_mutation_projection_cursor,
+    )
 }
 
 pub(crate) fn read_mutation_graph_version(
