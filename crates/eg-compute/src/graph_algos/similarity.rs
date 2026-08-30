@@ -409,6 +409,322 @@ fn desc_sample_into(dst: &mut Vec<usize>, pool: &[usize], sample: usize, rng: &m
     }
 }
 
+struct SimilarityContext<'slice, 'row> {
+    metric: Metric,
+    neighbors: &'slice [Cow<'row, [(usize, f64)]>],
+    norms: &'slice [f64],
+}
+
+fn similarity_score(context: &SimilarityContext<'_, '_>, a: usize, b: usize) -> f64 {
+    match context.metric {
+        Metric::Jaccard => jaccard_from_neighbors(&context.neighbors[a], &context.neighbors[b]),
+        Metric::Cosine => cosine_from_neighbors(
+            &context.neighbors[a],
+            &context.neighbors[b],
+            context.norms[a],
+            context.norms[b],
+        ),
+    }
+}
+
+fn metric_norms(metric: Metric, neighbors: &[Cow<'_, [(usize, f64)]>]) -> Vec<f64> {
+    if metric == Metric::Cosine {
+        neighbors.iter().map(|row| neighbor_norm(row)).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+fn inverted_neighbor_index(neighbors: &[Cow<'_, [(usize, f64)]>], n: usize) -> Vec<Vec<usize>> {
+    let mut inverted: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (b, row) in neighbors.iter().enumerate() {
+        for &(t, _) in row.iter() {
+            if t < n {
+                inverted[t].push(b);
+            }
+        }
+    }
+    inverted
+}
+
+struct SeedState<'a> {
+    list: &'a mut Vec<DescNeighbor>,
+    seen: &'a mut [bool],
+    touched: &'a mut Vec<usize>,
+}
+
+struct SeedConfig {
+    node: usize,
+    n: usize,
+    k: usize,
+    sample: usize,
+    cand_cap: usize,
+}
+
+fn seed_shared_candidates(
+    config: &SeedConfig,
+    context: &SimilarityContext<'_, '_>,
+    inverted: &[Vec<usize>],
+    state: &mut SeedState<'_>,
+    rng: &mut SplitMix64,
+) {
+    let mut scored = 0;
+    'gather: for &(t, _) in context.neighbors[config.node].iter() {
+        let sources = &inverted[t];
+        if sources.is_empty() {
+            continue;
+        }
+        let mut drawn = 0;
+        let mut tries = 0;
+        while drawn < config.sample && tries < config.sample * 3 {
+            tries += 1;
+            let b = sources[rng.below(sources.len())];
+            if !state.seen[b] {
+                state.seen[b] = true;
+                state.touched.push(b);
+                let s = similarity_score(context, config.node, b);
+                desc_try_update(state.list, config.node, b, s, config.k);
+                drawn += 1;
+                scored += 1;
+                if scored >= config.cand_cap {
+                    break 'gather;
+                }
+            }
+        }
+    }
+}
+
+fn seed_random_candidates(
+    config: &SeedConfig,
+    context: &SimilarityContext<'_, '_>,
+    list: &mut Vec<DescNeighbor>,
+    rng: &mut SplitMix64,
+) {
+    let mut attempts = 0;
+    while list.len() < config.k && attempts < config.k * 4 + 8 {
+        attempts += 1;
+        let b = rng.below(config.n);
+        if b != config.node && !list.iter().any(|e| e.node == b) {
+            let s = similarity_score(context, config.node, b);
+            desc_try_update(list, config.node, b, s, config.k);
+        }
+    }
+}
+
+fn seed_descent_node(
+    config: &SeedConfig,
+    context: &SimilarityContext<'_, '_>,
+    inverted: &[Vec<usize>],
+    rng: &mut SplitMix64,
+) -> Vec<DescNeighbor> {
+    let mut list = Vec::with_capacity(config.k);
+    let mut seen: Vec<bool> = vec![false; config.n];
+    let mut touched: Vec<usize> = Vec::new();
+    seen[config.node] = true;
+    touched.push(config.node);
+    {
+        let mut state = SeedState {
+            list: &mut list,
+            seen: &mut seen,
+            touched: &mut touched,
+        };
+        seed_shared_candidates(config, context, inverted, &mut state, rng);
+        seed_random_candidates(config, context, state.list, rng);
+    }
+    for &node in &touched {
+        seen[node] = false;
+    }
+    touched.clear();
+    list
+}
+
+fn seed_descent_lists(
+    n: usize,
+    k: usize,
+    sample: usize,
+    cand_cap: usize,
+    context: &SimilarityContext<'_, '_>,
+    inverted: &[Vec<usize>],
+    rng: &mut SplitMix64,
+) -> Vec<Vec<DescNeighbor>> {
+    let mut lists: Vec<Vec<DescNeighbor>> = Vec::with_capacity(n);
+    for a in 0..n {
+        let config = SeedConfig {
+            node: a,
+            n,
+            k,
+            sample,
+            cand_cap,
+        };
+        lists.push(seed_descent_node(&config, context, inverted, rng));
+    }
+    lists
+}
+
+fn split_descent_lists(
+    lists: &mut [Vec<DescNeighbor>],
+    sample: usize,
+    rng: &mut SplitMix64,
+) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
+    let n = lists.len();
+    let mut new_lists: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut old_lists: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for u in 0..n {
+        let mut new_pool: Vec<usize> = Vec::new();
+        for entry in lists[u].iter() {
+            if !entry.is_new {
+                old_lists[u].push(entry.node);
+            }
+        }
+        for entry in lists[u].iter().filter(|e| e.is_new) {
+            new_pool.push(entry.node);
+        }
+        desc_sample_into(&mut new_lists[u], &new_pool, sample, rng);
+        let drawn: std::collections::HashSet<usize> = new_lists[u].iter().copied().collect();
+        for entry in lists[u].iter_mut() {
+            if entry.is_new && drawn.contains(&entry.node) {
+                entry.is_new = false;
+            }
+        }
+    }
+    (new_lists, old_lists)
+}
+
+fn reverse_descent_lists(
+    new_lists: &[Vec<usize>],
+    old_lists: &[Vec<usize>],
+    n: usize,
+) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
+    let mut r_new: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut r_old: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for u in 0..n {
+        for &v in &new_lists[u] {
+            r_new[v].push(u);
+        }
+        for &v in &old_lists[u] {
+            r_old[v].push(u);
+        }
+    }
+    (r_new, r_old)
+}
+
+fn update_descent_pair(
+    lists: &mut [Vec<DescNeighbor>],
+    p: usize,
+    q: usize,
+    k: usize,
+    context: &SimilarityContext<'_, '_>,
+) -> usize {
+    let s = similarity_score(context, p, q);
+    let mut updates = desc_try_update(&mut lists[p], p, q, s, k) as usize;
+    updates += desc_try_update(&mut lists[q], q, p, s, k) as usize;
+    updates
+}
+
+struct DescentCandidates<'a> {
+    new_lists: &'a [Vec<usize>],
+    old_lists: &'a [Vec<usize>],
+    r_new: &'a [Vec<usize>],
+    r_old: &'a [Vec<usize>],
+}
+
+fn refine_descent_node(
+    u: usize,
+    lists: &mut [Vec<DescNeighbor>],
+    candidates: &DescentCandidates<'_>,
+    sample: usize,
+    k: usize,
+    context: &SimilarityContext<'_, '_>,
+    rng: &mut SplitMix64,
+) -> usize {
+    let mut nu = candidates.new_lists[u].clone();
+    desc_sample_into(&mut nu, &candidates.r_new[u], sample, rng);
+    let mut ou = candidates.old_lists[u].clone();
+    desc_sample_into(&mut ou, &candidates.r_old[u], sample, rng);
+    nu.sort_unstable();
+    nu.dedup();
+    ou.sort_unstable();
+    ou.dedup();
+    let mut updates = 0usize;
+    for i in 0..nu.len() {
+        let p = nu[i];
+        for &q in nu.iter().skip(i + 1) {
+            updates += update_descent_pair(lists, p, q, k, context);
+        }
+        for &q in &ou {
+            if p == q {
+                continue;
+            }
+            updates += update_descent_pair(lists, p, q, k, context);
+        }
+    }
+    updates
+}
+
+fn refine_descent_round(
+    lists: &mut [Vec<DescNeighbor>],
+    sample: usize,
+    k: usize,
+    context: &SimilarityContext<'_, '_>,
+    rng: &mut SplitMix64,
+) -> usize {
+    let (new_lists, old_lists) = split_descent_lists(lists, sample, rng);
+    let (r_new, r_old) = reverse_descent_lists(&new_lists, &old_lists, lists.len());
+    let candidates = DescentCandidates {
+        new_lists: &new_lists,
+        old_lists: &old_lists,
+        r_new: &r_new,
+        r_old: &r_old,
+    };
+    let mut updates = 0usize;
+    for u in 0..lists.len() {
+        updates += refine_descent_node(u, lists, &candidates, sample, k, context, rng);
+    }
+    updates
+}
+
+fn fold_descent_pairs(lists: &[Vec<DescNeighbor>], cutoff: f64) -> HashMap<(usize, usize), f64> {
+    let mut pair_best: HashMap<(usize, usize), f64> = HashMap::new();
+    for (a, list) in lists.iter().enumerate() {
+        for entry in list {
+            if entry.score <= cutoff {
+                continue;
+            }
+            let b = entry.node;
+            let key = if a < b { (a, b) } else { (b, a) };
+            let e = pair_best.entry(key).or_insert(f64::MIN);
+            if entry.score > *e {
+                *e = entry.score;
+            }
+        }
+    }
+    pair_best
+}
+
+fn finish_similarity_pairs<N>(
+    graph: &AdjacencyGraph<N>,
+    pair_best: HashMap<(usize, usize), f64>,
+) -> Vec<SimilarityPair<N>>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    let mut out: Vec<(usize, usize, f64)> =
+        pair_best.into_iter().map(|((a, b), s)| (a, b, s)).collect();
+    out.sort_by(|x, y| {
+        y.2.partial_cmp(&x.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| x.0.cmp(&y.0))
+            .then_with(|| x.1.cmp(&y.1))
+    });
+    out.into_iter()
+        .map(|(a, b, score)| SimilarityPair {
+            a: graph.node_at(a).clone(),
+            b: graph.node_at(b).clone(),
+            score,
+        })
+        .collect()
+}
+
 /// Approximate per-node top-`k` node-similarity via NN-descent sampling
 /// (CONCEPT:EG-KG.compute.node-similarity) — the APPROXIMATE, mode-selectable sibling of the exact
 /// [`knn_similarity`]. Instead of the exact `O(V²·d̄)` full sweep, it seeds each node
@@ -450,18 +766,11 @@ where
         return knn_similarity(graph, metric, dir, top_k, cutoff);
     }
     let neighbors = prepared_neighbors(graph, dir);
-    let norms: Vec<f64> = if metric == Metric::Cosine {
-        neighbors.iter().map(|row| neighbor_norm(row)).collect()
-    } else {
-        Vec::new()
-    };
-    let sim = |a: usize, b: usize| -> f64 {
-        match metric {
-            Metric::Jaccard => jaccard_from_neighbors(&neighbors[a], &neighbors[b]),
-            Metric::Cosine => {
-                cosine_from_neighbors(&neighbors[a], &neighbors[b], norms[a], norms[b])
-            }
-        }
+    let norms = metric_norms(metric, &neighbors);
+    let context = SimilarityContext {
+        metric,
+        neighbors: &neighbors,
+        norms: &norms,
     };
     let sample = (sample_rate.clamp(0.0, 1.0) * k as f64).ceil().max(1.0) as usize;
     let mut rng = SplitMix64::new(seed ^ 0x6B6E_6E5F_6465_7363); // "knn_desc"
@@ -474,129 +783,16 @@ where
     // is what lets it bootstrap on local structure — the same shared-neighbour
     // sampling Neo4j's own approximate `gds.knn` uses. `neighbors` already encodes the
     // chosen `dir`, so this is direction-agnostic.
-    let mut inverted: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (b, row) in neighbors.iter().enumerate() {
-        for &(t, _) in row.iter() {
-            if t < n {
-                inverted[t].push(b);
-            }
-        }
-    }
+    let inverted = inverted_neighbor_index(&neighbors, n);
 
     // Seed: for each node, gather up to `cand_cap` sampled shared-neighbour candidates,
     // score them, and keep the top-`k`. If that pool is thin (a low-degree node), top
     // up with a few random draws so refinement still has somewhere to walk.
     let cand_cap = (k * 8).max(k + 1);
-    let mut lists: Vec<Vec<DescNeighbor>> = (0..n).map(|_| Vec::with_capacity(k)).collect();
-    let mut seen: Vec<bool> = vec![false; n];
-    let mut touched: Vec<usize> = Vec::new();
-    for a in 0..n {
-        seen[a] = true;
-        touched.push(a);
-        let mut scored = 0;
-        'gather: for &(t, _) in neighbors[a].iter() {
-            let sources = &inverted[t];
-            if sources.is_empty() {
-                continue;
-            }
-            let mut drawn = 0;
-            let mut tries = 0;
-            while drawn < sample && tries < sample * 3 {
-                tries += 1;
-                let b = sources[rng.below(sources.len())];
-                if !seen[b] {
-                    seen[b] = true;
-                    touched.push(b);
-                    let s = sim(a, b);
-                    desc_try_update(&mut lists[a], a, b, s, k);
-                    drawn += 1;
-                    scored += 1;
-                    if scored >= cand_cap {
-                        break 'gather;
-                    }
-                }
-            }
-        }
-        let mut attempts = 0;
-        while lists[a].len() < k && attempts < k * 4 + 8 {
-            attempts += 1;
-            let b = rng.below(n);
-            if b != a && !lists[a].iter().any(|e| e.node == b) {
-                let s = sim(a, b);
-                desc_try_update(&mut lists[a], a, b, s, k);
-            }
-        }
-        // Reset the per-node `seen` marks cheaply (only the touched entries).
-        for &node in &touched {
-            seen[node] = false;
-        }
-        touched.clear();
-    }
+    let mut lists = seed_descent_lists(n, k, sample, cand_cap, &context, &inverted, &mut rng);
 
     for round in 0..max_iters.max(1) {
-        // Split each node's list into sampled NEW and OLD candidate sets, flipping the
-        // drawn `new` entries to old so the next round only re-joins fresh information.
-        let mut new_lists: Vec<Vec<usize>> = vec![Vec::new(); n];
-        let mut old_lists: Vec<Vec<usize>> = vec![Vec::new(); n];
-        for u in 0..n {
-            let mut new_pool: Vec<usize> = Vec::new();
-            for entry in lists[u].iter() {
-                if !entry.is_new {
-                    old_lists[u].push(entry.node);
-                }
-            }
-            for entry in lists[u].iter().filter(|e| e.is_new) {
-                new_pool.push(entry.node);
-            }
-            desc_sample_into(&mut new_lists[u], &new_pool, sample, &mut rng);
-            // Mark the drawn `new` entries as old for the next iteration.
-            let drawn: std::collections::HashSet<usize> = new_lists[u].iter().copied().collect();
-            for entry in lists[u].iter_mut() {
-                if entry.is_new && drawn.contains(&entry.node) {
-                    entry.is_new = false;
-                }
-            }
-        }
-
-        // Reverse (in-)lists, sampled to bound hub fan-out.
-        let mut r_new: Vec<Vec<usize>> = vec![Vec::new(); n];
-        let mut r_old: Vec<Vec<usize>> = vec![Vec::new(); n];
-        for u in 0..n {
-            for &v in &new_lists[u] {
-                r_new[v].push(u);
-            }
-            for &v in &old_lists[u] {
-                r_old[v].push(u);
-            }
-        }
-
-        let mut updates = 0usize;
-        for u in 0..n {
-            let mut nu = new_lists[u].clone();
-            desc_sample_into(&mut nu, &r_new[u], sample, &mut rng);
-            let mut ou = old_lists[u].clone();
-            desc_sample_into(&mut ou, &r_old[u], sample, &mut rng);
-            nu.sort_unstable();
-            nu.dedup();
-            ou.sort_unstable();
-            ou.dedup();
-            for i in 0..nu.len() {
-                let p = nu[i];
-                for &q in nu.iter().skip(i + 1) {
-                    let s = sim(p, q);
-                    updates += desc_try_update(&mut lists[p], p, q, s, k) as usize;
-                    updates += desc_try_update(&mut lists[q], q, p, s, k) as usize;
-                }
-                for &q in &ou {
-                    if p == q {
-                        continue;
-                    }
-                    let s = sim(p, q);
-                    updates += desc_try_update(&mut lists[p], p, q, s, k) as usize;
-                    updates += desc_try_update(&mut lists[q], q, p, s, k) as usize;
-                }
-            }
-        }
+        let updates = refine_descent_round(&mut lists, sample, k, &context, &mut rng);
         tracing::trace!(
             target: "eg_compute::knn_descent",
             mode = "approximate",
@@ -613,35 +809,7 @@ where
     // Fold the directed working lists into undirected pairs (max of the two
     // directional scores), applying the `> cutoff` gate only now — the working lists
     // keep the best-k regardless of cutoff so the join always has neighbours to walk.
-    let mut pair_best: HashMap<(usize, usize), f64> = HashMap::new();
-    for (a, list) in lists.iter().enumerate() {
-        for entry in list {
-            if entry.score <= cutoff {
-                continue;
-            }
-            let b = entry.node;
-            let key = if a < b { (a, b) } else { (b, a) };
-            let e = pair_best.entry(key).or_insert(f64::MIN);
-            if entry.score > *e {
-                *e = entry.score;
-            }
-        }
-    }
-    let mut out: Vec<(usize, usize, f64)> =
-        pair_best.into_iter().map(|((a, b), s)| (a, b, s)).collect();
-    out.sort_by(|x, y| {
-        y.2.partial_cmp(&x.2)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| x.0.cmp(&y.0))
-            .then_with(|| x.1.cmp(&y.1))
-    });
-    out.into_iter()
-        .map(|(a, b, score)| SimilarityPair {
-            a: graph.node_at(a).clone(),
-            b: graph.node_at(b).clone(),
-            score,
-        })
-        .collect()
+    finish_similarity_pairs(graph, fold_descent_pairs(&lists, cutoff))
 }
 
 #[cfg(test)]
