@@ -1,9 +1,8 @@
 //! Governed modality contract for [`DocumentData`].
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, GovernedModality,
-    IngestReport, ModalityContract, ModalitySelfTest, NativeIndexKey, NativePredicate, OpaqueRef,
-    Provenance, RowSetShape, StagedWrite, StorageStats,
+    encode_staged, ConformanceTestable, EvidenceAddress, GovernedModality, ModalityContract,
+    NativeIndexKey, NativePredicate, OpaqueRef, Provenance, RowSetShape, StagedWrite,
 };
 
 use crate::document::{DocumentData, LayoutBlock, LexicalPosting, Page, Span};
@@ -14,13 +13,6 @@ const MAX_STRUCTURED_ITEMS: usize = 1_000_000;
 
 fn opaque(value: &str) -> bool {
     OpaqueRef::new(value.to_string()).is_ok()
-}
-
-fn content_address(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 fn safe_language(value: &str) -> bool {
@@ -81,53 +73,14 @@ impl ModalityContract for DocumentData {
     }
 
     fn policy_labels(&self, _id: &str) -> Vec<String> {
-        vec![
-            "eg:policylabel:0000000000000001".to_string(),
-            "eg:policylabel:0000000000000002".to_string(),
-            "eg:policylabel:0000000000000003".to_string(),
-        ]
+        eg_modality::policy_labels()
     }
 
-    fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let passed = match decode_staged::<DocumentData>(&staged) {
-            Ok(round_trip) if round_trip == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        let streaming = [staged].into_iter().all(|item| {
-            matches!(
-                decode_staged::<DocumentData>(&item),
-                Ok(round_trip) if round_trip == *self
-            )
-        });
-        IngestReport {
-            batch: passed,
-            streaming: if streaming {
-                ModalitySelfTest::Passed
-            } else {
-                ModalitySelfTest::Failed
-            },
-        }
-    }
-
-    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
-        Some(StorageStats {
-            logical_bytes: encode_staged(self).len() as u64,
-            element_count: self.pages.iter().map(|page| page.blocks.len() as u64).sum(),
-            has_secondary_index: !self.lexical_postings.is_empty(),
-        })
-    }
-
-    fn backup_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        match decode_staged::<DocumentData>(&self.txn_stage(id)) {
-            Ok(restored) if restored == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
-    }
-
-    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        self.backup_selfcheck(id)
-    }
+    eg_modality::modality_contract_runtime_hooks!(
+        DocumentData,
+        self.pages.iter().map(|page| page.blocks.len() as u64).sum(),
+        !self.lexical_postings.is_empty()
+    );
 }
 
 impl GovernedModality for DocumentData {
@@ -144,7 +97,7 @@ impl GovernedModality for DocumentData {
                 count.checked_add(block.table.as_ref().map_or(0, |table| table.cells.len()))
             })
         });
-        content_address(&self.blob_ref)
+        eg_modality::content_address(&self.blob_ref)
             && !self.pages.is_empty()
             && self.pages.len() <= MAX_PAGES
             && block_count.is_some_and(|count| count <= MAX_BLOCKS)

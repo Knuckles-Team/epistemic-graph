@@ -1,9 +1,9 @@
 //! Governed modality contract for [`AudioData`].
 
 use eg_modality::{
-    decode_staged, encode_staged, temporal_buckets, ConformanceTestable, EvidenceAddress,
-    GovernedModality, IngestReport, ModalityContract, ModalitySelfTest, NativeIndexKey,
-    NativePredicate, OpaqueRef, Provenance, RowSetShape, StagedWrite, StorageStats,
+    encode_staged, temporal_buckets, ConformanceTestable, EvidenceAddress, GovernedModality,
+    ModalityContract, NativeIndexKey, NativePredicate, OpaqueRef, Provenance, RowSetShape,
+    StagedWrite,
 };
 
 use crate::audio::{AudioData, AudioFeatureWindow, AudioSegment};
@@ -14,13 +14,6 @@ const MAX_SEGMENTS: usize = 65_536;
 
 fn opaque(value: &str) -> bool {
     OpaqueRef::new(value.to_string()).is_ok()
-}
-
-fn content_address(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 impl ModalityContract for AudioData {
@@ -69,59 +62,14 @@ impl ModalityContract for AudioData {
     }
 
     fn policy_labels(&self, _id: &str) -> Vec<String> {
-        vec![
-            "eg:policylabel:0000000000000001".to_string(),
-            "eg:policylabel:0000000000000002".to_string(),
-            "eg:policylabel:0000000000000003".to_string(),
-        ]
+        eg_modality::policy_labels()
     }
 
-    // ── EG-P1-1 hooks — real, minimal implementations over AudioData's
-    // serialization and txn staging. ──
-
-    /// Batch and bounded-stream ingest use the same deterministic typed codec.
-    fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<AudioData>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        let streaming = [staged].into_iter().all(|item| {
-            matches!(
-                decode_staged::<AudioData>(&item),
-                Ok(round_trip) if round_trip == *self
-            )
-        });
-        IngestReport {
-            batch,
-            streaming: if streaming {
-                ModalitySelfTest::Passed
-            } else {
-                ModalitySelfTest::Failed
-            },
-        }
-    }
-
-    /// Real storage stats: logical size from encoded length; element count is the
-    /// number of extracted audio segments. Segment lookup is the native secondary
-    /// index advertised by the served audio runtime.
-    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
-        let logical_bytes = encode_staged(self).len() as u64;
-        Some(StorageStats {
-            logical_bytes,
-            element_count: self.feature_windows.len() as u64,
-            has_secondary_index: !self.native_index_keys().is_empty(),
-        })
-    }
-
-    fn backup_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        eg_modality::staged_recovery_selfcheck(self, id)
-    }
-
-    /// Simulated single-node crash-and-recover through txn staging path.
-    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        eg_modality::staged_recovery_selfcheck(self, id)
-    }
+    eg_modality::modality_contract_runtime_hooks!(
+        AudioData,
+        self.feature_windows.len() as u64,
+        !self.native_index_keys().is_empty()
+    );
 }
 
 impl GovernedModality for AudioData {
@@ -131,7 +79,7 @@ impl GovernedModality for AudioData {
             && self.channels <= MAX_CHANNELS
             && matches!(self.bits_per_sample, 8 | 16)
             && self.duration_ms > 0
-            && content_address(&self.blob_ref)
+            && eg_modality::content_address(&self.blob_ref)
             && self.segments.len() <= MAX_SEGMENTS
             && self.segments.iter().all(|segment| {
                 segment.end_ms > segment.start_ms

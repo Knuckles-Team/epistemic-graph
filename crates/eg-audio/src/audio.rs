@@ -25,23 +25,7 @@ pub struct AudioFeatureWindow {
     pub spectral_centroid_bin: f32,
 }
 
-impl AudioSegment {
-    pub fn new(start_ms: u64, end_ms: u64) -> Self {
-        Self {
-            label: None,
-            start_ms,
-            end_ms,
-        }
-    }
-
-    pub fn labeled(label: impl Into<String>, start_ms: u64, end_ms: u64) -> Self {
-        Self {
-            label: Some(label.into()),
-            start_ms,
-            end_ms,
-        }
-    }
-}
+eg_modality::modality_timed_range_constructors!(AudioSegment);
 
 /// The audio modality's stored value. PCM samples remain request-local.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

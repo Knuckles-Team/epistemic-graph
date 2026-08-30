@@ -20,6 +20,8 @@
 // (`src/server/handlers/mining.rs`) supplies the rows (explicit or node embeddings)
 // and does the KG write-back.
 
+use super::math::{argmax, log_gaussian_diag};
+
 /// A point in feature space (one matrix row).
 pub type Point = Vec<f64>;
 
@@ -318,18 +320,6 @@ pub fn gmm(points: &[Point], k: usize, max_iter: usize, seed: u64) -> (Vec<i64>,
     (labels, resp)
 }
 
-/// log N(x | mean, diag(var)) for a diagonal-covariance Gaussian.
-fn log_gaussian_diag(x: &[f64], mean: &[f64], var: &[f64]) -> f64 {
-    const LOG_2PI: f64 = 1.837_877_066_409_345_6; // ln(2π)
-    let mut acc = 0.0;
-    for d in 0..x.len() {
-        let v = var[d].max(1e-12);
-        let diff = x[d] - mean[d];
-        acc += -0.5 * (LOG_2PI + v.ln() + diff * diff / v);
-    }
-    acc
-}
-
 fn feature_variance(points: &[Point], dim: usize) -> Vec<f64> {
     let n = points.len() as f64;
     let mut mean = vec![0.0; dim];
@@ -574,16 +564,6 @@ fn kmeanspp_init(points: &[Point], k: usize, seed: u64) -> Vec<Point> {
         centers.push(points[chosen].clone());
     }
     centers
-}
-
-fn argmax(v: &[f64]) -> usize {
-    let mut best = 0;
-    for i in 1..v.len() {
-        if v[i] > v[best] {
-            best = i;
-        }
-    }
-    best
 }
 
 fn euclidean(a: &[f64], b: &[f64]) -> f64 {
