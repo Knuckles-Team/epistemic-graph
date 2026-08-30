@@ -382,16 +382,7 @@ def _packed(bundle: dict[str, Any]) -> bytes:
     return msgpack.packb(bundle, use_bin_type=True)
 
 
-def _load_performance_evidence(
-    path_text: str, expected_digest: str, binary_digest: str
-) -> dict[str, object]:
-    """Bind G-14 to a passing G-37 run of the same immutable executable."""
-
-    if not SHA256_PATTERN.fullmatch(expected_digest):
-        _fail("invalid_performance_evidence_digest")
-    path = Path(path_text)
-    if not path.is_absolute():
-        _fail("performance_evidence_path_must_be_absolute")
+def _read_performance_evidence(path: Path) -> bytes:
     descriptor: int | None = None
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
@@ -406,6 +397,7 @@ def _load_performance_evidence(
             raw.extend(chunk)
             if len(raw) > MAX_PERFORMANCE_EVIDENCE_BYTES:
                 _fail("invalid_performance_evidence_file")
+        return bytes(raw)
     except CertificationError:
         raise
     except OSError:
@@ -413,74 +405,135 @@ def _load_performance_evidence(
     finally:
         if descriptor is not None:
             os.close(descriptor)
-    report_digest = hashlib.sha256(raw).hexdigest()
-    if report_digest != expected_digest:
-        _fail("performance_evidence_digest_mismatch")
+
+
+def _decode_performance_report(raw: bytes) -> dict[str, Any]:
     try:
         report = json.loads(raw)
     except (UnicodeError, json.JSONDecodeError):
         _fail("invalid_performance_evidence_json")
     if not isinstance(report, dict):
         _fail("invalid_performance_evidence_schema")
-    artifact = report.get("exact_artifact")
-    modality_coverage = (
-        report.get("coverage", {}).get("modality")
-        if isinstance(report.get("coverage"), dict)
-        else None
+    return report
+
+
+def _performance_result_passed(value: object) -> bool:
+    return isinstance(value, dict) and value.get("passed") is True
+
+
+def _all_performance_results_passed(
+    metric_results: dict[str, Any], complexity_results: dict[str, Any]
+) -> bool:
+    return all(
+        _performance_result_passed(result)
+        for result in (*metric_results.values(), *complexity_results.values())
     )
+
+
+def _validate_performance_report(
+    report: dict[str, Any], binary_digest: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    artifact = report.get("exact_artifact")
+    artifact_component = (
+        artifact.get("component") if isinstance(artifact, dict) else None
+    )
+    artifact_digest = artifact.get("sha256") if isinstance(artifact, dict) else None
+    artifact_verified = (
+        artifact.get("staged_copy_verified") if isinstance(artifact, dict) else None
+    )
+    coverage = report.get("coverage")
+    modality_coverage = coverage.get("modality") if isinstance(coverage, dict) else None
     dataset = report.get("dataset")
     metric_results = report.get("metric_results")
     complexity_results = report.get("complexity_results")
-    if (
-        report.get("schema_version") != "1"
-        or report.get("gate") != "G-37"
-        or report.get("status") != "pass"
-        or report.get("failures") != []
-        or not isinstance(artifact, dict)
-        or artifact.get("component") != "epistemic-graph-server"
-        or artifact.get("sha256") != binary_digest
-        or artifact.get("staged_copy_verified") is not True
-        or not isinstance(modality_coverage, dict)
-        or not isinstance(dataset, dict)
-        or not isinstance(metric_results, dict)
-        or not metric_results
-        or not isinstance(complexity_results, dict)
-        or not complexity_results
-        or any(
-            not isinstance(result, dict) or result.get("passed") is not True
-            for result in (*metric_results.values(), *complexity_results.values())
+    if not all(
+        (
+            report.get("schema_version") == "1",
+            report.get("gate") == "G-37",
+            report.get("status") == "pass",
+            report.get("failures") == [],
+            isinstance(artifact, dict),
+            artifact_component == "epistemic-graph-server",
+            artifact_digest == binary_digest,
+            artifact_verified is True,
+            isinstance(modality_coverage, dict),
+            isinstance(dataset, dict),
+            isinstance(metric_results, dict),
+            bool(metric_results),
+            isinstance(complexity_results, dict),
+            bool(complexity_results),
         )
-    ):
+    ) or not _all_performance_results_passed(metric_results, complexity_results):
         _fail("performance_evidence_did_not_pass")
-    modalities = modality_coverage.get("component_probes")
-    ingests = modality_coverage.get("ingests_by_modality")
-    queries = modality_coverage.get("native_query_samples_by_modality")
-    growth = modality_coverage.get("index_growth_ratio_by_modality")
-    records_per_modality = dataset.get("records_per_modality")
+    return modality_coverage, dataset
+
+
+def _required_modality_coverage(value: object, expected: set[str]) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != expected:
+        _fail("performance_evidence_modality_coverage_incomplete")
+    return value
+
+
+def _positive_modality_count(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int) and value >= 1
+
+
+def _positive_growth_ratio(value: object) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, int | float)
+        and not value <= 0
+    )
+
+
+def _validate_modality_coverage(
+    modality_coverage: dict[str, Any], dataset: dict[str, Any]
+) -> int:
     expected_modalities = set(MODALITIES)
-    if (
-        modalities != list(MODALITIES)
-        or not isinstance(ingests, dict)
-        or set(ingests) != expected_modalities
-        or not isinstance(queries, dict)
-        or set(queries) != expected_modalities
-        or not isinstance(growth, dict)
-        or set(growth) != expected_modalities
-        or isinstance(records_per_modality, bool)
-        or not isinstance(records_per_modality, int)
-        or records_per_modality < 1
-        or any(
-            isinstance(value, bool) or not isinstance(value, int) or value < 1
-            for value in (*ingests.values(), *queries.values())
-        )
-        or any(
-            isinstance(value, bool)
-            or not isinstance(value, int | float)
-            or value <= 0
-            for value in growth.values()
-        )
+    modalities = modality_coverage.get("component_probes")
+    if modalities != list(MODALITIES):
+        _fail("performance_evidence_modality_coverage_incomplete")
+    ingests = _required_modality_coverage(
+        modality_coverage.get("ingests_by_modality"), expected_modalities
+    )
+    queries = _required_modality_coverage(
+        modality_coverage.get("native_query_samples_by_modality"),
+        expected_modalities,
+    )
+    growth = _required_modality_coverage(
+        modality_coverage.get("index_growth_ratio_by_modality"),
+        expected_modalities,
+    )
+    records_per_modality = dataset.get("records_per_modality")
+    if not _positive_modality_count(records_per_modality):
+        _fail("performance_evidence_modality_coverage_incomplete")
+    if not all(
+        _positive_modality_count(value)
+        for value in (*ingests.values(), *queries.values())
     ):
         _fail("performance_evidence_modality_coverage_incomplete")
+    if not all(_positive_growth_ratio(value) for value in growth.values()):
+        _fail("performance_evidence_modality_coverage_incomplete")
+    return records_per_modality
+
+
+def _load_performance_evidence(
+    path_text: str, expected_digest: str, binary_digest: str
+) -> dict[str, object]:
+    """Bind G-14 to a passing G-37 run of the same immutable executable."""
+
+    if not SHA256_PATTERN.fullmatch(expected_digest):
+        _fail("invalid_performance_evidence_digest")
+    path = Path(path_text)
+    if not path.is_absolute():
+        _fail("performance_evidence_path_must_be_absolute")
+    raw = _read_performance_evidence(path)
+    report_digest = hashlib.sha256(raw).hexdigest()
+    if report_digest != expected_digest:
+        _fail("performance_evidence_digest_mismatch")
+    report = _decode_performance_report(raw)
+    modality_coverage, dataset = _validate_performance_report(report, binary_digest)
+    records_per_modality = _validate_modality_coverage(modality_coverage, dataset)
     return {
         "gate": "G-37",
         "modalities": list(MODALITIES),
