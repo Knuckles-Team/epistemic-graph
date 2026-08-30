@@ -47,15 +47,7 @@ const SECRET: &str = "usecase-lifecycle-secret";
 /// provision it ONCE, before the first backend opens.
 fn state() -> test_support::SharedState {
     #[cfg(feature = "redb")]
-    {
-        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-        ENCRYPTION_KEY.call_once(|| {
-            std::env::set_var(
-                epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-                "usecase-lifecycle-recovery-key",
-            )
-        });
-    }
+    test_support::provision_encryption_key_once("usecase-lifecycle-recovery-key");
     test_support::durable_state(SECRET, common::current_isolation())
 }
 

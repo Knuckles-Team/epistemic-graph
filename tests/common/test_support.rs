@@ -14,13 +14,24 @@ use tokio::sync::RwLock;
 pub type SharedPersistence = Arc<dyn PersistenceBackend>;
 pub type SharedState = Arc<RwLock<ServerState>>;
 
+/// Provision the process-wide data-at-rest key once before a redb backend opens.
+///
+/// Integration-test crates compile this module independently, so the key remains
+/// scoped to the one test process that owns its tempdir-backed stores. Keeping the
+/// `Once` here gives both the durable-wire fixtures and lifecycle fixtures the same
+/// GOC-70-safe environment discipline without making a caller-specific state helper.
+#[cfg(feature = "redb")]
+pub fn provision_encryption_key_once(encryption_key: &str) {
+    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+    ENCRYPTION_KEY.call_once(|| {
+        std::env::set_var(epistemic_graph::crypto::ENCRYPTION_KEY_ENV, encryption_key);
+    });
+}
+
 pub fn durable_persistence(encryption_key: &str) -> Option<SharedPersistence> {
     #[cfg(feature = "redb")]
     {
-        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-        ENCRYPTION_KEY.call_once(|| {
-            std::env::set_var(epistemic_graph::crypto::ENCRYPTION_KEY_ENV, encryption_key);
-        });
+        provision_encryption_key_once(encryption_key);
         crate::common::tempdir_persistence().1
     }
     #[cfg(not(feature = "redb"))]
