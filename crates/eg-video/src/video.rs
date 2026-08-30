@@ -45,23 +45,7 @@ pub struct VideoShot {
     pub end_ms: u64,
 }
 
-impl VideoShot {
-    pub fn new(start_ms: u64, end_ms: u64) -> Self {
-        Self {
-            label: None,
-            start_ms,
-            end_ms,
-        }
-    }
-
-    pub fn labeled(label: impl Into<String>, start_ms: u64, end_ms: u64) -> Self {
-        Self {
-            label: Some(label.into()),
-            start_ms,
-            end_ms,
-        }
-    }
-}
+eg_modality::modality_timed_range_constructors!(VideoShot);
 
 /// The video modality's stored value. Encoded bytes and decoded pixel buffers remain
 /// outside this serializable record.

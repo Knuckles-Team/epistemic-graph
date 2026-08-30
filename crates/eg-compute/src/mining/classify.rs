@@ -23,6 +23,8 @@
 // handler (`src/server/handlers/mining.rs`) supplies rows (explicit features or node
 // embeddings), the labels, and does the KG write-back.
 
+use super::math::{argmax, log_gaussian_diag};
+
 /// A point in feature space (one matrix row).
 pub type Point = Vec<f64>;
 
@@ -85,12 +87,32 @@ pub fn fit(x: &[Point], y: &[i64], algorithm: Algorithm) -> Result<FittedClassif
             x: x.to_vec(),
             y: y.to_vec(),
         },
-        Algorithm::Logistic { lr, epochs, l2 } => {
-            fit_linear_ovr(x, y, &classes, dim, "logistic", lr, epochs, l2, 0.0)
-        }
-        Algorithm::LinearSvc { c, epochs, lr } => {
-            fit_linear_ovr(x, y, &classes, dim, "svc", lr, epochs, 0.0, c)
-        }
+        Algorithm::Logistic { lr, epochs, l2 } => fit_linear_ovr(
+            x,
+            y,
+            &classes,
+            dim,
+            LinearOvrOptions {
+                kind: "logistic",
+                lr,
+                epochs,
+                l2,
+                c: 0.0,
+            },
+        ),
+        Algorithm::LinearSvc { c, epochs, lr } => fit_linear_ovr(
+            x,
+            y,
+            &classes,
+            dim,
+            LinearOvrOptions {
+                kind: "svc",
+                lr,
+                epochs,
+                l2: 0.0,
+                c,
+            },
+        ),
     })
 }
 
@@ -304,75 +326,121 @@ fn knn_predict(k: usize, classes: &[i64], xt: &[Point], yt: &[i64], x: &[Point])
 /// (`logistic`: batch GD on the logistic loss with L2 `l2`; `svc`: Pegasos-style
 /// sub-gradient hinge-loss with regularization derived from `c`), storing the weight
 /// vector + bias. Deterministic: zero init, index-ordered full-batch updates.
-#[allow(clippy::too_many_arguments)]
+struct LinearOvrOptions {
+    kind: &'static str,
+    lr: f64,
+    epochs: usize,
+    l2: f64,
+    c: f64,
+}
+
 fn fit_linear_ovr(
     x: &[Point],
     y: &[i64],
     classes: &[i64],
     dim: usize,
-    kind: &str,
-    lr: f64,
-    epochs: usize,
-    l2: f64,
-    c: f64,
+    options: LinearOvrOptions,
 ) -> FittedClassifier {
     let n = x.len() as f64;
-    let lr = if lr > 0.0 { lr } else { 0.1 };
-    let epochs = epochs.max(1);
+    let lr = if options.lr > 0.0 { options.lr } else { 0.1 };
+    let epochs = options.epochs.max(1);
     let mut weights = Vec::with_capacity(classes.len());
     let mut biases = Vec::with_capacity(classes.len());
     for &cls in classes {
-        let mut w = vec![0.0f64; dim];
-        let mut b = 0.0f64;
-        if kind == "logistic" {
-            for _ in 0..epochs {
-                let mut gw = vec![0.0f64; dim];
-                let mut gb = 0.0f64;
-                for (i, row) in x.iter().enumerate() {
-                    let t = if y[i] == cls { 1.0 } else { 0.0 };
-                    let p = sigmoid(dot(&w, row) + b);
-                    let err = p - t;
-                    for d in 0..dim {
-                        gw[d] += err * row[d];
-                    }
-                    gb += err;
-                }
-                for d in 0..dim {
-                    w[d] -= lr * (gw[d] / n + l2 * w[d]);
-                }
-                b -= lr * (gb / n);
-            }
+        let (w, b) = if options.kind == "logistic" {
+            fit_logistic_binary(x, y, cls, dim, n, lr, epochs, options.l2)
         } else {
-            // SVC: minimize (lambda/2)||w||^2 + (1/n) Σ hinge(s_i (w·x+b)).
-            let lambda = 1.0 / (c.max(1e-6) * n);
-            for _ in 0..epochs {
-                let mut gw: Vec<f64> = w.iter().map(|&wi| lambda * wi).collect();
-                let mut gb = 0.0f64;
-                for (i, row) in x.iter().enumerate() {
-                    let s = if y[i] == cls { 1.0 } else { -1.0 };
-                    let margin = s * (dot(&w, row) + b);
-                    if margin < 1.0 {
-                        for d in 0..dim {
-                            gw[d] -= s * row[d] / n;
-                        }
-                        gb -= s / n;
-                    }
-                }
-                for d in 0..dim {
-                    w[d] -= lr * gw[d];
-                }
-                b -= lr * gb;
-            }
-        }
+            fit_svc_binary(x, y, cls, dim, n, lr, epochs, options.c)
+        };
         weights.push(w);
         biases.push(b);
     }
     FittedClassifier::LinearOvr {
-        kind: kind.to_string(),
+        kind: options.kind.to_string(),
         classes: classes.to_vec(),
         weights,
         biases,
     }
+}
+
+fn fit_logistic_binary(
+    x: &[Point],
+    y: &[i64],
+    cls: i64,
+    dim: usize,
+    n: f64,
+    lr: f64,
+    epochs: usize,
+    l2: f64,
+) -> (Vec<f64>, f64) {
+    let mut w = vec![0.0f64; dim];
+    let mut b = 0.0f64;
+    for _ in 0..epochs {
+        let mut gw = vec![0.0f64; dim];
+        let mut gb = 0.0f64;
+        for (i, row) in x.iter().enumerate() {
+            let t = if y[i] == cls { 1.0 } else { 0.0 };
+            let err = sigmoid(dot(&w, row) + b) - t;
+            for d in 0..dim {
+                gw[d] += err * row[d];
+            }
+            gb += err;
+        }
+        for d in 0..dim {
+            w[d] -= lr * (gw[d] / n + l2 * w[d]);
+        }
+        b -= lr * (gb / n);
+    }
+    (w, b)
+}
+
+fn fit_svc_binary(
+    x: &[Point],
+    y: &[i64],
+    cls: i64,
+    dim: usize,
+    n: f64,
+    lr: f64,
+    epochs: usize,
+    c: f64,
+) -> (Vec<f64>, f64) {
+    let mut w = vec![0.0f64; dim];
+    let mut b = 0.0f64;
+    // SVC: minimize (lambda/2)||w||^2 + (1/n) Σ hinge(s_i (w·x+b)).
+    let lambda = 1.0 / (c.max(1e-6) * n);
+    for _ in 0..epochs {
+        let (mut gw, gb) = svc_gradient(x, y, cls, dim, n, &w, b, lambda);
+        for d in 0..dim {
+            w[d] -= lr * gw[d];
+        }
+        b -= lr * gb;
+    }
+    (w, b)
+}
+
+fn svc_gradient(
+    x: &[Point],
+    y: &[i64],
+    cls: i64,
+    dim: usize,
+    n: f64,
+    w: &[f64],
+    b: f64,
+    lambda: f64,
+) -> (Vec<f64>, f64) {
+    let mut gw: Vec<f64> = w.iter().map(|&wi| lambda * wi).collect();
+    let mut gb = 0.0f64;
+    for (i, row) in x.iter().enumerate() {
+        let s = if y[i] == cls { 1.0 } else { -1.0 };
+        let margin = s * (dot(w, row) + b);
+        if margin < 1.0 {
+            for d in 0..dim {
+                gw[d] -= s * row[d] / n;
+            }
+            gb -= s / n;
+        }
+    }
+    (gw, gb)
 }
 
 // ─────────────────────────── shared helpers ───────────────────────────
@@ -415,28 +483,6 @@ fn softmax(v: &[f64]) -> Vec<f64> {
 
 fn sigmoid(z: f64) -> f64 {
     1.0 / (1.0 + (-z).exp())
-}
-
-/// log N(x | mean, diag(var)) for a diagonal-covariance Gaussian.
-fn log_gaussian_diag(x: &[f64], mean: &[f64], var: &[f64]) -> f64 {
-    const LOG_2PI: f64 = 1.837_877_066_409_345_6; // ln(2π)
-    let mut acc = 0.0;
-    for d in 0..x.len() {
-        let v = var[d].max(1e-12);
-        let diff = x[d] - mean[d];
-        acc += -0.5 * (LOG_2PI + v.ln() + diff * diff / v);
-    }
-    acc
-}
-
-fn argmax(v: &[f64]) -> usize {
-    let mut best = 0;
-    for i in 1..v.len() {
-        if v[i] > v[best] {
-            best = i;
-        }
-    }
-    best
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {

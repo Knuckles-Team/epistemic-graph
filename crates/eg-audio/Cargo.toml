@@ -14,17 +14,17 @@ name = "eg_audio"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
-# ModalityContract implementation (CONCEPT:E4), mirroring eg-tensor/eg-geo.
-# Optional, only under `contract` (default OFF) — a default/pi/node/full build links
-# none of it and `AudioData` carries no new required trait. See `src/contract.rs`.
-eg-modality = { path = "../eg-modality", optional = true }
+# Shared governed modality helpers (CONCEPT:E4), including the dependency-light
+# constructor macro used by the always-available AudioSegment value type. The
+# ModalityContract implementation remains feature-gated below.
+eg-modality = { path = "../eg-modality" }
 
 [features]
 default = []
 # `impl ModalityContract for AudioData` + the conformance battery. OFF by default;
 # `serving` promotes it to the governed runtime and is enabled by the facade's
 # production epistemic surface.
-contract = ["dep:eg-modality"]
+contract = []
 serving = ["contract"]
 # Dependency-light native runtime (CONCEPT:EG-P1-3): 8/16-bit PCM/WAV decode,
 # waveform windows, a bounded DFT spectrogram, VAD, opaque speaker grouping, and

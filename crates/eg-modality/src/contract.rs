@@ -118,6 +118,106 @@ pub fn tck_not_applicable_reason(
         .find_map(|entry| (entry.0 == point).then_some(entry.1))
 }
 
+/// Validate the lowercase hexadecimal content address carried by a modality value.
+///
+/// Media contracts all bind their original bytes to a 64-character SHA-256 digest;
+/// keeping the lexical check here makes that shared invariant one implementation.
+pub fn content_address(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+/// Return the policy labels attached to governed modality values.
+pub fn policy_labels() -> Vec<String> {
+    vec![
+        "eg:policylabel:0000000000000001".to_string(),
+        "eg:policylabel:0000000000000002".to_string(),
+        "eg:policylabel:0000000000000003".to_string(),
+    ]
+}
+
+/// Generate the codec, storage, backup, and recovery hooks shared by whole-value
+/// modality contracts. The caller supplies the value type, element count, and
+/// secondary-index expression; the generated methods retain each contract's
+/// concrete storage accounting while keeping the staged round-trip behavior in one
+/// implementation.
+#[macro_export]
+macro_rules! modality_contract_runtime_hooks {
+    ($value:ty, $element_count:expr, $has_secondary_index:expr) => {
+        /// Batch and bounded-stream ingest use the same deterministic typed codec.
+        fn ingest_report(&self, id: &str) -> $crate::IngestReport {
+            let staged = self.txn_stage(id);
+            let batch = match $crate::decode_staged::<$value>(&staged) {
+                Ok(round_trip) if round_trip == *self => $crate::ModalitySelfTest::Passed,
+                _ => $crate::ModalitySelfTest::Failed,
+            };
+            let streaming = [staged].into_iter().all(|item| {
+                matches!(
+                    $crate::decode_staged::<$value>(&item),
+                    Ok(round_trip) if round_trip == *self
+                )
+            });
+            $crate::IngestReport {
+                batch,
+                streaming: if streaming {
+                    $crate::ModalitySelfTest::Passed
+                } else {
+                    $crate::ModalitySelfTest::Failed
+                },
+            }
+        }
+
+        fn storage_stats(&self, _id: &str) -> Option<$crate::StorageStats> {
+            let logical_bytes = $crate::encode_staged(self).len() as u64;
+            Some($crate::StorageStats {
+                logical_bytes,
+                element_count: $element_count,
+                has_secondary_index: $has_secondary_index,
+            })
+        }
+
+        fn backup_selfcheck(&self, id: &str) -> $crate::ModalitySelfTest {
+            $crate::staged_recovery_selfcheck(self, id)
+        }
+
+        /// Simulated single-node crash-and-recover through the txn staging path.
+        fn recovery_selfcheck(&self, id: &str) -> $crate::ModalitySelfTest {
+            $crate::staged_recovery_selfcheck(self, id)
+        }
+    };
+}
+
+/// Generate the standard constructors for a labeled time range.
+///
+/// Audio segments and video shots carry the same governed range shape while
+/// remaining distinct public types in their respective leaf crates. The macro
+/// keeps their public APIs and serde layouts local to those crates without
+/// repeating the constructor implementation.
+#[macro_export]
+macro_rules! modality_timed_range_constructors {
+    ($value:ty) => {
+        impl $value {
+            pub fn new(start_ms: u64, end_ms: u64) -> Self {
+                Self {
+                    label: None,
+                    start_ms,
+                    end_ms,
+                }
+            }
+
+            pub fn labeled(label: impl Into<String>, start_ms: u64, end_ms: u64) -> Self {
+                Self {
+                    label: Some(label.into()),
+                    start_ms,
+                    end_ms,
+                }
+            }
+        }
+    };
+}
+
 /// The seam every `eg-*` modality value type can implement. See the module docs for
 /// the v1-scoping rationale (4 core + 4 default-empty methods).
 pub trait ModalityContract {

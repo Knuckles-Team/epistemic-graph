@@ -22,6 +22,7 @@ pub mod association;
 pub mod classify;
 pub mod cluster;
 pub mod forecast;
+mod math;
 pub mod reduce;
 pub mod sequence;
 pub mod subgraph;

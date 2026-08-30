@@ -1,9 +1,9 @@
 //! Governed modality contract for [`ImageData`].
 
 use eg_modality::{
-    decode_staged, encode_staged, signature_bands, spatial_cells, ConformanceTestable,
-    EvidenceAddress, GovernedModality, IngestReport, ModalityContract, ModalitySelfTest,
-    NativeIndexKey, NativePredicate, OpaqueRef, Provenance, RowSetShape, StagedWrite, StorageStats,
+    encode_staged, signature_bands, spatial_cells, ConformanceTestable, EvidenceAddress,
+    GovernedModality, ModalityContract, NativeIndexKey, NativePredicate, OpaqueRef, Provenance,
+    RowSetShape, StagedWrite,
 };
 
 use crate::image::{ImageColorSpace, ImageData, ImageFormat, ImageRegion};
@@ -13,13 +13,6 @@ const MAX_REGIONS: usize = 65_536;
 
 fn opaque(value: &str) -> bool {
     OpaqueRef::new(value.to_string()).is_ok()
-}
-
-fn content_address(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 impl ModalityContract for ImageData {
@@ -65,64 +58,14 @@ impl ModalityContract for ImageData {
     }
 
     fn policy_labels(&self, _id: &str) -> Vec<String> {
-        vec![
-            "eg:policylabel:0000000000000001".to_string(),
-            "eg:policylabel:0000000000000002".to_string(),
-            "eg:policylabel:0000000000000003".to_string(),
-        ]
+        eg_modality::policy_labels()
     }
 
-    // ── EG-P1-1 hooks — real, minimal implementations over ImageData's
-    // serialization and txn staging. ──
-
-    /// Batch and bounded-stream ingest use the same deterministic typed codec.
-    fn ingest_report(&self, id: &str) -> IngestReport {
-        let staged = self.txn_stage(id);
-        let batch = match decode_staged::<ImageData>(&staged) {
-            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        };
-        let streaming = [staged].into_iter().all(|item| {
-            matches!(
-                decode_staged::<ImageData>(&item),
-                Ok(round_trip) if round_trip == *self
-            )
-        });
-        IngestReport {
-            batch,
-            streaming: if streaming {
-                ModalitySelfTest::Passed
-            } else {
-                ModalitySelfTest::Failed
-            },
-        }
-    }
-
-    /// Real storage stats from the serialized ImageData: logical size from encoded
-    /// length; element count is the number of extracted regions. Region lookup is
-    /// the native secondary index advertised by the served image runtime.
-    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
-        let logical_bytes = encode_staged(self).len() as u64;
-        Some(StorageStats {
-            logical_bytes,
-            element_count: self.regions.len() as u64,
-            has_secondary_index: !self.native_index_keys().is_empty(),
-        })
-    }
-
-    fn backup_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        match decode_staged::<ImageData>(&self.txn_stage(id)) {
-            Ok(restored) if restored == *self => ModalitySelfTest::Passed,
-            _ => ModalitySelfTest::Failed,
-        }
-    }
-
-    /// Simulated single-node crash-and-recover through the txn staging path.
-    /// Stage the image as an in-txn write; the staged payload IS the WAL record;
-    /// on "restart" replay-decode it and confirm the recovered image is intact.
-    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
-        eg_modality::staged_recovery_selfcheck(self, id)
-    }
+    eg_modality::modality_contract_runtime_hooks!(
+        ImageData,
+        self.regions.len() as u64,
+        !self.native_index_keys().is_empty()
+    );
 }
 
 impl GovernedModality for ImageData {
@@ -135,7 +78,7 @@ impl GovernedModality for ImageData {
             && self.format == ImageFormat::Png
             && self.color_space != ImageColorSpace::Unknown
             && self.bit_depth == 8
-            && content_address(&self.blob_ref)
+            && eg_modality::content_address(&self.blob_ref)
             && self.regions.len() <= MAX_REGIONS
             && self.regions.iter().all(|region| {
                 region.x.is_finite()
