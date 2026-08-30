@@ -49,9 +49,9 @@ impl ModalityContract for NodeChange {
     }
 
     /// Real storage stats.
-    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+    fn storage_stats(&self, id: &str) -> Option<StorageStats> {
         Some(StorageStats {
-            logical_bytes: encode_staged(self).len() as u64,
+            logical_bytes: self.txn_stage(id).payload.len() as u64,
             element_count: 1,
             has_secondary_index: false,
         })

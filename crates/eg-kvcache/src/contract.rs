@@ -50,9 +50,10 @@ impl ModalityContract for StoredBlock {
     }
 
     /// Real storage stats: serialized size; element count is 1 (a single block).
-    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+    fn storage_stats(&self, id: &str) -> Option<StorageStats> {
+        let staged = self.txn_stage(id);
         Some(StorageStats {
-            logical_bytes: encode_staged(self).len() as u64,
+            logical_bytes: staged.payload.len() as u64,
             element_count: 1,
             has_secondary_index: false,
         })
