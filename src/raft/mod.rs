@@ -111,6 +111,10 @@ pub mod store;
 /// and never misrepresents them as a global snapshot.
 pub mod xread;
 
+/// Shared setup helpers for in-process Raft harnesses.
+#[cfg(any(test, feature = "harness", feature = "compute-dist"))]
+pub(crate) mod harness_support;
+
 /// Correctness + load harness (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) — the standing proof-engine that
 /// gates every distributed/durability claim. Compiled under tests OR the explicit
 /// `harness` feature; never in a production tier build.
