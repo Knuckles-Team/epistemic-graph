@@ -24,15 +24,11 @@
 use crate::{
     credentials::{CredentialSource, EnvCredentials},
     error::HardwareError,
-    quota::{QuotaStatus, QuotaTracker, QuotaUnits},
-    registry::{HardwareJob, HardwareJobRegistry, PreparedCircuit},
+    quota::QuotaStatus,
+    registry::{self, BackendState, ConfiguredQuota, HardwareJob, PreparedCircuit},
     transport::{Body, HttpRequest, HttpTransport, Method, ProviderHttp, ReqwestTransport},
 };
-use eg_quantum_core::backend::{BackendId, JobHandle, JobStatus, RunOptions};
-use eg_quantum_core::ir::QuantumProgram;
-use eg_quantum_core::result::QuantumResult;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime};
+use eg_quantum_core::backend::{JobHandle, RunOptions};
 
 pub const AZURE_QUANTUM_TENANT_ID_ENV: &str = "AZURE_QUANTUM_TENANT_ID";
 pub const AZURE_QUANTUM_CLIENT_ID_ENV: &str = "AZURE_QUANTUM_CLIENT_ID";
@@ -49,95 +45,15 @@ pub const AZURE_QUANTUM_BUDGET_WINDOW_DAYS_ENV: &str = "AZURE_QUANTUM_BUDGET_WIN
 
 const AAD_TOKEN_SCOPE: &str = "https://quantum.microsoft.com/.default";
 
-fn estimate_cost_units(opts: &RunOptions) -> QuotaUnits {
-    QuotaUnits(opts.shots.unwrap_or(1).max(1))
-}
-
-/// Azure's operator-declared budget and its usage lifecycle.
-///
-/// Azure is the only provider in this crate whose free surface has no fixed
-/// quota. Keeping configuration, one-time initialization, reservation, and
-/// snapshots together prevents the backend's request lifecycle from owning
-/// budget policy as an incidental detail.
-struct AzureQuota {
-    tracker: Mutex<Option<QuotaTracker>>,
-    initialized: OnceLock<()>,
-}
-
-impl Default for AzureQuota {
-    fn default() -> Self {
-        AzureQuota {
-            tracker: Mutex::new(None),
-            initialized: OnceLock::new(),
-        }
-    }
-}
-
-impl AzureQuota {
-    fn ensure_configured<C: CredentialSource>(&self, credentials: &C) -> Result<(), HardwareError> {
-        if self.initialized.get().is_some() {
-            return Ok(());
-        }
-        let units = credentials
-            .require(AZURE_QUANTUM_BUDGET_UNITS_ENV)
-            .map_err(|_| {
-                HardwareError::BudgetNotConfigured(format!(
-                    "Azure Quantum has no fixed free-tier quota; this adapter refuses to \
-                     submit until an operator explicitly declares a budget via {} and {} \
-                     (see azure.rs module docs) -- neither is set",
-                    AZURE_QUANTUM_BUDGET_UNITS_ENV, AZURE_QUANTUM_BUDGET_WINDOW_DAYS_ENV
-                ))
-            })?
-            .parse::<u64>()
-            .map_err(|e| {
-                HardwareError::BudgetNotConfigured(format!(
-                    "{AZURE_QUANTUM_BUDGET_UNITS_ENV} must be a non-negative integer: {e}"
-                ))
-            })?;
-        let window_days = credentials
-            .require(AZURE_QUANTUM_BUDGET_WINDOW_DAYS_ENV)
-            .map_err(|_| {
-                HardwareError::BudgetNotConfigured(format!(
-                    "{AZURE_QUANTUM_BUDGET_UNITS_ENV} is set but {AZURE_QUANTUM_BUDGET_WINDOW_DAYS_ENV} \
-                     is not -- both are required together"
-                ))
-            })?
-            .parse::<u64>()
-            .map_err(|e| {
-                HardwareError::BudgetNotConfigured(format!(
-                    "{AZURE_QUANTUM_BUDGET_WINDOW_DAYS_ENV} must be a non-negative integer: {e}"
-                ))
-            })?;
-        let mut guard = self.tracker.lock().expect("quota mutex poisoned");
-        if guard.is_none() {
-            *guard = Some(QuotaTracker::new(
-                "azure-quantum-operator-budget",
-                "operator-units",
-                Duration::from_secs(window_days * 86_400),
-                QuotaUnits(units),
-            ));
-        }
-        drop(guard);
-        let _ = self.initialized.set(());
-        Ok(())
-    }
-
-    fn reserve(&self, cost: QuotaUnits) -> Result<QuotaStatus, HardwareError> {
-        let guard = self.tracker.lock().expect("quota mutex poisoned");
-        let tracker = guard
-            .as_ref()
-            .expect("AzureQuota::ensure_configured must run before reserve");
-        Ok(tracker.try_reserve(cost, SystemTime::now())?)
-    }
-
-    fn status(&self) -> Option<QuotaStatus> {
-        self.tracker
-            .lock()
-            .expect("quota mutex poisoned")
-            .as_ref()
-            .map(|q| q.status(SystemTime::now()))
-    }
-}
+const AZURE_STATUS_MAPPING: registry::StatusMapping = registry::StatusMapping {
+    provider: "Azure",
+    status_noun: "job",
+    queued: &["Waiting"],
+    running: &["Executing"],
+    completed: &["Succeeded"],
+    cancelled: &["Cancelled"],
+    failed: &[("Failed", "Azure Quantum job reported Failed")],
+};
 
 /// Azure-specific request/authentication client.
 ///
@@ -242,44 +158,10 @@ impl<C: CredentialSource, T: HttpTransport> AzureClient<C, T> {
         ProviderHttp::new(&self.transport, "azure-quantum").send_checked(req, &[200])
     }
 
-    fn refresh_status(&self, record: &mut HardwareJob) -> Result<(), HardwareError> {
-        record.refresh_with(|record| {
-            let response = self.job_request(&record.remote_id)?;
-            let status = response
-                .body
-                .get("status")
-                .and_then(|value| value.as_str())
-                .unwrap_or("");
-            Ok(match status {
-                "Waiting" => JobStatus::Queued,
-                "Executing" => JobStatus::Running,
-                "Succeeded" => JobStatus::Completed,
-                "Cancelled" => JobStatus::Cancelled,
-                "Failed" => JobStatus::Failed("Azure Quantum job reported Failed".to_string()),
-                other => JobStatus::Failed(format!("unrecognized Azure job status {other:?}")),
-            })
-        })
-    }
-
-    fn fetch_result(
+    fn cancel_request(
         &self,
-        backend_id: &BackendId,
-        record: &mut HardwareJob,
-    ) -> Result<QuantumResult, HardwareError> {
-        record.resolve_result(|record| {
-            let suffix = format!("{}/results", record.remote_id);
-            let response = self.job_request(&suffix)?;
-            Ok(crate::registry::hardware_result(
-                backend_id,
-                record,
-                &response.body,
-                "counts",
-                None,
-            ))
-        })
-    }
-
-    fn cancel(&self, record: &HardwareJob) -> Result<(), HardwareError> {
+        record: &HardwareJob,
+    ) -> Result<crate::transport::HttpResponse, HardwareError> {
         let api_base = self.api_base()?;
         let req = HttpRequest {
             method: Method::Delete,
@@ -287,9 +169,20 @@ impl<C: CredentialSource, T: HttpTransport> AzureClient<C, T> {
             headers: vec![self.auth_header()?],
             body: None,
         };
-        ProviderHttp::new(&self.transport, "azure-quantum")
-            .send(req)
-            .map(|_| ())
+        ProviderHttp::new(&self.transport, "azure-quantum").send(req)
+    }
+}
+
+impl<C: CredentialSource, T: HttpTransport> registry::ProviderClient for AzureClient<C, T> {
+    fn request(
+        &self,
+        operation: registry::JobOperation,
+        record: &HardwareJob,
+    ) -> Result<crate::transport::HttpResponse, HardwareError> {
+        match operation {
+            registry::JobOperation::Cancel => self.cancel_request(record),
+            _ => self.job_request(&operation.remote_suffix(&record.remote_id, "results")),
+        }
     }
 }
 
@@ -297,12 +190,11 @@ pub struct AzureQuantumBackend<
     C: CredentialSource = EnvCredentials,
     T: HttpTransport = ReqwestTransport,
 > {
-    id: BackendId,
+    state: BackendState,
     client: AzureClient<C, T>,
     /// Owns the mandatory operator-declared budget and its usage state; see
-    /// [`AzureQuota`] for why this is separate from the request lifecycle.
-    quota: AzureQuota,
-    jobs: HardwareJobRegistry,
+    /// [`ConfiguredQuota`] for why this is separate from the request lifecycle.
+    quota: ConfiguredQuota,
 }
 
 impl AzureQuantumBackend<EnvCredentials, ReqwestTransport> {
@@ -320,10 +212,9 @@ impl Default for AzureQuantumBackend<EnvCredentials, ReqwestTransport> {
 impl<C: CredentialSource, T: HttpTransport> AzureQuantumBackend<C, T> {
     pub fn with_parts(credentials: C, transport: T) -> Self {
         AzureQuantumBackend {
-            id: BackendId::from("hardware-azure"),
+            state: BackendState::new("hardware-azure"),
             client: AzureClient::new(credentials, transport),
-            quota: AzureQuota::default(),
-            jobs: HardwareJobRegistry::default(),
+            quota: ConfiguredQuota::default(),
         }
     }
 
@@ -332,25 +223,35 @@ impl<C: CredentialSource, T: HttpTransport> AzureQuantumBackend<C, T> {
     }
 
     pub fn quota_status_at_submit(&self, job: JobHandle) -> Option<QuotaStatus> {
-        self.jobs.quota_status_at_submit(job)
+        self.state.quota_status_at_submit(job)
+    }
+}
+
+impl<C: CredentialSource, T: HttpTransport> registry::ProviderSubmission
+    for AzureQuantumBackend<C, T>
+{
+    fn before_submit(&self) -> Result<(), HardwareError> {
+        self.quota.ensure_configured(
+            &self.client.credentials,
+            "Azure Quantum",
+            AZURE_QUANTUM_BUDGET_UNITS_ENV,
+            AZURE_QUANTUM_BUDGET_WINDOW_DAYS_ENV,
+        )
     }
 
-    fn execute_submit(
+    fn reserve_submission(
         &self,
-        program: &QuantumProgram,
+        cost: crate::quota::QuotaUnits,
+    ) -> Result<QuotaStatus, HardwareError> {
+        self.quota.reserve(cost)
+    }
+
+    fn submit_remote(
+        &self,
+        circuit: &PreparedCircuit,
         opts: &RunOptions,
-    ) -> Result<HardwareJob, HardwareError> {
-        self.quota.ensure_configured(&self.client.credentials)?;
-        let circuit = PreparedCircuit::from_program(program)?;
-
-        let quota_status = self.quota.reserve(estimate_cost_units(opts))?;
-        let remote_job_id = self.client.submit(&circuit, opts)?;
-
-        Ok(crate::registry::queued_job(
-            remote_job_id,
-            quota_status,
-            circuit.hash,
-        ))
+    ) -> Result<String, HardwareError> {
+        self.client.submit(circuit, opts)
     }
 }
 
@@ -359,4 +260,9 @@ crate::registry::impl_hardware_backend!(
     supports_density_matrix = false,
     pending_message = "job has not completed yet -- call poll() until JobStatus::Completed",
     timeout_message = "run() timed out waiting for the Azure Quantum job to complete",
+    status_mapping = &AZURE_STATUS_MAPPING,
+    result_mapping = registry::ResultMapping {
+        counts_field: "counts",
+        fidelity_field: None,
+    },
 );

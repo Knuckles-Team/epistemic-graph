@@ -15,12 +15,10 @@
 use crate::credentials::{CredentialSource, EnvCredentials};
 use crate::error::HardwareError;
 use crate::quota::{QuotaStatus, QuotaTracker, QuotaUnits};
-use crate::registry::{HardwareJob, HardwareJobRegistry, PreparedCircuit};
+use crate::registry::{self, BackendState, HardwareJob, PreparedCircuit};
 use crate::sigv4::{self, AwsCredentials};
 use crate::transport::{Body, HttpRequest, HttpTransport, Method, ProviderHttp, ReqwestTransport};
-use eg_quantum_core::backend::{BackendId, JobHandle, JobStatus, RunOptions};
-use eg_quantum_core::ir::QuantumProgram;
-use eg_quantum_core::result::QuantumResult;
+use eg_quantum_core::backend::{JobHandle, RunOptions};
 use std::time::{Duration, SystemTime};
 
 pub const AWS_BRAKET_ACCESS_KEY_ID_ENV: &str = "AWS_BRAKET_ACCESS_KEY_ID";
@@ -36,11 +34,15 @@ const DEFAULT_REGION: &str = "us-east-1";
 const FREE_TIER_WINDOW: Duration = Duration::from_secs(30 * 86_400);
 const FREE_TIER_LIMIT_SECONDS: u64 = 3_600;
 
-fn estimate_cost_seconds(opts: &RunOptions) -> QuotaUnits {
-    // Same conservative per-shot-second proxy as `ibm.rs` -- see that module's
-    // `estimate_cost_seconds` docs.
-    QuotaUnits(opts.shots.unwrap_or(1).max(1))
-}
+const BRAKET_STATUS_MAPPING: registry::StatusMapping = registry::StatusMapping {
+    provider: "Braket",
+    status_noun: "task",
+    queued: &["CREATED", "QUEUED"],
+    running: &["RUNNING"],
+    completed: &["COMPLETED"],
+    cancelled: &["CANCELLED"],
+    failed: &[("FAILED", "Braket task reported FAILED")],
+};
 
 /// Braket-specific endpoint and SigV4 client.
 ///
@@ -168,57 +170,36 @@ impl<C: CredentialSource, T: HttpTransport> BraketClient<C, T> {
         };
         ProviderHttp::new(&self.transport, "aws-braket").send_checked(req, &[200])
     }
+}
 
-    fn refresh_status(&self, record: &mut HardwareJob) -> Result<(), HardwareError> {
-        record.refresh_with(|record| {
-            let path = format!("/quantum-task/{}", record.remote_id);
-            let response = self.task_request(Method::Get, &path)?;
-            let status = response
-                .body
-                .get("status")
-                .and_then(|value| value.as_str())
-                .unwrap_or("");
-            Ok(match status {
-                "CREATED" | "QUEUED" => JobStatus::Queued,
-                "RUNNING" => JobStatus::Running,
-                "COMPLETED" => JobStatus::Completed,
-                "CANCELLED" => JobStatus::Cancelled,
-                "FAILED" => JobStatus::Failed("Braket task reported FAILED".to_string()),
-                other => JobStatus::Failed(format!("unrecognized Braket task status {other:?}")),
-            })
-        })
-    }
-
-    fn fetch_result(
+impl<C: CredentialSource, T: HttpTransport> registry::ProviderClient for BraketClient<C, T> {
+    fn request(
         &self,
-        backend_id: &BackendId,
-        record: &mut HardwareJob,
-    ) -> Result<QuantumResult, HardwareError> {
-        record.resolve_result(|record| {
-            let path = format!("/quantum-task/{}/result", record.remote_id);
-            let response = self.task_request(Method::Get, &path)?;
-            Ok(crate::registry::hardware_result(
-                backend_id,
-                record,
-                &response.body,
-                "measurementCounts",
-                None,
-            ))
-        })
-    }
-
-    fn cancel(&self, record: &HardwareJob) -> Result<(), HardwareError> {
-        let path = format!("/quantum-task/{}/cancel", record.remote_id);
-        self.task_request(Method::Put, &path).map(|_| ())
+        operation: registry::JobOperation,
+        record: &HardwareJob,
+    ) -> Result<crate::transport::HttpResponse, HardwareError> {
+        let (method, path) = match operation {
+            registry::JobOperation::Status => {
+                (Method::Get, format!("/quantum-task/{}", record.remote_id))
+            }
+            registry::JobOperation::Result => (
+                Method::Get,
+                format!("/quantum-task/{}/result", record.remote_id),
+            ),
+            registry::JobOperation::Cancel => (
+                Method::Put,
+                format!("/quantum-task/{}/cancel", record.remote_id),
+            ),
+        };
+        self.task_request(method, &path)
     }
 }
 
 pub struct BraketBackend<C: CredentialSource = EnvCredentials, T: HttpTransport = ReqwestTransport>
 {
-    id: BackendId,
+    state: BackendState,
     client: BraketClient<C, T>,
     quota: QuotaTracker,
-    jobs: HardwareJobRegistry,
 }
 
 impl BraketBackend<EnvCredentials, ReqwestTransport> {
@@ -245,10 +226,9 @@ impl Default for BraketBackend<EnvCredentials, ReqwestTransport> {
 impl<C: CredentialSource, T: HttpTransport> BraketBackend<C, T> {
     pub fn with_parts(credentials: C, transport: T, quota: QuotaTracker) -> Self {
         BraketBackend {
-            id: BackendId::from("hardware-braket"),
+            state: BackendState::new("hardware-braket"),
             client: BraketClient::new(credentials, transport),
             quota,
-            jobs: HardwareJobRegistry::default(),
         }
     }
 
@@ -257,26 +237,23 @@ impl<C: CredentialSource, T: HttpTransport> BraketBackend<C, T> {
     }
 
     pub fn quota_status_at_submit(&self, job: JobHandle) -> Option<QuotaStatus> {
-        self.jobs.quota_status_at_submit(job)
+        self.state.quota_status_at_submit(job)
     }
+}
 
-    fn execute_submit(
+impl<C: CredentialSource, T: HttpTransport> registry::FixedQuotaProvider for BraketBackend<C, T> {
+    fn quota_tracker(&self) -> &QuotaTracker {
+        &self.quota
+    }
+}
+
+impl<C: CredentialSource, T: HttpTransport> registry::ProviderRemoteSubmit for BraketBackend<C, T> {
+    fn submit_remote(
         &self,
-        program: &QuantumProgram,
+        circuit: &PreparedCircuit,
         opts: &RunOptions,
-    ) -> Result<HardwareJob, HardwareError> {
-        let circuit = PreparedCircuit::from_program(program)?;
-
-        let cost = estimate_cost_seconds(opts);
-        let quota_status = self.quota.try_reserve(cost, SystemTime::now())?;
-
-        let remote_task_arn = self.client.submit(&circuit, opts)?;
-
-        Ok(crate::registry::queued_job(
-            remote_task_arn,
-            quota_status,
-            circuit.hash,
-        ))
+    ) -> Result<String, HardwareError> {
+        self.client.submit(circuit, opts)
     }
 }
 
@@ -285,4 +262,9 @@ crate::registry::impl_hardware_backend!(
     supports_density_matrix = true,
     pending_message = "task has not completed yet -- call poll() until JobStatus::Completed",
     timeout_message = "run() timed out waiting for the Braket task to complete",
+    status_mapping = &BRAKET_STATUS_MAPPING,
+    result_mapping = registry::ResultMapping {
+        counts_field: "measurementCounts",
+        fidelity_field: None,
+    },
 );

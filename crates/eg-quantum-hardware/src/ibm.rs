@@ -13,12 +13,10 @@ use crate::{
     credentials::{CredentialSource, EnvCredentials},
     error::HardwareError,
     quota::{QuotaStatus, QuotaTracker, QuotaUnits},
-    registry::{HardwareJob, HardwareJobRegistry, PreparedCircuit},
+    registry::{self, BackendState, HardwareJob, PreparedCircuit},
     transport::{Body, HttpRequest, HttpTransport, Method, ProviderHttp, ReqwestTransport},
 };
-use eg_quantum_core::backend::{BackendId, JobHandle, JobStatus, RunOptions};
-use eg_quantum_core::ir::QuantumProgram;
-use eg_quantum_core::result::QuantumResult;
+use eg_quantum_core::backend::{BackendId, JobHandle, RunOptions};
 use std::time::{Duration, SystemTime};
 
 /// The IBM Cloud API key backing the Open Plan account. Populated from OpenBao via
@@ -38,14 +36,15 @@ const DEFAULT_API_BASE: &str = "https://quantum.cloud.ibm.com/api/v1";
 const OPEN_PLAN_WINDOW: Duration = Duration::from_secs(28 * 86_400);
 const OPEN_PLAN_LIMIT_SECONDS: u64 = 600;
 
-/// A dense-per-shot-second cost model: the reserved budget for a submission is
-/// `shots` (default 1) since IBM's Open Plan meters wall-clock QPU seconds, not
-/// shots, and this crate has no pre-execution timing oracle -- 1 second per shot is
-/// a deliberately conservative (over-, not under-) estimate; see `quota.rs`'s
-/// `try_reserve` docs on why over-counting is the safe direction to be wrong in.
-fn estimate_cost_seconds(opts: &RunOptions) -> QuotaUnits {
-    QuotaUnits(opts.shots.unwrap_or(1).max(1))
-}
+const IBM_STATUS_MAPPING: registry::StatusMapping = registry::StatusMapping {
+    provider: "IBM",
+    status_noun: "job",
+    queued: &["QUEUED", "INITIALIZING"],
+    running: &["RUNNING"],
+    completed: &["COMPLETED"],
+    cancelled: &["CANCELLED"],
+    failed: &[],
+};
 
 /// IBM Cloud IAM/Qiskit Runtime request client.
 ///
@@ -142,52 +141,32 @@ impl<C: CredentialSource, T: HttpTransport> IbmClient<C, T> {
         crate::registry::remote_id(&response.body, "id", "job response missing id")
     }
 
-    fn refresh_status(&self, record: &mut HardwareJob) -> Result<(), HardwareError> {
-        record.refresh_with(|record| {
-            let response = self.job_request(&record.remote_id)?;
-            let status = response
-                .body
-                .get("status")
-                .and_then(|value| value.as_str())
-                .unwrap_or("");
-            Ok(match status {
-                "QUEUED" | "INITIALIZING" => JobStatus::Queued,
-                "RUNNING" => JobStatus::Running,
-                "COMPLETED" => JobStatus::Completed,
-                "CANCELLED" => JobStatus::Cancelled,
-                other => JobStatus::Failed(format!("unrecognized IBM job status {other:?}")),
-            })
-        })
-    }
-
-    fn fetch_result(
+    fn cancel_request(
         &self,
-        backend_id: &BackendId,
-        record: &mut HardwareJob,
-    ) -> Result<QuantumResult, HardwareError> {
-        record.resolve_result(|record| {
-            let suffix = format!("{}/results", record.remote_id);
-            let response = self.job_request(&suffix)?;
-            Ok(crate::registry::hardware_result(
-                backend_id,
-                record,
-                &response.body,
-                "counts",
-                Some("fidelity_hint"),
-            ))
-        })
-    }
-
-    fn cancel(&self, record: &HardwareJob) -> Result<(), HardwareError> {
+        record: &HardwareJob,
+    ) -> Result<crate::transport::HttpResponse, HardwareError> {
         let req = HttpRequest {
             method: Method::Delete,
             url: format!("{}/jobs/{}", self.api_base, record.remote_id),
             headers: self.auth_headers()?,
             body: None,
         };
-        ProviderHttp::new(&self.transport, "ibm-quantum")
-            .send(req)
-            .map(|_| ())
+        ProviderHttp::new(&self.transport, "ibm-quantum").send(req)
+    }
+}
+
+impl<C: CredentialSource, T: HttpTransport> registry::ProviderClient for IbmClient<C, T> {
+    fn request(
+        &self,
+        operation: registry::JobOperation,
+        record: &HardwareJob,
+    ) -> Result<crate::transport::HttpResponse, HardwareError> {
+        let suffix = operation.remote_suffix(&record.remote_id, "results");
+        if operation.is_cancel() {
+            self.cancel_request(record)
+        } else {
+            self.job_request(&suffix)
+        }
     }
 }
 
@@ -195,10 +174,9 @@ pub struct IbmQuantumBackend<
     C: CredentialSource = EnvCredentials,
     T: HttpTransport = ReqwestTransport,
 > {
-    id: BackendId,
+    state: BackendState,
     client: IbmClient<C, T>,
     quota: QuotaTracker,
-    jobs: HardwareJobRegistry,
 }
 
 impl IbmQuantumBackend<EnvCredentials, ReqwestTransport> {
@@ -230,10 +208,9 @@ impl<C: CredentialSource, T: HttpTransport> IbmQuantumBackend<C, T> {
     /// directly (e.g. `StaticCredentials` + `MockTransport` + a tiny test budget).
     pub fn with_parts(credentials: C, transport: T, quota: QuotaTracker) -> Self {
         IbmQuantumBackend {
-            id: BackendId::from("hardware-ibm"),
+            state: BackendState::new("hardware-ibm"),
             client: IbmClient::new(credentials, transport),
             quota,
-            jobs: HardwareJobRegistry::default(),
         }
     }
 
@@ -247,26 +224,27 @@ impl<C: CredentialSource, T: HttpTransport> IbmQuantumBackend<C, T> {
     /// The budget snapshot recorded at the moment a specific job was submitted, if
     /// that job handle is known.
     pub fn quota_status_at_submit(&self, job: JobHandle) -> Option<QuotaStatus> {
-        self.jobs.quota_status_at_submit(job)
+        self.state.quota_status_at_submit(job)
     }
+}
 
-    fn execute_submit(
+impl<C: CredentialSource, T: HttpTransport> registry::FixedQuotaProvider
+    for IbmQuantumBackend<C, T>
+{
+    fn quota_tracker(&self) -> &QuotaTracker {
+        &self.quota
+    }
+}
+
+impl<C: CredentialSource, T: HttpTransport> registry::ProviderRemoteSubmit
+    for IbmQuantumBackend<C, T>
+{
+    fn submit_remote(
         &self,
-        program: &QuantumProgram,
+        circuit: &PreparedCircuit,
         opts: &RunOptions,
-    ) -> Result<HardwareJob, HardwareError> {
-        let circuit = PreparedCircuit::from_program(program)?;
-
-        let cost = estimate_cost_seconds(opts);
-        let quota_status = self.quota.try_reserve(cost, SystemTime::now())?;
-
-        let remote_job_id = self.client.submit(&self.id, &circuit, opts)?;
-
-        Ok(crate::registry::queued_job(
-            remote_job_id,
-            quota_status,
-            circuit.hash,
-        ))
+    ) -> Result<String, HardwareError> {
+        self.client.submit(&self.state.id, circuit, opts)
     }
 }
 
@@ -275,4 +253,9 @@ crate::registry::impl_hardware_backend!(
     supports_density_matrix = false,
     pending_message = "job has not completed yet -- call poll() until JobStatus::Completed",
     timeout_message = "run() timed out waiting for the IBM job to complete",
+    status_mapping = &IBM_STATUS_MAPPING,
+    result_mapping = registry::ResultMapping {
+        counts_field: "counts",
+        fidelity_field: Some("fidelity_hint"),
+    },
 );
