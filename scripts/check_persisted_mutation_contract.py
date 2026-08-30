@@ -548,9 +548,7 @@ def _production_source(source: str) -> str:
     return source[: match.start()]
 
 
-def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
-    """Reject served adapters that mutate live cores or native stores directly."""
-
+def _check_retired_dataset_surface(sources: Mapping[str, str]) -> None:
     for retired_path in (
         "src/server/dataset_handle.rs",
         "tests/dataset_handle_e2e.rs",
@@ -575,6 +573,8 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
         "retired duplicate dataset feature returned to Cargo",
     )
 
+
+def _check_current_server_surface(sources: Mapping[str, str]) -> None:
     current_server = "\n".join(
         (sources["main"], sources["state"], sources["server"], sources["dispatch"])
     )
@@ -591,19 +591,27 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
             f"retired duplicate dataset surface returned: {retired}",
         )
 
-    external_compute = sources["external_compute_e2e"]
+
+def _check_external_compute_contract(external_compute: str) -> None:
     require(
-        external_compute.count("Method::KnowledgeStream") >= 1
-        and "KnowledgeStreamQuery::Graph" in external_compute
-        and "Method::AnalyticsJob" in external_compute
-        and "JobOp::Submit" in external_compute
-        and "KnowledgeStreamQuery::Job" in external_compute
-        and "signed_knowledge_stream_and_native_analytics_publication_round_trip"
-        in external_compute,
+        external_compute.count("Method::KnowledgeStream") >= 1,
         "signed KnowledgeStream/native AnalyticsJob external-compute proof is missing",
     )
+    for required in (
+        "KnowledgeStreamQuery::Graph",
+        "Method::AnalyticsJob",
+        "JobOp::Submit",
+        "KnowledgeStreamQuery::Job",
+        "signed_knowledge_stream_and_native_analytics_publication_round_trip",
+    ):
+        require(
+            required in external_compute,
+            "signed KnowledgeStream/native AnalyticsJob external-compute proof is missing",
+        )
 
-    sparql = _production_source(sources["sparql_http"])
+
+def _check_sparql_carrier(source: str) -> None:
+    sparql = _production_source(source)
     for forbidden in (
         "core.mark_dirty()",
         "core.add_node(",
@@ -613,16 +621,21 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
         require(
             forbidden not in sparql, f"SPARQL HTTP retains direct mutation: {forbidden}"
         )
-    require(
-        "SPARQL_HTTP_UPDATE_EVENT" in sparql
-        and "signed_request(" in sparql
-        and "crate::server::dispatch::dispatch" in sparql
-        and "pub(crate) async fn plan_update" in sparql
-        and "existed_before" in sparql,
-        "SPARQL HTTP writes must bind an exact signed request and complete detached preimages",
-    )
+    for required in (
+        "SPARQL_HTTP_UPDATE_EVENT",
+        "signed_request(",
+        "crate::server::dispatch::dispatch",
+        "pub(crate) async fn plan_update",
+        "existed_before",
+    ):
+        require(
+            required in sparql,
+            "SPARQL HTTP writes must bind an exact signed request and complete detached preimages",
+        )
 
-    ros2 = _production_source(sources["ros2_bridge"])
+
+def _check_ros2_carrier(source: str) -> None:
+    ros2 = _production_source(source)
     for forbidden in (
         "crate::mutation_apply::apply",
         "core.mark_dirty()",
@@ -631,14 +644,18 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
         require(
             forbidden not in ros2, f"ROS2 carrier retains direct mutation: {forbidden}"
         )
-    require(
-        "publish_to_request" in ros2
-        and 'auth_token.starts_with("eg2.")' in ros2
-        and "crate::server::dispatch::dispatch" in ros2,
-        "ROS2 inbound writes must reconstruct and dispatch the exact signed request",
-    )
+    for required in (
+        "publish_to_request",
+        'auth_token.starts_with("eg2.")',
+        "crate::server::dispatch::dispatch",
+    ):
+        require(
+            required in ros2,
+            "ROS2 inbound writes must reconstruct and dispatch the exact signed request",
+        )
 
-    dispatch = sources["dispatch"]
+
+def _check_dispatch_order(dispatch: str) -> None:
     fanout_at = dispatch.find("ClusterMutationRoute::ConsensusFanout")
     sparql_fanout_at = dispatch.find("coordinated_sparql_http_update(", fanout_at)
     # The 59-arm `match req.method` this once was got extracted into
@@ -654,11 +671,17 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
         sparql_fanout_at,
     )
     require(
-        -1 < fanout_at < sparql_fanout_at < response_match_at
-        and "Method::FromMsgpack" in dispatch
-        and "Method::AddNode" in dispatch,
+        -1 < fanout_at < sparql_fanout_at < response_match_at,
         "served coordinator routing or canonical graph-gateway termination is missing",
     )
+    for required in ("Method::FromMsgpack", "Method::AddNode"):
+        require(
+            required in dispatch,
+            "served coordinator routing or canonical graph-gateway termination is missing",
+        )
+
+
+def _check_dispatch_recovery_proof(dispatch: str) -> None:
     for required in (
         "seal_private_coordinator_plan",
         "open_private_coordinator_plan",
@@ -670,7 +693,13 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
         "encrypted_sparql_preimages_survive_process_restart_and_tamper_fails",
         "durable_compensation_marker_fixes_restart_direction_and_erases_its_plan",
     ):
-        require(required in dispatch, f"recoverable served coordinator proof is missing: {required}")
+        require(
+            required in dispatch,
+            f"recoverable served coordinator proof is missing: {required}",
+        )
+
+
+def _check_coordinator_limits(sources: Mapping[str, str]) -> None:
     mutation_runtime = sources["mutation_runtime"]
     raft = sources["raft"]
     require(
@@ -679,7 +708,9 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
         and "crate::server::mutation::MAX_NATIVE_COORDINATOR_PAYLOAD_BYTES" in raft,
         "served preflight and Raft native-envelope ceilings differ",
     )
-    blob_store = sources["blob_store"]
+
+
+def _check_blob_result_contract(blob_store: str) -> None:
     implementation_at = blob_store.rfind("fn put_chunk_ref_batch(")
     require(implementation_at >= 0, "atomic blob chunk/reference kernel is missing")
     implementation = blob_store[implementation_at : implementation_at + 4_000]
@@ -695,6 +726,25 @@ def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
         and "adjust_ref_batch(&digest, -1" in blob_store,
         "direct CAS compensation restart/replay/GC proof is missing",
     )
+
+
+def _check_dispatch_carrier(sources: Mapping[str, str]) -> None:
+    dispatch = sources["dispatch"]
+    _check_dispatch_order(dispatch)
+    _check_dispatch_recovery_proof(dispatch)
+    _check_coordinator_limits(sources)
+    _check_blob_result_contract(sources["blob_store"])
+
+
+def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
+    """Reject served adapters that mutate live cores or native stores directly."""
+
+    _check_retired_dataset_surface(sources)
+    _check_current_server_surface(sources)
+    _check_external_compute_contract(sources["external_compute_e2e"])
+    _check_sparql_carrier(sources["sparql_http"])
+    _check_ros2_carrier(sources["ros2_bridge"])
+    _check_dispatch_carrier(sources)
 
 
 def mutation_inventory_sources() -> dict[str, str]:
