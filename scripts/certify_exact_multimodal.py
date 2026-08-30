@@ -869,13 +869,9 @@ def _run_modality_fault_case(
         engine.stop()
 
 
-def _run(
-    binary: ExactBinary,
-    binary_digest: str,
-    performance: dict[str, object],
-) -> dict[str, object]:
-    authority = _new_ephemeral_authority()
-    sources = _sources()
+def _validate_modality_sources(
+    sources: dict[str, tuple[bytes, bytes]],
+) -> tuple[bytes, ...]:
     all_valid_sources = tuple(source for pair in sources.values() for source in pair)
     if (
         set(sources) != set(MODALITIES)
@@ -886,598 +882,643 @@ def _run(
         )
     ):
         _fail("modality_fixture_inventory_invalid")
+    return all_valid_sources
 
-    with tempfile.TemporaryDirectory(prefix="eg-exact-multimodal-") as scratch:
-        campaign_root = Path(scratch)
-        root = campaign_root / "main"
-        root.mkdir(mode=0o700)
-        engine = ExactEngine(binary, root, authority)
-        bundles: dict[str, dict[int, dict[str, Any]]] = {}
-        occurrences: dict[str, dict[int, str]] = {}
-        attempted_sources = list(all_valid_sources)
-        event_kinds = (
-            "ingested",
-            "ingested",
-            "updated",
-            "moved_to_cold",
-            "restored",
+
+def _modality_fixtures(
+    authority: dict[str, Any],
+    modality: str,
+    primary_source: bytes,
+    secondary_source: bytes,
+) -> dict[str, Any]:
+    primary_v1, primary = _bundle(
+        authority,
+        modality,
+        primary_source,
+        version=1,
+        variant=0,
+    )
+    primary_v2, _ = _bundle(
+        authority,
+        modality,
+        primary_source,
+        version=2,
+        variant=0,
+    )
+    secondary_v1, secondary = _bundle(
+        authority,
+        modality,
+        secondary_source,
+        version=1,
+        variant=1,
+        classification="restricted",
+    )
+    return {
+        "primary_v1": primary_v1,
+        "primary_v2": primary_v2,
+        "primary": primary,
+        "secondary_v1": secondary_v1,
+        "secondary": secondary,
+    }
+
+
+def _ingest_initial_modality(
+    client: SyncEpistemicGraphClient,
+    modality: str,
+    fixtures: dict[str, Any],
+    primary_source: bytes,
+    secondary_source: bytes,
+) -> None:
+    primary_v1 = fixtures["primary_v1"]
+    primary_v2 = fixtures["primary_v2"]
+    primary = fixtures["primary"]
+    secondary_v1 = fixtures["secondary_v1"]
+    secondary = fixtures["secondary"]
+    initial_items = [
+        _stream_item(
+            modality,
+            primary_v1,
+            primary,
+            primary_source,
+            version=1,
+            variant=0,
+            role="stream-ingest",
+        ),
+        _stream_item(
+            modality,
+            secondary_v1,
+            secondary,
+            secondary_source,
+            version=1,
+            variant=1,
+            role="stream-ingest",
+        ),
+    ]
+    outcomes = client.modalities.ingest_stream(modality, initial_items)
+    for index, outcome in enumerate(outcomes, start=1):
+        _assert_outcome(
+            outcome,
+            disposition="Applied",
+            version=1,
+            sequence=index,
+            failure="modality_stream_ingest_mismatch",
         )
-        try:
-            engine.start(modality_source_limit=MODALITY_SOURCE_LIMIT)
-            engine.bootstrap()
-            _with_client(
-                engine,
-                "__commons__",
-                lambda client: client.tenants.create(MODALITY_GRAPH),
+    replays = client.modalities.ingest_stream(modality, initial_items)
+    for index, outcome in enumerate(replays, start=1):
+        _assert_outcome(
+            outcome,
+            disposition="IdempotentReplay",
+            version=1,
+            sequence=index,
+            failure="modality_stream_replay_mismatch",
+        )
+    conflicting_replay = [dict(item) for item in initial_items]
+    conflicting_replay[0]["bundle_msgpack"] = _packed(primary_v2)
+    conflicting_replay[0]["expected_version"] = 1
+    _expect_error(
+        lambda: client.modalities.ingest_stream(modality, conflicting_replay),
+        "idempotency",
+        "modality_stream_conflicting_replay_was_accepted",
+    )
+    _assert_stats(
+        client,
+        modality,
+        active=2,
+        total=2,
+        tombstoned=0,
+        events=2,
+        indexes_present=True,
+    )
+
+
+def _exercise_modality_rollback(
+    client: SyncEpistemicGraphClient,
+    modality: str,
+    authority: dict[str, Any],
+    fixtures: dict[str, Any],
+    primary_source: bytes,
+) -> None:
+    rollback_bundle, rollback_occurrence = _bundle(
+        authority,
+        modality,
+        primary_source,
+        version=1,
+        variant=2,
+    )
+    rollback_items = [
+        _stream_item(
+            modality,
+            rollback_bundle,
+            rollback_occurrence,
+            primary_source,
+            version=1,
+            variant=2,
+            role="rollback-new",
+        ),
+        _stream_item(
+            modality,
+            fixtures["primary_v2"],
+            fixtures["primary"],
+            primary_source,
+            version=2,
+            variant=0,
+            role="rollback-conflict",
+            expected_version=99,
+        ),
+    ]
+    _expect_error(
+        lambda: client.modalities.ingest_stream(modality, rollback_items),
+        "observation version conflict",
+        "modality_stream_partial_rollback",
+    )
+    _assert_stats(
+        client,
+        modality,
+        active=2,
+        total=2,
+        tombstoned=0,
+        events=2,
+        indexes_present=True,
+    )
+
+
+def _exercise_invalid_modality_inputs(
+    client: SyncEpistemicGraphClient,
+    modality: str,
+    authority: dict[str, Any],
+    fixtures: dict[str, Any],
+    primary_source: bytes,
+    attempted_sources: list[bytes],
+) -> None:
+    malformed_source = (
+        b"\xff" * 32
+        if modality == "document"
+        else f"malformed-invalid-{modality}".encode("ascii")
+    )
+    attempted_sources.append(malformed_source)
+    malformed, malformed_occurrence = _bundle(
+        authority,
+        modality,
+        malformed_source,
+        version=1,
+        variant=10,
+    )
+    _expect_error(
+        lambda: client.modalities.ingest(
+            modality,
+            idempotency_ref=_opaque(
+                "idempotency", modality, 1, "malformed", variant=10
+            ),
+            target_occurrence_id=malformed_occurrence,
+            bundle_msgpack=_packed(malformed),
+            source_bytes=malformed_source,
+        ),
+        "modality codec failure",
+        "malformed_modality_codec_was_accepted",
+    )
+    oversized = bytes([97 + MODALITIES.index(modality)]) * (
+        MODALITY_SOURCE_LIMIT + 1
+    )
+    attempted_sources.append(oversized)
+    oversized_bundle, oversized_occurrence = _bundle(
+        authority,
+        modality,
+        oversized,
+        version=1,
+        variant=11,
+    )
+    _expect_error(
+        lambda: client.modalities.ingest(
+            modality,
+            idempotency_ref=_opaque(
+                "idempotency", modality, 1, "oversized", variant=11
+            ),
+            target_occurrence_id=oversized_occurrence,
+            bundle_msgpack=_packed(oversized_bundle),
+            source_bytes=oversized,
+        ),
+        "configured resource limit",
+        "modality_resource_bound_was_not_enforced",
+    )
+    _expect_error(
+        lambda: client.modalities.ingest(
+            modality,
+            idempotency_ref=_opaque(
+                "idempotency", modality, 1, "invalid-bundle", variant=12
+            ),
+            target_occurrence_id=fixtures["primary"],
+            bundle_msgpack=b"\xc1",
+            source_bytes=primary_source,
+        ),
+        "MessagePack",
+        "malformed_modality_bundle_was_accepted",
+    )
+
+
+def _exercise_modality_queries_and_lifecycle(
+    client: SyncEpistemicGraphClient,
+    engine: ExactEngine,
+    modality: str,
+    fixtures: dict[str, Any],
+    primary_source: bytes,
+    secondary_source: bytes,
+    event_kinds: tuple[str, ...],
+) -> None:
+    primary = fixtures["primary"]
+    secondary = fixtures["secondary"]
+    primary_v2 = fixtures["primary_v2"]
+    secondary_v1 = fixtures["secondary_v1"]
+    expected = {
+        primary: (primary_v2, 2, primary_source),
+        secondary: (secondary_v1, 1, secondary_source),
+    }
+    _assert_paged_pair(client, modality, expected)
+    selected = primary if modality != "video" else secondary
+    selected_bundle, selected_version, selected_source = expected[selected]
+    _assert_page(
+        _native_query(client, modality),
+        occurrence=selected,
+        version=selected_version,
+        lifecycle="active",
+        bundle=selected_bundle,
+        modality=modality,
+        source=selected_source,
+        failure="modality_native_selectivity_mismatch",
+    )
+    _assert_empty(
+        _native_negative_query(client, modality),
+        "modality_native_negative_query_matched",
+    )
+    limited = engine.connect(MODALITY_GRAPH, scopes=())
+    try:
+        limited_page = limited.modalities.query(modality, limit=10)
+        _assert_page(
+            limited_page,
+            occurrence=primary,
+            version=2,
+            lifecycle="active",
+            bundle=primary_v2,
+            modality=modality,
+            source=primary_source,
+            failure="classification_policy_filter_failed",
+        )
+        _expect_error(
+            lambda: limited.modalities.stats(modality),
+            "management scope",
+            "nonmanagement_modality_stats_were_visible",
+        )
+    finally:
+        limited.close()
+    cold = client.modalities.move_to_cold(modality, occurrence_id=primary)
+    _assert_outcome(
+        cold,
+        disposition="Applied",
+        version=3,
+        sequence=4,
+        failure="modality_cold_transition_mismatch",
+    )
+    _assert_page(
+        client.modalities.query(
+            modality,
+            after_occurrence_id=secondary if secondary < primary else None,
+            limit=1,
+            include_cold=True,
+        ),
+        occurrence=primary,
+        version=3,
+        lifecycle="cold",
+        bundle=primary_v2,
+        modality=modality,
+        source=primary_source,
+        failure="cold_modality_query_mismatch",
+    )
+    restored = client.modalities.restore(modality, occurrence_id=primary)
+    _assert_outcome(
+        restored,
+        disposition="Applied",
+        version=4,
+        sequence=5,
+        failure="modality_restore_mismatch",
+    )
+    _assert_events(client, modality, event_kinds)
+
+
+def _exercise_modality(
+    client: SyncEpistemicGraphClient,
+    engine: ExactEngine,
+    modality_authority: dict[str, Any],
+    modality: str,
+    sources: dict[str, tuple[bytes, bytes]],
+    attempted_sources: list[bytes],
+    event_kinds: tuple[str, ...],
+) -> dict[str, Any]:
+    if client.modalities.capabilities(modality) != {
+        "component_ready": True,
+        "component_pass": 12,
+        "component_not_applicable": 0,
+        "component_total": 12,
+    }:
+        _fail("modality_component_tck_incomplete")
+    primary_source, secondary_source = sources[modality]
+    fixtures = _modality_fixtures(
+        modality_authority, modality, primary_source, secondary_source
+    )
+    _ingest_initial_modality(
+        client, modality, fixtures, primary_source, secondary_source
+    )
+    _exercise_modality_rollback(
+        client, modality, modality_authority, fixtures, primary_source
+    )
+    update = client.modalities.ingest(
+        modality,
+        idempotency_ref=_opaque("idempotency", modality, 2, "update", variant=0),
+        target_occurrence_id=fixtures["primary"],
+        expected_version=1,
+        bundle_msgpack=_packed(fixtures["primary_v2"]),
+        source_bytes=primary_source,
+    )
+    _assert_outcome(
+        update,
+        disposition="Applied",
+        version=2,
+        sequence=3,
+        failure="modality_update_mismatch",
+    )
+    _exercise_invalid_modality_inputs(
+        client,
+        modality,
+        modality_authority,
+        fixtures,
+        primary_source,
+        attempted_sources,
+    )
+    _exercise_modality_queries_and_lifecycle(
+        client,
+        engine,
+        modality,
+        fixtures,
+        primary_source,
+        secondary_source,
+        event_kinds,
+    )
+    return fixtures
+
+
+def _assert_restarted_modalities(
+    client: SyncEpistemicGraphClient,
+    sources: dict[str, tuple[bytes, bytes]],
+    bundles: dict[str, dict[int, dict[str, Any]]],
+    occurrences: dict[str, dict[int, str]],
+) -> None:
+    for modality in MODALITIES:
+        primary_source, secondary_source = sources[modality]
+        expected = {
+            occurrences[modality][0]: (
+                bundles[modality][0],
+                4,
+                primary_source,
+            ),
+            occurrences[modality][1]: (
+                bundles[modality][1],
+                1,
+                secondary_source,
+            ),
+        }
+        _assert_paged_pair(client, modality, expected)
+        _assert_stats(
+            client,
+            modality,
+            active=2,
+            total=2,
+            tombstoned=0,
+            events=5,
+            indexes_present=True,
+        )
+
+
+def _assert_cross_tenant_isolation(
+    engine: ExactEngine,
+    sources: dict[str, tuple[bytes, bytes]],
+    bundles: dict[str, dict[int, dict[str, Any]]],
+    occurrences: dict[str, dict[int, str]],
+) -> None:
+    engine.stop()
+    engine.start(
+        tenant=SECOND_TENANT,
+        lazy_page_size=1,
+        modality_source_limit=MODALITY_SOURCE_LIMIT,
+    )
+    client = engine.connect(MODALITY_GRAPH, tenant=SECOND_TENANT)
+    try:
+        for modality in MODALITIES:
+            _assert_empty(
+                client.modalities.query(modality, limit=1, include_cold=True),
+                "cross_tenant_modality_was_visible",
             )
-            _invalid_authentication_denied(engine)
-            client = engine.connect(MODALITY_GRAPH)
-            try:
-                modality_authority = client.modalities.authority()
-                for modality in MODALITIES:
-                    if client.modalities.capabilities(modality) != {
-                        "component_ready": True,
-                        "component_pass": 12,
-                        "component_not_applicable": 0,
-                        "component_total": 12,
-                    }:
-                        _fail("modality_component_tck_incomplete")
-                    primary_source, secondary_source = sources[modality]
-                    primary_v1, primary = _bundle(
-                        modality_authority,
-                        modality,
-                        primary_source,
-                        version=1,
-                        variant=0,
-                    )
-                    primary_v2, _ = _bundle(
-                        modality_authority,
-                        modality,
-                        primary_source,
-                        version=2,
-                        variant=0,
-                    )
-                    secondary_v1, secondary = _bundle(
-                        modality_authority,
-                        modality,
-                        secondary_source,
-                        version=1,
-                        variant=1,
-                        classification="restricted",
-                    )
-                    bundles[modality] = {0: primary_v2, 1: secondary_v1}
-                    occurrences[modality] = {0: primary, 1: secondary}
-                    initial_items = [
-                        _stream_item(
-                            modality,
-                            primary_v1,
-                            primary,
-                            primary_source,
-                            version=1,
-                            variant=0,
-                            role="stream-ingest",
-                        ),
-                        _stream_item(
-                            modality,
-                            secondary_v1,
-                            secondary,
-                            secondary_source,
-                            version=1,
-                            variant=1,
-                            role="stream-ingest",
-                        ),
-                    ]
-                    outcomes = client.modalities.ingest_stream(modality, initial_items)
-                    for index, outcome in enumerate(outcomes, start=1):
-                        _assert_outcome(
-                            outcome,
-                            disposition="Applied",
-                            version=1,
-                            sequence=index,
-                            failure="modality_stream_ingest_mismatch",
-                        )
-                    replays = client.modalities.ingest_stream(modality, initial_items)
-                    for index, outcome in enumerate(replays, start=1):
-                        _assert_outcome(
-                            outcome,
-                            disposition="IdempotentReplay",
-                            version=1,
-                            sequence=index,
-                            failure="modality_stream_replay_mismatch",
-                        )
-
-                    conflicting_replay = [dict(item) for item in initial_items]
-                    conflicting_replay[0]["bundle_msgpack"] = _packed(primary_v2)
-                    conflicting_replay[0]["expected_version"] = 1
-                    _expect_error(
-                        lambda modality=modality, items=conflicting_replay: (
-                            client.modalities.ingest_stream(modality, items)
-                        ),
-                        "idempotency",
-                        "modality_stream_conflicting_replay_was_accepted",
-                    )
-                    _assert_stats(
-                        client,
-                        modality,
-                        active=2,
-                        total=2,
-                        tombstoned=0,
-                        events=2,
-                        indexes_present=True,
-                    )
-
-                    rollback_bundle, rollback_occurrence = _bundle(
-                        modality_authority,
-                        modality,
-                        primary_source,
-                        version=1,
-                        variant=2,
-                    )
-                    rollback_items = [
-                        _stream_item(
-                            modality,
-                            rollback_bundle,
-                            rollback_occurrence,
-                            primary_source,
-                            version=1,
-                            variant=2,
-                            role="rollback-new",
-                        ),
-                        _stream_item(
-                            modality,
-                            primary_v2,
-                            primary,
-                            primary_source,
-                            version=2,
-                            variant=0,
-                            role="rollback-conflict",
-                            expected_version=99,
-                        ),
-                    ]
-                    _expect_error(
-                        lambda modality=modality, rollback_items=rollback_items: (
-                            client.modalities.ingest_stream(modality, rollback_items)
-                        ),
-                        "observation version conflict",
-                        "modality_stream_partial_rollback",
-                    )
-                    _assert_stats(
-                        client,
-                        modality,
-                        active=2,
-                        total=2,
-                        tombstoned=0,
-                        events=2,
-                        indexes_present=True,
-                    )
-
-                    update = client.modalities.ingest(
-                        modality,
-                        idempotency_ref=_opaque(
-                            "idempotency", modality, 2, "update", variant=0
-                        ),
-                        target_occurrence_id=primary,
-                        expected_version=1,
-                        bundle_msgpack=_packed(primary_v2),
-                        source_bytes=primary_source,
-                    )
-                    _assert_outcome(
-                        update,
-                        disposition="Applied",
-                        version=2,
-                        sequence=3,
-                        failure="modality_update_mismatch",
-                    )
-
-                    malformed_source = (
-                        b"\xff" * 32
-                        if modality == "document"
-                        else f"malformed-invalid-{modality}".encode("ascii")
-                    )
-                    attempted_sources.append(malformed_source)
-                    malformed, malformed_occurrence = _bundle(
-                        modality_authority,
-                        modality,
-                        malformed_source,
-                        version=1,
-                        variant=10,
-                    )
-                    _expect_error(
-                        lambda modality=modality, malformed=malformed, malformed_occurrence=malformed_occurrence, malformed_source=malformed_source: client.modalities.ingest(
-                            modality,
-                            idempotency_ref=_opaque(
-                                "idempotency", modality, 1, "malformed", variant=10
-                            ),
-                            target_occurrence_id=malformed_occurrence,
-                            bundle_msgpack=_packed(malformed),
-                            source_bytes=malformed_source,
-                        ),
-                        "modality codec failure",
-                        "malformed_modality_codec_was_accepted",
-                    )
-                    oversized = bytes([97 + MODALITIES.index(modality)]) * (
-                        MODALITY_SOURCE_LIMIT + 1
-                    )
-                    attempted_sources.append(oversized)
-                    oversized_bundle, oversized_occurrence = _bundle(
-                        modality_authority,
-                        modality,
-                        oversized,
-                        version=1,
-                        variant=11,
-                    )
-                    _expect_error(
-                        lambda modality=modality, oversized=oversized, oversized_bundle=oversized_bundle, oversized_occurrence=oversized_occurrence: client.modalities.ingest(
-                            modality,
-                            idempotency_ref=_opaque(
-                                "idempotency", modality, 1, "oversized", variant=11
-                            ),
-                            target_occurrence_id=oversized_occurrence,
-                            bundle_msgpack=_packed(oversized_bundle),
-                            source_bytes=oversized,
-                        ),
-                        "configured resource limit",
-                        "modality_resource_bound_was_not_enforced",
-                    )
-                    _expect_error(
-                        lambda modality=modality, primary=primary, primary_source=primary_source: client.modalities.ingest(
-                            modality,
-                            idempotency_ref=_opaque(
-                                "idempotency", modality, 1, "invalid-bundle", variant=12
-                            ),
-                            target_occurrence_id=primary,
-                            bundle_msgpack=b"\xc1",
-                            source_bytes=primary_source,
-                        ),
-                        "MessagePack",
-                        "malformed_modality_bundle_was_accepted",
-                    )
-
-                    expected = {
-                        primary: (primary_v2, 2, primary_source),
-                        secondary: (secondary_v1, 1, secondary_source),
-                    }
-                    _assert_paged_pair(client, modality, expected)
-                    selected = primary if modality != "video" else secondary
-                    selected_bundle, selected_version, selected_source = expected[selected]
-                    _assert_page(
-                        _native_query(client, modality),
-                        occurrence=selected,
-                        version=selected_version,
-                        lifecycle="active",
-                        bundle=selected_bundle,
-                        modality=modality,
-                        source=selected_source,
-                        failure="modality_native_selectivity_mismatch",
-                    )
-                    _assert_empty(
-                        _native_negative_query(client, modality),
-                        "modality_native_negative_query_matched",
-                    )
-
-                    limited = engine.connect(MODALITY_GRAPH, scopes=())
-                    try:
-                        limited_page = limited.modalities.query(modality, limit=10)
-                        _assert_page(
-                            limited_page,
-                            occurrence=primary,
-                            version=2,
-                            lifecycle="active",
-                            bundle=primary_v2,
-                            modality=modality,
-                            source=primary_source,
-                            failure="classification_policy_filter_failed",
-                        )
-                        _expect_error(
-                            lambda limited=limited, modality=modality: limited.modalities.stats(
-                                modality
-                            ),
-                            "management scope",
-                            "nonmanagement_modality_stats_were_visible",
-                        )
-                    finally:
-                        limited.close()
-
-                    cold = client.modalities.move_to_cold(
-                        modality, occurrence_id=primary
-                    )
-                    _assert_outcome(
-                        cold,
-                        disposition="Applied",
-                        version=3,
-                        sequence=4,
-                        failure="modality_cold_transition_mismatch",
-                    )
-                    _assert_page(
-                        client.modalities.query(
-                            modality,
-                            after_occurrence_id=(
-                                secondary if secondary < primary else None
-                            ),
-                            limit=1,
-                            include_cold=True,
-                        ),
-                        occurrence=primary,
-                        version=3,
-                        lifecycle="cold",
-                        bundle=primary_v2,
-                        modality=modality,
-                        source=primary_source,
-                        failure="cold_modality_query_mismatch",
-                    )
-                    restored = client.modalities.restore(
-                        modality, occurrence_id=primary
-                    )
-                    _assert_outcome(
-                        restored,
-                        disposition="Applied",
-                        version=4,
-                        sequence=5,
-                        failure="modality_restore_mismatch",
-                    )
-                    _assert_events(client, modality, event_kinds)
-            finally:
-                client.close()
-
-            engine.crash()
-            engine.start(
-                lazy_page_size=1, modality_source_limit=MODALITY_SOURCE_LIMIT
+            if client.modalities.events(modality, after_sequence=0, limit=10):
+                _fail("cross_tenant_modality_event_was_visible")
+            _expect_error(
+                lambda modality=modality: client.modalities.ingest(
+                    modality,
+                    idempotency_ref=_opaque(
+                        "idempotency", modality, 9, "cross-tenant", variant=0
+                    ),
+                    target_occurrence_id=occurrences[modality][0],
+                    expected_version=4,
+                    bundle_msgpack=_packed(bundles[modality][0]),
+                    source_bytes=sources[modality][0],
+                ),
+                "forbidden",
+                "cross_tenant_modality_write_was_accepted",
             )
-            client = engine.connect(MODALITY_GRAPH)
-            try:
-                for modality in MODALITIES:
-                    primary_source, secondary_source = sources[modality]
-                    expected = {
-                        occurrences[modality][0]: (
-                            bundles[modality][0],
-                            4,
-                            primary_source,
-                        ),
-                        occurrences[modality][1]: (
-                            bundles[modality][1],
-                            1,
-                            secondary_source,
-                        ),
-                    }
-                    _assert_paged_pair(client, modality, expected)
-                    _assert_stats(
-                        client,
-                        modality,
-                        active=2,
-                        total=2,
-                        tombstoned=0,
-                        events=5,
-                        indexes_present=True,
-                    )
-            finally:
-                client.close()
+    finally:
+        client.close()
 
-            # Prove tenant isolation while the first tenant still has live records.
-            engine.stop()
-            engine.start(
-                tenant=SECOND_TENANT,
-                lazy_page_size=1,
-                modality_source_limit=MODALITY_SOURCE_LIMIT,
-            )
-            client = engine.connect(MODALITY_GRAPH, tenant=SECOND_TENANT)
-            try:
-                for modality in MODALITIES:
-                    _assert_empty(
-                        client.modalities.query(modality, limit=1, include_cold=True),
-                        "cross_tenant_modality_was_visible",
-                    )
-                    if client.modalities.events(modality, after_sequence=0, limit=10):
-                        _fail("cross_tenant_modality_event_was_visible")
-                    _expect_error(
-                        lambda modality=modality: client.modalities.ingest(
-                            modality,
-                            idempotency_ref=_opaque(
-                                "idempotency", modality, 9, "cross-tenant", variant=0
-                            ),
-                            target_occurrence_id=occurrences[modality][0],
-                            expected_version=4,
-                            bundle_msgpack=_packed(bundles[modality][0]),
-                            source_bytes=sources[modality][0],
-                        ),
-                        "forbidden",
-                        "cross_tenant_modality_write_was_accepted",
-                    )
-            finally:
-                client.close()
 
-            engine.stop()
-            engine.start(
-                lazy_page_size=1, modality_source_limit=MODALITY_SOURCE_LIMIT
-            )
-            client = engine.connect(MODALITY_GRAPH)
-            try:
-                backup = client.admin.backup("g14-checkpoint", label="g14-synthetic")
-                if not isinstance(backup, dict) or backup.get("shards") != 1:
-                    _fail("modality_backup_failed")
-                restored = client.admin.restore("g14-checkpoint", target_shards=2)
-                if not isinstance(restored, dict) or restored.get("restored_shards") != 2:
-                    _fail("modality_restore_migration_failed")
-            finally:
-                client.close()
+def _restore_migrated_store(
+    engine: ExactEngine,
+    root: Path,
+) -> None:
+    engine.stop()
+    engine.start(lazy_page_size=1, modality_source_limit=MODALITY_SOURCE_LIMIT)
+    client = engine.connect(MODALITY_GRAPH)
+    try:
+        backup = client.admin.backup("g14-checkpoint", label="g14-synthetic")
+        if not isinstance(backup, dict) or backup.get("shards") != 1:
+            _fail("modality_backup_failed")
+        restored = client.admin.restore("g14-checkpoint", target_shards=2)
+        if not isinstance(restored, dict) or restored.get("restored_shards") != 2:
+            _fail("modality_restore_migration_failed")
+    finally:
+        client.close()
+    engine.stop()
+    stages = [
+        path
+        for path in root.iterdir()
+        if path.name.startswith("persist.restored-")
+        and path.is_dir()
+        and not path.is_symlink()
+    ]
+    if len(stages) != 1:
+        _fail("modality_restore_stage_inventory_mismatch")
+    original = root / "pre-migration-store"
+    engine.persist_dir.rename(original)
+    stages[0].rename(engine.persist_dir)
+    engine.start(
+        lazy_page_size=1,
+        modality_source_limit=MODALITY_SOURCE_LIMIT,
+        redb_shards=2,
+    )
 
-            engine.stop()
-            stages = [
-                path
-                for path in root.iterdir()
-                if path.name.startswith("persist.restored-")
-                and path.is_dir()
-                and not path.is_symlink()
-            ]
-            if len(stages) != 1:
-                _fail("modality_restore_stage_inventory_mismatch")
-            original = root / "pre-migration-store"
-            engine.persist_dir.rename(original)
-            stages[0].rename(engine.persist_dir)
-            engine.start(
-                lazy_page_size=1,
-                modality_source_limit=MODALITY_SOURCE_LIMIT,
-                redb_shards=2,
-            )
-            client = engine.connect(MODALITY_GRAPH)
-            try:
-                for modality in MODALITIES:
-                    primary_source, secondary_source = sources[modality]
-                    expected = {
-                        occurrences[modality][0]: (
-                            bundles[modality][0],
-                            4,
-                            primary_source,
-                        ),
-                        occurrences[modality][1]: (
-                            bundles[modality][1],
-                            1,
-                            secondary_source,
-                        ),
-                    }
-                    _assert_paged_pair(client, modality, expected)
-                    for variant, expected_version in ((0, 4), (1, 1)):
-                        key = _opaque(
-                            "idempotency", modality, 5, "delete", variant=variant
-                        )
-                        deleted = client.modalities.delete(
-                            modality,
-                            idempotency_ref=key,
-                            occurrence_id=occurrences[modality][variant],
-                            expected_version=expected_version,
-                        )
-                        _assert_outcome(
-                            deleted,
-                            disposition="Applied",
-                            version=expected_version + 1,
-                            sequence=6 + variant,
-                            failure="modality_delete_mismatch",
-                        )
-                        replay = client.modalities.delete(
-                            modality,
-                            idempotency_ref=key,
-                            occurrence_id=occurrences[modality][variant],
-                            expected_version=expected_version,
-                        )
-                        _assert_outcome(
-                            replay,
-                            disposition="IdempotentReplay",
-                            version=expected_version + 1,
-                            sequence=6 + variant,
-                            failure="modality_delete_replay_mismatch",
-                        )
-                    _assert_empty(
-                        client.modalities.query(modality, limit=1, include_cold=True),
-                        "deleted_modality_was_visible",
-                    )
-                    _assert_empty(
-                        _native_query(client, modality),
-                        "deleted_modality_native_query_was_visible",
-                    )
-                    _assert_stats(
-                        client,
-                        modality,
-                        active=0,
-                        total=2,
-                        tombstoned=2,
-                        events=7,
-                        indexes_present=False,
-                    )
-                    _assert_events(
-                        client, modality, event_kinds + ("deleted", "deleted")
-                    )
-            finally:
-                client.close()
 
-            engine.crash()
-            engine.start(
-                lazy_page_size=1,
-                modality_source_limit=MODALITY_SOURCE_LIMIT,
-                redb_shards=2,
-            )
-            client = engine.connect(MODALITY_GRAPH)
-            try:
-                for modality in MODALITIES:
-                    _assert_stats(
-                        client,
-                        modality,
-                        active=0,
-                        total=2,
-                        tombstoned=2,
-                        events=7,
-                        indexes_present=False,
-                    )
-                    if (
-                        client.modalities.collect_tombstones(
-                            modality, through_event_sequence=6
-                        )
-                        != 1
-                    ):
-                        _fail("modality_tombstone_retention_fence_mismatch")
-                    _assert_stats(
-                        client,
-                        modality,
-                        active=0,
-                        total=1,
-                        tombstoned=1,
-                        events=7,
-                        indexes_present=False,
-                    )
-                    if (
-                        client.modalities.collect_tombstones(
-                            modality, through_event_sequence=7
-                        )
-                        != 1
-                    ):
-                        _fail("modality_tombstone_collection_mismatch")
-                    _assert_stats(
-                        client,
-                        modality,
-                        active=0,
-                        total=0,
-                        tombstoned=0,
-                        events=7,
-                        indexes_present=False,
-                    )
-            finally:
-                client.close()
-            engine.crash()
-            engine.start(
-                lazy_page_size=1,
-                modality_source_limit=MODALITY_SOURCE_LIMIT,
-                redb_shards=2,
-            )
-            client = engine.connect(MODALITY_GRAPH)
-            try:
-                for modality in MODALITIES:
-                    _assert_stats(
-                        client,
-                        modality,
-                        active=0,
-                        total=0,
-                        tombstoned=0,
-                        events=7,
-                        indexes_present=False,
-                    )
-            finally:
-                client.close()
-
-        finally:
-            engine.stop()
-
-        fault_matrix = [
-            _run_modality_fault_case(
-                binary,
-                campaign_root / f"fault-{modality}-{phase}",
-                authority,
+def _delete_modalities(
+    client: SyncEpistemicGraphClient,
+    sources: dict[str, tuple[bytes, bytes]],
+    bundles: dict[str, dict[int, dict[str, Any]]],
+    occurrences: dict[str, dict[int, str]],
+    event_kinds: tuple[str, ...],
+) -> None:
+    for modality in MODALITIES:
+        primary_source, secondary_source = sources[modality]
+        expected = {
+            occurrences[modality][0]: (
+                bundles[modality][0],
+                4,
+                primary_source,
+            ),
+            occurrences[modality][1]: (
+                bundles[modality][1],
+                1,
+                secondary_source,
+            ),
+        }
+        _assert_paged_pair(client, modality, expected)
+        for variant, expected_version in ((0, 4), (1, 1)):
+            key = _opaque("idempotency", modality, 5, "delete", variant=variant)
+            deleted = client.modalities.delete(
                 modality,
-                phase,
-                sources[modality][0],
+                idempotency_ref=key,
+                occurrence_id=occurrences[modality][variant],
+                expected_version=expected_version,
             )
-            for modality in MODALITIES
-            for phase in FAULT_PHASES
-        ]
-        _assert_sources_absent(campaign_root, tuple(attempted_sources))
+            _assert_outcome(
+                deleted,
+                disposition="Applied",
+                version=expected_version + 1,
+                sequence=6 + variant,
+                failure="modality_delete_mismatch",
+            )
+            replay = client.modalities.delete(
+                modality,
+                idempotency_ref=key,
+                occurrence_id=occurrences[modality][variant],
+                expected_version=expected_version,
+            )
+            _assert_outcome(
+                replay,
+                disposition="IdempotentReplay",
+                version=expected_version + 1,
+                sequence=6 + variant,
+                failure="modality_delete_replay_mismatch",
+            )
+        _assert_empty(
+            client.modalities.query(modality, limit=1, include_cold=True),
+            "deleted_modality_was_visible",
+        )
+        _assert_empty(
+            _native_query(client, modality),
+            "deleted_modality_native_query_was_visible",
+        )
+        _assert_stats(
+            client,
+            modality,
+            active=0,
+            total=2,
+            tombstoned=2,
+            events=7,
+            indexes_present=False,
+        )
+        _assert_events(client, modality, event_kinds + ("deleted", "deleted"))
 
+
+def _collect_modality_tombstones(client: SyncEpistemicGraphClient) -> None:
+    for modality in MODALITIES:
+        _assert_stats(
+            client,
+            modality,
+            active=0,
+            total=2,
+            tombstoned=2,
+            events=7,
+            indexes_present=False,
+        )
+        if client.modalities.collect_tombstones(
+            modality, through_event_sequence=6
+        ) != 1:
+            _fail("modality_tombstone_retention_fence_mismatch")
+        _assert_stats(
+            client,
+            modality,
+            active=0,
+            total=1,
+            tombstoned=1,
+            events=7,
+            indexes_present=False,
+        )
+        if client.modalities.collect_tombstones(
+            modality, through_event_sequence=7
+        ) != 1:
+            _fail("modality_tombstone_collection_mismatch")
+        _assert_stats(
+            client,
+            modality,
+            active=0,
+            total=0,
+            tombstoned=0,
+            events=7,
+            indexes_present=False,
+        )
+
+
+def _assert_final_modalities_empty(client: SyncEpistemicGraphClient) -> None:
+    for modality in MODALITIES:
+        _assert_stats(
+            client,
+            modality,
+            active=0,
+            total=0,
+            tombstoned=0,
+            events=7,
+            indexes_present=False,
+        )
+
+
+def _run_fault_matrix(
+    binary: ExactBinary,
+    campaign_root: Path,
+    authority: Any,
+    sources: dict[str, tuple[bytes, bytes]],
+) -> list[dict[str, object]]:
+    return [
+        _run_modality_fault_case(
+            binary,
+            campaign_root / f"fault-{modality}-{phase}",
+            authority,
+            modality,
+            phase,
+            sources[modality][0],
+        )
+        for modality in MODALITIES
+        for phase in FAULT_PHASES
+    ]
+
+
+def _build_multimodal_evidence(
+    binary_digest: str,
+    performance: dict[str, object],
+    fault_matrix: list[dict[str, object]],
+    authority: Any,
+) -> dict[str, object]:
     matrix = [
         {
             "component_tck_not_applicable": 0,
@@ -1511,6 +1552,118 @@ def _run(
     if authority.auth_secret in encoded or authority.signer_key in encoded:
         _fail("evidence_contains_ephemeral_authority")
     return evidence
+
+
+def _run(
+    binary: ExactBinary,
+    binary_digest: str,
+    performance: dict[str, object],
+) -> dict[str, object]:
+    authority = _new_ephemeral_authority()
+    sources = _sources()
+    all_valid_sources = _validate_modality_sources(sources)
+
+    with tempfile.TemporaryDirectory(prefix="eg-exact-multimodal-") as scratch:
+        campaign_root = Path(scratch)
+        root = campaign_root / "main"
+        root.mkdir(mode=0o700)
+        engine = ExactEngine(binary, root, authority)
+        bundles: dict[str, dict[int, dict[str, Any]]] = {}
+        occurrences: dict[str, dict[int, str]] = {}
+        attempted_sources = list(all_valid_sources)
+        event_kinds = (
+            "ingested",
+            "ingested",
+            "updated",
+            "moved_to_cold",
+            "restored",
+        )
+        try:
+            engine.start(modality_source_limit=MODALITY_SOURCE_LIMIT)
+            engine.bootstrap()
+            _with_client(
+                engine,
+                "__commons__",
+                lambda client: client.tenants.create(MODALITY_GRAPH),
+            )
+            _invalid_authentication_denied(engine)
+            client = engine.connect(MODALITY_GRAPH)
+            try:
+                modality_authority = client.modalities.authority()
+                for modality in MODALITIES:
+                    fixtures = _exercise_modality(
+                        client,
+                        engine,
+                        modality_authority,
+                        modality,
+                        sources,
+                        attempted_sources,
+                        event_kinds,
+                    )
+                    bundles[modality] = {
+                        0: fixtures["primary_v2"],
+                        1: fixtures["secondary_v1"],
+                    }
+                    occurrences[modality] = {
+                        0: fixtures["primary"],
+                        1: fixtures["secondary"],
+                    }
+            finally:
+                client.close()
+
+            engine.crash()
+            engine.start(
+                lazy_page_size=1, modality_source_limit=MODALITY_SOURCE_LIMIT
+            )
+            client = engine.connect(MODALITY_GRAPH)
+            try:
+                _assert_restarted_modalities(client, sources, bundles, occurrences)
+            finally:
+                client.close()
+
+            _assert_cross_tenant_isolation(engine, sources, bundles, occurrences)
+
+            _restore_migrated_store(engine, root)
+            client = engine.connect(MODALITY_GRAPH)
+            try:
+                _delete_modalities(
+                    client, sources, bundles, occurrences, event_kinds
+                )
+            finally:
+                client.close()
+
+            engine.crash()
+            engine.start(
+                lazy_page_size=1,
+                modality_source_limit=MODALITY_SOURCE_LIMIT,
+                redb_shards=2,
+            )
+            client = engine.connect(MODALITY_GRAPH)
+            try:
+                _collect_modality_tombstones(client)
+            finally:
+                client.close()
+            engine.crash()
+            engine.start(
+                lazy_page_size=1,
+                modality_source_limit=MODALITY_SOURCE_LIMIT,
+                redb_shards=2,
+            )
+            client = engine.connect(MODALITY_GRAPH)
+            try:
+                _assert_final_modalities_empty(client)
+            finally:
+                client.close()
+
+        finally:
+            engine.stop()
+
+        fault_matrix = _run_fault_matrix(binary, campaign_root, authority, sources)
+        _assert_sources_absent(campaign_root, tuple(attempted_sources))
+
+    return _build_multimodal_evidence(
+        binary_digest, performance, fault_matrix, authority
+    )
 
 
 def _parser() -> argparse.ArgumentParser:

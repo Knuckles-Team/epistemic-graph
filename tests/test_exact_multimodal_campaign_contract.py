@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+
 import pytest
 
 # Pure/static test -- never needs the shared native engine (see
@@ -89,3 +90,28 @@ def test_serial_exact_wrapper_requires_multimodal_summary() -> None:
     assert '"fault_cases": 16' in source
     assert "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE" in source
     assert "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256" in source
+
+
+def test_multimodal_run_delegates_each_campaign_phase() -> None:
+    tree = ast.parse(HARNESS.read_text(encoding="utf-8"))
+    run = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_run"
+    )
+    calls = {
+        node.func.id
+        for node in ast.walk(run)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert calls >= {
+        "_validate_modality_sources",
+        "_exercise_modality",
+        "_assert_restarted_modalities",
+        "_assert_cross_tenant_isolation",
+        "_restore_migrated_store",
+        "_delete_modalities",
+        "_collect_modality_tombstones",
+        "_run_fault_matrix",
+        "_build_multimodal_evidence",
+    }
