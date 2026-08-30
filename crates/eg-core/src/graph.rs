@@ -5150,7 +5150,11 @@ impl GraphCore {
     /// Property keys to pre-seed into the index on first build
     /// (`EPISTEMIC_GRAPH_INDEXED_PROPERTIES`, comma-separated). Empty when unset.
     fn seed_indexed_properties() -> Vec<String> {
-        std::env::var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES")
+        Self::seed_indexed_values("EPISTEMIC_GRAPH_INDEXED_PROPERTIES")
+    }
+
+    fn seed_indexed_values(env_key: &str) -> Vec<String> {
+        std::env::var(env_key)
             .ok()
             .map(|s| {
                 s.split(',')
@@ -5396,16 +5400,7 @@ impl GraphCore {
     /// JSONPaths to pre-seed into the index on first build
     /// (`EPISTEMIC_GRAPH_INDEXED_JSON_PATHS`, comma-separated) (CONCEPT:EG-KG.compute.json-deep-indexing).
     fn seed_indexed_json_paths() -> Vec<String> {
-        std::env::var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS")
-            .ok()
-            .map(|s| {
-                s.split(',')
-                    .map(str::trim)
-                    .filter(|k| !k.is_empty())
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
+        Self::seed_indexed_values("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS")
     }
 
     /// Lexical classification gate (CONCEPT:EG-ORCH.routing.lexical-capability-escalation): find every capability term
