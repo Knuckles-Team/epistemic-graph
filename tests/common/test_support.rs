@@ -45,18 +45,17 @@ where
     F: FnMut() -> Result<T, E>,
     E: std::fmt::Debug,
 {
-    let mut attempt = 0;
-    loop {
+    for remaining_attempts in (0..=100).rev() {
         match open() {
-            Ok(value) => break value,
-            Err(error) if attempt < 100 => {
-                attempt += 1;
+            Ok(value) => return value,
+            Err(error) if remaining_attempts > 0 => {
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 let _ = error;
             }
             Err(error) => panic!("{panic_label}: {error:?}"),
         }
     }
+    unreachable!("bounded retry loop must return or panic")
 }
 
 /// Provision the process-wide data-at-rest key once before a redb backend opens.
