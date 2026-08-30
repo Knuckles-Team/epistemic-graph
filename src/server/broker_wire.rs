@@ -1,4 +1,4 @@
-//! Shared support for the native AMQP, MQTT, and STOMP broker adapters.
+//! Shared support for native wire adapters.
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -18,6 +18,8 @@ pub(crate) enum BrokerProtocol {
     Amqp,
     Mqtt,
     Stomp,
+    Mssql,
+    Redis,
 }
 
 impl BrokerProtocol {
@@ -26,6 +28,8 @@ impl BrokerProtocol {
             Self::Amqp => b"amqp:",
             Self::Mqtt => b"mqtt:",
             Self::Stomp => b"stomp:",
+            Self::Mssql => b"mssql:",
+            Self::Redis => b"redis:",
         }
     }
 }

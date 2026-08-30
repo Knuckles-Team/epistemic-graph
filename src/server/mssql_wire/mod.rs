@@ -36,14 +36,13 @@ pub mod protocol;
 
 use std::sync::Arc;
 
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
 use eg_query::PgColType;
 
+use crate::server::broker_wire::{self, BrokerProtocol};
 use crate::server::wire::{WireError, WireOutcome, WireProtocol, WireSession};
 use crate::server::ServerState;
 
@@ -68,33 +67,23 @@ const SERVER_NAME: &str = "epistemic-graph";
 /// user-error-range number and carry the real SQLSTATE text in the message.
 const ENGINE_ERROR_NUMBER: i32 = 50000;
 
-type HmacSha256 = Hmac<Sha256>;
-
 /// The per-user TDS password an authorized operator derives from the engine secret:
 /// `hex(HMAC-SHA256(secret, "mssql:" || user))` (parallel to pgwire's derivation, with
 /// its own domain-separation prefix so a pgwire and a TDS password never coincide).
 pub fn derive_mssql_password(secret: &str, user: &str) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"mssql:");
-    mac.update(user.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    broker_wire::derive_password(BrokerProtocol::Mssql, secret, user)
 }
 
 /// Verify a LOGIN7 principal/password without a timing-sensitive string comparison.
 /// The credential is the hex encoding returned by [`derive_mssql_password`].
 pub fn verify_mssql_login(secret: &str, user: &str, password: &str) -> bool {
-    if secret.is_empty() || user.is_empty() || user.len() > 4 * 1024 || password.len() != 64 {
-        return false;
-    }
-    let Ok(candidate) = hex::decode(password) else {
-        return false;
-    };
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"mssql:");
-    mac.update(user.as_bytes());
-    mac.verify_slice(&candidate).is_ok()
+    broker_wire::verify_password(
+        BrokerProtocol::Mssql,
+        secret,
+        user,
+        password.as_bytes(),
+        4 * 1024,
+    )
 }
 
 /// Fail closed before binding the direct TDS listener. TDS encryption
@@ -343,6 +332,10 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
 
     #[test]
     fn derived_password_is_stable_and_domain_separated() {

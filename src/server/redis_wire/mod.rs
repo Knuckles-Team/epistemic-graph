@@ -49,15 +49,14 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use hmac::{Hmac, Mac};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
+use crate::server::broker_wire::{self, BrokerProtocol};
 use crate::server::kv::KvStore;
 use crate::server::ServerState;
 
@@ -65,35 +64,22 @@ use crate::server::ServerState;
 /// binds this address (documented loopback default `127.0.0.1:6379`, the Redis
 /// default port). Unset ⇒ no listener.
 pub const REDIS_ADDR_ENV: &str = "EPISTEMIC_GRAPH_REDIS_ADDR";
-type HmacSha256 = Hmac<Sha256>;
 
 /// Derive the Redis credential for a principal from the deployment auth secret.
 /// Clients authenticate with `AUTH <principal> <credential>`; the principal is
 /// pseudonymized before it is used as a durable keyspace or pub/sub scope.
 pub fn derive_redis_password(secret: &str, principal: &str) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"redis:");
-    mac.update(principal.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    broker_wire::derive_password(BrokerProtocol::Redis, secret, principal)
 }
 
 fn verify_redis_password(secret: &str, principal: &str, password: &[u8]) -> bool {
-    if secret.is_empty()
-        || principal.is_empty()
-        || principal.len() > MAX_REDIS_COMMAND_BYTES
-        || password.len() != 64
-    {
-        return false;
-    }
-    let Ok(candidate) = hex::decode(password) else {
-        return false;
-    };
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"redis:");
-    mac.update(principal.as_bytes());
-    mac.verify_slice(&candidate).is_ok()
+    broker_wire::verify_password(
+        BrokerProtocol::Redis,
+        secret,
+        principal,
+        password,
+        MAX_REDIS_COMMAND_BYTES,
+    )
 }
 
 /// Wall-clock milliseconds since the epoch (TTL clock; same tolerance as the
