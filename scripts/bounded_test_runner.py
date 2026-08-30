@@ -500,15 +500,11 @@ def _contain(
     return 124 if not survivors else 125
 
 
-def run_bounded_command(
-    command: list[str], *, suite_name: str, config: LifecycleConfig
-) -> int:
-    if not command:
-        raise ValueError("a command is required after --")
-    started_at = time.monotonic()
-    progress = Progress()
+def _spawn_bounded_process(
+    command: list[str], *, suite_name: str, started_at: float
+) -> subprocess.Popen[bytes] | None:
     try:
-        process = subprocess.Popen(
+        return subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -522,12 +518,14 @@ def run_bounded_command(
             started_at=started_at,
             reason=f"{type(exc).__name__}: {exc}",
         )
-        return 127
+        return None
 
-    if process.stdout is None:
-        raise RuntimeError("bounded runner could not capture child output")
+
+def _resolve_process_group(
+    process: subprocess.Popen[bytes], *, suite_name: str, started_at: float
+) -> int | None:
     try:
-        pgid = os.getpgid(process.pid)
+        return os.getpgid(process.pid)
     except OSError as exc:
         _emit_evidence(
             suite_name=suite_name,
@@ -538,56 +536,47 @@ def run_bounded_command(
         )
         process.kill()
         process.wait()
-        process.stdout.close()
-        return 125
+        if process.stdout is not None:
+            process.stdout.close()
+        return None
 
-    if pgid != process.pid:
-        _emit_evidence(
-            suite_name=suite_name,
-            phase="attribution_failed",
-            started_at=started_at,
-            root_pid=process.pid,
-            pgid=pgid,
-            reason="start_new_session did not establish a private process group",
-        )
-        return _contain(
-            process,
-            _OutputPump(process.stdout, progress),
-            progress,
-            suite_name=suite_name,
-            started_at=started_at,
-            pgid=pgid,
-            config=config,
-            reason="attribution_failed",
-        )
 
-    pump = _OutputPump(process.stdout, progress)
-    _emit_evidence(
-        suite_name=suite_name,
-        phase="started",
-        started_at=started_at,
-        root_pid=process.pid,
-        pgid=pgid,
-    )
+def _check_live_bounded_process(
+    pump: _OutputPump,
+    progress: Progress,
+    started_at: float,
+    config: LifecycleConfig,
+    now: float,
+) -> str | None:
+    suite_remaining = config.suite_timeout_seconds - (now - started_at)
+    if suite_remaining <= 0:
+        return "suite_timeout"
+    if progress.test_started_at is not None:
+        test_remaining = config.test_timeout_seconds - (now - progress.test_started_at)
+        if test_remaining <= 0:
+            return "test_timeout"
+    else:
+        test_remaining = config.test_timeout_seconds
+    pump.read(min(0.2, suite_remaining, test_remaining))
+    return None
+
+
+def _monitor_bounded_process(
+    process: subprocess.Popen[bytes],
+    pump: _OutputPump,
+    progress: Progress,
+    started_at: float,
+    config: LifecycleConfig,
+) -> str | None:
     orphan_deadline: float | None = None
-    timeout_reason: str | None = None
     while True:
         now = time.monotonic()
         if process.poll() is None:
-            suite_remaining = config.suite_timeout_seconds - (now - started_at)
-            if suite_remaining <= 0:
-                timeout_reason = "suite_timeout"
-                break
-            if progress.test_started_at is not None:
-                test_remaining = config.test_timeout_seconds - (
-                    now - progress.test_started_at
-                )
-                if test_remaining <= 0:
-                    timeout_reason = "test_timeout"
-                    break
-            else:
-                test_remaining = config.test_timeout_seconds
-            pump.read(min(0.2, suite_remaining, test_remaining))
+            timeout_reason = _check_live_bounded_process(
+                pump, progress, started_at, config, now
+            )
+            if timeout_reason is not None:
+                return timeout_reason
             continue
 
         # A cargo process can exit while a detached/child process retains the
@@ -596,24 +585,22 @@ def run_bounded_command(
         if orphan_deadline is None:
             orphan_deadline = now + ORPHAN_DRAIN_GRACE_SECONDS
         if pump.closed:
-            break
+            return None
         if now >= orphan_deadline:
-            timeout_reason = "orphaned_child_output"
-            break
+            return "orphaned_child_output"
         pump.read(min(0.1, max(0.0, orphan_deadline - now)))
 
-    if timeout_reason is not None:
-        return _contain(
-            process,
-            pump,
-            progress,
-            suite_name=suite_name,
-            started_at=started_at,
-            pgid=pgid,
-            config=config,
-            reason=timeout_reason,
-        )
 
+def _finish_bounded_process(
+    process: subprocess.Popen[bytes],
+    pump: _OutputPump,
+    progress: Progress,
+    *,
+    suite_name: str,
+    started_at: float,
+    pgid: int,
+    config: LifecycleConfig,
+) -> int:
     returncode = process.wait()
     survivors, omitted = _group_snapshots(
         pgid, max_pids=config.diagnostic_pids
@@ -654,6 +641,80 @@ def run_bounded_command(
         returncode=returncode,
     )
     return returncode
+
+
+def run_bounded_command(
+    command: list[str], *, suite_name: str, config: LifecycleConfig
+) -> int:
+    if not command:
+        raise ValueError("a command is required after --")
+    started_at = time.monotonic()
+    progress = Progress()
+    process = _spawn_bounded_process(
+        command, suite_name=suite_name, started_at=started_at
+    )
+    if process is None:
+        return 127
+
+    if process.stdout is None:
+        raise RuntimeError("bounded runner could not capture child output")
+    pgid = _resolve_process_group(process, suite_name=suite_name, started_at=started_at)
+    if pgid is None:
+        return 125
+
+    if pgid != process.pid:
+        _emit_evidence(
+            suite_name=suite_name,
+            phase="attribution_failed",
+            started_at=started_at,
+            root_pid=process.pid,
+            pgid=pgid,
+            reason="start_new_session did not establish a private process group",
+        )
+        return _contain(
+            process,
+            _OutputPump(process.stdout, progress),
+            progress,
+            suite_name=suite_name,
+            started_at=started_at,
+            pgid=pgid,
+            config=config,
+            reason="attribution_failed",
+        )
+
+    pump = _OutputPump(process.stdout, progress)
+    _emit_evidence(
+        suite_name=suite_name,
+        phase="started",
+        started_at=started_at,
+        root_pid=process.pid,
+        pgid=pgid,
+    )
+    timeout_reason = _monitor_bounded_process(
+        process, pump, progress, started_at, config
+    )
+
+    if timeout_reason:
+        return _contain(
+            process,
+            pump,
+            progress,
+            suite_name=suite_name,
+            started_at=started_at,
+            pgid=pgid,
+            config=config,
+            reason=timeout_reason,
+        )
+
+    return _finish_bounded_process(
+        process,
+        pump,
+        progress,
+        suite_name=suite_name,
+        started_at=started_at,
+        pgid=pgid,
+        config=config,
+    )
 
 
 def _positive_float(value: str) -> float:
