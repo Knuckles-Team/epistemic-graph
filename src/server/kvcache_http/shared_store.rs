@@ -508,16 +508,22 @@ where
 mod tests {
     use super::*;
 
-    fn store(tag: &str) -> Arc<KvStore> {
-        let dir = std::env::temp_dir().join(format!(
-            "eg-kvcache-shared-{tag}-{}-{}",
+    fn store_path(tag: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "eg-kvcache-{tag}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
-        ));
+        );
+        let dir = std::env::temp_dir().join(unique);
         let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn store(tag: &str) -> Arc<KvStore> {
+        let dir = store_path(&format!("shared-{tag}"));
         Arc::new(KvStore::open(Some(dir.to_str().unwrap())).unwrap())
     }
 
@@ -725,15 +731,7 @@ mod tests {
     /// cache survives an engine restart (the L2 durability property).
     #[test]
     fn shared_block_survives_store_reopen() {
-        let dir = std::env::temp_dir().join(format!(
-            "eg-kvcache-reopen-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = store_path("reopen");
         let path = dir.to_str().unwrap();
         {
             let s = Arc::new(KvStore::open(Some(path)).unwrap());
