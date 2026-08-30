@@ -331,6 +331,292 @@ def _causal_cases(engine: ExactEngine) -> dict[str, dict[str, object]]:
     }
 
 
+def _check_contradiction(engine: ExactEngine) -> dict[str, Any]:
+    contradiction = _with_client(
+        engine,
+        GRAPH,
+        lambda client: client.query.resolve_conflict(
+            ["conflict-left", "conflict-right"], "grounded"
+        ),
+    )
+    if (
+        sorted(contradiction.get("undecided", []))
+        != ["conflict-left", "conflict-right"]
+        or contradiction.get("surviving")
+        or contradiction.get("defeated")
+    ):
+        _fail("paraconsistent_conflict_resolution_invalid")
+    return contradiction
+
+
+def _check_temporal_change(
+    engine: ExactEngine,
+) -> tuple[dict[str, Any], list[Any]]:
+    temporal = _with_client(
+        engine,
+        GRAPH,
+        lambda client: client.query.what_changed(50, 200),
+    )
+    temporal_rows = temporal.get("changed")
+    if not isinstance(temporal_rows, list):
+        _fail("temporal_change_shape_invalid")
+    temporal_claim = next(
+        (
+            row
+            for row in temporal_rows
+            if isinstance(row, dict) and row.get("id") == "temporal-claim"
+        ),
+        None,
+    )
+    if (
+        temporal_claim is None
+        or temporal_claim.get("believed_before") is not True
+        or temporal_claim.get("believed_after") is not False
+    ):
+        _fail("valid_transaction_time_change_not_detected")
+    return temporal, temporal_rows
+
+
+def _check_counterexample(
+    engine: ExactEngine,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    counter_status = _status(engine, "counter-claim")
+    minimal_flip = counter_status.get("what_would_invalidate")
+    if (
+        not isinstance(minimal_flip, dict)
+        or minimal_flip.get("evidence_ids") != ["counter-evidence"]
+        or minimal_flip.get("believed_now") is not True
+        or minimal_flip.get("believed_after") is not False
+    ):
+        _fail("epistemic_counterexample_not_minimal")
+    return counter_status, minimal_flip
+
+
+def _initial_reasoning_cases(engine: ExactEngine) -> dict[str, Any]:
+    fresh, fresh_polls = _poll_materialization(engine, "Fresh")
+    fresh_version = int(fresh["source_graph_version"])
+    contradiction = _check_contradiction(engine)
+    temporal, temporal_rows = _check_temporal_change(engine)
+    counter_status, minimal_flip = _check_counterexample(engine)
+    retractable_before = _status(engine, "retractable-claim")
+    if retractable_before.get("believed") is not True:
+        _fail("retraction_fixture_not_initially_believed")
+    return {
+        "fresh_polls": fresh_polls,
+        "fresh_version": fresh_version,
+        "contradiction": contradiction,
+        "temporal": temporal,
+        "temporal_rows": temporal_rows,
+        "counter_status": counter_status,
+        "minimal_flip": minimal_flip,
+        "causal": _causal_cases(engine),
+    }
+
+
+def _advance_projection(engine: ExactEngine, fresh_version: int) -> dict[str, Any]:
+    # A source mutation advances the authoritative graph immediately.  The
+    # projection may briefly expose its prior watermark, then must converge.
+    changed = _with_client(
+        engine,
+        GRAPH,
+        lambda client: client.nodes.compare_and_set(
+            "base-input", {"revision": 0}, {"revision": 1}
+        ),
+    )
+    if changed is not True:
+        _fail("projection_source_compare_and_set_failed")
+    immediate = _with_client(
+        engine,
+        GRAPH,
+        lambda client: client.query.materialization_status("derived-result"),
+    )
+    stale, stale_polls = _poll_materialization(
+        engine,
+        "Stale",
+        minimum_version=fresh_version + 1,
+    )
+    stale_version = int(stale["source_graph_version"])
+    if stale_version <= fresh_version:
+        _fail("reasoning_projection_watermark_did_not_advance")
+    return {
+        "immediate": immediate,
+        "stale": stale,
+        "stale_polls": stale_polls,
+        "stale_version": stale_version,
+        "stale_digest": canonical_digest(stale),
+    }
+
+
+def _restart_stale_projection(
+    engine: ExactEngine, stale_version: int, stale_digest: str
+) -> int:
+    # The exact durable image must survive process replacement unchanged.
+    engine.stop()
+    engine.start()
+    restarted_stale, restart_polls = _poll_materialization(
+        engine,
+        "Stale",
+        minimum_version=stale_version,
+    )
+    if canonical_digest(restarted_stale) != stale_digest:
+        _fail("reasoning_projection_restart_mismatch")
+    return restart_polls
+
+
+def _validate_repair(repair: dict[str, Any], stale_version: int) -> None:
+    if repair.get("status") != "Fresh":
+        _fail("reasoning_materialization_repair_invalid")
+    if repair.get("projection_pending") is not False:
+        _fail("reasoning_materialization_repair_invalid")
+    if int(repair.get("fence_epoch", 0)) <= 0:
+        _fail("reasoning_materialization_repair_invalid")
+    if int(repair.get("source_graph_version", 0)) != stale_version:
+        _fail("reasoning_materialization_repair_invalid")
+    if len(repair.get("depends_on", [])) != 1:
+        _fail("reasoning_materialization_repair_invalid")
+    if not isinstance(repair.get("generating_activity"), str):
+        _fail("reasoning_materialization_repair_invalid")
+
+
+def _repair_projection(
+    engine: ExactEngine, fresh_version: int, stale_version: int
+) -> dict[str, Any]:
+    # A pre-invalidation fence is rejected; the current durable watermark is
+    # accepted and writes back a Fresh result before acknowledgement.
+    stale_fence_denied = False
+    try:
+        _with_client(
+            engine,
+            GRAPH,
+            lambda client: client.query.recompute_materialization(
+                "derived-result", fresh_version
+            ),
+        )
+    except RuntimeError:
+        stale_fence_denied = True
+    if not stale_fence_denied:
+        _fail("stale_recompute_fence_was_accepted")
+    repair = _with_client(
+        engine,
+        GRAPH,
+        lambda client: client.query.recompute_materialization(
+            "derived-result", stale_version
+        ),
+    )
+    _validate_repair(repair, stale_version)
+    repaired, repair_polls = _poll_materialization(
+        engine,
+        "Fresh",
+        minimum_version=stale_version,
+    )
+    return {
+        "repair": repair,
+        "repaired": repaired,
+        "repair_polls": repair_polls,
+    }
+
+
+def _retract_and_replay(engine: ExactEngine, stale_version: int) -> dict[str, Any]:
+    # Remove the sole support and prove both the belief flip and its durable
+    # replay after a second process replacement.
+    _with_client(
+        engine,
+        GRAPH,
+        lambda client: client.nodes.remove("support-evidence"),
+    )
+    retractable_after = _status(engine, "retractable-claim")
+    if (
+        retractable_after.get("believed") is not False
+        or retractable_after.get("why_not") is None
+    ):
+        _fail("belief_retraction_not_applied")
+    post_retraction_projection, retraction_polls = _poll_materialization(
+        engine,
+        "Fresh",
+        minimum_version=stale_version + 1,
+    )
+    retraction_digest = canonical_digest(retractable_after)
+    engine.stop()
+    engine.start()
+    replayed_retraction = _status(engine, "retractable-claim")
+    if canonical_digest(replayed_retraction) != retraction_digest:
+        _fail("belief_retraction_restart_mismatch")
+    return {
+        "post_retraction_projection": post_retraction_projection,
+        "retraction_polls": retraction_polls,
+        "retraction_digest": retraction_digest,
+    }
+
+
+def _reasoning_matrix(
+    initial: dict[str, Any],
+    projection: dict[str, Any],
+    restart_polls: int,
+    repair: dict[str, Any],
+    retraction: dict[str, Any],
+) -> dict[str, Any]:
+    contradiction = initial["contradiction"]
+    temporal = initial["temporal"]
+    temporal_rows = initial["temporal_rows"]
+    counter_status = initial["counter_status"]
+    minimal_flip = initial["minimal_flip"]
+    causal = initial["causal"]
+    stale_version = projection["stale_version"]
+    repair_result = repair["repair"]
+    repaired = repair["repaired"]
+    matrix = {
+        "projection_lag": {
+            "converged": True,
+            "immediate_prior_watermark": int(
+                projection["immediate"].get("source_graph_version", 0)
+            )
+            < stale_version,
+            "polls": projection["stale_polls"],
+            "watermark_advanced": True,
+        },
+        "restart": {
+            "durable_projection_equal": True,
+            "polls": restart_polls,
+            "projection_sha256": projection["stale_digest"],
+        },
+        "contradiction": {
+            "classification_sha256": canonical_digest(contradiction),
+            "undecided": len(contradiction["undecided"]),
+        },
+        "retraction": {
+            "belief_flipped": True,
+            "durable_replay_equal": True,
+            "result_sha256": retraction["retraction_digest"],
+        },
+        "valid_transaction_time_change": {
+            "changed": len(temporal_rows),
+            "claim_flipped": True,
+            "result_sha256": canonical_digest(temporal),
+        },
+        "causal_recomputation": causal["causal_recomputation"],
+        "assumptions": causal["assumptions"],
+        "counterexamples": {
+            "causal": causal["counterfactual"],
+            "minimal_flip_cardinality": len(minimal_flip["evidence_ids"]),
+            "status_sha256": canonical_digest(counter_status),
+        },
+        "repair": {
+            "dependencies": len(repair_result.get("depends_on", [])),
+            "fence_epoch_positive": True,
+            "fresh": repaired.get("status") == "Fresh",
+            "polls": repair["repair_polls"],
+            "post_retraction_projection_polls": retraction["retraction_polls"],
+            "post_retraction_projection_sha256": canonical_digest(
+                retraction["post_retraction_projection"]
+            ),
+            "stale_fence_denied": True,
+        },
+    }
+    if tuple(matrix) != CASES:
+        _fail("reasoning_case_inventory_mismatch")
+    return matrix
+
+
 def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
     authority = _new_ephemeral_authority()
     with tempfile.TemporaryDirectory(prefix="eg-exact-reasoning-") as scratch:
@@ -340,213 +626,26 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
             engine.start()
             engine.bootstrap()
             _seed(engine)
-
-            fresh, fresh_polls = _poll_materialization(engine, "Fresh")
-            fresh_version = int(fresh["source_graph_version"])
-
-            contradiction = _with_client(
+            initial = _initial_reasoning_cases(engine)
+            projection = _advance_projection(engine, initial["fresh_version"])
+            restart_polls = _restart_stale_projection(
                 engine,
-                GRAPH,
-                lambda client: client.query.resolve_conflict(
-                    ["conflict-left", "conflict-right"], "grounded"
-                ),
+                projection["stale_version"],
+                projection["stale_digest"],
             )
-            if (
-                sorted(contradiction.get("undecided", []))
-                != ["conflict-left", "conflict-right"]
-                or contradiction.get("surviving")
-                or contradiction.get("defeated")
-            ):
-                _fail("paraconsistent_conflict_resolution_invalid")
-
-            temporal = _with_client(
+            repair = _repair_projection(
                 engine,
-                GRAPH,
-                lambda client: client.query.what_changed(50, 200),
+                initial["fresh_version"],
+                projection["stale_version"],
             )
-            temporal_rows = temporal.get("changed")
-            if not isinstance(temporal_rows, list):
-                _fail("temporal_change_shape_invalid")
-            temporal_claim = next(
-                (
-                    row
-                    for row in temporal_rows
-                    if isinstance(row, dict) and row.get("id") == "temporal-claim"
-                ),
-                None,
+            retraction = _retract_and_replay(engine, projection["stale_version"])
+            matrix = _reasoning_matrix(
+                initial,
+                projection,
+                restart_polls,
+                repair,
+                retraction,
             )
-            if (
-                temporal_claim is None
-                or temporal_claim.get("believed_before") is not True
-                or temporal_claim.get("believed_after") is not False
-            ):
-                _fail("valid_transaction_time_change_not_detected")
-
-            counter_status = _status(engine, "counter-claim")
-            minimal_flip = counter_status.get("what_would_invalidate")
-            if (
-                not isinstance(minimal_flip, dict)
-                or minimal_flip.get("evidence_ids") != ["counter-evidence"]
-                or minimal_flip.get("believed_now") is not True
-                or minimal_flip.get("believed_after") is not False
-            ):
-                _fail("epistemic_counterexample_not_minimal")
-
-            retractable_before = _status(engine, "retractable-claim")
-            if retractable_before.get("believed") is not True:
-                _fail("retraction_fixture_not_initially_believed")
-
-            causal = _causal_cases(engine)
-
-            # A source mutation advances the authoritative graph immediately.  The
-            # projection may briefly expose its prior watermark, then must converge.
-            changed = _with_client(
-                engine,
-                GRAPH,
-                lambda client: client.nodes.compare_and_set(
-                    "base-input", {"revision": 0}, {"revision": 1}
-                ),
-            )
-            if changed is not True:
-                _fail("projection_source_compare_and_set_failed")
-            immediate = _with_client(
-                engine,
-                GRAPH,
-                lambda client: client.query.materialization_status("derived-result"),
-            )
-            stale, stale_polls = _poll_materialization(
-                engine,
-                "Stale",
-                minimum_version=fresh_version + 1,
-            )
-            stale_version = int(stale["source_graph_version"])
-            if stale_version <= fresh_version:
-                _fail("reasoning_projection_watermark_did_not_advance")
-
-            # The exact durable image must survive process replacement unchanged.
-            stale_digest = canonical_digest(stale)
-            engine.stop()
-            engine.start()
-            restarted_stale, restart_polls = _poll_materialization(
-                engine,
-                "Stale",
-                minimum_version=stale_version,
-            )
-            if canonical_digest(restarted_stale) != stale_digest:
-                _fail("reasoning_projection_restart_mismatch")
-
-            # A pre-invalidation fence is rejected; the current durable watermark is
-            # accepted and writes back a Fresh result before acknowledgement.
-            stale_fence_denied = False
-            try:
-                _with_client(
-                    engine,
-                    GRAPH,
-                    lambda client: client.query.recompute_materialization(
-                        "derived-result", fresh_version
-                    ),
-                )
-            except RuntimeError:
-                stale_fence_denied = True
-            if not stale_fence_denied:
-                _fail("stale_recompute_fence_was_accepted")
-            repair = _with_client(
-                engine,
-                GRAPH,
-                lambda client: client.query.recompute_materialization(
-                    "derived-result", stale_version
-                ),
-            )
-            if (
-                repair.get("status") != "Fresh"
-                or repair.get("projection_pending") is not False
-                or int(repair.get("fence_epoch", 0)) <= 0
-                or int(repair.get("source_graph_version", 0)) != stale_version
-                or len(repair.get("depends_on", [])) != 1
-                or not isinstance(repair.get("generating_activity"), str)
-            ):
-                _fail("reasoning_materialization_repair_invalid")
-            repaired, repair_polls = _poll_materialization(
-                engine,
-                "Fresh",
-                minimum_version=stale_version,
-            )
-
-            # Remove the sole support and prove both the belief flip and its durable
-            # replay after a second process replacement.
-            _with_client(
-                engine,
-                GRAPH,
-                lambda client: client.nodes.remove("support-evidence"),
-            )
-            retractable_after = _status(engine, "retractable-claim")
-            if (
-                retractable_after.get("believed") is not False
-                or retractable_after.get("why_not") is None
-            ):
-                _fail("belief_retraction_not_applied")
-            post_retraction_projection, retraction_polls = _poll_materialization(
-                engine,
-                "Fresh",
-                minimum_version=stale_version + 1,
-            )
-            retraction_digest = canonical_digest(retractable_after)
-            engine.stop()
-            engine.start()
-            replayed_retraction = _status(engine, "retractable-claim")
-            if canonical_digest(replayed_retraction) != retraction_digest:
-                _fail("belief_retraction_restart_mismatch")
-
-            matrix = {
-                "projection_lag": {
-                    "converged": True,
-                    "immediate_prior_watermark": int(
-                        immediate.get("source_graph_version", 0)
-                    )
-                    < stale_version,
-                    "polls": stale_polls,
-                    "watermark_advanced": True,
-                },
-                "restart": {
-                    "durable_projection_equal": True,
-                    "polls": restart_polls,
-                    "projection_sha256": stale_digest,
-                },
-                "contradiction": {
-                    "classification_sha256": canonical_digest(contradiction),
-                    "undecided": len(contradiction["undecided"]),
-                },
-                "retraction": {
-                    "belief_flipped": True,
-                    "durable_replay_equal": True,
-                    "result_sha256": retraction_digest,
-                },
-                "valid_transaction_time_change": {
-                    "changed": len(temporal_rows),
-                    "claim_flipped": True,
-                    "result_sha256": canonical_digest(temporal),
-                },
-                "causal_recomputation": causal["causal_recomputation"],
-                "assumptions": causal["assumptions"],
-                "counterexamples": {
-                    "causal": causal["counterfactual"],
-                    "minimal_flip_cardinality": len(minimal_flip["evidence_ids"]),
-                    "status_sha256": canonical_digest(counter_status),
-                },
-                "repair": {
-                    "dependencies": len(repair.get("depends_on", [])),
-                    "fence_epoch_positive": True,
-                    "fresh": repaired.get("status") == "Fresh",
-                    "polls": repair_polls,
-                    "post_retraction_projection_polls": retraction_polls,
-                    "post_retraction_projection_sha256": canonical_digest(
-                        post_retraction_projection
-                    ),
-                    "stale_fence_denied": True,
-                },
-            }
-            if tuple(matrix) != CASES:
-                _fail("reasoning_case_inventory_mismatch")
         finally:
             engine.stop()
             shutil.rmtree(root, ignore_errors=True)
@@ -559,7 +658,7 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
         "schema_version": SCHEMA_VERSION,
         "summary": {
             "cases": len(matrix),
-            "initial_projection_polls": fresh_polls,
+            "initial_projection_polls": initial["fresh_polls"],
             "passed": len(matrix),
             "status": "pass",
         },
