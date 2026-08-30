@@ -84,159 +84,212 @@ pub fn materialize(
     rows: &[Vec<Cell>],
 ) -> Result<(SchemaRef, RecordBatch), String> {
     let arrow = arrow_schema(schema);
-    let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.columns().len());
-
-    for (ci, col) in schema.columns().iter().enumerate() {
-        let array: ArrayRef = match col.ty {
-            ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => {
-                let mut b = Int64Builder::new();
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Int(i)) | Some(Cell::Timestamp(i)) => b.append_value(*i),
-                        _ => b.append_null(),
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::TimestampTz => {
-                let mut b = TimestampMicrosecondBuilder::new().with_timezone("UTC");
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Timestamp(value)) | Some(Cell::Int(value)) => {
-                            b.append_value(*value)
-                        }
-                        _ => b.append_null(),
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Float | ColumnType::Double => {
-                let mut b = Float64Builder::new();
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Float(f)) => b.append_value(*f),
-                        Some(Cell::Int(i)) => b.append_value(*i as f64),
-                        _ => b.append_null(),
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Bool => {
-                let mut b = BooleanBuilder::new();
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Bool(x)) => b.append_value(*x),
-                        _ => b.append_null(),
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Bytes => {
-                let mut b = BinaryBuilder::new();
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Bytes(bytes)) => b.append_value(bytes),
-                        _ => b.append_null(),
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Uuid => {
-                let mut b = FixedSizeBinaryBuilder::new(16);
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Bytes(bytes)) if bytes.len() == 16 => b
-                            .append_value(bytes)
-                            .map_err(|e| format!("UUID Arrow value: {e}"))?,
-                        // Legacy WIP rows used canonical UUID text. Decode them
-                        // on read so persisted rows survive the representation fix.
-                        Some(Cell::Text(text)) => {
-                            let bytes = super::schema::uuid_bytes(text)?;
-                            b.append_value(&bytes)
-                                .map_err(|e| format!("UUID Arrow value: {e}"))?;
-                        }
-                        Some(Cell::Null) | None => b.append_null(),
-                        _ => return Err("invalid persisted UUID cell".to_string()),
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Numeric(Some((precision, scale))) => {
-                let mut b = Decimal128Builder::new()
-                    .with_precision_and_scale(precision as u8, scale as i8)
-                    .map_err(|e| format!("NUMERIC Arrow type: {e}"))?;
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Null) | None => b.append_null(),
-                        Some(cell) => {
-                            let value = cell.to_typed_json(col.ty);
-                            let scaled = decimal_scaled_value(&value, scale)
-                                .ok_or_else(|| "invalid persisted NUMERIC cell".to_string())?;
-                            b.append_value(scaled);
-                        }
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Numeric(None) | ColumnType::Text => {
-                let mut b = StringBuilder::new();
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Null) | None => b.append_null(),
-                        Some(cell) => {
-                            let value = cell.to_typed_json(col.ty);
-                            if value.is_null() {
-                                b.append_null();
-                            } else if let Some(text) = value.as_str() {
-                                b.append_value(text);
-                            } else {
-                                b.append_value(value.to_string());
-                            }
-                        }
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Json => {
-                let mut b = StringBuilder::new();
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Null) | None => b.append_null(),
-                        Some(cell) => {
-                            let value = cell.to_typed_json(col.ty);
-                            if value.is_null() {
-                                b.append_null();
-                            } else {
-                                b.append_value(value.to_string());
-                            }
-                        }
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Vector(_) => {
-                let mut b = ListBuilder::new(Float32Builder::new());
-                for row in rows {
-                    match row.get(ci) {
-                        Some(Cell::Vector(v)) => {
-                            for f in v {
-                                b.values().append_value(*f);
-                            }
-                            b.append(true);
-                        }
-                        _ => b.append(false),
-                    }
-                }
-                Arc::new(b.finish())
-            }
-            ColumnType::Array(elem) => materialize_array(rows, ci, elem)?,
-        };
-        columns.push(array);
-    }
+    let columns = schema
+        .columns()
+        .iter()
+        .enumerate()
+        .map(|(ci, column)| materialize_column(column.ty, rows, ci))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let batch = RecordBatch::try_new(arrow.clone(), columns)
         .map_err(|e| format!("user table batch: {e}"))?;
     Ok((arrow, batch))
+}
+
+fn materialize_column(ty: ColumnType, rows: &[Vec<Cell>], ci: usize) -> Result<ArrayRef, String> {
+    match ty {
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp | ColumnType::TimestampTz => {
+            Ok(materialize_temporal(rows, ci, ty))
+        }
+        ColumnType::Float | ColumnType::Double => Ok(materialize_float(rows, ci)),
+        ColumnType::Bool => Ok(materialize_bool(rows, ci)),
+        ColumnType::Bytes => Ok(materialize_bytes(rows, ci)),
+        ColumnType::Uuid => materialize_uuid(rows, ci),
+        ColumnType::Numeric(_) | ColumnType::Text | ColumnType::Json => {
+            materialize_string_like(rows, ci, ty)
+        }
+        ColumnType::Vector(_) => Ok(materialize_vector(rows, ci)),
+        ColumnType::Array(elem) => materialize_array(rows, ci, elem),
+    }
+}
+
+fn materialize_temporal(rows: &[Vec<Cell>], ci: usize, ty: ColumnType) -> ArrayRef {
+    match ty {
+        ColumnType::TimestampTz => {
+            let mut builder = TimestampMicrosecondBuilder::new().with_timezone("UTC");
+            for row in rows {
+                match row.get(ci) {
+                    Some(Cell::Timestamp(value)) | Some(Cell::Int(value)) => {
+                        builder.append_value(*value)
+                    }
+                    _ => builder.append_null(),
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => {
+            let mut builder = Int64Builder::new();
+            for row in rows {
+                match row.get(ci) {
+                    Some(Cell::Int(value)) | Some(Cell::Timestamp(value)) => {
+                        builder.append_value(*value)
+                    }
+                    _ => builder.append_null(),
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        _ => unreachable!("materialize_temporal called for a non-temporal column"),
+    }
+}
+
+fn materialize_float(rows: &[Vec<Cell>], ci: usize) -> ArrayRef {
+    let mut builder = Float64Builder::new();
+    for row in rows {
+        match row.get(ci) {
+            Some(Cell::Float(value)) => builder.append_value(*value),
+            Some(Cell::Int(value)) => builder.append_value(*value as f64),
+            _ => builder.append_null(),
+        }
+    }
+    Arc::new(builder.finish())
+}
+
+fn materialize_bool(rows: &[Vec<Cell>], ci: usize) -> ArrayRef {
+    let mut builder = BooleanBuilder::new();
+    for row in rows {
+        match row.get(ci) {
+            Some(Cell::Bool(value)) => builder.append_value(*value),
+            _ => builder.append_null(),
+        }
+    }
+    Arc::new(builder.finish())
+}
+
+fn materialize_bytes(rows: &[Vec<Cell>], ci: usize) -> ArrayRef {
+    let mut builder = BinaryBuilder::new();
+    for row in rows {
+        match row.get(ci) {
+            Some(Cell::Bytes(value)) => builder.append_value(value),
+            _ => builder.append_null(),
+        }
+    }
+    Arc::new(builder.finish())
+}
+
+fn materialize_uuid(rows: &[Vec<Cell>], ci: usize) -> Result<ArrayRef, String> {
+    let mut builder = FixedSizeBinaryBuilder::new(16);
+    for row in rows {
+        match row.get(ci) {
+            Some(Cell::Bytes(bytes)) if bytes.len() == 16 => builder
+                .append_value(bytes)
+                .map_err(|e| format!("UUID Arrow value: {e}"))?,
+            // Legacy WIP rows used canonical UUID text. Decode them
+            // on read so persisted rows survive the representation fix.
+            Some(Cell::Text(text)) => {
+                let bytes = super::schema::uuid_bytes(text)?;
+                builder
+                    .append_value(&bytes)
+                    .map_err(|e| format!("UUID Arrow value: {e}"))?;
+            }
+            Some(Cell::Null) | None => builder.append_null(),
+            _ => return Err("invalid persisted UUID cell".to_string()),
+        }
+    }
+    Ok(Arc::new(builder.finish()))
+}
+
+fn materialize_string_like(
+    rows: &[Vec<Cell>],
+    ci: usize,
+    ty: ColumnType,
+) -> Result<ArrayRef, String> {
+    match ty {
+        ColumnType::Numeric(Some((precision, scale))) => {
+            materialize_decimal(rows, ci, ty, precision, scale)
+        }
+        ColumnType::Numeric(None) | ColumnType::Text => Ok(materialize_text(rows, ci, ty)),
+        ColumnType::Json => Ok(materialize_json(rows, ci, ty)),
+        _ => unreachable!("materialize_string_like called for a non-string column"),
+    }
+}
+
+fn materialize_decimal(
+    rows: &[Vec<Cell>],
+    ci: usize,
+    ty: ColumnType,
+    precision: u32,
+    scale: u32,
+) -> Result<ArrayRef, String> {
+    let mut builder = Decimal128Builder::new()
+        .with_precision_and_scale(precision as u8, scale as i8)
+        .map_err(|e| format!("NUMERIC Arrow type: {e}"))?;
+    for row in rows {
+        match row.get(ci) {
+            Some(Cell::Null) | None => builder.append_null(),
+            Some(cell) => {
+                let value = cell.to_typed_json(ty);
+                let scaled = decimal_scaled_value(&value, scale)
+                    .ok_or_else(|| "invalid persisted NUMERIC cell".to_string())?;
+                builder.append_value(scaled);
+            }
+        }
+    }
+    Ok(Arc::new(builder.finish()))
+}
+
+fn materialize_text(rows: &[Vec<Cell>], ci: usize, ty: ColumnType) -> ArrayRef {
+    let mut builder = StringBuilder::new();
+    for row in rows {
+        match row.get(ci) {
+            Some(Cell::Null) | None => builder.append_null(),
+            Some(cell) => {
+                let value = cell.to_typed_json(ty);
+                if value.is_null() {
+                    builder.append_null();
+                } else if let Some(text) = value.as_str() {
+                    builder.append_value(text);
+                } else {
+                    builder.append_value(value.to_string());
+                }
+            }
+        }
+    }
+    Arc::new(builder.finish())
+}
+
+fn materialize_json(rows: &[Vec<Cell>], ci: usize, ty: ColumnType) -> ArrayRef {
+    let mut builder = StringBuilder::new();
+    for row in rows {
+        match row.get(ci) {
+            Some(Cell::Null) | None => builder.append_null(),
+            Some(cell) => {
+                let value = cell.to_typed_json(ty);
+                if value.is_null() {
+                    builder.append_null();
+                } else {
+                    builder.append_value(value.to_string());
+                }
+            }
+        }
+    }
+    Arc::new(builder.finish())
+}
+
+fn materialize_vector(rows: &[Vec<Cell>], ci: usize) -> ArrayRef {
+    let mut builder = ListBuilder::new(Float32Builder::new());
+    for row in rows {
+        match row.get(ci) {
+            Some(Cell::Vector(values)) => {
+                for value in values {
+                    builder.values().append_value(*value);
+                }
+                builder.append(true);
+            }
+            _ => builder.append(false),
+        }
+    }
+    Arc::new(builder.finish())
 }
 
 fn array_arrow_type(elem: ArrayElemType) -> DataType {
