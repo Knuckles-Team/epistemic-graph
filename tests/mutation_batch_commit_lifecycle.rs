@@ -27,7 +27,7 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
+use epistemic_graph::protocol::{GraphType, Method, Response};
 
 const SECRET: &str = "cx-eg-05-mutation-batch-secret";
 
@@ -83,14 +83,6 @@ async fn add_node(
     .await
 }
 
-fn edge_rows(resp: &Response) -> Vec<(String, String, Vec<u8>)> {
-    assert!(resp.error.is_none(), "GetEdges: {:?}", resp.error);
-    match &resp.result {
-        Some(ResultPayload::EdgeList(rows)) => rows.clone(),
-        other => panic!("expected EdgeList, got {other:?}"),
-    }
-}
-
 /// Exercises: `staged_state == None` (native/else branch), the lifecycle
 /// `CreateGraph` arm of the outer match, the generic `apply_method_rows`
 /// catch-all arm (`AddNode`/`AddEdge` have no bespoke arm), and the final
@@ -123,7 +115,7 @@ async fn t01_create_graph_add_node_add_edge_roundtrip() {
     assert!(edge.error.is_none(), "AddEdge: {:?}", edge.error);
 
     let dump = Box::pin(dispatch(&state, req(5, "cx05-g1", Method::GetEdges))).await;
-    let rows = edge_rows(&dump);
+    let rows = test_support::edge_rows(&dump);
     assert_eq!(rows.len(), 1, "expected exactly the one committed edge");
     assert_eq!(rows[0].0, "a");
     assert_eq!(rows[0].1, "b");
@@ -157,7 +149,7 @@ async fn t02_clear_graph_removes_edges_but_graph_survives() {
     assert!(clear.error.is_none(), "ClearGraph: {:?}", clear.error);
 
     let dump = Box::pin(dispatch(&state, req(6, "cx05-g2", Method::GetEdges))).await;
-    let rows = edge_rows(&dump);
+    let rows = test_support::edge_rows(&dump);
     assert_eq!(rows.len(), 0, "ClearGraph must remove every edge row");
 
     // The graph itself must still exist: a post-clear AddNode must succeed.
