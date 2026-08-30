@@ -292,16 +292,7 @@ fn tsne(
 
 /// Compute the symmetric pairwise squared-distance matrix used by t-SNE.
 fn squared_distance_matrix(rows: &[Point]) -> Vec<Vec<f64>> {
-    let n = rows.len();
-    let mut d2 = vec![vec![0.0f64; n]; n];
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let v = sq_dist(&rows[i], &rows[j]);
-            d2[i][j] = v;
-            d2[j][i] = v;
-        }
-    }
-    d2
+    eg_geo::distance_matrix(rows, |a, b| sq_dist(a, b))
 }
 
 /// Calibrate one Gaussian affinity row so its entropy matches the target log-perplexity.
