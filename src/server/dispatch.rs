@@ -13409,15 +13409,7 @@ mod blob_dispatch_tests {
         {
             state.persistence = Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
-                    std::env::temp_dir()
-                        .join(format!(
-                            "eg-blob-dispatch-graph-{}-{}",
-                            std::process::id(),
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_nanos())
-                                .unwrap_or(0)
-                        ))
+                    crate::server::unique_temp_dir("eg-blob-dispatch-graph")
                         .to_string_lossy()
                         .into_owned(),
                     crate::durability::DurabilityPolicy::Each,
