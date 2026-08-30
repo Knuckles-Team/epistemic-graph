@@ -447,6 +447,181 @@ fn apply_batch(
     batch: Vec<(Instant, WriteOp)>,
     stats: &BatchStats,
 ) {
+    fn apply_add_node(
+        txn: &mut crate::graph::GraphTxn<'_>,
+        change: &mut crate::index::ChangeSet,
+        capture_content: bool,
+        node_id: String,
+        properties_msgpack: Vec<u8>,
+        reply: oneshot::Sender<WriteOutcome>,
+    ) {
+        if capture_content {
+            change
+                .added_nodes
+                .push(crate::index::NodeChange::with_properties(
+                    node_id.clone(),
+                    properties_msgpack.clone(),
+                ));
+        } else {
+            change.record_add_node(node_id.clone());
+        }
+        txn.add_node(node_id, properties_msgpack);
+        let _ = reply.send(WriteOutcome::Ok);
+    }
+
+    fn apply_remove_node(
+        core: &Arc<GraphCore>,
+        txn: &mut crate::graph::GraphTxn<'_>,
+        change: &mut crate::index::ChangeSet,
+        node_id: String,
+        reply: oneshot::Sender<WriteOutcome>,
+    ) {
+        // Capture the property blob BEFORE deletion (W1.6/P7,
+        // CONCEPT:EG-KG.storage.incremental-index-stamp) so incremental index maintenance removes
+        // the id from exactly its label/property postings, and the dependency clock bumps
+        // exactly the label/key dimensions it touched, instead of a coarse drop/floor. The
+        // node is gone from the property store the instant `txn.remove_node` runs.
+        match txn.get_node_properties(&node_id) {
+            Some(props) => change.record_remove_node_with_properties(node_id.clone(), props),
+            None => change.record_remove_node(node_id.clone()),
+        }
+        txn.remove_node(node_id.clone());
+        // Node identity owns its vector in every indexing mode. The
+        // incremental descriptor repeats this as an idempotent safety net.
+        core.semantic_store.write().remove_embedding(&node_id);
+        let _ = reply.send(WriteOutcome::Ok);
+    }
+
+    fn apply_add_edge(
+        txn: &mut crate::graph::GraphTxn<'_>,
+        change: &mut crate::index::ChangeSet,
+        source_id: String,
+        target_id: String,
+        properties_msgpack: Vec<u8>,
+        reply: oneshot::Sender<WriteOutcome>,
+    ) {
+        // Only a SUCCESSFUL add-edge is a real change (a missing endpoint is an
+        // Err that touches nothing), so record it after the outcome.
+        let recorded = (source_id.clone(), target_id.clone());
+        let outcome = match txn.add_edge(source_id, target_id, properties_msgpack) {
+            Ok(()) => {
+                change.record_add_edge(recorded.0, recorded.1);
+                WriteOutcome::Ok
+            }
+            Err(e) => WriteOutcome::Err(e),
+        };
+        let _ = reply.send(outcome);
+    }
+
+    fn apply_remove_edge(
+        txn: &mut crate::graph::GraphTxn<'_>,
+        change: &mut crate::index::ChangeSet,
+        source_id: String,
+        target_id: String,
+        reply: oneshot::Sender<WriteOutcome>,
+    ) {
+        change.record_remove_edge(source_id.clone(), target_id.clone());
+        txn.remove_edge(source_id, target_id);
+        let _ = reply.send(WriteOutcome::Ok);
+    }
+
+    fn apply_compare_and_set(
+        txn: &mut crate::graph::GraphTxn<'_>,
+        change: &mut crate::index::ChangeSet,
+        capture_content: bool,
+        node_id: String,
+        conditions: serde_json::Map<String, serde_json::Value>,
+        updates: serde_json::Map<String, serde_json::Value>,
+        reply: oneshot::Sender<WriteOutcome>,
+    ) {
+        let ok = txn.compare_and_set_fields(&node_id, &conditions, &updates);
+        // A lost CAS mutates nothing; only a won claim is a change.
+        if ok {
+            if capture_content {
+                // Capture the CAS `updates` as the blob: a field-scoped content
+                // index (text/temporal) reads only its own field from it, so a
+                // CAS that touches that field re-indexes it and one that does not
+                // is a no-op for the index (its prior entry stays correct).
+                let blob =
+                    rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
+                        .unwrap_or_default();
+                change.updated_nodes.push(
+                    crate::index::NodeChange::with_properties_and_fields(
+                        node_id,
+                        blob,
+                        updates.keys().cloned().collect(),
+                    ),
+                );
+            } else {
+                change
+                    .updated_nodes
+                    .push(crate::index::NodeChange::with_fields(
+                        node_id,
+                        updates.keys().cloned().collect(),
+                    ));
+            }
+        }
+        let _ = reply.send(WriteOutcome::Cas(ok));
+    }
+
+    fn apply_op(
+        core: &Arc<GraphCore>,
+        txn: &mut crate::graph::GraphTxn<'_>,
+        change: &mut crate::index::ChangeSet,
+        capture_content: bool,
+        op: WriteOp,
+    ) {
+        match op {
+            WriteOp::AddNode {
+                node_id,
+                properties_msgpack,
+                reply,
+            } => apply_add_node(
+                txn,
+                change,
+                capture_content,
+                node_id,
+                properties_msgpack,
+                reply,
+            ),
+            WriteOp::RemoveNode { node_id, reply } => {
+                apply_remove_node(core, txn, change, node_id, reply)
+            }
+            WriteOp::AddEdge {
+                source_id,
+                target_id,
+                properties_msgpack,
+                reply,
+            } => apply_add_edge(
+                txn,
+                change,
+                source_id,
+                target_id,
+                properties_msgpack,
+                reply,
+            ),
+            WriteOp::RemoveEdge {
+                source_id,
+                target_id,
+                reply,
+            } => apply_remove_edge(txn, change, source_id, target_id, reply),
+            WriteOp::CompareAndSet {
+                node_id,
+                conditions,
+                updates,
+                reply,
+            } => apply_compare_and_set(
+                txn,
+                change,
+                capture_content,
+                node_id,
+                conditions,
+                updates,
+                reply,
+            ),
+        }
+    }
+
     if batch.is_empty() {
         return;
     }
@@ -477,106 +652,7 @@ fn apply_batch(
     let capture_content = core.wants_change_content();
     let mut change = crate::index::ChangeSet::new();
     for (_, op) in batch {
-        match op {
-            WriteOp::AddNode {
-                node_id,
-                properties_msgpack,
-                reply,
-            } => {
-                if capture_content {
-                    change
-                        .added_nodes
-                        .push(crate::index::NodeChange::with_properties(
-                            node_id.clone(),
-                            properties_msgpack.clone(),
-                        ));
-                } else {
-                    change.record_add_node(node_id.clone());
-                }
-                txn.add_node(node_id, properties_msgpack);
-                let _ = reply.send(WriteOutcome::Ok);
-            }
-            WriteOp::RemoveNode { node_id, reply } => {
-                // Capture the property blob BEFORE deletion (W1.6/P7,
-                // CONCEPT:EG-KG.storage.incremental-index-stamp) so incremental index maintenance removes
-                // the id from exactly its label/property postings, and the dependency clock bumps
-                // exactly the label/key dimensions it touched, instead of a coarse drop/floor. The
-                // node is gone from the property store the instant `txn.remove_node` runs.
-                match txn.get_node_properties(&node_id) {
-                    Some(props) => {
-                        change.record_remove_node_with_properties(node_id.clone(), props)
-                    }
-                    None => change.record_remove_node(node_id.clone()),
-                }
-                txn.remove_node(node_id.clone());
-                // Node identity owns its vector in every indexing mode. The
-                // incremental descriptor repeats this as an idempotent safety net.
-                core.semantic_store.write().remove_embedding(&node_id);
-                let _ = reply.send(WriteOutcome::Ok);
-            }
-            WriteOp::AddEdge {
-                source_id,
-                target_id,
-                properties_msgpack,
-                reply,
-            } => {
-                // Only a SUCCESSFUL add-edge is a real change (a missing endpoint is
-                // an Err that touches nothing), so record it after the outcome.
-                let recorded = (source_id.clone(), target_id.clone());
-                let outcome = match txn.add_edge(source_id, target_id, properties_msgpack) {
-                    Ok(()) => {
-                        change.record_add_edge(recorded.0, recorded.1);
-                        WriteOutcome::Ok
-                    }
-                    Err(e) => WriteOutcome::Err(e),
-                };
-                let _ = reply.send(outcome);
-            }
-            WriteOp::RemoveEdge {
-                source_id,
-                target_id,
-                reply,
-            } => {
-                change.record_remove_edge(source_id.clone(), target_id.clone());
-                txn.remove_edge(source_id, target_id);
-                let _ = reply.send(WriteOutcome::Ok);
-            }
-            WriteOp::CompareAndSet {
-                node_id,
-                conditions,
-                updates,
-                reply,
-            } => {
-                let ok = txn.compare_and_set_fields(&node_id, &conditions, &updates);
-                // A lost CAS mutates nothing; only a won claim is a change.
-                if ok {
-                    if capture_content {
-                        // Capture the CAS `updates` as the blob: a field-scoped content
-                        // index (text/temporal) reads only its own field from it, so a
-                        // CAS that touches that field re-indexes it and one that does not
-                        // is a no-op for the index (its prior entry stays correct).
-                        let blob =
-                            rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
-                                .unwrap_or_default();
-                        change.updated_nodes.push(
-                            crate::index::NodeChange::with_properties_and_fields(
-                                node_id,
-                                blob,
-                                updates.keys().cloned().collect(),
-                            ),
-                        );
-                    } else {
-                        change
-                            .updated_nodes
-                            .push(crate::index::NodeChange::with_fields(
-                                node_id,
-                                updates.keys().cloned().collect(),
-                            ));
-                    }
-                }
-                let _ = reply.send(WriteOutcome::Cas(ok));
-            }
-        }
+        apply_op(core, &mut txn, &mut change, capture_content, op);
     }
     // CONCEPT:EG-KG.storage.write-changeset — maintain the heavy secondary indexes (vector today;
     // text/temporal/derived-OWL via the same seam in future) BEFORE releasing the
