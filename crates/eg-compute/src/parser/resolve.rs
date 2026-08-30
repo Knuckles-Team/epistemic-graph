@@ -90,209 +90,41 @@ pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
 /// from [`index_repository`] so tests can resolve hand-built `ParseResult`s.
 pub fn resolve(files: &[(String, Vec<u8>)], results: &[ParseResult]) -> IndexResult {
     let file_paths: HashSet<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
-
     let mut out = IndexResult {
         files_parsed: results.len(),
         ..Default::default()
     };
 
-    // name → definitions (functions, methods, classes). Built first so a call in
-    // any file can resolve to a def in any other.
-    let mut def_index: HashMap<String, Vec<Def>> = HashMap::new();
-    // (class scope, method name) → method node ids, for receiver-scoped calls.
-    let mut scoped: HashMap<(String, String), Vec<String>> = HashMap::new();
-    // class name → its definitions (for structural edges + scoped lookup).
-    let mut class_by_name: HashMap<String, Vec<ClassDef>> = HashMap::new();
-    // Carry the (file→module) import facts to resolve after node merge.
-    let mut import_raw: Vec<(String, String)> = Vec::new();
-    let mut edges: Vec<ExtractedEdge> = Vec::new();
-
-    for r in results {
-        out.symbols_extracted += r.symbols_extracted;
-        for n in &r.nodes {
-            if n.node_type == "SYMBOL" {
-                if let (Some(name), Some(fp)) =
-                    (n.properties.get("name"), n.properties.get("file_path"))
-                {
-                    let st = n.properties.get("symbol_type").map(String::as_str);
-                    let scope = n.properties.get("scope").cloned().unwrap_or_default();
-                    let arity = n.properties.get("arity").and_then(|a| a.parse().ok());
-                    if st == Some("Function") || st == Some("Class") {
-                        def_index.entry(name.clone()).or_default().push(Def {
-                            id: n.node_id.clone(),
-                            file_path: fp.clone(),
-                            arity,
-                        });
-                    }
-                    if st == Some("Function") && !scope.is_empty() {
-                        scoped
-                            .entry((scope, name.clone()))
-                            .or_default()
-                            .push(n.node_id.clone());
-                    }
-                    if st == Some("Class") {
-                        class_by_name
-                            .entry(name.clone())
-                            .or_default()
-                            .push(ClassDef {
-                                id: n.node_id.clone(),
-                                file_path: fp.clone(),
-                                bases: split_csv(n.properties.get("bases")),
-                                interfaces: split_csv(n.properties.get("interfaces")),
-                            });
-                    }
-                }
-            }
-            out.nodes.push(clone_node(n));
-        }
-        for e in &r.edges {
-            match e.edge_type.as_str() {
-                "IMPLEMENTS" => edges.push(clone_edge(e)),
-                // Raw forms are superseded by the resolved edges built below.
-                "calls_raw" => {}
-                "depends_on_raw" => {
-                    let importer = e.source.strip_prefix("file:").unwrap_or(&e.source);
-                    import_raw.push((importer.to_string(), e.target.clone()));
-                }
-                _ => edges.push(clone_edge(e)),
-            }
-        }
-    }
-
-    // class name → its (deduped) base + interface names, for ancestor lookup.
-    let mut bases_of: HashMap<String, Vec<String>> = HashMap::new();
-    for (name, defs) in &class_by_name {
-        let mut all: Vec<String> = Vec::new();
-        for d in defs {
-            for b in d.bases.iter().chain(d.interfaces.iter()) {
-                if !all.contains(b) {
-                    all.push(b.clone());
-                }
-            }
-        }
-        bases_of.insert(name.clone(), all);
-    }
+    let mut inputs = ResolutionInputs::default();
+    collect_resolution_inputs(results, &mut out, &mut inputs);
+    let bases_of = build_bases_of(&inputs.class_by_name);
 
     // ── Resolve calls: caller symbol → callee definition (type/scope-aware) ──
-    let mut seen: HashSet<(String, String)> = HashSet::new();
-    for idx in 0..out.nodes.len() {
-        let (caller_id, caller_file, caller_scope, caller_lang, sites) = {
-            let n = &out.nodes[idx];
-            if n.properties.get("symbol_type").map(String::as_str) != Some("Function") {
-                continue;
-            }
-            let file = match n.properties.get("file_path") {
-                Some(f) => f.clone(),
-                None => continue,
-            };
-            let scope = n.properties.get("scope").cloned().unwrap_or_default();
-            let lang = n.properties.get("language").cloned().unwrap_or_default();
-            let sites = match n.properties.get("call_sites") {
-                Some(cs) if !cs.is_empty() => decode_call_sites(cs),
-                // Fallback (no structured sites): name-only, no receiver/arity signal.
-                _ => match n.properties.get("calls") {
-                    Some(c) if !c.is_empty() => c
-                        .split(',')
-                        .filter(|s| !s.is_empty())
-                        .map(|name| DecodedSite {
-                            receiver: String::new(),
-                            callee: name.to_string(),
-                            argc: None,
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                },
-            };
-            (n.node_id.clone(), file, scope, lang, sites)
-        };
-        for site in &sites {
-            match resolve_site(
-                site,
-                &caller_file,
-                &caller_scope,
-                &caller_lang,
-                &def_index,
-                &scoped,
-                &class_by_name,
-                &bases_of,
-            ) {
-                Some((target, strategy, confidence)) => {
-                    if seen.insert((caller_id.clone(), target.clone())) {
-                        edges.push(ExtractedEdge {
-                            source: caller_id.clone(),
-                            target,
-                            edge_type: "calls".to_string(),
-                            properties: HashMap::from([
-                                ("name".to_string(), site.callee.clone()),
-                                ("strategy".to_string(), strategy.to_string()),
-                                ("confidence".to_string(), format!("{confidence:.2}")),
-                            ]),
-                        });
-                    }
-                    out.calls_resolved += 1;
-                    match strategy {
-                        "scoped" => out.calls_scope_resolved += 1,
-                        "arity" => out.calls_type_resolved += 1,
-                        _ => {}
-                    }
-                }
-                None => out.calls_unresolved += 1,
-            }
-        }
-    }
+    let calls = resolve_call_edges(
+        &out.nodes,
+        &inputs.def_index,
+        &inputs.scoped,
+        &inputs.class_by_name,
+        &bases_of,
+        &mut inputs.edges,
+    );
+    out.calls_resolved = calls.resolved;
+    out.calls_unresolved = calls.unresolved;
+    out.calls_scope_resolved = calls.scope_resolved;
+    out.calls_type_resolved = calls.type_resolved;
 
     // ── Structural edges: class → base (`inherits`) / interface (`realizes`) ──
-    let mut seen_struct: HashSet<(String, String, &'static str)> = HashSet::new();
-    for defs in class_by_name.values() {
-        for d in defs {
-            for (names, etype) in [(&d.bases, "inherits"), (&d.interfaces, "realizes")] {
-                for base in names {
-                    if let Some(target) = resolve_class(base, &d.file_path, &class_by_name) {
-                        if target == d.id {
-                            continue;
-                        }
-                        if seen_struct.insert((d.id.clone(), target.clone(), etype)) {
-                            edges.push(ExtractedEdge {
-                                source: d.id.clone(),
-                                target,
-                                edge_type: etype.to_string(),
-                                properties: HashMap::from([("name".to_string(), base.clone())]),
-                            });
-                            if etype == "inherits" {
-                                out.inherits_edges += 1;
-                            } else {
-                                out.realizes_edges += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let structural = resolve_structural_edges(&inputs.class_by_name, &mut inputs.edges);
+    out.inherits_edges = structural.inherits;
+    out.realizes_edges = structural.realizes;
 
     // ── Resolve imports: importer file → defining file ────────────────────
-    let mut seen_dep: HashSet<(String, String)> = HashSet::new();
-    for (importer, module) in &import_raw {
-        match resolve_import(importer, module, &file_paths) {
-            Some(target_file) => {
-                let src = format!("file:{importer}");
-                let tgt = format!("file:{target_file}");
-                if seen_dep.insert((src.clone(), tgt.clone())) {
-                    edges.push(ExtractedEdge {
-                        source: src,
-                        target: tgt,
-                        edge_type: "depends_on".to_string(),
-                        properties: HashMap::from([("module".to_string(), module.clone())]),
-                    });
-                }
-                out.imports_resolved += 1;
-            }
-            None => out.imports_unresolved += 1,
-        }
-    }
+    let imports = resolve_import_edges(&inputs.import_raw, &file_paths, &mut inputs.edges);
+    out.imports_resolved = imports.resolved;
+    out.imports_unresolved = imports.unresolved;
 
     // ── Model-free similarity: LSH-band the MinHash signatures (CONCEPT:EG-KG.compute.model-free-similar-code) ──
-    out.similar_edges = similarity_edges(&out.nodes, &mut edges);
+    out.similar_edges = similarity_edges(&out.nodes, &mut inputs.edges);
 
     // `call_sites`/`minhash` are resolution-only inputs; don't leak them onto nodes.
     for n in &mut out.nodes {
@@ -300,8 +132,399 @@ pub fn resolve(files: &[(String, Vec<u8>)], results: &[ParseResult]) -> IndexRes
         n.properties.remove("minhash");
     }
 
-    out.edges = edges;
+    out.edges = inputs.edges;
     out
+}
+
+#[derive(Default)]
+struct ResolutionInputs {
+    // name → definitions (functions, methods, classes). Built first so a call in
+    // any file can resolve to a def in any other.
+    def_index: HashMap<String, Vec<Def>>,
+    // (class scope, method name) → method node ids, for receiver-scoped calls.
+    scoped: HashMap<(String, String), Vec<String>>,
+    // class name → its definitions (for structural edges + scoped lookup).
+    class_by_name: HashMap<String, Vec<ClassDef>>,
+    // Carry the (file→module) import facts to resolve after node merge.
+    import_raw: Vec<(String, String)>,
+    edges: Vec<ExtractedEdge>,
+}
+
+/// Intermediate caller data kept owned while resolution appends edges.
+struct CallContext {
+    id: String,
+    file: String,
+    scope: String,
+    language: String,
+    sites: Vec<DecodedSite>,
+}
+
+#[derive(Default)]
+struct CallCounts {
+    resolved: usize,
+    unresolved: usize,
+    scope_resolved: usize,
+    type_resolved: usize,
+}
+
+struct CallResolutionState<'a> {
+    seen: HashSet<(String, String)>,
+    edges: &'a mut Vec<ExtractedEdge>,
+    counts: CallCounts,
+}
+
+#[derive(Default)]
+struct StructuralCounts {
+    inherits: usize,
+    realizes: usize,
+}
+
+struct StructuralResolutionState<'a> {
+    seen: HashSet<(String, String, &'static str)>,
+    edges: &'a mut Vec<ExtractedEdge>,
+    counts: StructuralCounts,
+}
+
+#[derive(Default)]
+struct ImportCounts {
+    resolved: usize,
+    unresolved: usize,
+}
+
+fn collect_resolution_inputs(
+    results: &[ParseResult],
+    out: &mut IndexResult,
+    inputs: &mut ResolutionInputs,
+) {
+    for result in results {
+        out.symbols_extracted += result.symbols_extracted;
+        collect_result_nodes(result, out, inputs);
+        collect_result_edges(result, inputs);
+    }
+}
+
+fn collect_result_nodes(
+    result: &ParseResult,
+    out: &mut IndexResult,
+    inputs: &mut ResolutionInputs,
+) {
+    for node in &result.nodes {
+        index_node(node, inputs);
+        out.nodes.push(clone_node(node));
+    }
+}
+
+fn index_node(node: &ExtractedNode, inputs: &mut ResolutionInputs) {
+    if node.node_type != "SYMBOL" {
+        return;
+    }
+    let Some(name) = node.properties.get("name") else {
+        return;
+    };
+    let Some(file_path) = node.properties.get("file_path") else {
+        return;
+    };
+    index_symbol(node, name, file_path, inputs);
+}
+
+fn index_symbol(node: &ExtractedNode, name: &str, file_path: &str, inputs: &mut ResolutionInputs) {
+    let symbol_type = node.properties.get("symbol_type").map(String::as_str);
+    let scope = node.properties.get("scope").cloned().unwrap_or_default();
+    let arity = node.properties.get("arity").and_then(|a| a.parse().ok());
+    let definition = Def {
+        id: node.node_id.clone(),
+        file_path: file_path.to_string(),
+        arity,
+    };
+
+    match symbol_type {
+        Some("Function") => {
+            inputs
+                .def_index
+                .entry(name.to_string())
+                .or_default()
+                .push(definition);
+            if !scope.is_empty() {
+                inputs
+                    .scoped
+                    .entry((scope, name.to_string()))
+                    .or_default()
+                    .push(node.node_id.clone());
+            }
+        }
+        Some("Class") => {
+            inputs
+                .def_index
+                .entry(name.to_string())
+                .or_default()
+                .push(definition);
+            inputs
+                .class_by_name
+                .entry(name.to_string())
+                .or_default()
+                .push(ClassDef {
+                    id: node.node_id.clone(),
+                    file_path: file_path.to_string(),
+                    bases: split_csv(node.properties.get("bases")),
+                    interfaces: split_csv(node.properties.get("interfaces")),
+                });
+        }
+        _ => {}
+    }
+}
+
+fn collect_result_edges(result: &ParseResult, inputs: &mut ResolutionInputs) {
+    for edge in &result.edges {
+        match edge.edge_type.as_str() {
+            "IMPLEMENTS" => inputs.edges.push(clone_edge(edge)),
+            // Raw forms are superseded by the resolved edges built below.
+            "calls_raw" => {}
+            "depends_on_raw" => {
+                let importer = edge.source.strip_prefix("file:").unwrap_or(&edge.source);
+                inputs
+                    .import_raw
+                    .push((importer.to_string(), edge.target.clone()));
+            }
+            _ => inputs.edges.push(clone_edge(edge)),
+        }
+    }
+}
+
+fn build_bases_of(class_by_name: &HashMap<String, Vec<ClassDef>>) -> HashMap<String, Vec<String>> {
+    let mut bases_of = HashMap::new();
+    for (name, definitions) in class_by_name {
+        let mut bases = Vec::new();
+        for definition in definitions {
+            append_unique_bases(&mut bases, definition);
+        }
+        bases_of.insert(name.clone(), bases);
+    }
+    bases_of
+}
+
+fn append_unique_bases(bases: &mut Vec<String>, definition: &ClassDef) {
+    for base in definition.bases.iter().chain(definition.interfaces.iter()) {
+        if !bases.contains(base) {
+            bases.push(base.clone());
+        }
+    }
+}
+
+fn resolve_call_edges(
+    nodes: &[ExtractedNode],
+    def_index: &HashMap<String, Vec<Def>>,
+    scoped: &HashMap<(String, String), Vec<String>>,
+    class_by_name: &HashMap<String, Vec<ClassDef>>,
+    bases_of: &HashMap<String, Vec<String>>,
+    edges: &mut Vec<ExtractedEdge>,
+) -> CallCounts {
+    let mut state = CallResolutionState {
+        seen: HashSet::new(),
+        edges,
+        counts: CallCounts::default(),
+    };
+    for node in nodes {
+        let Some(context) = call_context(node) else {
+            continue;
+        };
+        for site in &context.sites {
+            let resolved = resolve_site(
+                site,
+                &context.file,
+                &context.scope,
+                &context.language,
+                def_index,
+                scoped,
+                class_by_name,
+                bases_of,
+            );
+            match resolved {
+                Some((target, strategy, confidence)) => record_call_resolution(
+                    &context.id,
+                    site,
+                    target,
+                    strategy,
+                    confidence,
+                    &mut state,
+                ),
+                None => state.counts.unresolved += 1,
+            }
+        }
+    }
+    state.counts
+}
+
+fn call_context(node: &ExtractedNode) -> Option<CallContext> {
+    if node.properties.get("symbol_type").map(String::as_str) != Some("Function") {
+        return None;
+    }
+    Some(CallContext {
+        id: node.node_id.clone(),
+        file: node.properties.get("file_path")?.clone(),
+        scope: node.properties.get("scope").cloned().unwrap_or_default(),
+        language: node.properties.get("language").cloned().unwrap_or_default(),
+        sites: decode_node_sites(node),
+    })
+}
+
+fn decode_node_sites(node: &ExtractedNode) -> Vec<DecodedSite> {
+    match node.properties.get("call_sites") {
+        Some(call_sites) if !call_sites.is_empty() => decode_call_sites(call_sites),
+        _ => fallback_call_sites(node.properties.get("calls")),
+    }
+}
+
+fn fallback_call_sites(calls: Option<&String>) -> Vec<DecodedSite> {
+    calls
+        .filter(|calls| !calls.is_empty())
+        .map(|calls| {
+            calls
+                .split(',')
+                .filter(|name| !name.is_empty())
+                .map(|name| DecodedSite {
+                    receiver: String::new(),
+                    callee: name.to_string(),
+                    argc: None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn record_call_resolution(
+    caller_id: &str,
+    site: &DecodedSite,
+    target: String,
+    strategy: &'static str,
+    confidence: f64,
+    state: &mut CallResolutionState<'_>,
+) {
+    if state.seen.insert((caller_id.to_string(), target.clone())) {
+        state.edges.push(ExtractedEdge {
+            source: caller_id.to_string(),
+            target,
+            edge_type: "calls".to_string(),
+            properties: HashMap::from([
+                ("name".to_string(), site.callee.clone()),
+                ("strategy".to_string(), strategy.to_string()),
+                ("confidence".to_string(), format!("{confidence:.2}")),
+            ]),
+        });
+    }
+    state.counts.resolved += 1;
+    match strategy {
+        "scoped" => state.counts.scope_resolved += 1,
+        "arity" => state.counts.type_resolved += 1,
+        _ => {}
+    }
+}
+
+fn resolve_structural_edges(
+    class_by_name: &HashMap<String, Vec<ClassDef>>,
+    edges: &mut Vec<ExtractedEdge>,
+) -> StructuralCounts {
+    let mut state = StructuralResolutionState {
+        seen: HashSet::new(),
+        edges,
+        counts: StructuralCounts::default(),
+    };
+    for definitions in class_by_name.values() {
+        for definition in definitions {
+            append_named_structural_edges(
+                definition,
+                &definition.bases,
+                "inherits",
+                class_by_name,
+                &mut state,
+            );
+            append_named_structural_edges(
+                definition,
+                &definition.interfaces,
+                "realizes",
+                class_by_name,
+                &mut state,
+            );
+        }
+    }
+    state.counts
+}
+
+fn append_named_structural_edges(
+    definition: &ClassDef,
+    names: &[String],
+    edge_type: &'static str,
+    class_by_name: &HashMap<String, Vec<ClassDef>>,
+    state: &mut StructuralResolutionState<'_>,
+) {
+    for base in names {
+        if let Some(target) = resolve_class(base, &definition.file_path, class_by_name) {
+            append_structural_edge(definition, base, target, edge_type, state);
+        }
+    }
+}
+
+fn append_structural_edge(
+    definition: &ClassDef,
+    base: &str,
+    target: String,
+    edge_type: &'static str,
+    state: &mut StructuralResolutionState<'_>,
+) {
+    if target == definition.id
+        || !state
+            .seen
+            .insert((definition.id.clone(), target.clone(), edge_type))
+    {
+        return;
+    }
+    state.edges.push(ExtractedEdge {
+        source: definition.id.clone(),
+        target,
+        edge_type: edge_type.to_string(),
+        properties: HashMap::from([("name".to_string(), base.to_string())]),
+    });
+    match edge_type {
+        "inherits" => state.counts.inherits += 1,
+        _ => state.counts.realizes += 1,
+    }
+}
+
+fn resolve_import_edges(
+    import_raw: &[(String, String)],
+    file_paths: &HashSet<&str>,
+    edges: &mut Vec<ExtractedEdge>,
+) -> ImportCounts {
+    let mut counts = ImportCounts::default();
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    for (importer, module) in import_raw {
+        let Some(target_file) = resolve_import(importer, module, file_paths) else {
+            counts.unresolved += 1;
+            continue;
+        };
+        append_import_edge(importer, module, &target_file, &mut seen, edges);
+        counts.resolved += 1;
+    }
+    counts
+}
+
+fn append_import_edge(
+    importer: &str,
+    module: &str,
+    target_file: &str,
+    seen: &mut HashSet<(String, String)>,
+    edges: &mut Vec<ExtractedEdge>,
+) {
+    let source = format!("file:{importer}");
+    let target = format!("file:{target_file}");
+    if !seen.insert((source.clone(), target.clone())) {
+        return;
+    }
+    edges.push(ExtractedEdge {
+        source,
+        target,
+        edge_type: "depends_on".to_string(),
+        properties: HashMap::from([("module".to_string(), module.to_string())]),
+    });
 }
 
 /// LSH-band the per-symbol MinHash signatures into `similar_to` edges. Symbols
