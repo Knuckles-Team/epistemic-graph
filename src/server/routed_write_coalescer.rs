@@ -62,14 +62,13 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use dashmap::DashMap;
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
 
 use crate::protocol::Response;
 use crate::write_coalescer::{
-    new_registry, operations_applied, queue_admitted, queue_released, registry_with_config,
-    BatchStats, BatchStatsHandle, CoalescerConfig,
+    receive_batch, record_flush, BatchStats, CoalescerConfig, CoalescerRegistryState,
+    CoalescerState,
 };
 
 /// Keep a panic-isolating child future from outliving the graph worker if the
@@ -160,16 +159,7 @@ impl RoutedCommitJob {
 /// Cloneable via `Arc`; held in [`RoutedWriteCoalescerRegistry`].
 pub struct RoutedGraphWriter {
     tx: mpsc::Sender<(u64, RoutedCommitJob)>,
-    /// Serializes ticket assignment with `try_send`, making the channel's FIFO
-    /// order an explicit linearization order across concurrent producers.
-    admission: std::sync::Mutex<AdmissionState>,
-    config: CoalescerConfig,
-    stats: BatchStatsHandle,
-}
-
-#[derive(Debug, Default)]
-struct AdmissionState {
-    next_ticket: u64,
+    state: CoalescerState,
 }
 
 impl RoutedGraphWriter {
@@ -177,21 +167,21 @@ impl RoutedGraphWriter {
     /// receiver and is the sole taker of `lock_graph(graph_name)` on behalf of
     /// every job it flushes).
     pub fn spawn(graph_name: String, config: CoalescerConfig) -> Arc<Self> {
+        let state = CoalescerState::new(config, "routed write coalescer admission mutex poisoned");
         let (tx, rx) = mpsc::channel::<(u64, RoutedCommitJob)>(config.queue_capacity);
-        let stats = BatchStatsHandle::new();
-        tokio::spawn(run_worker(graph_name, rx, config, stats.clone_arc()));
-        Arc::new(Self {
-            tx,
-            admission: std::sync::Mutex::new(AdmissionState::default()),
-            config,
-            stats,
-        })
+        tokio::spawn(run_worker(
+            graph_name,
+            rx,
+            state.config(),
+            state.worker_stats(),
+        ));
+        Arc::new(Self { tx, state })
     }
 
     /// Coalescing counters for this graph (batches vs ops). Mainly for tests /
     /// in-process diagnostics; the Prometheus counters are the operator surface.
     pub fn stats(&self) -> &Arc<BatchStats> {
-        &self.stats
+        self.state.stats()
     }
 
     /// Try to enqueue `job` onto this graph's worker, WITHOUT blocking.
@@ -203,32 +193,19 @@ impl RoutedGraphWriter {
     ///   not execute the job inline. Accepted tickets are the sole ordering
     ///   authority for this graph, so rejected work can never overtake them.
     pub fn try_enqueue(&self, job: RoutedCommitJob) -> Result<(), RoutedCommitJob> {
-        let mut admission = self
-            .admission
-            .lock()
-            .expect("routed write coalescer admission mutex poisoned");
-        if admission.next_ticket == u64::MAX {
-            return Err(job);
-        }
-        let ticket = admission.next_ticket;
         let queued_bytes = job.approx_bytes();
-        queue_admitted(queued_bytes);
-        match self.tx.try_send((ticket, job)) {
-            Ok(()) => {
-                admission.next_ticket = ticket + 1;
-                Ok(())
-            }
-            Err(mpsc::error::TrySendError::Full((_, job)))
-            | Err(mpsc::error::TrySendError::Closed((_, job))) => {
-                queue_released(queued_bytes);
-                Err(job)
-            }
-        }
+        let tx = &self.tx;
+        self.state.try_enqueue(job, queued_bytes, |ticket, job| {
+            tx.try_send((ticket, job)).map_err(|error| match error {
+                mpsc::error::TrySendError::Full((_, job))
+                | mpsc::error::TrySendError::Closed((_, job)) => job,
+            })
+        })
     }
 
     /// The active batch size, for diagnostics/tests.
     pub fn max_batch(&self) -> usize {
-        self.config.max_batch
+        self.state.max_batch()
     }
 }
 
@@ -242,71 +219,16 @@ async fn run_worker(
 ) {
     let mut batch: Vec<RoutedCommitJob> = Vec::with_capacity(config.max_batch);
     let mut next_ticket = 0u64;
-    while let Some((ticket, first)) = rx.recv().await {
-        queue_released(first.approx_bytes());
-        assert_eq!(
-            ticket, next_ticket,
-            "routed write coalescer admission order must be contiguous"
-        );
-        next_ticket = next_ticket
-            .checked_add(1)
-            .expect("routed write coalescer ticket overflow");
-        batch.push(first);
-
-        // Greedily pull everything already queued (no await) up to max_batch —
-        // the common firehose case where producers are ahead of the worker.
-        while batch.len() < config.max_batch {
-            match rx.try_recv() {
-                Ok((ticket, job)) => {
-                    queue_released(job.approx_bytes());
-                    assert_eq!(
-                        ticket, next_ticket,
-                        "routed write coalescer admission order must be contiguous"
-                    );
-                    next_ticket = next_ticket
-                        .checked_add(1)
-                        .expect("routed write coalescer ticket overflow");
-                    batch.push(job);
-                }
-                Err(_) => break,
-            }
-        }
-
-        // If we only got the one job, linger briefly to let a concurrent burst
-        // land in the same lock acquisition — but never longer than
-        // max_linger, so a lone write is essentially undelayed.
-        if batch.len() == 1 && config.max_linger > Duration::ZERO {
-            if let Ok(Some((ticket, job))) =
-                tokio::time::timeout(config.max_linger, rx.recv()).await
-            {
-                queue_released(job.approx_bytes());
-                assert_eq!(
-                    ticket, next_ticket,
-                    "routed write coalescer admission order must be contiguous"
-                );
-                next_ticket = next_ticket
-                    .checked_add(1)
-                    .expect("routed write coalescer ticket overflow");
-                batch.push(job);
-                while batch.len() < config.max_batch {
-                    match rx.try_recv() {
-                        Ok((ticket, job)) => {
-                            queue_released(job.approx_bytes());
-                            assert_eq!(
-                                ticket, next_ticket,
-                                "routed write coalescer admission order must be contiguous"
-                            );
-                            next_ticket = next_ticket
-                                .checked_add(1)
-                                .expect("routed write coalescer ticket overflow");
-                            batch.push(job);
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }
-        }
-
+    while receive_batch(
+        &mut rx,
+        &mut batch,
+        config,
+        &mut next_ticket,
+        "routed write coalescer",
+        RoutedCommitJob::approx_bytes,
+    )
+    .await
+    {
         flush_batch(&graph_name, std::mem::take(&mut batch), &stats).await;
         batch = Vec::with_capacity(config.max_batch);
     }
@@ -370,8 +292,7 @@ async fn flush_batch(graph_name: &str, batch: Vec<RoutedCommitJob>, stats: &Batc
         // sequences — this is the contention win (`stats().batches() <
         // stats().ops()` under concurrent load), even though each op still issued
         // its own separate durable commit.
-        stats.record(n);
-        operations_applied(n);
+        record_flush(stats, n);
     }
     .instrument(tracing::debug_span!(
         "routed_write_coalescer.flush_batch",
@@ -387,32 +308,35 @@ async fn flush_batch(graph_name: &str, batch: Vec<RoutedCommitJob>, stats: &Batc
 /// `Arc<GraphCore>` (see module docs), so there is no "stale writer applies to
 /// a deleted graph's orphaned core" hazard to guard against here.
 pub struct RoutedWriteCoalescerRegistry {
-    writers: DashMap<String, Arc<RoutedGraphWriter>>,
-    config: CoalescerConfig,
+    state: CoalescerRegistryState<RoutedGraphWriter>,
 }
 
 impl RoutedWriteCoalescerRegistry {
     /// Build an always-on, hardware-sized bounded coalescer registry.
     pub fn new() -> Self {
-        let (writers, config) = new_registry();
-        Self { writers, config }
+        Self {
+            state: CoalescerRegistryState::new(),
+        }
     }
 
     /// Explicit constructor (tests): coalescing on, with the given config.
     pub fn with_config(config: CoalescerConfig) -> Self {
-        let (writers, config) = registry_with_config(config);
-        Self { writers, config }
+        Self {
+            state: CoalescerRegistryState::with_config(config),
+        }
     }
 
     /// Get (or lazily create) the writer for `graph_name`, spawning its worker
     /// on first use.
     pub fn writer_for(&self, graph_name: &str) -> Arc<RoutedGraphWriter> {
-        if let Some(w) = self.writers.get(graph_name) {
+        if let Some(w) = self.state.writers.get(graph_name) {
             return w.clone();
         }
-        self.writers
+        let config = self.state.config;
+        self.state
+            .writers
             .entry(graph_name.to_string())
-            .or_insert_with(|| RoutedGraphWriter::spawn(graph_name.to_string(), self.config))
+            .or_insert_with(|| RoutedGraphWriter::spawn(graph_name.to_string(), config))
             .clone()
     }
 
@@ -423,7 +347,7 @@ impl RoutedWriteCoalescerRegistry {
     /// worker task per historically-deleted graph name. No-op if no writer
     /// exists yet.
     pub fn remove(&self, graph_name: &str) {
-        self.writers.remove(graph_name);
+        self.state.writers.remove(graph_name);
     }
 }
 
