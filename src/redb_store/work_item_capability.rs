@@ -419,8 +419,10 @@ fn authority_update_keys(props: &serde_json::Map<String, serde_json::Value>) -> 
     })
 }
 
+type WorkItemTable<'txn> = redb::Table<'txn, (&'static str, &'static str), &'static [u8]>;
+
 fn native_claimed(
-    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &WorkItemTable<'_>,
     graph: &str,
     work_item_id: &str,
 ) -> Result<bool, String> {
@@ -431,7 +433,7 @@ fn native_claimed(
 }
 
 fn existing_work_item(
-    nodes: &redb::Table<(&str, &str), &[u8]>,
+    nodes: &WorkItemTable<'_>,
     graph: &str,
     work_item_id: &str,
     crypto: DurableCrypto<'_>,
@@ -447,18 +449,66 @@ fn existing_work_item(
     Ok(is_work_item(&props))
 }
 
+struct GenericValidationContext<'borrow, 'txn, 'crypto> {
+    graph: &'borrow str,
+    node_id: &'borrow str,
+    tables: GenericValidationTables<'borrow, 'txn, 'crypto>,
+}
+
+#[derive(Clone, Copy)]
+struct GenericValidationTables<'borrow, 'txn, 'crypto> {
+    nodes: &'borrow WorkItemTable<'txn>,
+    native_work_items: &'borrow WorkItemTable<'txn>,
+    crypto: DurableCrypto<'crypto>,
+}
+
+impl<'borrow, 'txn, 'crypto> GenericValidationTables<'borrow, 'txn, 'crypto> {
+    fn new(
+        nodes: &'borrow WorkItemTable<'txn>,
+        native_work_items: &'borrow WorkItemTable<'txn>,
+        crypto: DurableCrypto<'crypto>,
+    ) -> Self {
+        Self {
+            nodes,
+            native_work_items,
+            crypto,
+        }
+    }
+}
+
+impl<'borrow, 'txn, 'crypto> GenericValidationContext<'borrow, 'txn, 'crypto> {
+    fn new(
+        graph: &'borrow str,
+        node_id: &'borrow str,
+        tables: GenericValidationTables<'borrow, 'txn, 'crypto>,
+    ) -> Self {
+        Self {
+            graph,
+            node_id,
+            tables,
+        }
+    }
+
+    fn native_claimed(&self) -> Result<bool, String> {
+        native_claimed(self.tables.native_work_items, self.graph, self.node_id)
+    }
+
+    fn existing_work_item(&self) -> Result<bool, String> {
+        existing_work_item(
+            self.tables.nodes,
+            self.graph,
+            self.node_id,
+            self.tables.crypto,
+        )
+    }
+}
+
 fn validate_generic_add_node(
-    graph: &str,
-    node_id: &str,
+    context: GenericValidationContext<'_, '_, '_>,
     properties_msgpack: &[u8],
     replacement_error: &str,
-    nodes: &redb::Table<(&str, &str), &[u8]>,
-    native_work_items: &redb::Table<(&str, &str), &[u8]>,
-    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    if native_claimed(native_work_items, graph, node_id)?
-        || existing_work_item(nodes, graph, node_id, crypto)?
-    {
+    if context.native_claimed()? || context.existing_work_item()? {
         return Err(replacement_error.to_string());
     }
     // Ordinary graph nodes may retain legacy opaque property bytes; only a
@@ -472,17 +522,13 @@ fn validate_generic_add_node(
 }
 
 fn validate_generic_update(
-    graph: &str,
-    node_id: &str,
+    context: GenericValidationContext<'_, '_, '_>,
     updates_msgpack: &[u8],
-    nodes: &redb::Table<(&str, &str), &[u8]>,
-    native_work_items: &redb::Table<(&str, &str), &[u8]>,
-    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    if native_claimed(native_work_items, graph, node_id)? {
+    if context.native_claimed()? {
         return Err("native WorkItem authority required for generic update".to_string());
     }
-    if existing_work_item(nodes, graph, node_id, crypto)? {
+    if context.existing_work_item()? {
         let updates = decode_durable::<serde_json::Map<String, serde_json::Value>>(updates_msgpack)
             .map_err(|_| "invalid WorkItem update properties".to_string())?;
         if let Some(key) = authority_update_keys(&updates) {
@@ -497,9 +543,7 @@ fn validate_generic_update(
 fn validate_generic_batch(
     graph: &str,
     operations_msgpack: &[u8],
-    nodes: &redb::Table<(&str, &str), &[u8]>,
-    native_work_items: &redb::Table<(&str, &str), &[u8]>,
-    crypto: DurableCrypto<'_>,
+    tables: GenericValidationTables<'_, '_, '_>,
 ) -> Result<(), String> {
     use crate::algorithms::BatchOperation;
 
@@ -510,15 +554,13 @@ fn validate_generic_batch(
                 properties_msgpack,
                 ..
             } => validate_generic_add_node(
-                graph,
-                &id,
+                GenericValidationContext::new(graph, &id, tables),
                 &properties_msgpack,
                 "native WorkItem authority required for generic batch replacement",
-                nodes,
-                native_work_items,
-                crypto,
             )?,
-            BatchOperation::RemoveNode { id } if native_claimed(native_work_items, graph, &id)? => {
+            BatchOperation::RemoveNode { id }
+                if native_claimed(tables.native_work_items, graph, &id)? =>
+            {
                 return Err(
                     "native WorkItem authority required for generic batch removal".to_string(),
                 )
@@ -541,21 +583,18 @@ pub(crate) fn validate_generic_method(
     native_work_items: &redb::Table<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    let tables = GenericValidationTables::new(nodes, native_work_items, crypto);
     match method {
         crate::protocol::Method::AddNode {
             node_id,
             properties_msgpack,
         } => validate_generic_add_node(
-            graph,
-            node_id,
+            GenericValidationContext::new(graph, node_id, tables),
             properties_msgpack,
             "native WorkItem authority required for generic replacement",
-            nodes,
-            native_work_items,
-            crypto,
         ),
         crate::protocol::Method::RemoveNode { node_id } => {
-            if native_claimed(native_work_items, graph, node_id)? {
+            if native_claimed(tables.native_work_items, graph, node_id)? {
                 return Err("native WorkItem authority required for generic removal".to_string());
             }
             Ok(())
@@ -565,18 +604,14 @@ pub(crate) fn validate_generic_method(
             updates_msgpack,
             ..
         } => validate_generic_update(
-            graph,
-            node_id,
+            GenericValidationContext::new(graph, node_id, tables),
             updates_msgpack,
-            nodes,
-            native_work_items,
-            crypto,
         ),
         crate::protocol::Method::BatchUpdate { operations_msgpack } => {
-            validate_generic_batch(graph, operations_msgpack, nodes, native_work_items, crypto)
+            validate_generic_batch(graph, operations_msgpack, tables)
         }
         crate::protocol::Method::SetPose { node_id, .. } => {
-            if native_claimed(native_work_items, graph, node_id)? {
+            if native_claimed(tables.native_work_items, graph, node_id)? {
                 return Err("native WorkItem authority required for generic update".to_string());
             }
             Ok(())
