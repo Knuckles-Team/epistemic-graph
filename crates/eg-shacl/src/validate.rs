@@ -154,48 +154,36 @@ impl Validator<'_> {
         for c in &shape.constraints {
             match c {
                 // ── Set-level (over all value nodes, or over $this directly) ──
-                Constraint::MinCount(n) => {
-                    if values.len() < *n {
-                        out.push(self.result(
-                            shape,
-                            focus,
-                            None,
-                            vocab::CC_MIN_COUNT,
-                            format!("fewer than {n} values"),
-                        ));
-                    }
-                }
-                Constraint::MaxCount(n) => {
-                    if values.len() > *n {
-                        out.push(self.result(
-                            shape,
-                            focus,
-                            None,
-                            vocab::CC_MAX_COUNT,
-                            format!("more than {n} values"),
-                        ));
-                    }
-                }
-                Constraint::HasValue(v) => {
-                    if !values.iter().any(|x| x == v) {
-                        out.push(self.result(
-                            shape,
-                            focus,
-                            None,
-                            vocab::CC_HAS_VALUE,
-                            format!("missing required value {v}"),
-                        ));
-                    }
+                Constraint::MinCount(n) if values.len() < *n => out.push(self.result(
+                    shape,
+                    focus,
+                    None,
+                    vocab::CC_MIN_COUNT,
+                    format!("fewer than {n} values"),
+                )),
+                Constraint::MaxCount(n) if values.len() > *n => out.push(self.result(
+                    shape,
+                    focus,
+                    None,
+                    vocab::CC_MAX_COUNT,
+                    format!("more than {n} values"),
+                )),
+                Constraint::HasValue(v) if !values.iter().any(|x| x == v) => {
+                    out.push(self.result(
+                        shape,
+                        focus,
+                        None,
+                        vocab::CC_HAS_VALUE,
+                        format!("missing required value {v}"),
+                    ));
                 }
                 Constraint::Sparql(constraint_ref) => {
                     self.check_sparql(shape, focus, constraint_ref, out)?;
                 }
                 // ── Per value node ────────────────────────────────────────
-                _ => {
-                    for vn in &values {
-                        self.check_value(shape, focus, vn, c, out, depth)?;
-                    }
-                }
+                _ => values
+                    .iter()
+                    .try_for_each(|vn| self.check_value(shape, focus, vn, c, out, depth))?,
             }
         }
         if shape.closed {
