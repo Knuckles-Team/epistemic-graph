@@ -1557,43 +1557,41 @@ async fn submit_consensus_transaction_command(
 }
 
 #[cfg(feature = "raft")]
-#[allow(clippy::too_many_arguments)]
-async fn submit_consensus_transaction_decision(
-    multi: &Arc<crate::raft::multi::MultiRaft>,
-    authority: &CarrierAuthority,
-    request_id: u64,
-    coordinator_id: &str,
-    control_group: crate::raft::GroupId,
-    control_epoch: u64,
-    control_fence: Option<u64>,
-    graph_type: crate::protocol::GraphType,
-    commit: bool,
-) -> Result<bool, String> {
-    submit_consensus_transaction_command(
-        multi,
-        authority,
-        request_id,
-        coordinator_id,
-        if commit {
-            "decision-commit"
-        } else {
-            "decision-abort"
-        },
-        control_group,
-        control_epoch,
-        control_fence,
-        graph_type,
-        crate::raft::NativeMutationCommand::TransactionDecision {
-            coordinator_id: coordinator_id.to_string(),
-            commit,
-        },
-    )
-    .await
+#[derive(Clone, Copy)]
+enum TransactionConsensusPhase {
+    Decision,
+    Finalize,
+}
+
+#[cfg(feature = "raft")]
+impl TransactionConsensusPhase {
+    fn operation(self, commit: bool) -> &'static str {
+        match (self, commit) {
+            (Self::Decision, true) => "decision-commit",
+            (Self::Decision, false) => "decision-abort",
+            (Self::Finalize, true) => "finalize-commit",
+            (Self::Finalize, false) => "finalize-abort",
+        }
+    }
+
+    fn command(self, coordinator_id: &str, commit: bool) -> crate::raft::NativeMutationCommand {
+        match self {
+            Self::Decision => crate::raft::NativeMutationCommand::TransactionDecision {
+                coordinator_id: coordinator_id.to_string(),
+                commit,
+            },
+            Self::Finalize => crate::raft::NativeMutationCommand::TransactionFinalize {
+                coordinator_id: coordinator_id.to_string(),
+                commit,
+            },
+        }
+    }
 }
 
 #[cfg(feature = "raft")]
 #[allow(clippy::too_many_arguments)]
-async fn submit_consensus_transaction_finalize(
+async fn submit_consensus_transaction_phase(
+    phase: TransactionConsensusPhase,
     multi: &Arc<crate::raft::multi::MultiRaft>,
     authority: &CarrierAuthority,
     request_id: u64,
@@ -1609,19 +1607,12 @@ async fn submit_consensus_transaction_finalize(
         authority,
         request_id,
         coordinator_id,
-        if commit {
-            "finalize-commit"
-        } else {
-            "finalize-abort"
-        },
+        phase.operation(commit),
         control_group,
         control_epoch,
         control_fence,
         graph_type,
-        crate::raft::NativeMutationCommand::TransactionFinalize {
-            coordinator_id: coordinator_id.to_string(),
-            commit,
-        },
+        phase.command(coordinator_id, commit),
     )
     .await
 }
@@ -1640,7 +1631,8 @@ async fn abort_consensus_transaction(
     control_fence: Option<u64>,
     control_graph_type: crate::protocol::GraphType,
 ) -> Result<bool, String> {
-    let decided = submit_consensus_transaction_decision(
+    let decided = submit_consensus_transaction_phase(
+        TransactionConsensusPhase::Decision,
         multi,
         authority,
         request_id,
@@ -1684,7 +1676,8 @@ async fn abort_consensus_transaction(
             return Err("consensus participant abort was not applied".to_string());
         }
     }
-    submit_consensus_transaction_finalize(
+    submit_consensus_transaction_phase(
+        TransactionConsensusPhase::Finalize,
         multi,
         authority,
         request_id,
@@ -1817,7 +1810,8 @@ async fn decide_consensus_commit(
     fanout: &handlers::txn::ConsensusTransactionFanout,
 ) -> Result<(), Response> {
     let request_id = coordination.request_id;
-    let decided = submit_consensus_transaction_decision(
+    let decided = submit_consensus_transaction_phase(
+        TransactionConsensusPhase::Decision,
         coordination.multi,
         coordination.authority,
         request_id,
@@ -1947,7 +1941,8 @@ async fn execute_consensus_transaction(
     if let Err(response) = commit_consensus_participants(&coordination, &fanout).await {
         return response;
     }
-    match submit_consensus_transaction_finalize(
+    match submit_consensus_transaction_phase(
+        TransactionConsensusPhase::Finalize,
         coordination.multi,
         coordination.authority,
         request_id,
