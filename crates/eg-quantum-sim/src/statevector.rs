@@ -11,22 +11,235 @@
 
 use eg_numeric::complex::{apply_block2, apply_block4, Complex64};
 use eg_quantum_core::backend::{
-    BackendCapabilities, BackendError, BackendFamily, BackendId, JobHandle, JobStatus,
-    QuantumBackend, RunOptions,
+    BackendCapabilities, BackendError, BackendFamily, BackendId, RunOptions,
 };
 use eg_quantum_core::ir::{ControlState, GateKind, Instruction, QuantumProgram};
-use eg_quantum_core::result::{Formalism, Outcome, QuantumResult};
+use eg_quantum_core::result::{Formalism, QuantumResult};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 
 use crate::{resolve_params, ClassicalMemory, SimError};
+
+pub(crate) mod simulation {
+    use eg_quantum_core::backend::{
+        BackendCapabilities, BackendError, BackendFamily, BackendId, JobHandle, JobStatus,
+        QuantumBackend, RunOptions,
+    };
+    use eg_quantum_core::ir::QuantumProgram;
+    use eg_quantum_core::result::{Formalism, QuantumResult};
+    use std::collections::HashMap;
+    use std::marker::PhantomData;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
+
+    pub trait SimulationKind: Send + Sync + 'static {
+        fn backend_id() -> BackendId;
+        fn family() -> BackendFamily;
+        fn capabilities() -> BackendCapabilities;
+        fn execute(
+            program: &QuantumProgram,
+            opts: &RunOptions,
+        ) -> Result<QuantumResult, BackendError>;
+    }
+
+    pub struct StateVectorKind;
+    pub struct StabilizerKind;
+
+    pub(crate) fn exact_capabilities(
+        supports_stabilizer: bool,
+        max_qubits_statevector: Option<u32>,
+    ) -> BackendCapabilities {
+        BackendCapabilities {
+            supports_density_matrix: false,
+            supports_distributed: false,
+            supports_noise: false,
+            supports_gpu: false,
+            supports_mps: false,
+            supports_stabilizer,
+            is_exact_capable: true,
+            max_qubits_statevector,
+            max_qubits_density_matrix: None,
+            requires_hardware: false,
+        }
+    }
+
+    pub(crate) fn validate_program(
+        program: &QuantumProgram,
+        opts: &RunOptions,
+        backend_id: BackendId,
+    ) -> Result<(), BackendError> {
+        program
+            .validate()
+            .map_err(|e| BackendError::InvalidProgram(e.to_string()))?;
+        if opts.noise_model_id.is_some() {
+            return Err(BackendError::Unsupported(backend_id));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn execute_exact(
+        program: &QuantumProgram,
+        opts: &RunOptions,
+        backend_id: BackendId,
+        formalism: Formalism,
+        mut sample: impl FnMut(u64) -> Result<(String, u64), BackendError>,
+    ) -> Result<QuantumResult, BackendError> {
+        let circuit_hash = program
+            .circuit_hash()
+            .map_err(|e| BackendError::InvalidProgram(e.to_string()))?;
+        let shots = opts.shots.unwrap_or(1);
+        let start = std::time::Instant::now();
+        let mut counts = std::collections::BTreeMap::new();
+        let mut peak_memory_bytes = 0u64;
+        for shot in 0..shots {
+            let (key, memory_bytes) = sample(shot)?;
+            peak_memory_bytes = peak_memory_bytes.max(memory_bytes);
+            *counts.entry(key).or_insert(0) += 1;
+        }
+        let wall_time_ms = start.elapsed().as_millis() as u64;
+        Ok(QuantumResult::new_exact(
+            backend_id,
+            formalism,
+            opts.seed,
+            Some(shots),
+            circuit_hash,
+            wall_time_ms,
+            peak_memory_bytes,
+            eg_quantum_core::result::Outcome::Counts(counts),
+        ))
+    }
+
+    struct JobStore {
+        next: AtomicU64,
+        completed: Mutex<HashMap<u64, QuantumResult>>,
+    }
+
+    impl Default for JobStore {
+        fn default() -> Self {
+            JobStore {
+                next: AtomicU64::new(0),
+                completed: Mutex::new(HashMap::new()),
+            }
+        }
+    }
+
+    impl JobStore {
+        fn insert(&self, result: QuantumResult) -> JobHandle {
+            let handle = self.next.fetch_add(1, Ordering::SeqCst);
+            self.completed
+                .lock()
+                .expect("job store mutex poisoned")
+                .insert(handle, result);
+            JobHandle(handle)
+        }
+
+        fn poll(&self, job: JobHandle) -> Result<JobStatus, BackendError> {
+            if self
+                .completed
+                .lock()
+                .expect("job store mutex poisoned")
+                .contains_key(&job.0)
+            {
+                Ok(JobStatus::Completed)
+            } else {
+                Err(BackendError::UnknownJob)
+            }
+        }
+
+        fn result(&self, job: JobHandle) -> Result<QuantumResult, BackendError> {
+            self.completed
+                .lock()
+                .expect("job store mutex poisoned")
+                .get(&job.0)
+                .cloned()
+                .ok_or(BackendError::UnknownJob)
+        }
+
+        fn cancel(&self, job: JobHandle) -> Result<(), BackendError> {
+            if self
+                .completed
+                .lock()
+                .expect("job store mutex poisoned")
+                .contains_key(&job.0)
+            {
+                Ok(())
+            } else {
+                Err(BackendError::UnknownJob)
+            }
+        }
+    }
+
+    /// Shared synchronous backend shell used by the in-memory simulators. The
+    /// formalism-specific simulation kind supplies execution and metadata; this
+    /// shell owns the handle lifecycle and the completed-result store.
+    pub struct SimulationBackend<K: SimulationKind> {
+        jobs: JobStore,
+        _kind: PhantomData<K>,
+    }
+
+    impl<K: SimulationKind> SimulationBackend<K> {
+        pub fn new() -> Self {
+            SimulationBackend {
+                jobs: JobStore::default(),
+                _kind: PhantomData,
+            }
+        }
+    }
+
+    impl<K: SimulationKind> Default for SimulationBackend<K> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl<K: SimulationKind> QuantumBackend for SimulationBackend<K> {
+        fn backend_id(&self) -> BackendId {
+            K::backend_id()
+        }
+
+        fn family(&self) -> BackendFamily {
+            K::family()
+        }
+
+        fn capabilities(&self) -> BackendCapabilities {
+            K::capabilities()
+        }
+
+        fn submit(
+            &self,
+            program: &QuantumProgram,
+            opts: &RunOptions,
+        ) -> Result<JobHandle, BackendError> {
+            let result = K::execute(program, opts)?;
+            Ok(self.jobs.insert(result))
+        }
+
+        fn poll(&self, job: JobHandle) -> Result<JobStatus, BackendError> {
+            self.jobs.poll(job)
+        }
+
+        fn result(&self, job: JobHandle) -> Result<QuantumResult, BackendError> {
+            self.jobs.result(job)
+        }
+
+        fn cancel(&self, job: JobHandle) -> Result<(), BackendError> {
+            self.jobs.cancel(job)
+        }
+
+        fn run(
+            &self,
+            program: &QuantumProgram,
+            opts: &RunOptions,
+        ) -> Result<QuantumResult, BackendError> {
+            K::execute(program, opts)
+        }
+    }
+}
 
 /// One coherent (unitary-only) evolution of a [`QuantumProgram`]: applies every
 /// `Gate` instruction to a `|0...0>`-initialized amplitude vector and records
 /// classical-bit outcomes for every `Measure` instruction it encounters, using
 /// `rng` for the Born-rule collapse. Exposed directly (not only through
-/// [`QuantumBackend`]) so callers that want the raw final amplitudes -- tests, or a
+/// [`eg_quantum_core::backend::QuantumBackend`]) so callers that want the raw final amplitudes -- tests, or a
 /// future Q6 numeric-bridge consumer -- do not have to go through `Outcome::Counts`.
 pub fn evolve(
     program: &QuantumProgram,
@@ -145,180 +358,50 @@ fn measure_and_collapse(
     outcome
 }
 
-struct JobStore {
-    next: AtomicU64,
-    completed: Mutex<std::collections::HashMap<u64, QuantumResult>>,
-}
-
-impl Default for JobStore {
-    fn default() -> Self {
-        JobStore {
-            next: AtomicU64::new(0),
-            completed: Mutex::new(std::collections::HashMap::new()),
-        }
-    }
-}
-
-/// A dense-statevector [`QuantumBackend`]. In-process and synchronous: `submit`
+/// A dense-statevector [`eg_quantum_core::backend::QuantumBackend`]. In-process and synchronous: `submit`
 /// computes the whole result eagerly (there is no background worker), so `poll`
 /// always reports `Completed` (or `BackendError::UnknownJob`) immediately.
-pub struct StateVectorSimulator {
-    id: BackendId,
-    max_qubits: u32,
-    jobs: JobStore,
-}
+pub type StateVectorSimulator = simulation::SimulationBackend<simulation::StateVectorKind>;
 
-impl Default for StateVectorSimulator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+const STATEVECTOR_MAX_QUBITS: u32 = 24;
 
-impl StateVectorSimulator {
-    pub fn new() -> Self {
-        StateVectorSimulator {
-            id: BackendId::from("sv-cpu"),
-            // A conservative default safety ceiling for a smoke-test-scale in-process
-            // dense simulator: 2^24 complex128 amplitudes is 256MiB, already a lot for
-            // an unbounded caller. Not a claim about the algorithm's real limit (that
-            // is host-memory-bound, see `eg_quantum_core::estimate::statevector_bytes`)
-            // -- a future lane can make this configurable.
-            max_qubits: 24,
-            jobs: JobStore::default(),
-        }
+impl simulation::SimulationKind for simulation::StateVectorKind {
+    fn backend_id() -> BackendId {
+        BackendId::from("sv-cpu")
     }
 
-    fn execute(
-        &self,
-        program: &QuantumProgram,
-        opts: &RunOptions,
-    ) -> Result<QuantumResult, BackendError> {
-        program
-            .validate()
-            .map_err(|e| BackendError::InvalidProgram(e.to_string()))?;
-        if opts.noise_model_id.is_some() {
-            return Err(BackendError::Unsupported(self.id.clone()));
-        }
-        if program.n_qubits > self.max_qubits {
-            return Err(BackendError::ResourceLimit(format!(
-                "n_qubits={} exceeds this backend's max_qubits_statevector={}",
-                program.n_qubits, self.max_qubits
-            )));
-        }
-        let circuit_hash = program
-            .circuit_hash()
-            .map_err(|e| BackendError::InvalidProgram(e.to_string()))?;
-        let shots = opts.shots.unwrap_or(1);
-        let start = std::time::Instant::now();
-        let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-        let mut peak_bytes = 0u64;
-        for shot in 0..shots {
-            let seed = opts.seed.unwrap_or(0).wrapping_add(shot);
-            let mut rng = eg_numeric::random::Generator::new(seed);
-            let (state, classical) = evolve(program, &opts.parameter_bindings, &mut rng)
-                .map_err(|e| BackendError::Execution(e.to_string()))?;
-            peak_bytes = peak_bytes.max((state.len() * std::mem::size_of::<Complex64>()) as u64);
-            let key = classical.bitstring(&program.classical_registers);
-            *counts.entry(key).or_insert(0) += 1;
-        }
-        let wall_time_ms = start.elapsed().as_millis() as u64;
-        Ok(QuantumResult::new_exact(
-            self.id.clone(),
-            Formalism::Statevector,
-            opts.seed,
-            Some(shots),
-            circuit_hash,
-            wall_time_ms,
-            peak_bytes,
-            Outcome::Counts(counts),
-        ))
-    }
-}
-
-impl QuantumBackend for StateVectorSimulator {
-    fn backend_id(&self) -> BackendId {
-        self.id.clone()
-    }
-
-    fn family(&self) -> BackendFamily {
+    fn family() -> BackendFamily {
         BackendFamily::StatevectorCpu
     }
 
-    fn capabilities(&self) -> BackendCapabilities {
-        BackendCapabilities {
-            supports_density_matrix: false,
-            supports_distributed: false,
-            supports_noise: false,
-            supports_gpu: false,
-            supports_mps: false,
-            supports_stabilizer: false,
-            is_exact_capable: true,
-            max_qubits_statevector: Some(self.max_qubits),
-            max_qubits_density_matrix: None,
-            requires_hardware: false,
+    fn capabilities() -> BackendCapabilities {
+        simulation::exact_capabilities(false, Some(STATEVECTOR_MAX_QUBITS))
+    }
+
+    fn execute(program: &QuantumProgram, opts: &RunOptions) -> Result<QuantumResult, BackendError> {
+        simulation::validate_program(program, opts, Self::backend_id())?;
+        if program.n_qubits > STATEVECTOR_MAX_QUBITS {
+            return Err(BackendError::ResourceLimit(format!(
+                "n_qubits={} exceeds this backend's max_qubits_statevector={}",
+                program.n_qubits, STATEVECTOR_MAX_QUBITS
+            )));
         }
-    }
-
-    fn submit(
-        &self,
-        program: &QuantumProgram,
-        opts: &RunOptions,
-    ) -> Result<JobHandle, BackendError> {
-        let result = self.execute(program, opts)?;
-        let handle = self.jobs.next.fetch_add(1, Ordering::SeqCst);
-        self.jobs
-            .completed
-            .lock()
-            .expect("job store mutex poisoned")
-            .insert(handle, result);
-        Ok(JobHandle(handle))
-    }
-
-    fn poll(&self, job: JobHandle) -> Result<JobStatus, BackendError> {
-        if self
-            .jobs
-            .completed
-            .lock()
-            .expect("job store mutex poisoned")
-            .contains_key(&job.0)
-        {
-            Ok(JobStatus::Completed)
-        } else {
-            Err(BackendError::UnknownJob)
-        }
-    }
-
-    fn result(&self, job: JobHandle) -> Result<QuantumResult, BackendError> {
-        self.jobs
-            .completed
-            .lock()
-            .expect("job store mutex poisoned")
-            .get(&job.0)
-            .cloned()
-            .ok_or(BackendError::UnknownJob)
-    }
-
-    fn cancel(&self, job: JobHandle) -> Result<(), BackendError> {
-        if self
-            .jobs
-            .completed
-            .lock()
-            .expect("job store mutex poisoned")
-            .contains_key(&job.0)
-        {
-            // Already terminal (synchronous backend) -- best-effort cancel of
-            // finished work is a no-op, per QuantumBackend::cancel's own doc.
-            Ok(())
-        } else {
-            Err(BackendError::UnknownJob)
-        }
-    }
-
-    fn run(
-        &self,
-        program: &QuantumProgram,
-        opts: &RunOptions,
-    ) -> Result<QuantumResult, BackendError> {
-        self.execute(program, opts)
+        simulation::execute_exact(
+            program,
+            opts,
+            Self::backend_id(),
+            Formalism::Statevector,
+            |shot| {
+                let seed = opts.seed.unwrap_or(0).wrapping_add(shot);
+                let mut rng = eg_numeric::random::Generator::new(seed);
+                let (state, classical) = evolve(program, &opts.parameter_bindings, &mut rng)
+                    .map_err(|e| BackendError::Execution(e.to_string()))?;
+                let memory_bytes = (state.len() * std::mem::size_of::<Complex64>()) as u64;
+                Ok((
+                    classical.bitstring(&program.classical_registers),
+                    memory_bytes,
+                ))
+            },
+        )
     }
 }
