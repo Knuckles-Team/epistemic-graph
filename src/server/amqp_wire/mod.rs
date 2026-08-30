@@ -46,18 +46,15 @@
 //! RPC surface (`Method::StreamRead`) or a future STOMP/native frame. A `basic.consume`
 //! here maps to the DESTRUCTIVE queue-claim path (EG-275/280), not a stream replay.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::RwLock;
-
 use crate::protocol::{Method, Request, ResultPayload};
-use crate::server::ServerState;
+use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
+use crate::server::broker_wire::{
+    derive_password as derive_amqp_password_impl, verify_password as verify_amqp_password_impl,
+};
 use crate::server::dispatch::dispatch_authenticated_broker_actor;
+use crate::server::ServerState;
 
 /// Env var: when set (and the binary is built `--features amqp-wire`), the AMQP wire
 /// listener binds this address (documented loopback default `127.0.0.1:5672`). Unset ⇒
@@ -66,6 +63,8 @@ pub const AMQP_ADDR_ENV: &str = "EPISTEMIC_GRAPH_AMQP_ADDR";
 /// Env var: the control graph broker state lives on (exchanges/bindings/queues/
 /// messages). Defaults to `__commons__` (mirrors mysql-wire's default-graph idiom).
 pub const AMQP_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_AMQP_GRAPH";
+
+const WIRE: BrokerProtocol = BrokerProtocol::Amqp;
 
 // ── Frame types + class/method ids (AMQP 0.9.1) ──────────────────────────
 const FRAME_METHOD: u8 = 1;
@@ -83,7 +82,6 @@ const C_BASIC: u16 = 60;
 const C_CONFIRM: u16 = 85;
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
-type HmacSha256 = Hmac<Sha256>;
 
 fn next_req_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
@@ -91,29 +89,11 @@ fn next_req_id() -> u64 {
 
 /// Derive the SASL PLAIN password for an AMQP principal.
 pub fn derive_amqp_password(secret: &str, principal: &str) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"amqp:");
-    mac.update(principal.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    derive_amqp_password_impl(WIRE, secret, principal)
 }
 
 fn verify_amqp_password(secret: &str, principal: &str, password: &str) -> bool {
-    if secret.is_empty()
-        || principal.is_empty()
-        || principal.len() > 4 * 1024
-        || password.len() != 64
-    {
-        return false;
-    }
-    let Ok(candidate) = hex::decode(password) else {
-        return false;
-    };
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"amqp:");
-    mac.update(principal.as_bytes());
-    mac.verify_slice(&candidate).is_ok()
+    verify_amqp_password_impl(WIRE, secret, principal, password.as_bytes(), 4 * 1024)
 }
 
 /// Fail closed before binding the plaintext AMQP listener.
@@ -334,10 +314,6 @@ const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
 const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
 const BROKER_PREFETCH: u32 = 32;
 
-fn invalid_data(message: &'static str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
-}
-
 fn parse_shortstr_args<const N: usize>(
     args: &[u8],
     error: &'static str,
@@ -352,15 +328,7 @@ fn parse_shortstr_args<const N: usize>(
 }
 
 fn decode_broker_result<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
-    eg_types::msgpack::decode_bounded(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AMQP_CONTENT_BYTES,
-            MAX_BROKER_RESULT_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .ok()
+    broker_wire::decode_broker_result(bytes, MAX_AMQP_CONTENT_BYTES, MAX_BROKER_RESULT_ITEMS)
 }
 
 async fn handle_connection(

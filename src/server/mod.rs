@@ -368,6 +368,10 @@ pub mod reasoning_cascade;
 #[cfg(feature = "shacl")]
 pub(crate) mod icv_guard;
 pub mod persistence;
+// Shared request/auth/codec support for the native broker wire adapters. Each
+// adapter keeps its own protocol limits and wire state on top of this seam.
+#[cfg(any(feature = "amqp-wire", feature = "mqtt-wire", feature = "stomp-wire"))]
+pub(crate) mod broker_wire;
 // Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone. The
 // wire-NEUTRAL `classify → dispatch → exec` pipeline + per-connection session/txn
 // state that EVERY wire (Postgres today; SQLite/MySQL/MSSQL Phase J; AMQP Phase Y)

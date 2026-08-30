@@ -42,15 +42,13 @@
 //! reached through the RPC surface (`Method::StreamRead`), as on the AMQP wire.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::RwLock;
-
-use crate::protocol::{Method, Request, ResultPayload};
+use crate::protocol::Request;
+use crate::protocol::{Method, ResultPayload};
+use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
+use crate::server::broker_wire::{
+    derive_password as derive_mqtt_password_impl, verify_password as verify_mqtt_password_impl,
+};
 use crate::server::dispatch::dispatch_authenticated_broker_actor;
 use crate::server::ServerState;
 
@@ -65,6 +63,8 @@ pub const MQTT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_MQTT_GRAPH";
 /// to `amq.topic` (the conventional topic-exchange name).
 pub const MQTT_EXCHANGE_ENV: &str = "EPISTEMIC_GRAPH_MQTT_EXCHANGE";
 
+const WIRE: BrokerProtocol = BrokerProtocol::Mqtt;
+
 const DEFAULT_EXCHANGE: &str = "amq.topic";
 const MAX_MQTT_PACKET_BYTES: usize = 64 * 1024 * 1024;
 const MAX_MQTT_CONTROL_PACKET_BYTES: usize = 2 * 1024 * 1024;
@@ -77,20 +77,8 @@ const MAX_MQTT_TOPIC_BYTES: usize = u16::MAX as usize;
 const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
 const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
 
-fn invalid_data(message: &'static str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
-}
-
 fn decode_broker_result<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
-    eg_types::msgpack::decode_bounded(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_MQTT_PACKET_BYTES,
-            MAX_BROKER_RESULT_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .ok()
+    broker_wire::decode_broker_result(bytes, MAX_MQTT_PACKET_BYTES, MAX_BROKER_RESULT_ITEMS)
 }
 
 // ── MQTT control packet types (high nibble of byte 1) ─────────────────────
@@ -107,7 +95,6 @@ const PKT_PINGRESP: u8 = 13;
 const PKT_DISCONNECT: u8 = 14;
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
-type HmacSha256 = Hmac<Sha256>;
 
 fn next_req_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
@@ -115,29 +102,11 @@ fn next_req_id() -> u64 {
 
 /// Derive the CONNECT password for an MQTT principal.
 pub fn derive_mqtt_password(secret: &str, principal: &str) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"mqtt:");
-    mac.update(principal.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    derive_mqtt_password_impl(WIRE, secret, principal)
 }
 
 fn verify_mqtt_password(secret: &str, principal: &str, password: &[u8]) -> bool {
-    if secret.is_empty()
-        || principal.is_empty()
-        || principal.len() > MAX_MQTT_IDENTIFIER_BYTES
-        || password.len() != 64
-    {
-        return false;
-    }
-    let Ok(candidate) = hex::decode(password) else {
-        return false;
-    };
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"mqtt:");
-    mac.update(principal.as_bytes());
-    mac.verify_slice(&candidate).is_ok()
+    verify_mqtt_password_impl(WIRE, secret, principal, password, MAX_MQTT_IDENTIFIER_BYTES)
 }
 
 /// Fail closed before binding the plaintext MQTT listener.
