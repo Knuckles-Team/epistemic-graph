@@ -192,6 +192,19 @@ pub fn commons_request(auth_secret: &str, id: u64, method: Method) -> Request {
     request(auth_secret, id, "__commons__", method)
 }
 
+pub fn fresh_dir(prefix: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "{prefix}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 pub fn sql_test_persist_dir(label: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
 
