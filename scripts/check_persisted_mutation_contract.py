@@ -324,14 +324,9 @@ def _enum_variants(source: str, name: str) -> set[str]:
     return set(values)
 
 
-def check_mutation_inventory(sources: Mapping[str, str]) -> None:
-    """Translate the authoritative Rust inventory tests into a source-only proof.
-
-    Unlike the leaf-crate mirror test, this reads the live classifier, applier,
-    gateway, dispatch, and Raft sources in the same immutable tree and therefore
-    fails on a stale transcribed list as well as on a missing implementation arm.
-    """
-
+def _check_mutation_authority_inventory(
+    sources: Mapping[str, str],
+) -> tuple[set[str], set[str], set[str]]:
     policy = _policy_inventory(sources["capabilities"])
     mutating = {name for name, (does_mutate, _) in policy.items() if does_mutate}
     require(mutating, "capability ledger has no mutating methods")
@@ -390,12 +385,18 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
         f"missing={sorted(outbox_policy - outbox_applier_mirror)}, "
         f"stale={sorted(outbox_applier_mirror - outbox_policy)}",
     )
+    return mutating, live_classifier, native_graph
+
+
+def _check_mutation_applier_inventory(
+    sources: Mapping[str, str], live_classifier: set[str], native_graph: set[str]
+) -> None:
+    mutation_apply = sources["mutation_apply"]
+    durable_apply = sources["durable_apply"]
 
     live_applier = _method_set(
         _function(mutation_apply, "apply"), "mutation_apply::apply"
-    ) | _method_set(
-        _function(durable_apply, "apply"), "eg_core::durable_apply::apply"
-    )
+    ) | _method_set(_function(durable_apply, "apply"), "eg_core::durable_apply::apply")
     work_items = _method_set(
         _function(sources["mutation_batch"], "is_work_item_method"),
         "is_work_item_method",
@@ -411,8 +412,8 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
     # (ClaimWorkItem, RenewWorkItemLease, CommitWorkItemResult, CancelWorkItem,
     # DeferWorkItem, CasWorkItemMetadata — all generically applied/replayed) are.
     # `NATIVE_GRAPHREDB_DURABLE` is the authoritative Rust inventory of exactly this
-    # natively-admitted set (mirrors the same exemption `native_graph` already grants
-    # elsewhere in this function), so subtract it rather than hand-listing names here.
+    # natively-admitted set (mirrors the same exemption granted by the authoritative
+    # `native_graph` inventory), so subtract it rather than hand-listing names here.
     natively_admitted_work_items = work_items & native_graph
     native_commands = _enum_variants(sources["raft"], "NativeMutationCommand")
     implemented_classifier = (
@@ -427,6 +428,10 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
         f"stale={sorted(implemented_classifier - live_classifier)}",
     )
 
+
+def _check_mutation_runtime_inventory(
+    sources: Mapping[str, str], mutating: set[str]
+) -> tuple[str, set[str]]:
     mutation_runtime = sources["mutation_runtime"]
     routed = _string_set(
         _const_slice(mutation_runtime, "GATEWAY_ROUTED"), "GATEWAY_ROUTED"
@@ -448,7 +453,12 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
         f"missing={sorted(mutating - routed - coordinated)}, "
         f"stale={sorted((routed | coordinated) - mutating)}",
     )
+    return mutation_runtime, routed
 
+
+def _check_mutation_gateway_inventory(
+    sources: Mapping[str, str], mutation_runtime: str, routed: set[str]
+) -> str:
     gateway_body = _function(sources["graph_ops"], "try_handle_gateway")
     gateway_methods = _method_set(gateway_body, "try_handle_gateway")
     query_routes = _string_set(
@@ -475,16 +485,15 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
         "MutationPlan::for_method" in gateway_body and "commit_gateway" in gateway_body,
         "graph gateway does not consume policy planning and the commit kernel",
     )
+    return dispatch
 
-    gateway_at = dispatch.find("handlers::graph_ops::try_handle_gateway(")
-    query_at = _routing_call_offset(dispatch, "is_query_gateway_method(&method)")
-    rdf_at = _routing_call_offset(dispatch, "is_rdf_gateway_method(&method)")
-    terminal_at = dispatch.find("handlers::graph_ops::try_handle(", gateway_at + 1)
-    require(
-        -1 < gateway_at < query_at < rdf_at < terminal_at,
-        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
-    )
 
+def _check_mutation_cluster_inventory(
+    sources: Mapping[str, str],
+    mutation_runtime: str,
+    mutating: set[str],
+    routed: set[str],
+) -> None:
     native_consensus = _string_set(
         _const_slice(sources["raft"], "NATIVE_CONSENSUS_METHODS"),
         "NATIVE_CONSENSUS_METHODS",
@@ -509,7 +518,9 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
     explicit_cluster = set(
         re.findall(r'covered\.insert\("([A-Z][A-Za-z0-9_]*)"\)', cluster_test)
     )
-    cluster_owned = routed | native_consensus | fanout | self_routed_admin | explicit_cluster
+    cluster_owned = (
+        routed | native_consensus | fanout | self_routed_admin | explicit_cluster
+    )
     require(
         cluster_owned == mutating,
         "cluster mutation ownership does not exactly cover mutating policy: "
@@ -541,6 +552,35 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
         and "ClusterMutationRoute::ConsensusFanout" in cluster_route,
         "SPARQL ApplyMutation event is not routed through consensus fanout",
     )
+
+
+def _check_mutation_dispatch_order(dispatch: str) -> None:
+    gateway_at = dispatch.find("handlers::graph_ops::try_handle_gateway(")
+    query_at = _routing_call_offset(dispatch, "is_query_gateway_method(&method)")
+    rdf_at = _routing_call_offset(dispatch, "is_rdf_gateway_method(&method)")
+    terminal_at = dispatch.find("handlers::graph_ops::try_handle(", gateway_at + 1)
+    require(
+        -1 < gateway_at < query_at < rdf_at < terminal_at,
+        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+    )
+
+
+def check_mutation_inventory(sources: Mapping[str, str]) -> None:
+    """Translate the authoritative Rust inventory tests into a source-only proof.
+
+    Unlike the leaf-crate mirror test, this reads the live classifier, applier,
+    gateway, dispatch, and Raft sources in the same immutable tree and therefore
+    fails on a stale transcribed list as well as on a missing implementation arm.
+    """
+
+    mutating, live_classifier, native_graph = _check_mutation_authority_inventory(
+        sources
+    )
+    _check_mutation_applier_inventory(sources, live_classifier, native_graph)
+    mutation_runtime, routed = _check_mutation_runtime_inventory(sources, mutating)
+    dispatch = _check_mutation_gateway_inventory(sources, mutation_runtime, routed)
+    _check_mutation_dispatch_order(dispatch)
+    _check_mutation_cluster_inventory(sources, mutation_runtime, mutating, routed)
 
 
 _TEST_MODULE = re.compile(r"#\[cfg\(test\)\]\s*\nmod\s+\w+\s*\{", re.M)
