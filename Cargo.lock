@@ -2731,6 +2731,7 @@ dependencies = [
  "criterion",
  "cudarc",
  "eg-core",
+ "eg-geo",
  "eg-modality",
  "eg-types",
  "hex",

@@ -712,8 +712,9 @@ impl TimeCost for TrafficProfile {
 
 /// Build a full distance matrix over `points` using `metric` (CONCEPT:EG-KG.domains.geo-routing). Symmetric
 /// when `metric` is; the diagonal is zero. Pass [`haversine_distance`] for a geographic
-/// tour or [`Point::distance`] for a planar one.
-pub fn distance_matrix(points: &[Point], metric: impl Fn(&Point, &Point) -> f64) -> Vec<Vec<f64>> {
+/// tour or [`Point::distance`] for a planar one. The generic point type also lets other
+/// compute domains reuse this traversal with their own distance metric.
+pub fn distance_matrix<T>(points: &[T], metric: impl Fn(&T, &T) -> f64) -> Vec<Vec<f64>> {
     let n = points.len();
     let mut m = vec![vec![0.0; n]; n];
     for i in 0..n {
