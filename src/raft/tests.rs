@@ -1222,10 +1222,15 @@ use openraft::type_config::alias::EntryOf;
 
 /// A fresh temp dir for one test, removed first.
 fn fresh_dir(tag: &str) -> String {
-    let d = std::env::temp_dir().join(format!("eg-raft-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d.to_string_lossy().to_string()
+    super::harness::cluster::fixture::fresh_dir("eg-raft", tag)
+}
+
+/// Build the unscoped application context used by direct Raft-store tests.
+fn unscoped_context(state: Arc<RwLock<ServerState>>) -> AppCtx {
+    AppCtx {
+        state,
+        router: None,
+    }
 }
 
 /// Encode a Normal log `Entry` for group `gid` at `index`/`term` carrying an AddNode.
@@ -1475,10 +1480,7 @@ async fn two_groups_one_node_commit_independently() {
     let dir = fresh_dir("twogroups");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let state = make_state_with_backend(&dir, backend.clone()).await;
-    let ctx = AppCtx {
-        state: state.clone(),
-        router: None,
-    };
+    let ctx = unscoped_context(state.clone());
     let port = free_ports(1)[0];
     let node_id: NodeId = 1;
     let peers: BTreeMap<NodeId, BasicNode> =
@@ -1897,10 +1899,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
-    let ctx = AppCtx {
-        state,
-        router: None,
-    };
+    let ctx = unscoped_context(state);
     let port = free_ports(1)[0];
     let addr = format!("127.0.0.1:{port}");
     // A node with its shared listener up but NO groups: each demuxed sub-RPC gets a
