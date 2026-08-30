@@ -5020,8 +5020,6 @@ fn get_raft_meta(db: &Database, gid: u64, key: &str) -> Result<Option<Vec<u8>>, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::acl::{AgentIdentity, AgentRole};
-    use crate::isolation::IsolationLayer;
     use crate::protocol::Request;
     use crate::server::auth::{
         build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap,
@@ -5030,17 +5028,6 @@ mod tests {
     use sha2::Digest;
 
     const TEST_AGENT: &str = "unit-test-agent";
-
-    fn current_isolation() -> IsolationLayer {
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: TEST_AGENT.to_string(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-        isolation
-    }
 
     fn current_request(secret: &str, id: u64, graph: &str, method: Method) -> Request {
         build_shared_test_request(secret, id, graph, TEST_AGENT, method)
@@ -5439,7 +5426,7 @@ mod tests {
     /// A minimal `ServerState` (no persistence backend stored on it — the test
     /// drives the backend directly) with a persist dir set.
     fn new_state(persist_dir: Option<String>) -> Arc<RwLock<ServerState>> {
-        let mut state = ServerState::new_for_test("test", current_isolation());
+        let mut state = ServerState::new_for_test("test", ServerState::test_isolation(TEST_AGENT));
         state.persist_dir = persist_dir;
         Arc::new(RwLock::new(state))
     }

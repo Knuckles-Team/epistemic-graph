@@ -12168,20 +12168,20 @@ mod nested_payload_security_tests {
 #[cfg(all(test, feature = "redb"))]
 mod eg318_dispatch_tests {
     use super::*;
+    #[cfg(feature = "tsdb")]
     use crate::acl::{AgentIdentity, AgentRole};
-    use crate::channels::ChannelManager;
     use crate::durability::DurabilityPolicy;
-    use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request};
-    use crate::registry::GraphRegistry;
+    #[cfg(feature = "tsdb")]
     use crate::server::auth::sign_current_test_request;
+    use crate::server::auth::{
+        build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap,
+    };
     use crate::server::persistence::redb_backend::RedbBackend;
     use crate::server::persistence::PersistenceBackend;
-    use dashmap::DashMap;
     use std::ops::Deref;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use tokio::sync::Semaphore;
 
     const SECRET: &str = "eg318-test-secret";
 
@@ -12220,64 +12220,10 @@ mod eg318_dispatch_tests {
             RedbBackend::open(dir_string.clone(), DurabilityPolicy::Each, 64)
                 .expect("open authoritative test backend"),
         );
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: "system".to_string(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-        let state = Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir_string),
-            persistence: Some(persistence),
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }));
+        let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation("system"));
+        state.persist_dir = Some(dir_string);
+        state.persistence = Some(persistence);
+        let state = Arc::new(RwLock::new(state));
         DurableTestState {
             state: Some(state),
             dir,
@@ -12285,35 +12231,11 @@ mod eg318_dispatch_tests {
     }
 
     fn req(id: u64, method: Method) -> Request {
-        sign_current_test_request(
-            SECRET,
-            Request {
-                id,
-                graph: "__commons__".into(),
-                auth_token: String::new(),
-                agent_id: Some("system".to_string()),
-                method,
-            },
-        )
+        build_shared_test_request(SECRET, id, "__commons__", "system", method)
     }
 
     fn blob(v: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&v).unwrap()
-    }
-
-    /// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
-    /// behind one heap indirection. `dispatch()` bottoms out in `dispatch_inner`,
-    /// a single very large async fn whose generated future is enormous; nesting it
-    /// (this module's tests awaiting `dispatch` inside a `#[tokio::test]` future) can
-    /// exhaust the test harness thread's stack before the first request is even
-    /// polled, aborting the WHOLE test binary with SIGABRT and hiding every other
-    /// test's result. Same fix as `server::mod::tests::dispatch_on_heap` (8e00e0b),
-    /// `result_cache_dispatch_tests` (ae64cfd), and `redb_backend`'s tests (92586a7).
-    fn dispatch_on_heap<'a>(
-        state: &'a Arc<RwLock<ServerState>>,
-        request: Request,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
-        Box::pin(dispatch(state, request))
     }
 
     /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-220 — CreateSummaryNode over the wire → SummaryChildren
