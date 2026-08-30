@@ -17,11 +17,8 @@
 //!   * **Completion is explicit** — require-complete fails on an unavailable group,
 //!     while allow-partial returns a typed failed-leg status and continuation.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
 
-use openraft::BasicNode;
 use tokio::sync::RwLock;
 
 use super::multi::MultiRaft;
@@ -29,7 +26,7 @@ use super::xread::{
     CompletionPolicy, CrossGraphReadErrorCode, CrossGraphReadRequest, CrossShardReader,
     ReadLegStatus, ReadPageErrorCode,
 };
-use super::{AppCtx, GroupId, NodeId, RaftRequest};
+use super::{GroupId, RaftRequest};
 use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
@@ -50,26 +47,6 @@ fn fresh_dir(tag: &str) -> String {
     d.to_string_lossy().to_string()
 }
 
-fn free_port() -> u16 {
-    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    l.local_addr().unwrap().port()
-}
-
-async fn wait_until<F, Fut>(timeout: Duration, mut pred: F) -> Result<(), ()>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = bool>,
-{
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        if pred().await {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(120)).await;
-    }
-    Err(())
-}
-
 /// Bring up a one-node, two-group cluster (the `xshard_harness`/`placement_harness`
 /// convention): `GROUP_A`/`GROUP_B` both on this node, each elected leader before the
 /// test writes through them.
@@ -77,50 +54,14 @@ async fn bring_up(
     dir: &str,
     backend: Arc<dyn PersistenceBackend>,
 ) -> (Arc<MultiRaft>, Arc<RwLock<ServerState>>) {
-    let state = super::harness_support::make_state(
+    super::harness_support::start_single_node_groups(
         dir,
-        backend.clone(),
+        backend,
         IsolationLayer::new(),
         "xread-test",
+        &[GROUP_A, GROUP_B, super::DEFAULT_GROUP],
     )
-    .await;
-    let ctx = AppCtx {
-        state: state.clone(),
-        router: None,
-    };
-    let port = free_port();
-    let node_id: NodeId = 1;
-    let peers: BTreeMap<NodeId, BasicNode> =
-        [(node_id, BasicNode::new(format!("127.0.0.1:{port}")))].into();
-
-    let multi = MultiRaft::start(node_id, format!("127.0.0.1:{port}"), backend.clone(), ctx)
-        .await
-        .expect("start multi");
-    multi
-        .create_group(GROUP_A, peers.clone(), true)
-        .await
-        .unwrap();
-    multi
-        .create_group(GROUP_B, peers.clone(), true)
-        .await
-        .unwrap();
-    // DEFAULT_GROUP (0) backs the placement catalog itself — the `placement_*` admin
-    // API commits through it (see `MultiRaft::commit_placement`), so a test that
-    // splits/assigns must bring it up + elect its leader too (the same setup
-    // `placement_harness::bring_up` uses).
-    multi.ensure_group(super::DEFAULT_GROUP).await.unwrap();
-
-    for gid in [GROUP_A, GROUP_B, super::DEFAULT_GROUP] {
-        let g = multi.group(gid).await.expect("group exists");
-        wait_until(Duration::from_secs(15), || {
-            let g = g.clone();
-            async move { g.current_leader().await == Some(node_id) }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("group {gid} must elect a leader"));
-    }
-
-    (multi, state)
+    .await
 }
 
 /// Write ONE node into `graph` through `gid`'s Raft `client_write`.

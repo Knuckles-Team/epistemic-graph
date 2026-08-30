@@ -22,13 +22,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use openraft::BasicNode;
 use tokio::sync::RwLock;
 
 use super::cross_shard_txn::{CrossShardCoordinator, CrossShardTxn, GraphSlice, TxnOutcome};
 use super::multi::MultiRaft;
-use super::{AppCtx, NodeId};
-use crate::acl::{AgentIdentity, AgentRole};
 use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
@@ -48,14 +45,7 @@ const GRAPH_B: &str = "shardB";
 /// `current_isolation` fixture the `redb_backend` cross-modal ACID test module uses to drive
 /// the same handler; the coordinator-path tests never touch the ACL, so they are unaffected.
 fn harness_isolation() -> IsolationLayer {
-    let mut isolation = IsolationLayer::new();
-    isolation.register_agent(AgentIdentity {
-        agent_id: XSHARD_HARNESS_TEST_AGENT.to_string(),
-        role: AgentRole::System,
-        teams: Vec::new(),
-        roles: Vec::new(),
-    });
-    isolation
+    super::harness_support::current_isolation(XSHARD_HARNESS_TEST_AGENT)
 }
 
 fn fresh_dir(tag: &str) -> String {
@@ -79,11 +69,6 @@ fn fresh_dir(tag: &str) -> String {
     d.to_string_lossy().to_string()
 }
 
-fn free_port() -> u16 {
-    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    l.local_addr().unwrap().port()
-}
-
 /// Bring up a one-node, two-group cluster over `dir`'s redb, with `shardA`→100 and
 /// `shardB`→200 assigned in the router. Returns the manager + the coordinator + the
 /// state (so the test can read graph data back and stop the listener).
@@ -95,47 +80,16 @@ async fn bring_up(
     CrossShardCoordinator,
     Arc<RwLock<ServerState>>,
 ) {
-    let state = super::harness_support::make_state(
+    let (multi, state) = super::harness_support::start_single_node_groups(
         dir,
         backend.clone(),
         harness_isolation(),
         "xshard-test",
+        &[GROUP_A, GROUP_B],
     )
     .await;
-    let ctx = AppCtx {
-        state: state.clone(),
-        router: None,
-    };
-    let port = free_port();
-    let node_id: NodeId = 1;
-    let peers: BTreeMap<NodeId, BasicNode> =
-        [(node_id, BasicNode::new(format!("127.0.0.1:{port}")))].into();
-
-    let multi = MultiRaft::start(node_id, format!("127.0.0.1:{port}"), backend.clone(), ctx)
-        .await
-        .expect("start multi");
-    multi
-        .create_group(GROUP_A, peers.clone(), true)
-        .await
-        .unwrap();
-    multi
-        .create_group(GROUP_B, peers.clone(), true)
-        .await
-        .unwrap();
     multi.router().assign(GRAPH_A, GROUP_A);
     multi.router().assign(GRAPH_B, GROUP_B);
-
-    // Each group elects its (single-node) leader before we route writes.
-    for gid in [GROUP_A, GROUP_B] {
-        let g = multi.group(gid).await.expect("group exists");
-        wait_until(Duration::from_secs(15), || {
-            let g = g.clone();
-            async move { g.current_leader().await == Some(node_id) }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("group {gid} must elect a leader"));
-    }
-
     let coord = CrossShardCoordinator::new(multi.clone(), backend);
     (multi, coord, state)
 }
