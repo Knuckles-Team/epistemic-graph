@@ -4855,46 +4855,6 @@ fn test_isolation(agents: &[&str]) -> crate::isolation::IsolationLayer {
 }
 
 #[cfg(test)]
-fn test_state_with_services(
-    auth_secret: &str,
-    isolation: crate::isolation::IsolationLayer,
-    persistence_label: &str,
-    tsdb_label: &str,
-) -> Arc<RwLock<ServerState>> {
-    let _ = (persistence_label, tsdb_label);
-    let mut state = ServerState::new_for_test(auth_secret.to_owned(), isolation);
-    #[cfg(feature = "query")]
-    {
-        state.persist_dir = Some(
-            crate::server::sql_tables::test_persist_dir()
-                .to_string_lossy()
-                .into_owned(),
-        );
-    }
-    #[cfg(feature = "redb")]
-    {
-        state.persistence = Some(std::sync::Arc::new(
-            crate::server::persistence::redb_backend::RedbBackend::open(
-                crate::server::unique_temp_dir(persistence_label)
-                    .to_string_lossy()
-                    .into_owned(),
-                crate::durability::DurabilityPolicy::Each,
-                256,
-            )
-            .expect("open test redb backend"),
-        ));
-    }
-    #[cfg(feature = "tsdb")]
-    {
-        state.tsdb_store = Some(std::sync::Arc::new(
-            eg_tsdb::store::SeriesStore::open_in_dir(&crate::server::unique_temp_dir(tsdb_label))
-                .expect("open test series store"),
-        ));
-    }
-    Arc::new(RwLock::new(state))
-}
-
-#[cfg(test)]
 mod ne_004_ne_005_tests {
     //! Unit tests for NE-004 (mixed graph+table transaction atomicity via a
     //! durable commit-intent) and NE-005 (SQL-selectable isolation level).
@@ -4933,7 +4893,7 @@ mod ne_004_ne_005_tests {
     /// elsewhere).
     fn test_state() -> Arc<RwLock<ServerState>> {
         ensure_env();
-        test_state_with_services(
+        crate::server::test_state_with_services(
             SECRET,
             test_isolation(&[AGENT]),
             "eg-wire-txn-atomicity-test",
@@ -5533,7 +5493,7 @@ mod wired_catalog_tests {
     /// track wires on top, not a replacement for the engine ACL.
     fn test_state(agents: &[&str]) -> Arc<RwLock<ServerState>> {
         ensure_env();
-        test_state_with_services(
+        crate::server::test_state_with_services(
             SECRET,
             test_isolation(agents),
             "eg-wired-catalog-test",

@@ -644,6 +644,54 @@ pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
 pub use handlers::dist_compute::reload_matviews;
 pub use persistence::PersistenceBackend;
 pub use state::{txn_limits_from_env, ServerState, MAX_BATCH_IDS};
+
+/// Build the canonical feature-complete state used by dispatch and wire tests.
+/// Keeping the constructor and every feature-gated service attachment here
+/// means a new `ServerState` field cannot silently disappear from one fixture.
+/// The helper is test-only and lives at the server seam so unconditional server
+/// tests do not depend on the optional `wire` feature being enabled.
+#[cfg(test)]
+pub(crate) fn test_state_with_services(
+    auth_secret: &str,
+    isolation: crate::isolation::IsolationLayer,
+    persistence_label: &str,
+    tsdb_label: &str,
+) -> std::sync::Arc<tokio::sync::RwLock<ServerState>> {
+    let _ = (persistence_label, tsdb_label);
+    let state = ServerState::new_for_test(auth_secret.to_owned(), isolation);
+    #[cfg(any(feature = "query", feature = "redb", feature = "tsdb"))]
+    let mut state = state;
+    #[cfg(feature = "query")]
+    {
+        state.persist_dir = Some(
+            crate::server::sql_tables::test_persist_dir()
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    #[cfg(feature = "redb")]
+    {
+        state.persistence = Some(std::sync::Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open(
+                crate::server::unique_temp_dir(persistence_label)
+                    .to_string_lossy()
+                    .into_owned(),
+                crate::durability::DurabilityPolicy::Each,
+                256,
+            )
+            .expect("open test redb backend"),
+        ));
+    }
+    #[cfg(feature = "tsdb")]
+    {
+        state.tsdb_store = Some(std::sync::Arc::new(
+            eg_tsdb::store::SeriesStore::open_in_dir(&crate::server::unique_temp_dir(tsdb_label))
+                .expect("open test series store"),
+        ));
+    }
+    std::sync::Arc::new(tokio::sync::RwLock::new(state))
+}
+
 pub use transport::{
     handle_connection, run_idle_watcher, serve_tcp, validate_tcp_tls_config, ShutdownCoordinator,
     TcpTlsConfig,
@@ -847,49 +895,12 @@ mod tests {
     }
 
     fn test_state() -> Arc<RwLock<ServerState>> {
-        let isolation = ServerState::test_isolation("system");
-        let mut state = ServerState::new(SECRET, isolation);
-        #[cfg(feature = "query")]
-        {
-            state.persist_dir = Some(
-                crate::server::sql_tables::test_persist_dir()
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-        }
-        #[cfg(feature = "redb")]
-        {
-            state.persistence = Some(std::sync::Arc::new(
-                crate::server::persistence::redb_backend::RedbBackend::open(
-                    unique_temp_dir("eg-server-test")
-                        .to_string_lossy()
-                        .into_owned(),
-                    crate::durability::DurabilityPolicy::Each,
-                    256,
-                )
-                .expect("open test redb backend"),
-            ));
-        }
-        // A real per-test temp series store so the `Ts*` handler round-trips
-        // exercise the actual store (a fresh, uniquely-named redb file — redb
-        // holds an exclusive per-process file lock, so each test gets its own).
-        #[cfg(feature = "tsdb")]
-        {
-            state.tsdb_store = Some(Arc::new(
-                eg_tsdb::store::SeriesStore::open(&std::env::temp_dir().join(format!(
-                    "eg-tsdb-test-{}-{}.redb",
-                    std::process::id(),
-                    std::sync::atomic::AtomicU64::new(0)
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                        + std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_nanos() as u64)
-                            .unwrap_or(0)
-                )))
-                .expect("open test series store"),
-            ));
-        }
-        Arc::new(RwLock::new(state))
+        crate::server::test_state_with_services(
+            SECRET,
+            ServerState::test_isolation("system"),
+            "eg-server-test",
+            "eg-tsdb-test",
+        )
     }
 
     /// State with worker1/worker2 (team alpha) + their manager registered, and
