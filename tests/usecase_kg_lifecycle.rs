@@ -33,7 +33,7 @@ mod test_support;
 
 use serde_json::json;
 
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
+use epistemic_graph::protocol::{Method, ResultPayload};
 use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "usecase-lifecycle-secret";
@@ -56,55 +56,15 @@ fn state() -> test_support::SharedState {
             )
         });
     }
-    let (persist_dir, persistence) = common::tempdir_persistence();
-    test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        persist_dir,
-        persistence,
-    )
+    test_support::durable_state(SECRET, common::current_isolation())
 }
 
 async fn begin(state: &test_support::SharedState, id: u64) -> String {
-    let r = Box::pin(dispatch(
-        state,
-        test_support::commons_request(
-            SECRET,
-            id,
-            Method::BeginTxn {
-                graph: None,
-                isolation: None,
-            },
-        ),
-    ))
-    .await;
-    match r.result {
-        Some(ResultPayload::String(s)) => s,
-        other => panic!("BeginTxn failed: {:?} / {other:?}", r.error),
-    }
+    test_support::begin_txn(state, SECRET, id, None).await
 }
 
 async fn ok(state: &test_support::SharedState, id: u64, method: Method) {
-    let r = Box::pin(dispatch(
-        state,
-        test_support::commons_request(SECRET, id, method),
-    ))
-    .await;
-    assert!(r.error.is_none(), "op {id} failed: {:?}", r.error);
-}
-
-fn unified_ids(resp: &Response) -> Vec<String> {
-    assert!(
-        resp.error.is_none(),
-        "unified query error: {:?}",
-        resp.error
-    );
-    let bytes = match &resp.result {
-        Some(ResultPayload::Raw(b)) => b.clone(),
-        other => panic!("expected Raw result, got {other:?}"),
-    };
-    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(&bytes).unwrap();
-    rows.into_iter().map(|(id, _)| id).collect()
+    test_support::assert_ok(state, SECRET, id, method).await
 }
 
 async fn hybrid_read(state: &test_support::SharedState, id: u64) -> Vec<String> {
@@ -119,7 +79,7 @@ async fn hybrid_read(state: &test_support::SharedState, id: u64) -> Vec<String> 
         ),
     ))
     .await;
-    unified_ids(&r)
+    test_support::unified_ids(&r)
 }
 
 /// SHACL shapes: a `Sensor` MUST carry a `unit` (minCount 1).
@@ -258,7 +218,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
             ontology: String::new(),
         },
     ]);
-    let inferred = unified_ids(
+    let inferred = test_support::unified_ids(
         &Box::pin(dispatch(
             &state,
             test_support::commons_request(SECRET, 17, Method::UnifiedQuery { plan: reason }),
