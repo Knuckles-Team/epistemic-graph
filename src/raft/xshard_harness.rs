@@ -66,10 +66,8 @@ fn fresh_dir(tag: &str) -> String {
             "xshard-harness-recovery-key",
         )
     });
-    let d = std::env::temp_dir().join(format!("eg-xshard-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d.to_string_lossy().to_string()
+    // Keep directory lifecycle and UTF-8 validation in the shared harness fixture.
+    fixture::fresh_dir("eg-xshard", tag)
 }
 
 /// Bring up a one-node, two-group cluster over `dir`'s redb, with `shardA`→100 and
@@ -108,6 +106,30 @@ type HarnessWithBackend = (
     CrossShardCoordinator,
     HarnessState,
 );
+
+/// Verify the durable in-doubt state before simulating the coordinator crash.
+/// Both the default and K-sharded recovery scenarios must preserve this exact
+/// prepare/decision proof and group shutdown boundary.
+async fn stop_after_prepare_without_decision(
+    multi: &Arc<MultiRaft>,
+    backend: &fixture::Backend,
+    txn_id: &str,
+) {
+    let redb = backend.as_redb().unwrap();
+    assert_eq!(
+        redb.xshard_scan_prepares().unwrap().len(),
+        2,
+        "two prepares durable"
+    );
+    assert_eq!(
+        redb.xshard_decision_get(txn_id).unwrap(),
+        None,
+        "no decision logged"
+    );
+    multi.stop_listener();
+    multi.close_group(GROUP_A).await.unwrap();
+    multi.close_group(GROUP_B).await.unwrap();
+}
 
 /// A two-graph cross-shard txn inserting `a_node` into shardA and `b_node` into shardB.
 fn two_shard_txn(txn_id: &str, a_node: &str, b_node: &str) -> CrossShardTxn {
@@ -363,20 +385,7 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
         // PHASE 1 only — prepares are durable, but NO decision is ever logged.
         assert!(coord.prepare_only(&txn).await.expect("prepare"));
         // Sanity: the prepares ARE on disk (the in-doubt state we recover from).
-        let redb = backend.as_redb().unwrap();
-        assert_eq!(
-            redb.xshard_scan_prepares().unwrap().len(),
-            2,
-            "two prepares durable"
-        );
-        assert_eq!(
-            redb.xshard_decision_get(txn_id).unwrap(),
-            None,
-            "no decision logged"
-        );
-        multi.stop_listener();
-        multi.close_group(GROUP_A).await.unwrap();
-        multi.close_group(GROUP_B).await.unwrap();
+        stop_after_prepare_without_decision(&multi, &backend, txn_id).await;
     }
     let (backend2, multi2, coord2, state2) = reopen_after_crash(&dir, backend).await;
 
@@ -851,6 +860,22 @@ async fn bring_up_nonblocking(tag: &str) -> (String, fixture::Backend, Harness) 
     (dir, backend, harness)
 }
 
+/// Start the shared Calvin commit fixture, including its local deterministic sequencer.
+/// Keeping this setup in one fixture preserves the decision-group wiring and avoids
+/// drifting the live-commit and coordinator-replay proofs apart.
+async fn bring_up_calvin_commit(
+    tag: &str,
+) -> (
+    String,
+    fixture::Backend,
+    Harness,
+    super::cross_shard_txn::CalvinSequencer,
+) {
+    let (dir, backend, harness) = bring_up_nonblocking(tag).await;
+    let seq = super::cross_shard_txn::CalvinSequencer::new();
+    (dir, backend, harness, seq)
+}
+
 /// (a) ATOMICITY + the replicated-decision mechanic: a non-blocking cross-shard commit
 /// lands on BOTH participants, the decision is replicated (NOT in coordinator redb), and
 /// the replicated decision node is GC'd after resolution.
@@ -1053,12 +1078,8 @@ async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
 /// monotone global sequence, and the replicated sequence node is GC'd after resolution.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calvin_deterministic_commit_is_atomic_and_vote_free() {
-    use super::cross_shard_txn::{CalvinSequencer, GlobalSeq};
-    let dir = fresh_dir("calvinhappy");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
-    add_decision_group(&multi).await;
-    let seq = CalvinSequencer::new();
+    use super::cross_shard_txn::GlobalSeq;
+    let (dir, backend, (multi, coord, state), seq) = bring_up_calvin_commit("calvinhappy").await;
 
     let txn = two_shard_txn("t-calvin-happy", "ca1", "cb1");
     let (outcome, gs) = coord
@@ -1103,12 +1124,7 @@ async fn calvin_deterministic_commit_is_atomic_and_vote_free() {
 /// coordinator and WITHOUT any vote: agreement on the order was agreement on the outcome.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calvin_crash_after_sequencing_is_resolved_by_replay() {
-    use super::cross_shard_txn::CalvinSequencer;
-    let dir = fresh_dir("calvinreplay");
-    let backend = fixture::open_backend(&dir).expect("open redb");
-    let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
-    add_decision_group(&multi).await;
-    let seq = CalvinSequencer::new();
+    let (dir, backend, (multi, coord, state), seq) = bring_up_calvin_commit("calvinreplay").await;
 
     let txn_id = "t-calvin-replay";
     let txn = two_shard_txn(txn_id, "cra", "crb");
@@ -1884,20 +1900,7 @@ async fn cross_group_2pc_survives_crash_mid_prepare_across_distinct_shards() {
         // PHASE 1 only — durable prepares, but the coordinator "dies" before ANY decision
         // (the leader-kill-mid-prepare fault, injected deterministically).
         assert!(coord.prepare_only(&txn).await.expect("prepare"));
-        let redb = backend.as_redb().unwrap();
-        assert_eq!(
-            redb.xshard_scan_prepares().unwrap().len(),
-            2,
-            "two prepares durable"
-        );
-        assert_eq!(
-            redb.xshard_decision_get(txn_id).unwrap(),
-            None,
-            "no decision logged"
-        );
-        multi.stop_listener();
-        multi.close_group(GROUP_A).await.unwrap();
-        multi.close_group(GROUP_B).await.unwrap();
+        stop_after_prepare_without_decision(&multi, &backend, txn_id).await;
     }
     backend.shutdown();
     drop(backend);
