@@ -8,8 +8,10 @@
 //!     snapshot path warm).
 //!
 //! The cold/warm p50 delta is the reopen amortization cost. Uses the durable reopen
-//! fixture pattern from `tests/graphql_crossmodal_durable.rs` (unique pid+nanos persist
-//! dir, `RedbBackend::open(dir, DurabilityPolicy::Each, 8192)`, write, `shutdown`, reopen).
+//! fixture pattern from `tests/graphql_crossmodal_durable.rs` (unique temporary persist dir,
+//! `RedbBackend::open(dir, DurabilityPolicy::Each, 8192)`, write, `shutdown`, reopen). The
+//! tag-specific prefix and tempfile's randomized suffix keep concurrent calls distinct even
+//! across PID namespaces and PID reuse.
 //!
 //! Run: `cargo bench --features full --bench cold_warm_reopen`
 //! Gated to `--features full` (needs the redb backend + tokio server runtime); a default
@@ -33,19 +35,19 @@ fn node_props(k: usize) -> Vec<u8> {
     rmp_serde::to_vec_named(&serde_json::json!({ "k": k, "type": "Doc" })).unwrap()
 }
 
-/// A unique, self-cleaning persist dir under the system temp dir (no tempfile dep) — the
-/// `graphql_crossmodal_durable` fixture pattern (pid + nanos).
+/// Allocate a unique persist dir under the system temp dir with a tag-specific prefix.
+/// `tempfile` creates the directory with a randomized suffix; `keep` transfers ownership
+/// to the benchmark so its existing explicit cleanup remains responsible for the path.
+/// The caller retains the existing `String` return type for benchmark setup and cleanup.
 fn unique_dir(tag: &str) -> String {
-    let dir = std::env::temp_dir().join(format!(
-        "eg-coldwarm-{tag}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.to_string_lossy().to_string()
+    let prefix = format!("eg-coldwarm-{tag}-");
+    tempfile::Builder::new()
+        .prefix(&prefix)
+        .tempdir()
+        .expect("create benchmark persist dir")
+        .keep()
+        .to_string_lossy()
+        .to_string()
 }
 
 /// Populate a persist dir with `NODES` durable (commit-before-ack) nodes and shut the
