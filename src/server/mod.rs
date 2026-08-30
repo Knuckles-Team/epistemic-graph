@@ -772,11 +772,8 @@ mod tests {
     use super::compute::weight_semantic_results;
     use super::*;
     use crate::acl::RequestContextClaims;
-    use crate::channels::ChannelManager;
-    use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
+    use crate::isolation::{AgentIdentity, AgentRole};
     use crate::protocol::{GraphType, Method, Request, Response, ResultPayload};
-    use crate::registry::GraphRegistry;
-    use dashmap::DashMap;
     use std::sync::Arc;
     use tokio::sync::{RwLock, Semaphore};
 
@@ -2744,34 +2741,18 @@ mod tests {
         // cap before any access check), so it needs a resolvable identity. `request()`
         // defaults `agent_id` to `"system"`, so register exactly that — the same
         // System-role bypass `test_state()` relies on everywhere else in this module.
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: "system".into(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-        let state = Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            persist_dir: None,
+        // Start from the canonical feature-complete test composition.  This keeps
+        // the backpressure fixture aligned with production field additions while
+        // overriding only the capacities and durable backend this test exercises.
+        let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation("system"));
+        #[cfg(feature = "redb")]
+        {
             // AddNode is a durable, `GraphRedb`-domain GATEWAY_ROUTED method
             // (CONCEPT:EG-P0-2): now that `g_cold`'s write clears the RBAC gate
             // above, it reaches `commit_mutation_inner`'s durable-commit branch,
-            // which fails closed ("authoritative MutationBatch commit requires a
-            // persistence backend") without a REAL backend — the same
-            // authoritative-commit flip `test_state()` documents. A real backend
-            // on its own uniquely-named temp dir, same pattern as `test_state()`.
-            #[cfg(feature = "redb")]
-            persistence: Some(std::sync::Arc::new(
+            // which fails closed without a REAL backend.  Give this focused
+            // fixture its own uniquely-named backend, as `test_state()` does.
+            state.persistence = Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
                     unique_temp_dir("eg-per-graph-backpressure")
                         .to_string_lossy()
@@ -2780,47 +2761,12 @@ mod tests {
                     256,
                 )
                 .expect("open test redb backend"),
-            )),
-            #[cfg(not(feature = "redb"))]
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(64)), // global: ample
-            read_admission: Arc::new(Semaphore::new(64)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 1, // any one graph: a single slot
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }));
+            ));
+        }
+        state.max_in_flight = Arc::new(Semaphore::new(64));
+        state.read_admission = Arc::new(Semaphore::new(64));
+        state.per_graph_inflight_limit = 1;
+        let state = Arc::new(RwLock::new(state));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating
         // an op already in flight on that graph.
