@@ -190,6 +190,19 @@ pub fn parse_delta_actions(content: &str) -> Result<Vec<Value>, String> {
         .collect()
 }
 
+fn action_path<'a>(action: &'a Value, kind: &str) -> Option<&'a str> {
+    action.get(kind)?.get("path")?.as_str()
+}
+
+fn apply_delta_action(live: &mut Vec<String>, action: &Value) {
+    if let Some(path) = action_path(action, "add") {
+        live.push(path.to_owned());
+    }
+    if let Some(path) = action_path(action, "remove") {
+        live.retain(|existing| existing != path);
+    }
+}
+
 /// Replay a set of `_delta_log` files (in version order) to the live set of Parquet
 /// file paths (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns) — the reconstruction an external Delta reader performs:
 /// every `add` path minus every `remove` path.
@@ -197,16 +210,7 @@ pub fn live_paths(files: &[DeltaLogFile]) -> Result<Vec<String>, String> {
     let mut live: Vec<String> = Vec::new();
     for file in files {
         for action in parse_delta_actions(&file.content)? {
-            if let Some(add) = action.get("add").and_then(|a| a.get("path")) {
-                if let Some(p) = add.as_str() {
-                    live.push(p.to_string());
-                }
-            }
-            if let Some(rem) = action.get("remove").and_then(|a| a.get("path")) {
-                if let Some(p) = rem.as_str() {
-                    live.retain(|x| x != p);
-                }
-            }
+            apply_delta_action(&mut live, &action);
         }
     }
     Ok(live)
