@@ -220,27 +220,35 @@ def _check_harness_baseline(
     return tree
 
 
-def main() -> int:
-    errors: list[str] = []
-    protocol_relative = "scripts/certify_exact_protocol_authorization.py"
-    multimodal_relative = "scripts/certify_exact_multimodal.py"
-    batch_relative = "scripts/certify_exact_knowledge_batch.py"
-    reasoning_relative = "scripts/certify_exact_reasoning_repair.py"
-    protocol = _read(protocol_relative)
-    multimodal = _read(multimodal_relative)
-    batch = _read(batch_relative)
-    reasoning = _read(reasoning_relative)
-    protocol_tree = _check_harness_baseline(protocol_relative, protocol, errors)
-    multimodal_tree = _check_harness_baseline(multimodal_relative, multimodal, errors)
-    batch_tree = _check_harness_baseline(batch_relative, batch, errors)
-    reasoning_tree = _check_harness_baseline(reasoning_relative, reasoning, errors)
+def _load_campaign_sources(
+    errors: list[str],
+) -> tuple[dict[str, str], dict[str, ast.AST | None]]:
+    relatives = (
+        "scripts/certify_exact_protocol_authorization.py",
+        "scripts/certify_exact_multimodal.py",
+        "scripts/certify_exact_knowledge_batch.py",
+        "scripts/certify_exact_reasoning_repair.py",
+    )
+    sources: dict[str, str] = {}
+    trees: dict[str, ast.AST | None] = {}
+    for relative in relatives:
+        source = _read(relative)
+        sources[relative] = source
+        trees[relative] = _check_harness_baseline(relative, source, errors)
+    return sources, trees
 
-    if protocol_tree is not None:
+
+def _check_protocol_campaign(
+    source: str,
+    tree: ast.AST | None,
+    errors: list[str],
+) -> None:
+    if tree is not None:
         try:
-            wires = _literal_set(protocol_tree, "WIRE_PROTOCOLS")
-            data_paths = _literal_set(protocol_tree, "DATA_PATHS")
-            wire_features = set(_literal(protocol_tree, "WIRE_FEATURES").values())
-            listener_env = set(_literal(protocol_tree, "LISTENER_ENV").values())
+            wires = _literal_set(tree, "WIRE_PROTOCOLS")
+            data_paths = _literal_set(tree, "DATA_PATHS")
+            wire_features = set(_literal(tree, "WIRE_FEATURES").values())
+            listener_env = set(_literal(tree, "LISTENER_ENV").values())
             launcher_tree = ast.parse(_read("scripts/certify_exact_fault_restart.py"))
             allowed_listener_env = _literal_set(
                 launcher_tree, "EXACT_OPTIONAL_LISTENER_ENV"
@@ -261,7 +269,7 @@ def main() -> int:
                     "protocol listeners exceed or drift from launcher allowlist"
                 )
     _require(
-        protocol,
+        source,
         {
             "_wait_for_listeners(addresses)",
             "_probe_native(engine)",
@@ -282,52 +290,62 @@ def main() -> int:
         errors,
     )
 
-    if multimodal_tree is not None:
-        try:
-            modalities = _literal_set(multimodal_tree, "MODALITIES")
-            dimensions = _literal_set(
-                multimodal_tree, "EXACT_BEHAVIOR_DIMENSIONS"
-            )
-        except ValueError as error:
-            errors.append(f"multimodal inventory: {error}")
-        else:
-            if modalities != EXPECTED_MODALITIES:
-                errors.append("multimodal inventory is not the exact four")
-            if dimensions != EXPECTED_EXACT_BEHAVIOR_DIMENSIONS:
-                errors.append("multimodal behavior inventory is not the exact twelve")
-        _require_call_suffixes(
-            multimodal_tree,
-            {
-                "modalities.ingest_stream",
-                "modalities.ingest",
-                "modalities.query",
-                "modalities.search_documents",
-                "modalities.query_image_region",
-                "modalities.query_audio_window",
-                "modalities.query_video_window",
-                "modalities.stats",
-                "modalities.move_to_cold",
-                "modalities.restore",
-                "modalities.events",
-                "modalities.delete",
-                "modalities.collect_tombstones",
-                "modalities.capabilities",
-                "admin.backup",
-                "admin.restore",
-                "engine.crash",
-                "_load_performance_evidence",
-                "_assert_sources_absent",
-            },
-            "multimodal campaign",
-            errors,
-        )
-        if not _has_exact_fault_matrix(multimodal_tree):
-            errors.append("multimodal campaign lacks the four-by-four fault matrix")
 
-    if batch_tree is not None:
+def _check_multimodal_campaign(
+    tree: ast.AST | None,
+    errors: list[str],
+) -> None:
+    if tree is None:
+        return
+    try:
+        modalities = _literal_set(tree, "MODALITIES")
+        dimensions = _literal_set(tree, "EXACT_BEHAVIOR_DIMENSIONS")
+    except ValueError as error:
+        errors.append(f"multimodal inventory: {error}")
+    else:
+        if modalities != EXPECTED_MODALITIES:
+            errors.append("multimodal inventory is not the exact four")
+        if dimensions != EXPECTED_EXACT_BEHAVIOR_DIMENSIONS:
+            errors.append("multimodal behavior inventory is not the exact twelve")
+    _require_call_suffixes(
+        tree,
+        {
+            "modalities.ingest_stream",
+            "modalities.ingest",
+            "modalities.query",
+            "modalities.search_documents",
+            "modalities.query_image_region",
+            "modalities.query_audio_window",
+            "modalities.query_video_window",
+            "modalities.stats",
+            "modalities.move_to_cold",
+            "modalities.restore",
+            "modalities.events",
+            "modalities.delete",
+            "modalities.collect_tombstones",
+            "modalities.capabilities",
+            "admin.backup",
+            "admin.restore",
+            "engine.crash",
+            "_load_performance_evidence",
+            "_assert_sources_absent",
+        },
+        "multimodal campaign",
+        errors,
+    )
+    if not _has_exact_fault_matrix(tree):
+        errors.append("multimodal campaign lacks the four-by-four fault matrix")
+
+
+def _check_batch_campaign(
+    source: str,
+    tree: ast.AST | None,
+    errors: list[str],
+) -> None:
+    if tree is not None:
         try:
-            families = _literal_set(batch_tree, "FAMILIES")
-            requirements = _literal_set(batch_tree, "REQUIREMENTS")
+            families = _literal_set(tree, "FAMILIES")
+            requirements = _literal_set(tree, "REQUIREMENTS")
         except ValueError as error:
             errors.append(f"KnowledgeBatch inventory: {error}")
         else:
@@ -336,7 +354,7 @@ def main() -> int:
             if requirements != EXPECTED_BATCH_REQUIREMENTS:
                 errors.append("KnowledgeBatch requirement inventory is incomplete")
     _require(
-        batch,
+        source,
         {
             "client.knowledge.pull",
             "arrow_schema_digest",
@@ -352,16 +370,22 @@ def main() -> int:
         errors,
     )
 
-    if reasoning_tree is not None:
+
+def _check_reasoning_campaign(
+    source: str,
+    tree: ast.AST | None,
+    errors: list[str],
+) -> None:
+    if tree is not None:
         try:
-            cases = _literal_set(reasoning_tree, "CASES")
+            cases = _literal_set(tree, "CASES")
         except ValueError as error:
             errors.append(f"reasoning inventory: {error}")
         else:
             if cases != EXPECTED_REASONING_CASES:
                 errors.append("reasoning campaign inventory is not the exact nine")
     _require(
-        reasoning,
+        source,
         {
             '"Stale"',
             '"Fresh"',
@@ -382,6 +406,8 @@ def main() -> int:
         errors,
     )
 
+
+def _check_feature_contract(errors: list[str]) -> None:
     cargo = tomllib.loads(_read("Cargo.toml"))
     full = set(cargo.get("features", {}).get("full", []))
     missing_full = EXPECTED_WIRE_FEATURES - full
@@ -396,6 +422,8 @@ def main() -> int:
         if feature not in full:
             errors.append(f"full feature lost {feature}")
 
+
+def _check_architecture_contracts(errors: list[str]) -> None:
     universal = _read("scripts/check_universal_read_rls.py")
     _require(
         universal,
@@ -424,6 +452,8 @@ def main() -> int:
         errors,
     )
 
+
+def _check_release_test_contracts(errors: list[str]) -> None:
     wrapper = _read("tests/test_exact_release_campaigns.py")
     _require(
         wrapper,
@@ -464,6 +494,8 @@ def main() -> int:
         errors,
     )
 
+
+def _check_documentation_contract(errors: list[str]) -> None:
     docs = _read("docs/operations/exact-release-campaigns.md")
     nav = _read("mkdocs.yml")
     # rust-ci.yml was originally folded into a two-workflow release model
@@ -496,6 +528,8 @@ def main() -> int:
     # here was asserting an advisory.yml-specific trigger-scoping detail that
     # no longer exists as a design, not a residual gap.
 
+
+def _report(errors: list[str]) -> int:
     if errors:
         print("exact release campaign architecture gate: FAIL")
         for error in errors:
@@ -503,6 +537,26 @@ def main() -> int:
         return 1
     print("exact release campaign architecture gate: PASS")
     return 0
+
+
+def main() -> int:
+    errors: list[str] = []
+    sources, trees = _load_campaign_sources(errors)
+    protocol_relative = "scripts/certify_exact_protocol_authorization.py"
+    multimodal_relative = "scripts/certify_exact_multimodal.py"
+    batch_relative = "scripts/certify_exact_knowledge_batch.py"
+    reasoning_relative = "scripts/certify_exact_reasoning_repair.py"
+    _check_protocol_campaign(sources[protocol_relative], trees[protocol_relative], errors)
+    _check_multimodal_campaign(trees[multimodal_relative], errors)
+    _check_batch_campaign(sources[batch_relative], trees[batch_relative], errors)
+    _check_reasoning_campaign(
+        sources[reasoning_relative], trees[reasoning_relative], errors
+    )
+    _check_feature_contract(errors)
+    _check_architecture_contracts(errors)
+    _check_release_test_contracts(errors)
+    _check_documentation_contract(errors)
+    return _report(errors)
 
 
 if __name__ == "__main__":
