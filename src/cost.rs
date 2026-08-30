@@ -1170,19 +1170,13 @@ mod tests {
     #[cfg(feature = "redb")]
     mod integration {
         use super::super::*;
-        use crate::durability::DurabilityPolicy;
         use crate::protocol::{GraphType, Method, Request, Response, ResultPayload};
-        use crate::server::persistence::read_through::{
-            BackendGraphMaterializer, BackendReadThroughFactory,
-        };
-        use crate::server::persistence::redb_backend::RedbBackend;
-        use crate::server::persistence::PersistenceBackend;
         use crate::server::{
             auth::{build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap},
             ServerState,
         };
         use std::sync::Arc;
-        use tokio::sync::{RwLock, Semaphore};
+        use tokio::sync::RwLock;
 
         const SECRET: &str = "cost-budget-test";
         const TEST_AGENT: &str = "unit-test-agent";
@@ -1192,26 +1186,13 @@ mod tests {
         }
 
         async fn redb_state(dir_s: &str) -> Arc<RwLock<ServerState>> {
-            let backend: Arc<dyn PersistenceBackend> = Arc::new(
-                RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 256).expect("open"),
-            );
-            let mut state =
-                ServerState::new_for_test(SECRET, ServerState::test_isolation(TEST_AGENT));
-            state.persist_dir = Some(dir_s.to_string());
-            state.persistence = Some(backend.clone());
-            state.max_in_flight = Arc::new(Semaphore::new(64));
-            state.read_admission = Arc::new(Semaphore::new(64));
-            state.per_graph_inflight_limit = 32;
-            let state = Arc::new(RwLock::new(state));
-            // Wire the durable read-through exactly like main.rs under authoritative mode.
-            {
-                let mut s = state.write().await;
-                let factory = Arc::new(BackendReadThroughFactory::new(backend.clone()));
-                s.registry.set_read_through_factory(factory);
-                let materializer = Arc::new(BackendGraphMaterializer::new(backend.clone()));
-                s.registry.set_materializer(materializer);
-            }
-            state
+            crate::server::persistence::cold_offload::test_redb_state(
+                SECRET,
+                dir_s,
+                ServerState::test_isolation(TEST_AGENT),
+                256,
+            )
+            .await
         }
 
         fn req(id: u64, graph: &str, method: Method) -> Request {
