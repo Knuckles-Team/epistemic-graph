@@ -148,6 +148,33 @@ def _function(source: str, name: str) -> str:
 _CALL_TARGET = re.compile(r"\b([a-z_][a-z0-9_]*)\s*\(")
 
 
+def _function_if_present(source: str, name: str) -> str | None:
+    if not re.search(rf"\bfn\s+{re.escape(name)}\s*\(", source):
+        return None
+    return _function(source, name)
+
+
+def _collect_function_frontier(
+    source: str, frontier: list[str], seen: set[str]
+) -> tuple[list[str], list[str]]:
+    collected: list[str] = []
+    next_frontier: list[str] = []
+    for fn_name in frontier:
+        if fn_name in seen:
+            continue
+        seen.add(fn_name)
+        body = _function_if_present(source, fn_name)
+        if body is None:
+            continue
+        collected.append(body)
+        next_frontier.extend(
+            call
+            for call in _CALL_TARGET.findall(body)
+            if call not in seen and call != fn_name
+        )
+    return collected, next_frontier
+
+
 def _function_with_callees(source: str, name: str, max_depth: int = 2) -> str:
     """`_function`'s body, plus the bodies of same-source functions it calls,
     followed up to `max_depth` hops.
@@ -167,18 +194,8 @@ def _function_with_callees(source: str, name: str, max_depth: int = 2) -> str:
     frontier = [name]
     depth = 0
     while frontier and depth <= max_depth:
-        next_frontier: list[str] = []
-        for fn_name in frontier:
-            if fn_name in seen:
-                continue
-            seen.add(fn_name)
-            if not re.search(rf"\bfn\s+{re.escape(fn_name)}\s*\(", source):
-                continue
-            body = _function(source, fn_name)
-            collected.append(body)
-            for call in _CALL_TARGET.findall(body):
-                if call not in seen and call != fn_name:
-                    next_frontier.append(call)
+        bodies, next_frontier = _collect_function_frontier(source, frontier, seen)
+        collected.extend(bodies)
         frontier = next_frontier
         depth += 1
     require(collected, f"missing Rust function inventory: {name}")
