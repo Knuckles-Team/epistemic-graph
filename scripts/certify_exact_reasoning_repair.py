@@ -254,35 +254,39 @@ def _seed(engine: ExactEngine) -> None:
     _with_client(engine, GRAPH, write)
 
 
+def _run_query_specs(
+    client: Any,
+    variables: list[dict[str, object]],
+    specs: tuple[tuple[str, tuple[object, ...], dict[str, object]], ...],
+) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        getattr(client.query, name)(variables, *args, **kwargs)
+        for name, args, kwargs in specs
+    )
+
+
 def _causal_queries(
     client: Any, variables: list[dict[str, object]]
 ) -> tuple[dict[str, Any], ...]:
-    intervene = client.query.causal_estimate(
+    return _run_query_specs(
+        client,
         variables,
-        {"x": 2.0},
-        mode="Intervene",
+        (
+            ("causal_estimate", ({"x": 2.0},), {"mode": "Intervene"}),
+            ("causal_estimate", ({"x": 2.0},), {"mode": "Intervene"}),
+            ("causal_estimate", ({"x": 2.0},), {"mode": "Observe"}),
+            (
+                "causal_counterfactual",
+                ({"z": 1.0, "x": 1.0, "y": 1.5}, {"x": 2.0}),
+                {},
+            ),
+            (
+                "causal_counterfactual",
+                ({"z": 1.0, "x": 1.0, "y": 1.5}, {"x": 2.0}),
+                {},
+            ),
+        ),
     )
-    repeated = client.query.causal_estimate(
-        variables,
-        {"x": 2.0},
-        mode="Intervene",
-    )
-    observe = client.query.causal_estimate(
-        variables,
-        {"x": 2.0},
-        mode="Observe",
-    )
-    counterfactual = client.query.causal_counterfactual(
-        variables,
-        {"z": 1.0, "x": 1.0, "y": 1.5},
-        {"x": 2.0},
-    )
-    counterfactual_repeated = client.query.causal_counterfactual(
-        variables,
-        {"z": 1.0, "x": 1.0, "y": 1.5},
-        {"x": 2.0},
-    )
-    return intervene, repeated, observe, counterfactual, counterfactual_repeated
 
 
 def _validate_causal_estimates(
