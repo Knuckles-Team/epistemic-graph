@@ -88,12 +88,8 @@ impl QuantumBackend for StubExactBackend {
     }
 
     fn result(&self, job: JobHandle) -> Result<QuantumResult, BackendError> {
-        self.jobs
-            .lock()
-            .unwrap()
-            .get(&job.0)
-            .cloned()
-            .ok_or(BackendError::UnknownJob)
+        let jobs = self.jobs.lock().unwrap();
+        jobs.get(&job.0).cloned().ok_or(BackendError::UnknownJob)
     }
 
     fn cancel(&self, job: JobHandle) -> Result<(), BackendError> {
