@@ -98,16 +98,15 @@ pub fn resolve(files: &[(String, Vec<u8>)], results: &[ParseResult]) -> IndexRes
     let mut inputs = ResolutionInputs::default();
     collect_resolution_inputs(results, &mut out, &mut inputs);
     let bases_of = build_bases_of(&inputs.class_by_name);
+    let context = ResolutionContext {
+        def_index: &inputs.def_index,
+        scoped: &inputs.scoped,
+        class_by_name: &inputs.class_by_name,
+        bases_of: &bases_of,
+    };
 
     // ── Resolve calls: caller symbol → callee definition (type/scope-aware) ──
-    let calls = resolve_call_edges(
-        &out.nodes,
-        &inputs.def_index,
-        &inputs.scoped,
-        &inputs.class_by_name,
-        &bases_of,
-        &mut inputs.edges,
-    );
+    let calls = resolve_call_edges(&out.nodes, &context, &mut inputs.edges);
     out.calls_resolved = calls.resolved;
     out.calls_unresolved = calls.unresolved;
     out.calls_scope_resolved = calls.scope_resolved;
@@ -148,6 +147,13 @@ struct ResolutionInputs {
     // Carry the (file→module) import facts to resolve after node merge.
     import_raw: Vec<(String, String)>,
     edges: Vec<ExtractedEdge>,
+}
+
+struct ResolutionContext<'a> {
+    def_index: &'a HashMap<String, Vec<Def>>,
+    scoped: &'a HashMap<(String, String), Vec<String>>,
+    class_by_name: &'a HashMap<String, Vec<ClassDef>>,
+    bases_of: &'a HashMap<String, Vec<String>>,
 }
 
 /// Intermediate caller data kept owned while resolution appends edges.
@@ -312,10 +318,7 @@ fn append_unique_bases(bases: &mut Vec<String>, definition: &ClassDef) {
 
 fn resolve_call_edges(
     nodes: &[ExtractedNode],
-    def_index: &HashMap<String, Vec<Def>>,
-    scoped: &HashMap<(String, String), Vec<String>>,
-    class_by_name: &HashMap<String, Vec<ClassDef>>,
-    bases_of: &HashMap<String, Vec<String>>,
+    resolution: &ResolutionContext<'_>,
     edges: &mut Vec<ExtractedEdge>,
 ) -> CallCounts {
     let mut state = CallResolutionState {
@@ -324,28 +327,20 @@ fn resolve_call_edges(
         counts: CallCounts::default(),
     };
     for node in nodes {
-        let Some(context) = call_context(node) else {
+        let Some(caller) = call_context(node) else {
             continue;
         };
-        for site in &context.sites {
+        for site in &caller.sites {
             let resolved = resolve_site(
                 site,
-                &context.file,
-                &context.scope,
-                &context.language,
-                def_index,
-                scoped,
-                class_by_name,
-                bases_of,
+                &caller.file,
+                &caller.scope,
+                &caller.language,
+                resolution,
             );
             match resolved {
                 Some((target, strategy, confidence)) => record_call_resolution(
-                    &context.id,
-                    site,
-                    target,
-                    strategy,
-                    confidence,
-                    &mut state,
+                    &caller.id, site, target, strategy, confidence, &mut state,
                 ),
                 None => state.counts.unresolved += 1,
             }
@@ -619,16 +614,12 @@ const SIMILAR_CAP_PER_NODE: usize = 10;
 /// strategy + confidence. Returns `None` (unresolved) rather than guessing an
 /// ambiguous callee. Preference: receiver/class scope → same-file → arity-unique
 /// → unique-anywhere.
-#[allow(clippy::too_many_arguments)]
 fn resolve_site(
     site: &DecodedSite,
     caller_file: &str,
     caller_scope: &str,
     caller_lang: &str,
-    def_index: &HashMap<String, Vec<Def>>,
-    scoped: &HashMap<(String, String), Vec<String>>,
-    class_by_name: &HashMap<String, Vec<ClassDef>>,
-    bases_of: &HashMap<String, Vec<String>>,
+    context: &ResolutionContext<'_>,
 ) -> Option<(String, &'static str, f64)> {
     let callee = site.callee.as_str();
     let recv = site.receiver.as_str();
@@ -638,19 +629,19 @@ fn resolve_site(
     let implicit_this = matches!(caller_lang, "java" | "cpp" | "csharp");
     let self_recv = matches!(recv, "self" | "this" | "super") || (recv.is_empty() && implicit_this);
     if self_recv && !caller_scope.is_empty() {
-        if let Some(id) = lookup_method(caller_scope, callee, scoped, bases_of) {
+        if let Some(id) = lookup_method(caller_scope, callee, context.scoped, context.bases_of) {
             return Some((id, "scoped", 0.95));
         }
     }
     // 2. Explicit receiver naming a known class (static call / typed receiver)
     //    → a method of that class or an inherited one.
-    if !recv.is_empty() && class_by_name.contains_key(recv) {
-        if let Some(id) = lookup_method(recv, callee, scoped, bases_of) {
+    if !recv.is_empty() && context.class_by_name.contains_key(recv) {
+        if let Some(id) = lookup_method(recv, callee, context.scoped, context.bases_of) {
             return Some((id, "scoped", 0.9));
         }
     }
 
-    let defs = def_index.get(callee)?;
+    let defs = context.def_index.get(callee)?;
     // 3. A definition in the caller's own file.
     if let Some(d) = defs.iter().find(|d| d.file_path == caller_file) {
         return Some((d.id.clone(), "same_file", 0.9));
