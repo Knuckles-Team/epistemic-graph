@@ -10,92 +10,19 @@
 #![cfg(all(feature = "query", feature = "geo"))]
 
 mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
 
 use std::sync::Arc;
 
-use dashmap::DashMap;
 use serde_json::json;
-use tokio::sync::{RwLock, Semaphore};
 
 use eg_plan::{Op, Plan};
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use epistemic_graph::protocol::{GraphType, Method};
 use epistemic_graph::registry::{GraphMaterial, GraphMaterializer, GraphRegistry};
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "served-spatial-completeness-secret";
-
-fn blob(v: serde_json::Value) -> Vec<u8> {
-    rmp_serde::to_vec_named(&v).unwrap()
-}
-
-fn state() -> Arc<RwLock<ServerState>> {
-    let (persist_dir, persistence) = common::tempdir_persistence();
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
-        persist_dir,
-        persistence,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
-}
-
-fn req(id: u64, method: Method) -> Request {
-    common::signed_request(SECRET, id, "__commons__", method)
-}
-
-/// Decode a served `UnifiedQuery` result (a `Raw` MessagePack `Vec<(id, score|nil)>`).
-fn rows_of(resp: &Response) -> Vec<(String, Option<f32>)> {
-    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
-    match &resp.result {
-        Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).expect("row decode"),
-        other => panic!("expected Raw result, got {other:?}"),
-    }
-}
 
 /// L37 — a served `SpatialScan` pushes down into the MAINTAINED persistent
 /// `GraphSpatialIndex`, NOT eg-plan's ephemeral per-query fallback.
@@ -126,11 +53,14 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
     for (id, key) in [("canonical", "geometry"), ("noncanonical", "geom")] {
         let r = Box::pin(dispatch(
             &state,
-            req(
+            test_support::commons_request(
+                SECRET,
                 if id == "canonical" { 1 } else { 2 },
                 Method::AddNode {
                     node_id: id.to_string(),
-                    properties_msgpack: blob(json!({ "type": "City", key: "POINT (1 1)" })),
+                    properties_msgpack: test_support::json_bytes(
+                        json!({ "type": "City", key: "POINT (1 1)" }),
+                    ),
                 },
             ),
         ))
@@ -142,8 +72,7 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
         layer: "City".into(),
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
-    let resp = Box::pin(dispatch(&state, req(3, Method::UnifiedQuery { plan }))).await;
-    let rows = rows_of(&resp);
+    let rows = test_support::raw_rows(&test_support::unified_query(&state, SECRET, 3, plan).await);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(
         ids.contains(&"canonical"),
@@ -168,11 +97,14 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
     for (id, point) in [("inside", "POINT (1 1)"), ("outside", "POINT (20 20)")] {
         let resp = Box::pin(dispatch(
             &state,
-            req(
+            test_support::commons_request(
+                SECRET,
                 if id == "inside" { 10 } else { 11 },
                 Method::AddNode {
                     node_id: id.to_string(),
-                    properties_msgpack: blob(json!({ "type": "City", "geometry": point })),
+                    properties_msgpack: test_support::json_bytes(
+                        json!({ "type": "City", "geometry": point }),
+                    ),
                 },
             ),
         ))
@@ -184,12 +116,8 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
         layer: "City".into(),
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
-    let fallback_rows = rows_of(
-        &Box::pin(dispatch(
-            &state,
-            req(12, Method::UnifiedQuery { plan: plan.clone() }),
-        ))
-        .await,
+    let fallback_rows = test_support::raw_rows(
+        &test_support::unified_query(&state, SECRET, 12, plan.clone()).await,
     );
     assert_eq!(fallback_rows[0].0, "inside");
 
@@ -216,7 +144,7 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
     );
 
     let indexed_rows =
-        rows_of(&Box::pin(dispatch(&state, req(13, Method::UnifiedQuery { plan }))).await);
+        test_support::raw_rows(&test_support::unified_query(&state, SECRET, 13, plan).await);
     assert_eq!(indexed_rows, fallback_rows);
 }
 
@@ -241,15 +169,15 @@ fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
     let nodes = vec![
         (
             "a".to_string(),
-            blob(json!({ "type": "City", "geometry": "POINT (1 1)" })),
+            test_support::json_bytes(json!({ "type": "City", "geometry": "POINT (1 1)" })),
         ),
         (
             "b".to_string(),
-            blob(json!({ "type": "City", "geometry": "POINT (2 2)" })),
+            test_support::json_bytes(json!({ "type": "City", "geometry": "POINT (2 2)" })),
         ),
         (
             "c".to_string(),
-            blob(json!({ "type": "City", "geometry": "POINT (30 30)" })),
+            test_support::json_bytes(json!({ "type": "City", "geometry": "POINT (30 30)" })),
         ),
     ];
     let mut registry = GraphRegistry::new();
@@ -328,11 +256,14 @@ async fn served_spatial_scan_without_factory_keeps_ephemeral_fallback() {
     let state = state(); // no secondary-index factory installed at all
     let r = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             1,
             Method::AddNode {
                 node_id: "geom-keyed".to_string(),
-                properties_msgpack: blob(json!({ "type": "City", "geom": "POINT (1 1)" })),
+                properties_msgpack: test_support::json_bytes(
+                    json!({ "type": "City", "geom": "POINT (1 1)" }),
+                ),
             },
         ),
     ))
@@ -343,8 +274,7 @@ async fn served_spatial_scan_without_factory_keeps_ephemeral_fallback() {
         layer: "City".into(),
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
-    let resp = Box::pin(dispatch(&state, req(2, Method::UnifiedQuery { plan }))).await;
-    let rows = rows_of(&resp);
+    let rows = test_support::raw_rows(&test_support::unified_query(&state, SECRET, 2, plan).await);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(
         ids.contains(&"geom-keyed"),

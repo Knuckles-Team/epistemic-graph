@@ -25,79 +25,19 @@
 #![cfg(feature = "viz-static-export")]
 
 mod common;
-
-use std::sync::Arc;
-
-use dashmap::DashMap;
-use tokio::sync::{RwLock, Semaphore};
+#[path = "common/test_support.rs"]
+mod test_support;
 
 use eg_types::viz::{VizColumnValues, VizDatasetSource, VizFormat, VizOp, VizRenderRequest};
 use eg_viz_core::{EncodingSpec, Encodings, MarkKind, MarkSpec, ViewSpec};
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::protocol::{Method, Response, ResultPayload};
+use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "served-viz-dispatch-secret";
 const PNG_SIGNATURE: [u8; 4] = [137, 80, 78, 71];
 
-fn state() -> Arc<RwLock<ServerState>> {
-    let (persist_dir, persistence) = common::tempdir_persistence();
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
-        persist_dir,
-        persistence,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
-}
-
-fn req(id: u64, method: Method) -> Request {
-    common::signed_request(SECRET, id, "__commons__", method)
+fn state() -> test_support::SharedState {
+    test_support::durable_state(SECRET, common::current_isolation())
 }
 
 /// A local mirror of the handler's private `VizRenderResponse` shape (the SAME
@@ -180,7 +120,8 @@ async fn inline_columns_scatter_resolves_at_direct_tier() {
 
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             1,
             Method::Viz {
                 op: VizOp::Render(render),
@@ -217,7 +158,8 @@ async fn synthetic_scatter_clusters_at_high_row_count_resolves_at_density_tier()
 
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             2,
             Method::Viz {
                 op: VizOp::Render(render),
@@ -256,7 +198,8 @@ async fn synthetic_graph_small_resolves_at_direct_tier() {
 
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             3,
             Method::Viz {
                 op: VizOp::Render(render),
@@ -304,7 +247,8 @@ async fn synthetic_graph_large_resolves_at_density_tier() {
 
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             4,
             Method::Viz {
                 op: VizOp::Render(render),
@@ -334,7 +278,8 @@ async fn capability_matrix_is_reachable_over_the_wire() {
     let state = state();
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             5,
             Method::Viz {
                 op: VizOp::CapabilityMatrix,
@@ -372,7 +317,8 @@ async fn invalid_spec_json_is_a_typed_error_not_a_panic() {
     };
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             6,
             Method::Viz {
                 op: VizOp::Render(render),
@@ -404,7 +350,8 @@ async fn omitting_dataset_against_an_unknown_dataset_ref_is_an_explicit_unavaila
     };
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             7,
             Method::Viz {
                 op: VizOp::Render(render),
@@ -446,7 +393,8 @@ async fn a_second_request_omitting_dataset_reuses_the_persistently_ingested_data
     };
     let resp1 = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             8,
             Method::Viz {
                 op: VizOp::Render(first),
@@ -474,7 +422,8 @@ async fn a_second_request_omitting_dataset_reuses_the_persistently_ingested_data
     };
     let resp2 = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             9,
             Method::Viz {
                 op: VizOp::Render(second),
@@ -511,7 +460,8 @@ async fn an_identical_repeat_render_request_is_served_from_the_cache() {
 
     let resp1 = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             10,
             Method::Viz {
                 op: VizOp::Render(make_request(Some(VizDatasetSource::InlineColumns {
@@ -529,7 +479,8 @@ async fn an_identical_repeat_render_request_is_served_from_the_cache() {
 
     let resp2 = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             11,
             Method::Viz {
                 op: VizOp::Render(make_request(None)),
@@ -556,7 +507,8 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
 
     let before = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             12,
             Method::Viz {
                 op: VizOp::RenderProvenance {
@@ -593,7 +545,8 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
     };
     let render_resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             13,
             Method::Viz {
                 op: VizOp::Render(render),
@@ -605,7 +558,8 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
 
     let after = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             14,
             Method::Viz {
                 op: VizOp::RenderProvenance {

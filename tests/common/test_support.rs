@@ -185,8 +185,39 @@ pub async fn dispatch(
     Box::pin(epistemic_graph::server::dispatch(state, request)).await
 }
 
+pub async fn unified_query(
+    state: &SharedState,
+    auth_secret: &str,
+    id: u64,
+    plan: eg_plan::Plan,
+) -> epistemic_graph::protocol::Response {
+    dispatch(
+        state,
+        commons_request(
+            auth_secret,
+            id,
+            epistemic_graph::protocol::Method::UnifiedQuery { plan },
+        ),
+    )
+    .await
+}
+
 pub fn json_bytes(value: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&value).expect("encode JSON test value")
+}
+
+pub fn raw_rows(response: &epistemic_graph::protocol::Response) -> Vec<(String, Option<f32>)> {
+    assert!(
+        response.error.is_none(),
+        "dispatch error: {:?}",
+        response.error
+    );
+    match &response.result {
+        Some(epistemic_graph::protocol::ResultPayload::Raw(bytes)) => {
+            rmp_serde::from_slice(bytes).expect("row decode")
+        }
+        other => panic!("expected Raw result, got {other:?}"),
+    }
 }
 
 pub fn edge_properties(tag: &str) -> Vec<u8> {

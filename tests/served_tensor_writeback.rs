@@ -16,110 +16,41 @@
 #![cfg(feature = "tensor")]
 
 mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
 
-use std::sync::Arc;
-
-use dashmap::DashMap;
 use serde_json::json;
-use tokio::sync::{RwLock, Semaphore};
 
 use eg_plan::{Op, Plan};
 use eg_tensor::{Buffer, Tensor};
 use eg_types::wire::{TensorElementwiseOp, TensorOpKind, TensorReduceKind};
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::protocol::Method;
+use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "served-tensor-writeback-secret";
 
-fn blob(v: serde_json::Value) -> Vec<u8> {
-    rmp_serde::to_vec_named(&v).unwrap()
-}
-
-fn state() -> Arc<RwLock<ServerState>> {
-    let (persist_dir, persistence) = common::tempdir_persistence();
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
-        persist_dir,
-        persistence,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
-}
-
-fn req(id: u64, method: Method) -> Request {
-    common::signed_request(SECRET, id, "__commons__", method)
-}
-
-/// Decode a served `UnifiedQuery` result (a `Raw` MessagePack `Vec<(id, score|nil)>`).
-fn rows_of(resp: &Response) -> Vec<(String, Option<f32>)> {
-    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
-    match &resp.result {
-        Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).expect("row decode"),
-        other => panic!("expected Raw result, got {other:?}"),
-    }
+fn state() -> test_support::SharedState {
+    test_support::durable_state(SECRET, common::current_isolation())
 }
 
 /// Seed a `Frame` layer of three nodes, each carrying the SAME dense 2x3 tensor in its
 /// conventional `tensor` property, over the served write path (`Method::AddNode`) — the
 /// same fixture shape `query.rs`'s own `tensor_served_round_trip_tests::frames_view` builds
 /// directly against a `GraphCore`, seeded here through the wire instead.
-async fn seed_frames(state: &Arc<RwLock<ServerState>>) {
+async fn seed_frames(state: &test_support::SharedState) {
     let t = Tensor::new(vec![2, 3], Buffer::F32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])).unwrap();
     let tv = serde_json::to_value(&t).unwrap();
     for (id, node_id) in ["F1", "F2", "F3"].into_iter().enumerate() {
         let r = Box::pin(dispatch(
             state,
-            req(
+            test_support::commons_request(
+                SECRET,
                 id as u64 + 1,
                 Method::AddNode {
                     node_id: node_id.to_string(),
-                    properties_msgpack: blob(json!({ "type": "Frame", "tensor": tv })),
+                    properties_msgpack: test_support::json_bytes(
+                        json!({ "type": "Frame", "tensor": tv }),
+                    ),
                 },
             ),
         ))
@@ -149,8 +80,12 @@ async fn served_tensor_scan_and_reduce_writeback_succeeds() {
             },
         },
     ]);
-    let resp = Box::pin(dispatch(&state, req(100, Method::UnifiedQuery { plan }))).await;
-    let rows = rows_of(&resp);
+    let resp = Box::pin(dispatch(
+        &state,
+        test_support::commons_request(SECRET, 100, Method::UnifiedQuery { plan }),
+    ))
+    .await;
+    let rows = test_support::raw_rows(&resp);
     let mut ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     ids.sort();
     assert_eq!(
@@ -187,10 +122,10 @@ async fn served_tensor_elementwise_writeback_repeatable_across_requests() {
     for req_id in [200, 201] {
         let resp = Box::pin(dispatch(
             &state,
-            req(req_id, Method::UnifiedQuery { plan: plan() }),
+            test_support::commons_request(SECRET, req_id, Method::UnifiedQuery { plan: plan() }),
         ))
         .await;
-        let rows = rows_of(&resp);
+        let rows = test_support::raw_rows(&resp);
         assert_eq!(
             rows.len(),
             3,

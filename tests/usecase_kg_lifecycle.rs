@@ -28,17 +28,13 @@
 ))]
 
 mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
 
-use std::sync::Arc;
-
-use dashmap::DashMap;
 use serde_json::json;
-use tokio::sync::{RwLock, Semaphore};
 
-use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::protocol::{Method, Response, ResultPayload};
+use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "usecase-lifecycle-secret";
 
@@ -49,7 +45,7 @@ const SECRET: &str = "usecase-lifecycle-secret";
 /// requirement `redb_backend::tests::cm_dir` / `advanced_crossmodal_roundtrip.rs::state`
 /// provision. Encryption is symmetric and transparent to this test's assertions;
 /// provision it ONCE, before the first backend opens.
-fn state() -> Arc<RwLock<ServerState>> {
+fn state() -> test_support::SharedState {
     #[cfg(feature = "redb")]
     {
         static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
@@ -61,71 +57,19 @@ fn state() -> Arc<RwLock<ServerState>> {
         });
     }
     let (persist_dir, persistence) = common::tempdir_persistence();
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
+    test_support::state_with(
+        SECRET,
+        common::current_isolation(),
         persist_dir,
         persistence,
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
+    )
 }
 
-fn req(id: u64, method: Method) -> Request {
-    common::signed_request(SECRET, id, "__commons__", method)
-}
-
-fn pack(v: serde_json::Value) -> Vec<u8> {
-    rmp_serde::to_vec_named(&v).unwrap()
-}
-
-async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
+async fn begin(state: &test_support::SharedState, id: u64) -> String {
     let r = Box::pin(dispatch(
         state,
-        req(
+        test_support::commons_request(
+            SECRET,
             id,
             Method::BeginTxn {
                 graph: None,
@@ -140,8 +84,12 @@ async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
     }
 }
 
-async fn ok(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) {
-    let r = Box::pin(dispatch(state, req(id, method))).await;
+async fn ok(state: &test_support::SharedState, id: u64, method: Method) {
+    let r = Box::pin(dispatch(
+        state,
+        test_support::commons_request(SECRET, id, method),
+    ))
+    .await;
     assert!(r.error.is_none(), "op {id} failed: {:?}", r.error);
 }
 
@@ -159,10 +107,11 @@ fn unified_ids(resp: &Response) -> Vec<String> {
     rows.into_iter().map(|(id, _)| id).collect()
 }
 
-async fn hybrid_read(state: &Arc<RwLock<ServerState>>, id: u64) -> Vec<String> {
+async fn hybrid_read(state: &test_support::SharedState, id: u64) -> Vec<String> {
     let r = Box::pin(dispatch(
         state,
-        req(
+        test_support::commons_request(
+            SECRET,
             id,
             Method::UnifiedQueryText {
                 text: "MATCH (:Sensor) |> RANK BY ~[1.0,0.0] |> LIMIT 10".into(),
@@ -180,10 +129,11 @@ const SHAPES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
       sh:targetClass ex:Sensor ;\n\
       sh:property [ sh:path ex:unit ; sh:minCount 1 ] .\n";
 
-async fn shacl_conforms(state: &Arc<RwLock<ServerState>>, id: u64, data_graph: &str) -> bool {
+async fn shacl_conforms(state: &test_support::SharedState, id: u64, data_graph: &str) -> bool {
     let r = Box::pin(dispatch(
         state,
-        req(
+        test_support::commons_request(
+            SECRET,
             id,
             Method::ShaclValidate {
                 shapes: SHAPES.into(),
@@ -225,7 +175,9 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
         Method::TxnAddNode {
             txn_id: txn.clone(),
             node_id: "s1".into(),
-            properties_msgpack: pack(json!({ "type": "Sensor", "unit": "celsius" })),
+            properties_msgpack: test_support::json_bytes(
+                json!({ "type": "Sensor", "unit": "celsius" }),
+            ),
             graph: None,
         },
     )
@@ -236,7 +188,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
         Method::TxnAddNode {
             txn_id: txn.clone(),
             node_id: "room".into(),
-            properties_msgpack: pack(json!({ "type": "Room" })),
+            properties_msgpack: test_support::json_bytes(json!({ "type": "Room" })),
             graph: None,
         },
     )
@@ -248,7 +200,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
             txn_id: txn.clone(),
             source_id: "s1".into(),
             target_id: "room".into(),
-            properties_msgpack: pack(json!({ "relationship": "LOCATED_IN" })),
+            properties_msgpack: test_support::json_bytes(json!({ "relationship": "LOCATED_IN" })),
             graph: None,
         },
     )
@@ -279,7 +231,8 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
     .await;
     let commit = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             16,
             Method::Commit {
                 txn_id: txn.clone(),
@@ -308,7 +261,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
     let inferred = unified_ids(
         &Box::pin(dispatch(
             &state,
-            req(17, Method::UnifiedQuery { plan: reason }),
+            test_support::commons_request(SECRET, 17, Method::UnifiedQuery { plan: reason }),
         ))
         .await,
     );
@@ -338,7 +291,9 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 Method::TxnAddNode {
                     txn_id: txn.clone(),
                     node_id: "s2".into(),
-                    properties_msgpack: pack(json!({ "type": "Sensor", "unit": "kelvin" })),
+                    properties_msgpack: test_support::json_bytes(
+                        json!({ "type": "Sensor", "unit": "kelvin" }),
+                    ),
                     graph: None,
                 },
             )
@@ -356,7 +311,8 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
             .await;
             let c = Box::pin(dispatch(
                 &state,
-                req(
+                test_support::commons_request(
+                    SECRET,
                     103,
                     Method::Commit {
                         txn_id: txn,
