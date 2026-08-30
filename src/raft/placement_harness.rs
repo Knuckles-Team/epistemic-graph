@@ -218,8 +218,7 @@ async fn catalog_persists_and_reloads_with_epoch() {
     // `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fixture::fresh_dir("eg-placement", "persist");
-    let backend = fixture::open_backend(&dir).expect("open redb");
+    let (dir, backend) = fixture::fresh_backend("eg-placement", "persist");
     let epoch = {
         let (multi, _state) = bring_up(&dir, backend.clone()).await;
         let epoch = multi
@@ -232,10 +231,7 @@ async fn catalog_persists_and_reloads_with_epoch() {
         multi.close_group(super::DEFAULT_GROUP).await.unwrap();
         epoch
     };
-    backend.shutdown();
-    drop(backend);
-
-    let backend2 = fixture::open_backend(&dir).expect("reopen");
+    let backend2 = fixture::reopen_backend(backend, &dir).expect("reopen");
     let (multi2, state2) = bring_up(&dir, backend2.clone()).await;
     backend2.load_all(&state2).await.expect("load_all");
 
@@ -256,8 +252,7 @@ async fn catalog_persists_and_reloads_with_epoch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn online_move_preserves_data_and_lands_new_epoch() {
-    let dir = fixture::fresh_dir("eg-placement", "move");
-    let backend = fixture::open_backend(&dir).expect("open redb");
+    let (dir, backend) = fixture::fresh_backend("eg-placement", "move");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 

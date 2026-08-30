@@ -85,8 +85,7 @@ async fn has_node(state: &Arc<RwLock<crate::server::ServerState>>, node_id: &str
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reshard_keeps_data_and_serves_after() {
-    let dir = fixture::fresh_dir("eg-reshard", "keep");
-    let backend = fixture::open_backend(&dir).expect("open redb");
+    let (dir, backend) = fixture::fresh_backend("eg-reshard", "keep");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 
@@ -155,9 +154,7 @@ async fn reshard_data_durable_across_restart() {
         multi.close_group(GROUP_B).await.unwrap();
     }
     // Restart over the SAME files: every reshareded node is durable.
-    backend.shutdown();
-    drop(backend);
-    let backend2 = fixture::open_backend(&dir).expect("reopen");
+    let backend2 = fixture::reopen_backend(backend, &dir).expect("reopen");
     let (multi2, state2) = bring_up(&dir, backend2.clone()).await;
     backend2.load_all(&state2).await.expect("load_all");
     for i in 0..4 {

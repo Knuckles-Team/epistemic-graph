@@ -829,57 +829,19 @@ mod tests {
     }
 
     fn test_state() -> Arc<RwLock<ServerState>> {
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: "system".into(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            #[cfg(feature = "query")]
-            persist_dir: Some(
+        let isolation = ServerState::test_isolation("system");
+        let mut state = ServerState::new(SECRET, isolation);
+        #[cfg(feature = "query")]
+        {
+            state.persist_dir = Some(
                 crate::server::sql_tables::test_persist_dir()
                     .to_string_lossy()
                     .into_owned(),
-            ),
-            #[cfg(not(feature = "query"))]
-            persist_dir: None,
-            // A REAL durable backend on its own uniquely-named temp dir (same
-            // reason the series store below is per-test: redb takes an exclusive
-            // per-process file lock).
-            //
-            // This was `None`, which made 31 of this module's tests fail closed
-            // the moment they touched anything durable -- 25 with "authoritative
-            // MutationBatch commit requires a persistence backend", 5 with
-            // "session control mutation requires durable redb coordination", and
-            // 1 with "graph creation requires durable persistence". Those errors
-            // are CORRECT: the dispatch path is deliberately fail-closed for
-            // durable-domain methods, so a state with no backend genuinely cannot
-            // exercise them. The TESTS were wrong, and it stayed invisible for as
-            // long as the facade-full suite aborted on a stack overflow before it
-            // ever reached them.
-            //
-            // Fixed by gating: the 22 durable-domain tests in this module that
-            // relied on the real backend built here now carry their own
-            // `#[cfg(feature = "redb")]` (AGENTS.md rule 4, the `ast`
-            // precedent) so they simply do not run in a build without `redb` --
-            // matched by 9 more in the `edge_pagination` / `multi_graph_batch_write`
-            // / `node_binding_envelope` integration targets, gated on
-            // `security` (which implies `redb`) because their dispatch calls go
-            // through the real, non-`cfg(test)` secure-envelope path.
-            #[cfg(feature = "redb")]
-            persistence: Some(std::sync::Arc::new(
+            );
+        }
+        #[cfg(feature = "redb")]
+        {
+            state.persistence = Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
                     unique_temp_dir("eg-server-test")
                         .to_string_lossy()
@@ -888,62 +850,28 @@ mod tests {
                     256,
                 )
                 .expect("open test redb backend"),
-            )),
-            #[cfg(not(feature = "redb"))]
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            // A real per-test temp series store so the `Ts*` handler round-trips
-            // exercise the actual store (a fresh, uniquely-named redb file — redb
-            // holds an exclusive per-process file lock, so each test gets its own).
-            #[cfg(feature = "tsdb")]
-            tsdb_store: Some(Arc::new(
+            ));
+        }
+        // A real per-test temp series store so the `Ts*` handler round-trips
+        // exercise the actual store (a fresh, uniquely-named redb file — redb
+        // holds an exclusive per-process file lock, so each test gets its own).
+        #[cfg(feature = "tsdb")]
+        {
+            state.tsdb_store = Some(Arc::new(
                 eg_tsdb::store::SeriesStore::open(&std::env::temp_dir().join(format!(
-                        "eg-tsdb-test-{}-{}.redb",
-                        std::process::id(),
-                        std::sync::atomic::AtomicU64::new(0)
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                            + std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_nanos() as u64)
-                                .unwrap_or(0)
-                    )))
+                    "eg-tsdb-test-{}-{}.redb",
+                    std::process::id(),
+                    std::sync::atomic::AtomicU64::new(0)
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                        + std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_nanos() as u64)
+                            .unwrap_or(0)
+                )))
                 .expect("open test series store"),
-            )),
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+            ));
+        }
+        Arc::new(RwLock::new(state))
     }
 
     /// State with worker1/worker2 (team alpha) + their manager registered, and

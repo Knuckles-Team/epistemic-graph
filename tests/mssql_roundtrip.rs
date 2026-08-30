@@ -15,8 +15,6 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use std::sync::Arc;
-
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -45,20 +43,8 @@ fn sql_test_persist_dir() -> String {
 /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` once, before the first backend opens, for the
 /// multi-op commit's transaction-recovery-plan seal (`redb_backend::tests::cm_dir`'s
 /// identical requirement).
-#[cfg(feature = "redb")]
-fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
-{
-    std::env::set_var(
-        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-        "mssql-roundtrip-recovery-key",
-    );
-    common::tempdir_persistence().1
-}
-
-#[cfg(not(feature = "redb"))]
-fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
-{
-    None
+fn default_persistence() -> Option<test_support::SharedPersistence> {
+    test_support::durable_persistence("mssql-roundtrip-recovery-key")
 }
 
 /// Build a minimal authenticated `ServerState` seeded with three
@@ -74,20 +60,12 @@ fn seeded_state() -> test_support::SharedState {
 
 /// Bind an ephemeral port, serve the TDS listener there, and return the address.
 async fn spawn_listener(state: test_support::SharedState) -> String {
-    let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = probe.local_addr().unwrap().to_string();
-    drop(probe);
+    let addr = test_support::ephemeral_listener_addr().await;
     let serve_addr = addr.clone();
     tokio::spawn(async move {
         let _ = mssql_wire::serve(&serve_addr, state).await;
     });
-    // Give the listener a moment to bind.
-    for _ in 0..50 {
-        if TcpStream::connect(&addr).await.is_ok() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
+    test_support::wait_for_listener_ready(&addr).await;
     addr
 }
 

@@ -58,20 +58,8 @@ fn state_with_dir(
 /// seal, which requires `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at `open()` (see
 /// `redb_backend::tests::cm_dir`'s identical requirement) — provisioned once, before
 /// the first backend opens.
-#[cfg(feature = "redb")]
-fn default_persistence() -> Option<Arc<dyn PersistenceBackend>> {
-    std::env::set_var(
-        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-        "pgwire-roundtrip-recovery-key",
-    );
-    common::tempdir_persistence().1
-}
-
-/// `redb`-off fallback: no durable gateway exists, so this stays `None` (a build
-/// without `redb` has no authoritative cross-modal commit gateway to satisfy).
-#[cfg(not(feature = "redb"))]
-fn default_persistence() -> Option<Arc<dyn PersistenceBackend>> {
-    None
+fn default_persistence() -> Option<test_support::SharedPersistence> {
+    test_support::durable_persistence("pgwire-roundtrip-recovery-key")
 }
 
 fn seeded_state() -> test_support::SharedState {
@@ -160,43 +148,13 @@ async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
     spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await
 }
 
-/// GOC-70: bounded-retry replacement for a fixed pre-connect sleep. A flat
-/// `sleep(200ms)` before connecting assumes the listener task has bound its
-/// socket within an arbitrary window — true on a lightly-loaded host, not
-/// guaranteed on a contended/low-core one (the listener task competes for the
-/// same scheduler as everything else). Mirrors the already-correct pattern in
-/// `tests/mysql_roundtrip.rs::spawn_listener` / `tests/mssql_roundtrip.rs`:
-/// poll with a real connect attempt, generous 1s total budget (50 * 20ms),
-/// which both confirms readiness immediately when possible and tolerates a
-/// slow scheduler without masking a genuine bind failure (a hang here means
-/// the listener never bound at all, a real bug, and this still returns after
-/// ~1s rather than hanging forever).
-async fn wait_for_listener_ready(addr: &str) {
-    for _ in 0..50 {
-        if tokio::net::TcpStream::connect(addr).await.is_ok() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-}
-
 /// Bind + serve with an EXPLICIT auth mode (CONCEPT:EG-KG.query.concept-13). Used by the auth
 /// tests to pin SCRAM deterministically (no process-global env toggle).
 async fn spawn_listener_mode(
     state: Arc<RwLock<ServerState>>,
     mode: pgwire::PgWireAuthMode,
 ) -> String {
-    // Probe a free port, then let `serve` bind it (a tiny race window, fine for a test).
-    let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = probe.local_addr().unwrap();
-    drop(probe);
-    let addr_s = addr.to_string();
-    let serve_addr = addr_s.clone();
-    tokio::spawn(async move {
-        let _ = pgwire::serve_with_auth(&serve_addr, state, mode).await;
-    });
-    wait_for_listener_ready(&addr_s).await;
-    addr_s
+    test_support::spawn_pgwire_listener(state, mode).await
 }
 
 /// Like [`spawn_listener`], but hands back the listener task's `JoinHandle` too. A
@@ -211,33 +169,20 @@ async fn spawn_listener_mode(
 async fn spawn_listener_abortable(
     state: Arc<RwLock<ServerState>>,
 ) -> (String, tokio::task::JoinHandle<()>) {
-    let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = probe.local_addr().unwrap();
-    drop(probe);
-    let addr_s = addr.to_string();
+    let addr_s = test_support::ephemeral_listener_addr().await;
     let serve_addr = addr_s.clone();
     let handle = tokio::spawn(async move {
         let _ = pgwire::serve_with_auth(&serve_addr, state, pgwire::PgWireAuthMode::Scram).await;
     });
-    wait_for_listener_ready(&addr_s).await;
+    test_support::wait_for_listener_ready(&addr_s).await;
     (addr_s, handle)
 }
 
 /// Connect a real tokio-postgres client with the fixture's derived SCRAM password.
 async fn connect(addr: &str) -> tokio_postgres::Client {
-    let password = pgwire::derive_pg_password("test", "tester");
-    let conn_str = format!(
-        "host=127.0.0.1 port={} user=tester password={} dbname=__commons__",
-        addr.rsplit(':').next().unwrap(),
-        password
-    );
-    let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
+    test_support::connect_pgwire(addr, "test", "tester", "__commons__")
         .await
-        .expect("pgwire connect");
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
-    client
+        .expect("pgwire connect")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -826,14 +771,7 @@ async fn connect_scram(
     password: &str,
     dbname: &str,
 ) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
-    let port = addr.rsplit(':').next().unwrap();
-    let conn_str =
-        format!("host=127.0.0.1 port={port} user={user} password={password} dbname={dbname}");
-    let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await?;
-    tokio::spawn(async move {
-        let _ = connection.await;
-    });
-    Ok(client)
+    test_support::connect_pgwire_with_password(addr, password, user, dbname).await
 }
 
 async fn scram_client(secret: &str, addr: &str, user: &str) -> tokio_postgres::Client {
@@ -948,12 +886,7 @@ fn error_chain(err: &tokio_postgres::Error) -> String {
 
 /// Pull the first-column values from a `simple_query` result as strings.
 fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> {
-    msgs.into_iter()
-        .filter_map(|m| match m {
-            tokio_postgres::SimpleQueryMessage::Row(r) => Some(r.get(0).unwrap().to_string()),
-            _ => None,
-        })
-        .collect()
+    test_support::simple_ids(msgs)
 }
 
 fn command_count(msgs: &[tokio_postgres::SimpleQueryMessage]) -> i64 {

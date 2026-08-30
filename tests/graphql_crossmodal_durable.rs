@@ -26,7 +26,7 @@ mod test_support;
 use std::sync::Arc;
 
 use epistemic_graph::durability::DurabilityPolicy;
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
 
@@ -36,27 +36,15 @@ const NODE: &str = "<http://ex/n1>"; // lower_triples subject id for <http://ex/
 
 /// A fully-featured `ServerState` backed by the given redb persistence tier.
 fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> test_support::SharedState {
-    test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir),
-        Some(backend),
-    )
-}
-
-fn req(id: u64, graph: &str, method: Method) -> Request {
-    test_support::request(SECRET, id, graph, method)
-}
-
-/// Run a GraphQL doc against `GRAPH`; assert no error; return the decoded `{data:…}` JSON.
-async fn dispatch(state: &test_support::SharedState, request: Request) -> Response {
-    test_support::dispatch(state, request).await
+    let isolation = common::current_isolation();
+    test_support::state_with(SECRET, isolation, Some(dir), Some(backend))
 }
 
 async fn gql(state: &test_support::SharedState, id: u64, query: &str) -> serde_json::Value {
-    let r: Response = Box::pin(dispatch(
+    let r: Response = Box::pin(test_support::dispatch(
         state,
-        req(
+        test_support::request(
+            SECRET,
             id,
             GRAPH,
             Method::GraphQl {
@@ -93,9 +81,10 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     let state = state_with(backend.clone(), dir_s.clone());
 
     // Create the graph (dispatch registers it in BOTH the registry and the durable tier).
-    let cr = Box::pin(dispatch(
+    let cr = Box::pin(test_support::dispatch(
         &state,
-        req(
+        test_support::request(
+            SECRET,
             1,
             GRAPH,
             Method::CreateGraph {

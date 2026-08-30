@@ -20,7 +20,7 @@
 // (`src/server/handlers/mining.rs`) supplies the rows (explicit or node embeddings)
 // and does the KG write-back.
 
-use super::math::{argmax, log_gaussian_diag};
+use super::math::{argmax, log_gaussian_diag, sq_dist, SplitMix64};
 
 /// A point in feature space (one matrix row).
 pub type Point = Vec<f64>;
@@ -568,35 +568,6 @@ fn kmeanspp_init(points: &[Point], k: usize, seed: u64) -> Vec<Point> {
 
 fn euclidean(a: &[f64], b: &[f64]) -> f64 {
     sq_dist(a, b).sqrt()
-}
-
-fn sq_dist(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
-}
-
-/// A tiny deterministic splitmix64 PRNG — keeps clustering dependency-free (no
-/// `rand` crate pulled into the `mining` feature) while giving reproducible init.
-struct SplitMix64 {
-    state: u64,
-}
-
-impl SplitMix64 {
-    fn new(seed: u64) -> Self {
-        SplitMix64 {
-            state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
-        }
-    }
-    fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-    fn next_f64(&mut self) -> f64 {
-        // 53-bit mantissa in [0, 1).
-        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
-    }
 }
 
 #[cfg(test)]

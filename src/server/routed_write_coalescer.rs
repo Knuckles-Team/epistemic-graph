@@ -169,12 +169,9 @@ impl RoutedGraphWriter {
     pub fn spawn(graph_name: String, config: CoalescerConfig) -> Arc<Self> {
         let state = CoalescerState::new(config, "routed write coalescer admission mutex poisoned");
         let (tx, rx) = mpsc::channel::<(u64, RoutedCommitJob)>(config.queue_capacity);
-        tokio::spawn(run_worker(
-            graph_name,
-            rx,
-            state.config(),
-            state.worker_stats(),
-        ));
+        let worker_config = state.config();
+        let worker_stats = state.worker_stats();
+        tokio::spawn(run_worker(graph_name, rx, worker_config, worker_stats));
         Arc::new(Self { tx, state })
     }
 
@@ -314,9 +311,7 @@ pub struct RoutedWriteCoalescerRegistry {
 impl RoutedWriteCoalescerRegistry {
     /// Build an always-on, hardware-sized bounded coalescer registry.
     pub fn new() -> Self {
-        Self {
-            state: CoalescerRegistryState::new(),
-        }
+        Self::with_config(CoalescerConfig::auto())
     }
 
     /// Explicit constructor (tests): coalescing on, with the given config.
@@ -329,15 +324,7 @@ impl RoutedWriteCoalescerRegistry {
     /// Get (or lazily create) the writer for `graph_name`, spawning its worker
     /// on first use.
     pub fn writer_for(&self, graph_name: &str) -> Arc<RoutedGraphWriter> {
-        if let Some(w) = self.state.writers.get(graph_name) {
-            return w.clone();
-        }
-        let config = self.state.config;
-        self.state
-            .writers
-            .entry(graph_name.to_string())
-            .or_insert_with(|| RoutedGraphWriter::spawn(graph_name.to_string(), config))
-            .clone()
+        self.state.writer_for(graph_name, RoutedGraphWriter::spawn)
     }
 
     /// Drop the cached writer for `graph_name` (resource hygiene on graph

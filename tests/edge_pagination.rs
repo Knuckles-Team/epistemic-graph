@@ -21,7 +21,7 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
+use epistemic_graph::protocol::{GraphType, Method};
 
 const SECRET: &str = "edge-pagination-secret";
 
@@ -69,22 +69,6 @@ async fn add_edge(state: &test_support::SharedState, id: u64, src: &str, tgt: &s
     );
 }
 
-fn edge_list_rows(resp: &Response) -> Vec<(String, String, Vec<u8>)> {
-    assert!(resp.error.is_none(), "GetEdges: {:?}", resp.error);
-    match &resp.result {
-        Some(ResultPayload::EdgeList(rows)) => rows.clone(),
-        other => panic!("expected EdgeList, got {other:?}"),
-    }
-}
-
-fn page_rows(resp: &Response) -> Vec<(String, String, u32, Vec<u8>)> {
-    assert!(resp.error.is_none(), "GetEdgesPage: {:?}", resp.error);
-    match &resp.result {
-        Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).unwrap(),
-        other => panic!("expected Raw, got {other:?}"),
-    }
-}
-
 /// K=1 pages (`limit=1`) walked with the cursor threaded through recover EXACTLY
 /// the same edges as the unbounded `GetEdges` dump — including both rows of a
 /// parallel a->b edge pair — in strictly increasing `(source, target, ordinal)`
@@ -115,7 +99,7 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
         test_support::request(SECRET, 20, "g", Method::GetEdges),
     )
     .await;
-    let mut full_rows = edge_list_rows(&full);
+    let mut full_rows = test_support::edge_rows(&full);
     full_rows.sort();
     assert_eq!(
         full_rows.len(),
@@ -142,7 +126,7 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
         )
         .await;
         next_id += 1;
-        let rows = page_rows(&resp);
+        let rows = test_support::edge_page_rows(&resp);
         if rows.is_empty() {
             break;
         }
@@ -208,7 +192,7 @@ async fn edges_page_limit_zero_returns_everything_in_one_call() {
         ),
     )
     .await;
-    let rows = page_rows(&resp);
+    let rows = test_support::edge_page_rows(&resp);
     assert_eq!(rows.len(), 2, "limit=0 must return every edge uncapped");
 }
 
@@ -236,5 +220,5 @@ async fn edges_page_on_empty_graph_returns_empty_first_page() {
         ),
     )
     .await;
-    assert!(page_rows(&resp).is_empty());
+    assert!(test_support::edge_page_rows(&resp).is_empty());
 }

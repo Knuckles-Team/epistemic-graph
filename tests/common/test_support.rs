@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use epistemic_graph::isolation::IsolationLayer;
-use epistemic_graph::protocol::{Method, Request};
+use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::persistence::PersistenceBackend;
 use epistemic_graph::server::ServerState;
@@ -13,6 +13,93 @@ use tokio::sync::RwLock;
 
 pub type SharedPersistence = Arc<dyn PersistenceBackend>;
 pub type SharedState = Arc<RwLock<ServerState>>;
+
+pub fn durable_persistence(encryption_key: &str) -> Option<SharedPersistence> {
+    #[cfg(feature = "redb")]
+    {
+        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+        ENCRYPTION_KEY.call_once(|| {
+            std::env::set_var(epistemic_graph::crypto::ENCRYPTION_KEY_ENV, encryption_key);
+        });
+        crate::common::tempdir_persistence().1
+    }
+    #[cfg(not(feature = "redb"))]
+    {
+        let _ = encryption_key;
+        None
+    }
+}
+
+pub async fn ephemeral_listener_addr() -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    drop(listener);
+    addr
+}
+
+/// Poll a freshly spawned wire listener until it accepts a connection, retaining
+/// the bounded retry used by the individual protocol round-trip tests without
+/// duplicating their listener-readiness loop.
+pub async fn wait_for_listener_ready(addr: &str) {
+    for _ in 0..50 {
+        match tokio::net::TcpStream::connect(addr).await {
+            Ok(_) => break,
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+        }
+    }
+}
+
+#[cfg(feature = "pgwire")]
+pub async fn spawn_pgwire_listener(
+    state: SharedState,
+    mode: epistemic_graph::server::pgwire::PgWireAuthMode,
+) -> String {
+    let addr_s = ephemeral_listener_addr().await;
+    let serve_addr = addr_s.clone();
+    tokio::spawn(async move {
+        let _ = epistemic_graph::server::pgwire::serve_with_auth(&serve_addr, state, mode).await;
+    });
+    wait_for_listener_ready(&addr_s).await;
+    addr_s
+}
+
+#[cfg(feature = "pgwire")]
+pub async fn connect_pgwire(
+    addr: &str,
+    secret: &str,
+    user: &str,
+    dbname: &str,
+) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
+    let password = epistemic_graph::server::pgwire::derive_pg_password(secret, user);
+    connect_pgwire_with_password(addr, &password, user, dbname).await
+}
+
+#[cfg(feature = "pgwire")]
+pub async fn connect_pgwire_with_password(
+    addr: &str,
+    password: &str,
+    user: &str,
+    dbname: &str,
+) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
+    let port = addr.rsplit(':').next().unwrap();
+    let conn_str =
+        format!("host=127.0.0.1 port={port} user={user} password={password} dbname={dbname}");
+    let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls).await?;
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    Ok(client)
+}
+
+#[cfg(feature = "pgwire")]
+pub fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> {
+    msgs.into_iter()
+        .filter_map(|m| match m {
+            tokio_postgres::SimpleQueryMessage::Row(r) => Some(r.get(0).unwrap().to_string()),
+            _ => None,
+        })
+        .collect()
+}
 
 fn make_state(
     auth_secret: &str,
@@ -200,6 +287,26 @@ pub async fn unified_query(
         ),
     )
     .await
+}
+
+pub fn edge_rows(response: &Response) -> Vec<(String, String, Vec<u8>)> {
+    assert!(response.error.is_none(), "GetEdges: {:?}", response.error);
+    match &response.result {
+        Some(ResultPayload::EdgeList(rows)) => rows.clone(),
+        other => panic!("expected EdgeList, got {other:?}"),
+    }
+}
+
+pub fn edge_page_rows(response: &Response) -> Vec<(String, String, u32, Vec<u8>)> {
+    assert!(
+        response.error.is_none(),
+        "GetEdgesPage: {:?}",
+        response.error
+    );
+    match &response.result {
+        Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).unwrap(),
+        other => panic!("expected Raw, got {other:?}"),
+    }
 }
 
 pub fn json_bytes(value: serde_json::Value) -> Vec<u8> {

@@ -1139,40 +1139,42 @@ mod tests {
     /// `_visibility`/`_shared_scope` set, the row keeps the pre-existing
     /// bare-absent-default (visible beyond its owner), so it stays readable
     /// by this test's non-owning wire caller.
-    fn test_agent_identity(agent_id: &str) -> crate::isolation::AgentIdentity {
-        crate::isolation::AgentIdentity {
-            agent_id: agent_id.to_string(),
-            role: crate::isolation::AgentRole::Agent,
-            teams: Vec::new(),
-            roles: if cfg!(feature = "security") {
-                vec!["commons-user".to_string()]
-            } else {
-                Vec::new()
-            },
-        }
-    }
-
-    fn test_state(seed_public_nodes: bool) -> Arc<RwLock<ServerState>> {
-        let mut isolation = IsolationLayer::new();
+    /// Construct the Bolt test principal and its explicit Commons grants in one
+    /// fixture-owned seam. Keeping this setup local to Bolt avoids making the
+    /// protocol modules depend on one another's test helpers while retaining the
+    /// non-System identity and mandatory security grants exercised by these tests.
+    fn bolt_test_isolation() -> IsolationLayer {
+        let mut isolation = IsolationLayer::default();
         #[cfg(feature = "security")]
         {
             use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
             isolation.add_role(Role::new("commons-user"));
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action: RbacAction::Read,
+            let grant = |action| Grant {
+                role: "commons-user".to_owned(),
+                resource: ResourceSelector::Graph("__commons__".to_owned()),
+                action,
                 effect: GrantEffect::Allow,
-            });
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action: RbacAction::Write,
-                effect: GrantEffect::Allow,
-            });
+            };
+            for action in [RbacAction::Read, RbacAction::Write] {
+                isolation.add_grant(grant(action));
+            }
         }
-        isolation.register_agent(test_agent_identity("service:bolt-test"));
-        let mut state = ServerState::new_for_test("test", isolation);
+
+        isolation.register_agent(crate::isolation::AgentIdentity {
+            agent_id: "service:bolt-test".to_owned(),
+            role: crate::isolation::AgentRole::Agent,
+            teams: Vec::new(),
+            roles: if cfg!(feature = "security") {
+                vec!["commons-user".to_owned()]
+            } else {
+                Vec::new()
+            },
+        });
+        isolation
+    }
+
+    fn test_state(seed_public_nodes: bool) -> Arc<RwLock<ServerState>> {
+        let mut state = ServerState::new_for_test("test", bolt_test_isolation());
         if seed_public_nodes {
             let core = state.registry.get("__commons__").unwrap().core.clone();
             for (id, ty) in [("n1", "Agent"), ("n2", "Agent"), ("n3", "Tool")] {
@@ -1222,16 +1224,12 @@ mod tests {
 
     #[cfg(feature = "redb")]
     fn temp_dir(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "eg-bolt-test-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        dir
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "eg-bolt-wire-{tag}-{}-{sequence}",
+            std::process::id()
+        ))
     }
 
     #[cfg(feature = "redb")]
