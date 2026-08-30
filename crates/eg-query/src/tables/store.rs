@@ -3429,15 +3429,7 @@ fn create_view_in(
 
 fn drop_view_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
     let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
-    let existed = views.get(name).map_err(map_err)?.is_some();
-    if !existed {
-        if if_exists {
-            return Ok(false);
-        }
-        return Err(format!("view `{name}` does not exist"));
-    }
-    views.remove(name).map_err(map_err)?;
-    Ok(true)
+    drop_catalog_entry_in(&mut views, name, if_exists, "view")
 }
 
 fn create_extension_in(
@@ -3455,15 +3447,7 @@ fn create_extension_in(
 
 fn drop_extension_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
     let mut extensions = wtx.open_table(EXTENSIONS).map_err(map_err)?;
-    let existed = extensions.get(name).map_err(map_err)?.is_some();
-    if !existed {
-        if if_exists {
-            return Ok(false);
-        }
-        return Err(format!("extension `{name}` does not exist"));
-    }
-    extensions.remove(name).map_err(map_err)?;
-    Ok(true)
+    drop_catalog_entry_in(&mut extensions, name, if_exists, "extension")
 }
 
 fn create_function_in(
@@ -3495,14 +3479,23 @@ fn create_function_in(
 
 fn drop_function_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
     let mut functions = wtx.open_table(FUNCTIONS).map_err(map_err)?;
-    let existed = functions.get(name).map_err(map_err)?.is_some();
+    drop_catalog_entry_in(&mut functions, name, if_exists, "function")
+}
+
+fn drop_catalog_entry_in<V: redb::Value + 'static>(
+    catalog: &mut redb::Table<'_, &'static str, V>,
+    name: &str,
+    if_exists: bool,
+    kind: &str,
+) -> Result<bool, String> {
+    let existed = catalog.get(name).map_err(map_err)?.is_some();
     if !existed {
         if if_exists {
             return Ok(false);
         }
-        return Err(format!("function `{name}` does not exist"));
+        return Err(format!("{kind} `{name}` does not exist"));
     }
-    functions.remove(name).map_err(map_err)?;
+    catalog.remove(name).map_err(map_err)?;
     Ok(true)
 }
 
