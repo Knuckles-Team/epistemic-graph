@@ -26,6 +26,8 @@
 // hundreds to low thousands of rows); they preserve neighborhood/cluster structure,
 // not exact coordinates, and are deterministic per `seed`.
 
+use super::math::{sq_dist, SplitMix64};
+
 /// A point in feature space (one matrix row).
 pub type Point = Vec<f64>;
 
@@ -827,40 +829,6 @@ fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
-}
-
-fn sq_dist(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
-}
-
-/// Deterministic splitmix64 (+ Box-Muller Gaussian) — keeps UMAP/t-SNE init
-/// dependency-free while reproducible per seed.
-struct SplitMix64 {
-    state: u64,
-}
-
-impl SplitMix64 {
-    fn new(seed: u64) -> Self {
-        SplitMix64 {
-            state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
-        }
-    }
-    fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-    fn next_f64(&mut self) -> f64 {
-        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
-    }
-    fn next_gauss(&mut self) -> f64 {
-        // Box-Muller.
-        let u1 = self.next_f64().max(1e-12);
-        let u2 = self.next_f64();
-        (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
-    }
 }
 
 #[cfg(test)]

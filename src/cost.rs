@@ -1170,13 +1170,10 @@ mod tests {
     #[cfg(feature = "redb")]
     mod integration {
         use super::super::*;
-        use crate::protocol::{GraphType, Method, Request, Response, ResultPayload};
-        use crate::server::{
-            auth::{build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap},
-            ServerState,
+        use crate::protocol::{GraphType, Method, Request, ResultPayload};
+        use crate::server::auth::{
+            build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap,
         };
-        use std::sync::Arc;
-        use tokio::sync::RwLock;
 
         const SECRET: &str = "cost-budget-test";
         const TEST_AGENT: &str = "unit-test-agent";

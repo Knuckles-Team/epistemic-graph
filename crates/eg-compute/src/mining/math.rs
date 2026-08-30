@@ -22,3 +22,42 @@ pub(super) fn argmax(v: &[f64]) -> usize {
     }
     best
 }
+
+/// Squared Euclidean distance shared by the vector mining algorithms.
+pub(super) fn sq_dist(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
+}
+
+/// Deterministic splitmix64 (+ Box-Muller Gaussian) used by seeded mining
+/// algorithms. Keeping the generator here avoids each algorithm carrying a
+/// subtly different implementation while preserving reproducible seeds.
+pub(super) struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    pub(super) fn new(seed: u64) -> Self {
+        SplitMix64 {
+            state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
+        }
+    }
+
+    pub(super) fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    pub(super) fn next_f64(&mut self) -> f64 {
+        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    pub(super) fn next_gauss(&mut self) -> f64 {
+        // Box-Muller.
+        let u1 = self.next_f64().max(1e-12);
+        let u2 = self.next_f64();
+        (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+    }
+}
