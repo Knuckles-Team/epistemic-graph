@@ -106,157 +106,220 @@ fn projection_write_lock() -> &'static Mutex<()> {
 /// Start the singleton projection loop after graph recovery.  A backend without
 /// durable outbox leases is left untouched; authoritative redb implements them.
 pub fn spawn(state: Arc<RwLock<ServerState>>) {
-    tokio::spawn(async move {
-        loop {
-            let (persistence, persist_dir, graphs) = {
-                let state = state.read().await;
-                (
-                    state.persistence.clone(),
-                    state.persist_dir.clone(),
-                    state
-                        .registry
-                        .all_entries()
-                        .into_iter()
-                        .map(|entry| (entry.name.clone(), entry.core.clone()))
-                        .collect::<Vec<_>>(),
-                )
-            };
-            let Some(persistence) = persistence else {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
-            };
+    tokio::spawn(projection_loop(state));
+}
 
-            let mut progressed = false;
-            for (graph, core) in graphs {
-                let graph_fname = crate::persist::sanitize(&graph);
-                {
-                    let _guard = match projection_write_lock().lock() {
-                        Ok(guard) => guard,
-                        Err(_) => continue,
-                    };
-                    let index = match load_index(persist_dir.as_deref(), &graph_fname) {
-                        Ok(Some(index)) => index,
-                        Ok(None) => {
-                            let index = IncrementalReasoningIndex::from_graph_view(
-                                &core.analysis_snapshot(),
-                            );
-                            if persist_index(persist_dir.as_deref(), &graph_fname, &index).is_err()
-                            {
-                                continue;
-                            }
-                            index
-                        }
-                        // A present-but-invalid authority is never replaced from RAM.
-                        // Operator repair is required; silently bootstrapping would
-                        // turn corruption into an apparently valid empty answer.
-                        Err(_) => continue,
-                    };
-                    drop(index);
-                }
-                let leases = match persistence
-                    .claim_mutation_outbox(&graph_fname, CONSUMER, now_ms(), 30_000, 64)
-                    .await
-                {
-                    Ok(leases) => leases,
-                    Err(_) => continue,
-                };
-                for lease in leases {
-                    // Reading the cursor is an explicit restart/reconciliation
-                    // boundary. A sidecar may be one event AHEAD after a crash
-                    // between snapshot and ack; exact-position apply is idempotent.
-                    if persistence
-                        .read_mutation_projection_cursor(
-                            &graph_fname,
-                            PROJECTION,
-                            &lease.record.tenant,
-                        )
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                    // Projection wake-ups contain only domain-separated identities
-                    // and closed categorical tags. Bind them to the authoritative
-                    // operation digest before allowing the side index to advance.
-                    let wakeup = if lease.record.intent.topic == "engine.projection.rebuild" {
-                        let record = match persistence
-                            .read_mutation_batch(&graph_fname, &lease.record.batch_id)
-                            .await
-                        {
-                            Ok(Some(record)) if record.status == MutationBatchStatus::Committed => {
-                                record
-                            }
-                            _ => break,
-                        };
-                        let wakeup: ReasoningProjectionWakeup =
-                            match eg_types::msgpack::decode_bounded(
-                                &lease.record.intent.payload,
-                                eg_types::msgpack::MsgpackLimits::new(
-                                    64 * 1024 * 1024,
-                                    1_000_000,
-                                    64,
-                                ),
-                            ) {
-                                Ok(value) => value,
-                                Err(_) => break,
-                            };
-                        if wakeup.validate().is_err()
-                            || wakeup.operation_count as usize != record.batch.operations.len()
-                        {
-                            break;
-                        }
-                        let operations = match rmp_serde::to_vec_named(&record.batch.operations) {
-                            Ok(value) => value,
-                            Err(_) => break,
-                        };
-                        if hex::encode(Sha256::digest(operations)) != wakeup.operations_sha256 {
-                            break;
-                        }
-                        Some(wakeup)
-                    } else {
-                        None
-                    };
-                    let (newly_stale, stale_count) = {
-                        let _guard = match projection_write_lock().lock() {
-                            Ok(guard) => guard,
-                            Err(_) => break,
-                        };
-                        let mut index = match load_index(persist_dir.as_deref(), &graph_fname) {
-                            Ok(Some(index)) => index,
-                            _ => break,
-                        };
-                        let delta = match apply_lease(&mut index, &core, &lease, wakeup.as_ref()) {
-                            Ok(delta) => delta,
-                            Err(_) => break,
-                        };
-                        if persist_index(persist_dir.as_deref(), &graph_fname, &index).is_err() {
-                            break;
-                        }
-                        (
-                            delta.newly_stale.len(),
-                            index.stale_materializations().len(),
-                        )
-                    };
-                    crate::metrics::epistemic_materializations_staled(newly_stale as u64);
-                    crate::metrics::set_epistemic_materializations_stale(stale_count as i64);
-                    if persistence
-                        .ack_mutation_outbox(&graph_fname, &lease, PROJECTION, now_ms())
-                        .await
-                        .is_err()
-                    {
-                        // Do not apply later leased rows after an ordering gap. The
-                        // sidecar is at most one event ahead; exact-position replay
-                        // is harmless after this lease expires.
-                        break;
-                    }
-                    progressed = true;
-                }
-            }
-            if !progressed {
-                tokio::time::sleep(Duration::from_millis(250)).await;
-            }
+struct ProjectionContext {
+    persistence: Arc<dyn crate::server::persistence::PersistenceBackend>,
+    persist_dir: Option<String>,
+    graphs: Vec<(String, Arc<eg_core::graph::GraphCore>)>,
+}
+
+async fn projection_loop(state: Arc<RwLock<ServerState>>) {
+    loop {
+        let Some(context) = projection_context(&state).await else {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            continue;
+        };
+        let progressed = process_graphs(&context).await;
+        if !progressed {
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
-    });
+    }
+}
+
+async fn projection_context(state: &Arc<RwLock<ServerState>>) -> Option<ProjectionContext> {
+    let state = state.read().await;
+    let persistence = state.persistence.clone();
+    let persist_dir = state.persist_dir.clone();
+    let graphs = state
+        .registry
+        .all_entries()
+        .into_iter()
+        .map(|entry| (entry.name.clone(), entry.core.clone()))
+        .collect();
+    let Some(persistence) = persistence else {
+        return None;
+    };
+    Some(ProjectionContext {
+        persistence,
+        persist_dir,
+        graphs,
+    })
+}
+
+async fn process_graphs(context: &ProjectionContext) -> bool {
+    let mut progressed = false;
+    for (graph, core) in &context.graphs {
+        if process_graph(context, graph, core).await {
+            progressed = true;
+        }
+    }
+    progressed
+}
+
+async fn process_graph(
+    context: &ProjectionContext,
+    graph: &str,
+    core: &eg_core::graph::GraphCore,
+) -> bool {
+    let graph_fname = crate::persist::sanitize(graph);
+    if !initialize_index(context.persist_dir.as_deref(), &graph_fname, core) {
+        return false;
+    }
+    let leases = match context
+        .persistence
+        .claim_mutation_outbox(&graph_fname, CONSUMER, now_ms(), 30_000, 64)
+        .await
+    {
+        Ok(leases) => leases,
+        Err(_) => return false,
+    };
+    process_leases(
+        &context.persistence,
+        context.persist_dir.as_deref(),
+        &graph_fname,
+        core,
+        leases,
+    )
+    .await
+}
+
+fn initialize_index(
+    persist_dir: Option<&str>,
+    graph_fname: &str,
+    core: &eg_core::graph::GraphCore,
+) -> bool {
+    let _guard = match projection_write_lock().lock() {
+        Ok(guard) => guard,
+        Err(_) => return false,
+    };
+    match load_index(persist_dir, graph_fname) {
+        Ok(Some(_)) => true,
+        Ok(None) => {
+            let index = IncrementalReasoningIndex::from_graph_view(&core.analysis_snapshot());
+            persist_index(persist_dir, graph_fname, &index).is_ok()
+        }
+        // A present-but-invalid authority is never replaced from RAM.
+        // Operator repair is required; silently bootstrapping would turn
+        // corruption into an apparently valid empty answer.
+        Err(_) => false,
+    }
+}
+
+async fn process_leases(
+    persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    persist_dir: Option<&str>,
+    graph_fname: &str,
+    core: &eg_core::graph::GraphCore,
+    leases: Vec<MutationOutboxLease>,
+) -> bool {
+    let mut progressed = false;
+    for lease in leases {
+        if !process_lease(persistence, persist_dir, graph_fname, core, &lease).await {
+            break;
+        }
+        progressed = true;
+    }
+    progressed
+}
+
+async fn process_lease(
+    persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    persist_dir: Option<&str>,
+    graph_fname: &str,
+    core: &eg_core::graph::GraphCore,
+    lease: &MutationOutboxLease,
+) -> bool {
+    // Reading the cursor is an explicit restart/reconciliation boundary. A
+    // sidecar may be one event AHEAD after a crash between snapshot and ack;
+    // exact-position apply is idempotent.
+    if persistence
+        .read_mutation_projection_cursor(graph_fname, PROJECTION, &lease.record.tenant)
+        .await
+        .is_err()
+    {
+        return false;
+    }
+    // Projection wake-ups contain only domain-separated identities and closed
+    // categorical tags. Bind them to the authoritative operation digest before
+    // allowing the side index to advance.
+    let wakeup = match resolve_projection_wakeup(persistence, graph_fname, lease).await {
+        Ok(wakeup) => wakeup,
+        Err(()) => return false,
+    };
+    let Some((newly_stale, stale_count)) =
+        apply_lease_and_persist(persist_dir, graph_fname, core, lease, wakeup.as_ref())
+    else {
+        return false;
+    };
+    crate::metrics::epistemic_materializations_staled(newly_stale as u64);
+    crate::metrics::set_epistemic_materializations_stale(stale_count as i64);
+    if persistence
+        .ack_mutation_outbox(graph_fname, lease, PROJECTION, now_ms())
+        .await
+        .is_err()
+    {
+        // Do not apply later leased rows after an ordering gap. The sidecar is
+        // at most one event ahead; exact-position replay is harmless after this
+        // lease expires.
+        return false;
+    }
+    true
+}
+
+async fn resolve_projection_wakeup(
+    persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    graph_fname: &str,
+    lease: &MutationOutboxLease,
+) -> Result<Option<ReasoningProjectionWakeup>, ()> {
+    if lease.record.intent.topic != "engine.projection.rebuild" {
+        return Ok(None);
+    }
+    let record = persistence
+        .read_mutation_batch(graph_fname, &lease.record.batch_id)
+        .await
+        .map_err(|_| ())?
+        .filter(|record| record.status == MutationBatchStatus::Committed)
+        .ok_or(())?;
+    let wakeup: ReasoningProjectionWakeup = eg_types::msgpack::decode_bounded(
+        &lease.record.intent.payload,
+        eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
+    )
+    .map_err(|_| ())?;
+    validate_projection_wakeup(&wakeup, &record.batch)?;
+    Ok(Some(wakeup))
+}
+
+fn validate_projection_wakeup(
+    wakeup: &ReasoningProjectionWakeup,
+    batch: &eg_types::mutation_batch::MutationBatch,
+) -> Result<(), ()> {
+    if wakeup.validate().is_err() || wakeup.operation_count as usize != batch.operations.len() {
+        return Err(());
+    }
+    let operations = rmp_serde::to_vec_named(&batch.operations).map_err(|_| ())?;
+    if hex::encode(Sha256::digest(operations)) != wakeup.operations_sha256 {
+        return Err(());
+    }
+    Ok(())
+}
+
+fn apply_lease_and_persist(
+    persist_dir: Option<&str>,
+    graph_fname: &str,
+    core: &eg_core::graph::GraphCore,
+    lease: &MutationOutboxLease,
+    wakeup: Option<&ReasoningProjectionWakeup>,
+) -> Option<(usize, usize)> {
+    let _guard = projection_write_lock().lock().ok()?;
+    let mut index = load_index(persist_dir, graph_fname).ok()??;
+    let delta = apply_lease(&mut index, core, lease, wakeup).ok()?;
+    persist_index(persist_dir, graph_fname, &index).ok()?;
+    Some((
+        delta.newly_stale.len(),
+        index.stale_materializations().len(),
+    ))
 }
 
 fn apply_lease(
