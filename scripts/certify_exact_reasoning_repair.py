@@ -109,6 +109,43 @@ def _status(engine: ExactEngine, node_id: str) -> dict[str, Any]:
     return status
 
 
+def _estimate_is_calibrated(
+    mean: float,
+    variance: float,
+    level: float,
+    lower: float,
+    upper: float,
+) -> bool:
+    return (
+        all(math.isfinite(value) for value in (mean, variance, level, lower, upper))
+        and variance >= 0.0
+        and 0.0 < level < 1.0
+        and lower <= mean <= upper
+    )
+
+
+def _parse_estimate(estimate: object) -> dict[str, float]:
+    if not isinstance(estimate, dict):
+        _fail("causal_estimate_row_invalid")
+    try:
+        mean = float(estimate["mean"])
+        variance = float(estimate["variance"])
+        level = float(estimate["level"])
+        interval = estimate["interval"]
+        lower, upper = float(interval[0]), float(interval[1])
+    except (KeyError, TypeError, ValueError, IndexError):
+        _fail("causal_estimate_row_invalid")
+    if not _estimate_is_calibrated(mean, variance, level, lower, upper):
+        _fail("causal_estimate_not_calibrated")
+    return {
+        "mean": mean,
+        "variance": variance,
+        "level": level,
+        "lower": lower,
+        "upper": upper,
+    }
+
+
 def _estimates(result: dict[str, Any]) -> dict[str, dict[str, float]]:
     rows = result.get("estimates")
     if not isinstance(rows, list):
@@ -118,32 +155,9 @@ def _estimates(result: dict[str, Any]) -> dict[str, dict[str, float]]:
         if not isinstance(row, (list, tuple)) or len(row) != 2:
             _fail("causal_estimate_row_invalid")
         name, estimate = row
-        if not isinstance(name, str) or not isinstance(estimate, dict):
+        if not isinstance(name, str):
             _fail("causal_estimate_row_invalid")
-        try:
-            mean = float(estimate["mean"])
-            variance = float(estimate["variance"])
-            level = float(estimate["level"])
-            interval = estimate["interval"]
-            lower, upper = float(interval[0]), float(interval[1])
-        except (KeyError, TypeError, ValueError, IndexError):
-            _fail("causal_estimate_row_invalid")
-        if (
-            not all(
-                math.isfinite(value) for value in (mean, variance, level, lower, upper)
-            )
-            or variance < 0.0
-            or not 0.0 < level < 1.0
-            or not lower <= mean <= upper
-        ):
-            _fail("causal_estimate_not_calibrated")
-        output[name] = {
-            "mean": mean,
-            "variance": variance,
-            "level": level,
-            "lower": lower,
-            "upper": upper,
-        }
+        output[name] = _parse_estimate(estimate)
     return output
 
 
