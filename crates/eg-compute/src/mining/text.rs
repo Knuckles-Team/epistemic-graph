@@ -119,6 +119,16 @@ pub fn tfidf(docs: &[Vec<TermId>], vocab_size: usize) -> Vec<Vec<(TermId, f64)>>
 
 // ─────────────────────────── LDA (collapsed Gibbs sampling) ───────────────────────────
 
+/// Return the document count when the topic-model dimensions are non-empty.
+fn topic_model_document_count(docs: &[Vec<TermId>], vocab_size: usize, k: usize) -> Option<usize> {
+    let n_docs = docs.len();
+    if k == 0 || vocab_size == 0 || n_docs == 0 {
+        None
+    } else {
+        Some(n_docs)
+    }
+}
+
 /// LDA topic model (CONCEPT:EG-KG.mining.lda-topic-model): `k` topics fit by
 /// collapsed Gibbs sampling over the standard LDA generative model (symmetric
 /// Dirichlet priors `alpha` over doc-topic, `beta` over topic-term).
@@ -134,10 +144,11 @@ pub fn lda(
     iterations: usize,
     seed: u64,
 ) -> TopicModel {
-    let n_docs = docs.len();
-    if k == 0 || vocab_size == 0 || n_docs == 0 {
+    let n_docs = if let Some(count) = topic_model_document_count(docs, vocab_size, k) {
+        count
+    } else {
         return (Vec::new(), Vec::new());
-    }
+    };
     let params = LdaParams {
         k,
         alpha,
@@ -310,10 +321,9 @@ pub fn nmf(
     iterations: usize,
     seed: u64,
 ) -> TopicModel {
-    let n_docs = docs.len();
-    if k == 0 || vocab_size == 0 || n_docs == 0 {
+    let Some(n_docs) = topic_model_document_count(docs, vocab_size, k) else {
         return (Vec::new(), Vec::new());
-    }
+    };
     let v = tfidf_matrix(docs, vocab_size);
     let (mut w_mat, mut h_mat) = initialize_nmf_factors(n_docs, vocab_size, k, seed);
     run_nmf_updates(&v, &mut w_mat, &mut h_mat, iterations);
