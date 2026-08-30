@@ -99,6 +99,34 @@ pub(crate) async fn test_state_with_broker_agents(
     Arc::new(RwLock::new(state))
 }
 
+/// Bind one ephemeral loopback listener and detach the protocol accept loop.
+///
+/// MQTT and STOMP exercise different wire codecs, but their broker round-trip
+/// tests need the same lifecycle: bind `127.0.0.1:0`, capture the assigned
+/// address before spawning, and move both the listener and durable test state
+/// into a task that owns the accept loop for the rest of the test. Keeping that
+/// lifecycle here prevents a protocol test from accidentally returning an
+/// address before its listener or state has been moved into the detached task.
+#[cfg(test)]
+pub(crate) async fn spawn_broker_test_listener<F, Fut>(prefix: &str, serve: F) -> String
+where
+    F: FnOnce(tokio::net::TcpListener, Arc<RwLock<ServerState>>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = std::io::Result<()>> + Send + 'static,
+{
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind ephemeral broker-wire test listener");
+    let addr = listener
+        .local_addr()
+        .expect("read broker-wire test listener address")
+        .to_string();
+    let state = test_state_with_broker_agents(prefix, &["subscriber", "publisher"]).await;
+    tokio::spawn(async move {
+        let _ = serve(listener, state).await;
+    });
+    addr
+}
+
 /// Selects the authentication domain for one broker adapter.
 #[derive(Clone, Copy)]
 pub(crate) enum BrokerProtocol {

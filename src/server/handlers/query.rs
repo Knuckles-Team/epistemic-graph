@@ -5440,7 +5440,7 @@ fn rls_cache_hash(
 }
 
 #[cfg(test)]
-mod current_auth_test_support {
+pub(crate) mod current_auth_test_support {
     use crate::acl::{AgentIdentity, AgentRole};
     use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request};
@@ -5451,6 +5451,42 @@ mod current_auth_test_support {
     use tokio::sync::RwLock;
 
     const TEST_AGENT: &str = "unit-test-agent";
+
+    /// Add the Commons RBAC grant shared by authenticated protocol fixtures.
+    /// Keeping this in the query test-support seam lets wire tests reuse the
+    /// exact policy shape without copying an agent-registration block.
+    pub(crate) fn grant_commons_user(isolation: &mut IsolationLayer) {
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            isolation.add_role(Role::new("commons-user"));
+            let commons_graph = ResourceSelector::Graph("__commons__".to_string());
+            for action in [RbacAction::Read, RbacAction::Write] {
+                isolation.add_grant(Grant {
+                    role: "commons-user".to_string(),
+                    resource: commons_graph.clone(),
+                    action,
+                    effect: GrantEffect::Allow,
+                });
+            }
+        }
+    }
+
+    /// Register a non-System fixture principal with the shared Commons role.
+    /// Both query and protocol round-trip tests use this helper; the caller
+    /// remains responsible for choosing the principal's identity and any
+    /// additional roles required by its scenario.
+    pub(crate) fn register_commons_agent(isolation: &mut IsolationLayer, agent_id: &str) {
+        isolation.register_agent(AgentIdentity {
+            agent_id: agent_id.to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            #[cfg(feature = "security")]
+            roles: vec!["commons-user".to_string()],
+            #[cfg(not(feature = "security"))]
+            roles: Vec::new(),
+        });
+    }
 
     pub(super) fn current_isolation() -> IsolationLayer {
         current_isolation_with_agents(&[])
@@ -5465,29 +5501,9 @@ mod current_auth_test_support {
         // comment for the same migration). Give every non-System test agent the
         // SAME "commons-user" R/W grant that fixture already establishes as the
         // replacement for the retired open-bus ACL semantics.
-        #[cfg(feature = "security")]
-        {
-            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-            isolation.add_role(Role::new("commons-user"));
-            let grant = |action: RbacAction| Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action,
-                effect: GrantEffect::Allow,
-            };
-            isolation.add_grant(grant(RbacAction::Read));
-            isolation.add_grant(grant(RbacAction::Write));
-        }
+        grant_commons_user(&mut isolation);
         for agent_id in agent_ids {
-            isolation.register_agent(AgentIdentity {
-                agent_id: (*agent_id).to_string(),
-                role: AgentRole::Agent,
-                teams: Vec::new(),
-                #[cfg(feature = "security")]
-                roles: vec!["commons-user".to_string()],
-                #[cfg(not(feature = "security"))]
-                roles: Vec::new(),
-            });
+            register_commons_agent(&mut isolation, agent_id);
         }
         isolation
     }
@@ -6701,17 +6717,7 @@ mod txn_ryow_dispatch_tests {
 
     /// Decode a unified-query response into its result node ids.
     fn unified_ids(resp: &Response) -> Vec<String> {
-        assert!(
-            resp.error.is_none(),
-            "unified query error: {:?}",
-            resp.error
-        );
-        let bytes = match &resp.result {
-            Some(ResultPayload::Raw(b)) => b.clone(),
-            other => panic!("expected Raw result, got {other:?}"),
-        };
-        let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(&bytes).unwrap();
-        rows.into_iter().map(|(id, _)| id).collect()
+        crate::server::decode_unified_ids(resp)
     }
 
     async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {

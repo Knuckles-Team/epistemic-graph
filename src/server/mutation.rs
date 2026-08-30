@@ -3076,16 +3076,7 @@ mod tests {
     }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "eg-mutation-gateway-test-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        dir
+        crate::test_support::temp_dir("eg-mutation-gateway-test", tag)
     }
 
     #[test]

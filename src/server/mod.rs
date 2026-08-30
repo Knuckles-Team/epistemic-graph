@@ -47,6 +47,27 @@ pub fn join_engine_driver<T>(driver: std::thread::JoinHandle<T>) -> std::io::Res
         .map_err(|_| std::io::Error::other("engine runtime driver terminated unexpectedly"))
 }
 
+/// Decode the node ids carried by a successful unified-query response.
+///
+/// This deliberately lives at the server boundary because both in-crate query
+/// tests and out-of-crate integration fixtures exercise the same response
+/// contract. It is hidden from generated API documentation but remains public
+/// so Cargo's integration-test crates can share the assertion semantics.
+#[doc(hidden)]
+pub fn decode_unified_ids(response: &crate::protocol::Response) -> Vec<String> {
+    assert!(
+        response.error.is_none(),
+        "unified query error: {:?}",
+        response.error
+    );
+    let bytes = match response.result.as_ref() {
+        Some(crate::protocol::ResultPayload::Raw(bytes)) => bytes,
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(bytes).unwrap();
+    rows.into_iter().map(|(id, _)| id).collect()
+}
+
 fn direct_wire_addr_is_loopback(addr: &str) -> bool {
     addr.parse::<std::net::SocketAddr>()
         .map(|socket| socket.ip().is_loopback())

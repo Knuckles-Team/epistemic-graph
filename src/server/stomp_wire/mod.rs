@@ -863,34 +863,21 @@ mod tests {
 
     // ── Served listener round-trip (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) ───────────────────────
 
-    /// A minimal `ServerState` for the broker round-trip. Every optional/feature-gated
-    /// field is `None`/empty so it compiles under any feature combination, except
-    /// `persist_dir`/`persistence`: every broker method (`Publish`, `BindQueue`, …)
-    /// is policy-classified `DurabilityDomain::Outbox` (see
-    /// `eg_capabilities::policy`), so the commit gateway hard-errors without a real
-    /// persistence backend — a durable `RedbBackend` is wired in under
-    /// `feature = "redb"` (which `stomp-wire` does not itself require, but the
-    /// round trip needs to actually publish/deliver a message).
-    async fn test_state() -> Arc<RwLock<ServerState>> {
-        const PRINCIPALS: &[&str] = &["subscriber", "publisher"];
-        broker_wire::test_state_with_broker_agents("eg-stomp-wire-test", PRINCIPALS).await
-    }
-
     async fn spawn_listener() -> String {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap().to_string();
-        let state = test_state().await;
-        tokio::spawn(async move {
-            let _ = accept_loop(
-                listener,
-                state,
-                "__commons__".to_string(),
-                DEFAULT_EXCHANGE.to_string(),
-                "test".to_string(),
-            )
-            .await;
-        });
-        addr
+        broker_wire::spawn_broker_test_listener(
+            "eg-stomp-wire-test",
+            |listener, state| async move {
+                accept_loop(
+                    listener,
+                    state,
+                    "__commons__".to_string(),
+                    DEFAULT_EXCHANGE.to_string(),
+                    "test".to_string(),
+                )
+                .await
+            },
+        )
+        .await
     }
 
     /// Read one full STOMP frame off a client stream (blocking until a NUL arrives).
