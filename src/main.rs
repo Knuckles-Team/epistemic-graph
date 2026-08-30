@@ -20,11 +20,7 @@ use tokio::sync::RwLock;
 use tracing::info;
 
 #[cfg(feature = "security")]
-use epistemic_graph::channels::ChannelManager;
-#[cfg(feature = "security")]
 use epistemic_graph::isolation::IsolationLayer;
-#[cfg(feature = "security")]
-use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server;
 use epistemic_graph::server::ServerState;
 
@@ -728,78 +724,38 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         isolation
     };
 
-    let state = Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry: GraphRegistry::new(),
-        isolation,
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: args.auth_secret,
-        persist_dir: args.persist_dir,
-        persistence,
-        max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
-        read_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(read_reserved)),
-        per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
-        per_graph_inflight_limit,
-        write_coalescer: std::sync::Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::new(),
-        ),
-        routed_write_coalescer: std::sync::Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: std::sync::Arc::new(dashmap::DashMap::new()),
-        txn_id_gen: std::sync::Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs,
-        txn_max_per_graph,
-        txn_max_per_agent,
-        #[cfg(feature = "blob")]
-        blob,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs,
-        // Populated below AFTER snapshot recovery, only when built `--features raft`
-        // AND configured. Until then (and always in a non-raft build) it is `None`,
-        // so the dispatch write path is the single-node path, unchanged.
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store,
-        // Change-Data-Capture hub (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230). In-memory only (a bounded
-        // per-graph ring + Notify) — needs no persist dir, so it is always live on a
-        // `streaming` build. The dispatch shell emits a change into it after every
-        // durable mutation; the streaming handler reads/maintains/serves off it.
-        #[cfg(feature = "streaming")]
-        cdc: Some({
-            let hub = Arc::new(epistemic_graph::server::cdc::CdcHub::new());
-            // CA-11 (DEC-CA-03): install the Kafka sink if configured. A no-op
-            // when `EPISTEMIC_GRAPH_CDC_KAFKA_BROKERS` is unset -- see
-            // `cdc_sink`'s module doc for the exact rollback contract.
-            #[cfg(feature = "cdc-kafka")]
-            epistemic_graph::server::cdc_sink::install_from_env(&hub);
-            hub
-        }),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv,
-        // LTAP lakehouse materialization manager (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam,
-        // INT-P2-3). Process-global + always constructed (empty) on a `lake` build —
-        // the periodic drain sweep and the `lake-rest` Iceberg-REST listener below
-        // both share this ONE handle.
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }));
+    // Keep the complete feature-gated field composition in the canonical state
+    // constructor. Startup overrides only the values sized or opened above;
+    // this prevents the orchestration path from drifting from other state users.
+    let mut server_state = ServerState::new(args.auth_secret, isolation);
+    #[cfg(all(feature = "streaming", feature = "cdc-kafka"))]
+    if let Some(hub) = &server_state.cdc {
+        // CA-11 (DEC-CA-03): install the optional Kafka sink exactly once,
+        // after pure state composition and before any listener can serve.
+        epistemic_graph::server::cdc_sink::install_from_env(hub);
+    }
+    server_state.persist_dir = args.persist_dir;
+    server_state.persistence = persistence;
+    server_state.max_in_flight = Arc::new(tokio::sync::Semaphore::new(max_in_flight));
+    server_state.read_admission = Arc::new(tokio::sync::Semaphore::new(read_reserved));
+    server_state.per_graph_inflight_limit = per_graph_inflight_limit;
+    server_state.txn_ttl_secs = txn_ttl_secs;
+    server_state.txn_max_per_graph = txn_max_per_graph;
+    server_state.txn_max_per_agent = txn_max_per_agent;
+    #[cfg(feature = "blob")]
+    {
+        server_state.blob = blob;
+        server_state.blob_cursor_ttl_secs = blob_cursor_ttl_secs;
+    }
+    #[cfg(feature = "tsdb")]
+    {
+        server_state.tsdb_store = tsdb_store;
+    }
+    #[cfg(feature = "kv")]
+    {
+        server_state.kv = kv;
+    }
+    let state = Arc::new(RwLock::new(server_state));
 
     // Compose the ordinary process as a real local-placement server before any
     // listeners are started.  A configured Raft startup replaces this authority

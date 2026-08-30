@@ -2273,65 +2273,20 @@ mod tests {
     /// (verified by direct reading, `access.rs::unauthenticated_carrier_denied`:
     /// `carrier.is_none()` unconditionally, since no carrier mechanism exists for
     /// this surface today), so ANY validly-constructed `ServerState` proves the
-    /// "secured deployment" precondition -- this mirrors `server::mod::tests::test_state`
-    /// exactly, duplicated here (not imported) because that helper is private to
-    /// its own test module.
+    /// "secured deployment" precondition. Use the public canonical constructor
+    /// so feature-gated fields stay in sync with the rest of the engine fixtures.
     fn goc62_bug037_security_state(
     ) -> std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>> {
-        let isolation = crate::isolation::IsolationLayer::new();
-        std::sync::Arc::new(tokio::sync::RwLock::new(crate::server::ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: crate::registry::GraphRegistry::new(),
-            isolation,
-            channels: crate::channels::ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: "goc62-bug037-test-secret".to_string(), // nosec B105 - test only  // sanitizer:ignore — synthetic in-process test fixture, never a live credential
-            persist_dir: None,
-            persistence: None,
-            max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
-            read_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
-            per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: std::sync::Arc::new(
-                crate::write_coalescer::WriteCoalescerRegistry::new(),
-            ),
-            routed_write_coalescer: std::sync::Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: std::sync::Arc::new(dashmap::DashMap::new()),
-            txn_id_gen: std::sync::Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: None,
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        let mut state = crate::server::ServerState::new_for_test(
+            "goc62-bug037-test-secret", // nosec B105 - test only  // sanitizer:ignore — synthetic in-process test fixture, never a live credential
+            crate::isolation::IsolationLayer::new(),
+        );
+        // Preserve this fixture's prior omission of the optional CDC hub.
+        #[cfg(feature = "streaming")]
+        {
+            state.cdc = None;
+        }
+        std::sync::Arc::new(tokio::sync::RwLock::new(state))
     }
 
     #[tokio::test]
