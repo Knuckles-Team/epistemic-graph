@@ -135,15 +135,8 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _validate_binary(path_text: str, expected_digest: str) -> tuple[ExactBinary, str]:
-    if len(expected_digest) != 64 or any(
-        byte not in "0123456789abcdef" for byte in expected_digest
-    ):
-        _fail("invalid_binary_digest")
-    path = Path(path_text)
+def _open_binary_descriptor(path: Path) -> int:
     descriptor: int | None = None
-    output: int | None = None
-    private_root: tempfile.TemporaryDirectory[str] | None = None
     try:
         path_metadata = os.lstat(path)
         if stat.S_ISLNK(path_metadata.st_mode):
@@ -153,13 +146,37 @@ def _validate_binary(path_text: str, expected_digest: str) -> tuple[ExactBinary,
             os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
         )
         metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o111 == 0:
+            _fail("binary_not_executable")
+        assert descriptor is not None
+        return descriptor
+    except CertificationError:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise
     except OSError:
         if descriptor is not None:
             os.close(descriptor)
         _fail("binary_unavailable")
-    if not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o111 == 0:
-        os.close(descriptor)
-        _fail("binary_not_executable")
+    raise AssertionError("binary descriptor validation did not fail")
+
+
+def _copy_binary_contents(descriptor: int, output: int) -> str:
+    digest = hashlib.sha256()
+    while block := os.read(descriptor, 1024 * 1024):
+        digest.update(block)
+        view = memoryview(block)
+        while view:
+            written = os.write(output, view)
+            if written <= 0:
+                _fail("binary_copy_failed")
+            view = view[written:]
+    return digest.hexdigest()
+
+
+def _copy_binary(descriptor: int, expected_digest: str) -> tuple[ExactBinary, str]:
+    output: int | None = None
+    private_root: tempfile.TemporaryDirectory[str] | None = None
     try:
         private_root = tempfile.TemporaryDirectory(prefix="eg-exact-binary-")
         root = Path(private_root.name)
@@ -174,19 +191,10 @@ def _validate_binary(path_text: str, expected_digest: str) -> tuple[ExactBinary,
             | getattr(os, "O_NOFOLLOW", 0),
             0o500,
         )
-        digest = hashlib.sha256()
-        while block := os.read(descriptor, 1024 * 1024):
-            digest.update(block)
-            view = memoryview(block)
-            while view:
-                written = os.write(output, view)
-                if written <= 0:
-                    _fail("binary_copy_failed")
-                view = view[written:]
+        actual = _copy_binary_contents(descriptor, output)
         os.fsync(output)
         os.close(output)
         output = None
-        actual = digest.hexdigest()
         if actual != expected_digest or _sha256_file(destination) != expected_digest:
             _fail("binary_digest_mismatch")
         destination.chmod(0o500)
@@ -207,6 +215,17 @@ def _validate_binary(path_text: str, expected_digest: str) -> tuple[ExactBinary,
     finally:
         if output is not None:
             os.close(output)
+
+
+def _validate_binary(path_text: str, expected_digest: str) -> tuple[ExactBinary, str]:
+    if len(expected_digest) != 64 or any(
+        byte not in "0123456789abcdef" for byte in expected_digest
+    ):
+        _fail("invalid_binary_digest")
+    descriptor = _open_binary_descriptor(Path(path_text))
+    try:
+        return _copy_binary(descriptor, expected_digest)
+    finally:
         os.close(descriptor)
 
 
