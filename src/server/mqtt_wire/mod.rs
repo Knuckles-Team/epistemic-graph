@@ -589,8 +589,14 @@ impl MqttSession {
         let (ptype, flags, payload) = packet;
         match ptype {
             PKT_PUBLISH => self.handle_publish(socket, flags, payload).await?,
-            PKT_SUBSCRIBE => self.handle_subscribe(socket, &payload).await?,
-            PKT_UNSUBSCRIBE => self.handle_unsubscribe(socket, &payload).await?,
+            PKT_SUBSCRIBE => {
+                self.handle_filter_request(socket, &payload, FilterRequestKind::Subscribe)
+                    .await?
+            }
+            PKT_UNSUBSCRIBE => {
+                self.handle_filter_request(socket, &payload, FilterRequestKind::Unsubscribe)
+                    .await?
+            }
             PKT_PUBACK => return Err(invalid_data("unexpected MQTT PUBACK packet")),
             PKT_PINGREQ => write_packet(socket, PKT_PINGRESP << 4, &[]).await?,
             PKT_DISCONNECT => return Ok(false),
@@ -632,20 +638,31 @@ impl MqttSession {
         Ok(())
     }
 
-    async fn handle_subscribe(
+    async fn handle_filter_request(
         &mut self,
         socket: &mut TcpStream,
         payload: &[u8],
+        kind: FilterRequestKind,
     ) -> std::io::Result<()> {
-        let (packet_id, patterns) =
-            parse_filter_request(payload, self.version, FilterRequestKind::Subscribe)?;
-        let granted = self.bind_subscriptions(patterns).await;
-        write_packet(
-            socket,
-            PKT_SUBACK << 4,
-            &build_suback(packet_id, &granted, self.version),
-        )
-        .await
+        let (packet_id, patterns) = parse_filter_request(payload, self.version, kind)?;
+        let (header, response) = match kind {
+            FilterRequestKind::Subscribe => {
+                let granted = self.bind_subscriptions(patterns).await;
+                (
+                    PKT_SUBACK << 4,
+                    build_suback(packet_id, &granted, self.version),
+                )
+            }
+            FilterRequestKind::Unsubscribe => {
+                let count = patterns.len();
+                self.unbind_subscriptions(patterns).await;
+                (
+                    PKT_UNSUBACK << 4,
+                    build_unsuback(packet_id, count, self.version),
+                )
+            }
+        };
+        write_packet(socket, header, &response).await
     }
 
     async fn bind_subscriptions(&mut self, patterns: Vec<String>) -> Vec<u8> {
@@ -673,23 +690,6 @@ impl MqttSession {
             }
         }
         granted
-    }
-
-    async fn handle_unsubscribe(
-        &mut self,
-        socket: &mut TcpStream,
-        payload: &[u8],
-    ) -> std::io::Result<()> {
-        let (packet_id, patterns) =
-            parse_filter_request(payload, self.version, FilterRequestKind::Unsubscribe)?;
-        let count = patterns.len();
-        self.unbind_subscriptions(patterns).await;
-        write_packet(
-            socket,
-            PKT_UNSUBACK << 4,
-            &build_unsuback(packet_id, count, self.version),
-        )
-        .await
     }
 
     async fn unbind_subscriptions(&mut self, patterns: Vec<String>) {
