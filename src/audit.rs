@@ -103,413 +103,585 @@ pub fn decode_entry(blob: &[u8]) -> Option<(Hash, Hash, &[u8])> {
 /// creates that specific `event_type`/`query` shape internally as a digest-only
 /// receipt for an authoritative staged-state commit.
 pub fn audit_line(method: &Method) -> Option<String> {
-    let line = match method {
-        // ── Core node/edge CRUD (audited since EG-P0-2) ──────────────────────
-        Method::AddNode { node_id, .. } => format!("ADD_NODE|{node_id}"),
-        Method::CreateNodeIfAbsent { node_id, .. } => {
-            format!("CREATE_NODE_IF_ABSENT|{node_id}")
+    let graph_crud = || -> Option<String> {
+        match method {
+            // ── Core node/edge CRUD (audited since EG-P0-2) ──────────────────────
+            Method::AddNode { node_id, .. } => Some(format!("ADD_NODE|{node_id}")),
+            Method::CreateNodeIfAbsent { node_id, .. } => {
+                Some(format!("CREATE_NODE_IF_ABSENT|{node_id}"))
+            }
+            Method::RemoveNode { node_id } => Some(format!("REMOVE_NODE|{node_id}")),
+            Method::CompareAndSetNodeFields { node_id, .. } => Some(format!("CAS_NODE|{node_id}")),
+            Method::AddEdge {
+                source_id,
+                target_id,
+                ..
+            } => Some(format!("ADD_EDGE|{source_id}|{target_id}")),
+            Method::RemoveEdge {
+                source_id,
+                target_id,
+            } => Some(format!("REMOVE_EDGE|{source_id}|{target_id}")),
+            Method::BatchUpdate { .. } => Some("BATCH_UPDATE".to_string()),
+            Method::ClearGraph => Some("CLEAR_GRAPH".to_string()),
+            _ => None,
         }
-        Method::RemoveNode { node_id } => format!("REMOVE_NODE|{node_id}"),
-        Method::CompareAndSetNodeFields { node_id, .. } => format!("CAS_NODE|{node_id}"),
-        Method::AddEdge {
-            source_id,
-            target_id,
-            ..
-        } => format!("ADD_EDGE|{source_id}|{target_id}"),
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => format!("REMOVE_EDGE|{source_id}|{target_id}"),
-        Method::BatchUpdate { .. } => "BATCH_UPDATE".to_string(),
-        Method::ClearGraph => "CLEAR_GRAPH".to_string(),
-        Method::ApplyChangeEnvelope { envelope } => format!(
-            "APPLY_CHANGE_ENVELOPE|{}|{}|{}",
-            envelope.envelope_id, envelope.mutation.batch_id, envelope.content_version.digest
-        ),
-        // The batch coordinator's per-envelope rows are audited individually inside the
-        // shared transaction (one `audit_line` per envelope operation); this method-level
-        // line keeps policy `audited: true` consistent for the coordinator itself.
-        Method::ApplyChangeEnvelopes { envelopes } => {
-            format!("APPLY_CHANGE_ENVELOPES|{}", envelopes.len())
-        }
-        #[cfg(feature = "modality-serving")]
-        Method::ServedModality { op } if op.mutates() => {
-            use eg_types::{ServedModalityKind, ServedModalityOp};
-            let (operation, modality) = match op {
-                ServedModalityOp::Ingest { modality, .. } => ("INGEST", modality),
-                ServedModalityOp::IngestStream { modality, .. } => ("INGEST_STREAM", modality),
-                ServedModalityOp::Delete { modality, .. } => ("DELETE", modality),
-                ServedModalityOp::MoveToCold { modality, .. } => ("MOVE_TO_COLD", modality),
-                ServedModalityOp::Restore { modality, .. } => ("RESTORE", modality),
-                ServedModalityOp::CollectTombstones { modality, .. } => {
-                    ("COLLECT_TOMBSTONES", modality)
-                }
-                _ => return None,
-            };
-            let modality = match modality {
-                ServedModalityKind::Document => "DOCUMENT",
-                ServedModalityKind::Image => "IMAGE",
-                ServedModalityKind::Audio => "AUDIO",
-                ServedModalityKind::Video => "VIDEO",
-            };
-            format!("SERVED_MODALITY|{modality}|{operation}")
-        }
-        Method::ApplyMutation { event_type, query }
-            if event_type == "authoritative_state_operation"
-                && query.len() == 71
-                && query.starts_with("sha256:")
-                && query[7..].bytes().all(|byte| byte.is_ascii_hexdigit()) =>
-        {
-            // State-backed mutations persist a complete, digest-verified graph
-            // image in the same transaction. Their canonical operation is opaque
-            // by design, so the audit line binds only its SHA-256 receipt.
-            format!("AUTHORITATIVE_STATE_MUTATION|{query}")
-        }
-        // Fallback for a caller-supplied `ApplyMutation` that is NOT the opaque
-        // digest receipt above (e.g. a direct SPARQL UPDATE `event_type`/`query`
-        // pair) -- W1c: this durable admin/ledger method previously fell through
-        // to `_ => return None`; it is now audited like every other durable
-        // mutation. The query text itself is digested (not persisted verbatim)
-        // for the same reason `Sql`/`CypherQuery`/`GraphQl` hash their query.
-        Method::ApplyMutation { event_type, query } => format!(
-            "APPLY_MUTATION|{event_type}|sha256:{}",
-            hex::encode(Sha256::digest(query.as_bytes()))
-        ),
-
-        // ── W1c: close the 9-method audit/CDC-visibility gap. These durable
-        // admin/ledger methods previously fell through to `_ => return None`
-        // (never chained into the tamper-evident audit log) despite being
-        // GraphRedb-durable and GATEWAY_ROUTED. Each line below is a canonical,
-        // deterministic "who/what" summary (the chain's `graph`+`seq` already
-        // bind the "who" via the durable-commit call site; `redb_store`'s
-        // `(graph, seq)` key plus the chain hash supply the "when"/ordering). ──
-        Method::FromMsgpack { msgpack } => format!(
-            "FROM_MSGPACK|sha256:{}",
-            hex::encode(Sha256::digest(msgpack))
-        ),
-        Method::Reconcile {
-            graph_name,
-            msgpack,
-        } => format!(
-            "RECONCILE|{graph_name}|sha256:{}",
-            hex::encode(Sha256::digest(msgpack))
-        ),
-        Method::ApplyMultisigMutation {
-            signatures,
-            threshold,
-            mutation_type,
-            query,
-        } => format!(
-            "APPLY_MULTISIG_MUTATION|{mutation_type}|threshold={threshold}|signers={}|sha256:{}",
-            signatures.len(),
-            hex::encode(Sha256::digest(query.as_bytes()))
-        ),
-        // W2.5 fleet server registry: this variant self-translates into `Method::AddNode`
-        // in `dispatch.rs` BEFORE ever reaching a durable commit (mirroring
-        // `ApplyMultisigMutation` above, which translates into `ApplyMutation`), so the
-        // REAL audit line durable-committed for a registration is `ADD_NODE|srv:<name>`
-        // (AddNode's own arm above). This arm is defense-in-depth only, matching
-        // `ApplyMultisigMutation`'s precedent.
-        Method::RegisterServer { name, .. } => format!("REGISTER_SERVER|srv:{name}"),
-        #[cfg(feature = "shacl")]
-        Method::IcvConfigure { graph, mode, .. } => format!(
-            "ICV_CONFIGURE|{}|{mode}",
-            graph.as_deref().unwrap_or("<default>")
-        ),
-        #[cfg(feature = "reasoning")]
-        Method::RunDatalogReasoning { .. } => "RUN_DATALOG_REASONING".to_string(),
-        Method::ClearLedger => "CLEAR_LEDGER".to_string(),
-        Method::ApplyLedger { transactions } => {
-            format!("APPLY_LEDGER|count={}", transactions.len())
-        }
-        Method::CompactNodesByType {
-            node_type,
-            threshold,
-        } => format!("COMPACT_NODES_BY_TYPE|{node_type}|threshold={threshold}"),
-
-        // ── Remaining GraphRedb-durable node/edge/RDF primitives (EG-P0-6) ──
-        Method::InvalidateEdge {
-            source_id,
-            target_id,
-            ..
-        } => format!("INVALIDATE_EDGE|{source_id}|{target_id}"),
-        Method::SupersedeEdge {
-            source_id,
-            target_id,
-            ..
-        } => format!("SUPERSEDE_EDGE|{source_id}|{target_id}"),
-        Method::ClaimNext { label, .. } => format!("CLAIM_NEXT|{label}"),
-        Method::ClaimWorkItem { request } => {
-            format!("CLAIM_WORK_ITEM|{}", request.tenant_ref)
-        }
-        Method::SubmitWorkItem { request } => format!(
-            "SUBMIT_WORK_ITEM|{}|{}",
-            request.context.tenant_id, request.idempotency_key
-        ),
-        Method::SubmitWorkItems { request } => format!(
-            "SUBMIT_WORK_ITEMS|{}|{}|{}",
-            request.context.tenant_id,
-            request.idempotency_key,
-            request.requests.len()
-        ),
-        Method::AcquireCapacity { request } => format!(
-            "ACQUIRE_CAPACITY|{}|{}|{}",
-            request.tenant_ref,
-            request.idempotency_key,
-            request.demands.len()
-        ),
-        Method::RenewCapacity { request } => format!(
-            "RENEW_CAPACITY|{}|{}",
-            request.tenant_ref,
-            request.leases.len()
-        ),
-        Method::ReleaseCapacity { request } => format!(
-            "RELEASE_CAPACITY|{}|{}",
-            request.tenant_ref,
-            request.leases.len()
-        ),
-        Method::ReclaimExpiredCapacity { request } => format!(
-            "RECLAIM_EXPIRED_CAPACITY|{}|{}",
-            request.tenant_ref, request.max_count
-        ),
-        Method::UpdateCapacityCell { request } => format!(
-            "UPDATE_CAPACITY_CELL|{}|{}",
-            request.cell.cell_id, request.cell.epoch
-        ),
-        Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => return None,
-        Method::RenewWorkItemLease {
-            tenant,
-            work_item_id,
-            lease_epoch,
-            ..
-        } => format!("RENEW_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}"),
-        Method::CommitWorkItemResult {
-            tenant,
-            work_item_id,
-            lease_epoch,
-            outcome,
-            ..
-        } => format!("COMMIT_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}|{outcome}"),
-        Method::CancelWorkItem {
-            tenant,
-            work_item_id,
-            ..
-        } => format!("CANCEL_WORK_ITEM|{tenant}|{work_item_id}"),
-        Method::DeferWorkItem {
-            tenant,
-            work_item_id,
-            lease_epoch,
-            next_retry_at_ms,
-            ..
-        } => format!("DEFER_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}|{next_retry_at_ms}"),
-        // BUG-111: never logs the checkpoint/metadata/prio_bucket VALUE itself
-        // (privacy) -- only the identity + which single field class changed.
-        Method::CasWorkItemMetadata { request } => {
-            let field = if request.set_checkpoint_id.is_some() {
-                "checkpoint_id"
-            } else if request.set_metadata_msgpack.is_some() {
-                "metadata"
-            } else {
-                "prio_bucket"
-            };
-            format!(
-                "CAS_WORK_ITEM_METADATA|{}|{}|{field}",
-                request.tenant_ref, request.work_item_id
-            )
-        }
-        Method::ReserveWorkItemResources { request } => format!(
-            "RESERVE_WORK_ITEM_RESOURCES|{}|{}|{}",
-            request.tenant_ref, request.work_item_id, request.attempt
-        ),
-        Method::ReleaseWorkItemResources { request } => format!(
-            "RELEASE_WORK_ITEM_RESOURCES|{}|{}|{}",
-            request.tenant_ref, request.work_item_id, request.attempt
-        ),
-        Method::ReclaimWorkItemResources { request } => format!(
-            "RECLAIM_WORK_ITEM_RESOURCES|{}|{}|{}",
-            request.tenant_ref, request.work_item_id, request.attempt
-        ),
-        Method::UpdateResourceHost { request } => format!(
-            "UPDATE_RESOURCE_HOST|{}|{}|{}",
-            request.tenant_ref, request.host_ref, request.revision
-        ),
-        Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. } => {
-            return None
-        }
-        Method::Sql { query, .. } => format!(
-            "SQL_MUTATION|sha256:{}",
-            hex::encode(Sha256::digest(query.as_bytes()))
-        ),
-        Method::CypherQuery { query, .. } => format!(
-            "CYPHER_MUTATION|sha256:{}",
-            hex::encode(Sha256::digest(query.as_bytes()))
-        ),
-        Method::GraphQl { query, .. } => format!(
-            "GRAPHQL_MUTATION|sha256:{}",
-            hex::encode(Sha256::digest(query.as_bytes()))
-        ),
-        Method::AddEmbedding { node_id, .. } => format!("ADD_EMBEDDING|{node_id}"),
-        #[cfg(feature = "rdf")]
-        Method::AddTriples { .. } => "ADD_TRIPLES".to_string(),
-        #[cfg(feature = "rdf")]
-        Method::RemoveTriples { .. } => "REMOVE_TRIPLES".to_string(),
-        #[cfg(feature = "rdf")]
-        Method::DropNamedGraph => "DROP_NAMED_GRAPH".to_string(),
-
-        // ── Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ──
-        Method::CreateSummaryNode { .. } => "CREATE_SUMMARY_NODE".to_string(),
-        Method::Consolidate { .. } => "CONSOLIDATE".to_string(),
-        Method::Reinforce { node_id, .. } => format!("REINFORCE|{node_id}"),
-        Method::DecayNode { node_id, .. } => format!("DECAY_NODE|{node_id}"),
-        Method::DecayMemories { .. } => "DECAY_MEMORIES".to_string(),
-        Method::EvictBelow { .. } => "EVICT_BELOW".to_string(),
-        Method::Maintain { .. } => "MAINTAIN".to_string(),
-        Method::AddSceneObject { .. } => "ADD_SCENE_OBJECT".to_string(),
-        Method::SetPose { node_id, .. } => format!("SET_POSE|{node_id}"),
-        Method::Reparent { node_id, .. } => format!("REPARENT|{node_id}"),
-        Method::StartTrajectory { .. } => "START_TRAJECTORY".to_string(),
-        Method::AppendStep { traj_id, .. } => format!("APPEND_STEP|{traj_id}"),
-
-        // ── Data-mining / graph-learning writeback (CONCEPT:EG-KG.mining.*) ──────────────
-        // Durability is `writeback`-conditional; `wal.rs::is_durable_mutation` already
-        // gates on the exact condition, so this arm only ever fires when the call
-        // actually reached the durable-commit path — no extra guard needed here.
-        #[cfg(feature = "mining")]
-        Method::MineAssociate { .. } => "MINE_ASSOCIATE".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineCluster { .. } => "MINE_CLUSTER".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineAnomaly { .. } => "MINE_ANOMALY".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineClassifyPredict { .. } => "MINE_CLASSIFY_PREDICT".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineReduce { .. } => "MINE_REDUCE".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineSequence { .. } => "MINE_SEQUENCE".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineForecast { .. } => "MINE_FORECAST".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineText { .. } => "MINE_TEXT".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineSubgraph { .. } => "MINE_SUBGRAPH".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineEntityResolve { .. } => "MINE_ENTITY_RESOLVE".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineCausalImpact { .. } => "MINE_CAUSAL_IMPACT".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineProcess { .. } => "MINE_PROCESS".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineRootCause { .. } => "MINE_ROOT_CAUSE".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineRiskPropagation { .. } => "MINE_RISK_PROPAGATION".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineOntologyGap { .. } => "MINE_ONTOLOGY_GAP".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineRetrievalQuality { .. } => "MINE_RETRIEVAL_QUALITY".to_string(),
-        #[cfg(feature = "mining")]
-        Method::MineCommunity { .. } => "MINE_COMMUNITY".to_string(),
-        #[cfg(feature = "graphlearn")]
-        Method::GraphLearnFit { .. } => "GRAPH_LEARN_FIT".to_string(),
-        #[cfg(feature = "graphlearn")]
-        Method::GraphLearnPredict { .. } => "GRAPH_LEARN_PREDICT".to_string(),
-        // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): same durable-writeback shape as
-        // the Mine*/GraphLearn* family above (`access.rs::requires_write` only reaches the
-        // durable-commit path when it actually mutates), so it gets the same audit
-        // coverage every sibling in this family already has (GOC-40, eg-capabilities'
-        // `audited_matches_audit_rs_exactly` cross-check caught the omission).
-        #[cfg(feature = "ml-pipeline")]
-        Method::MiningPipelineTrain { .. } => "MINING_PIPELINE_TRAIN".to_string(),
-        #[cfg(feature = "ml-pipeline")]
-        Method::MiningPipelineServe { .. } => "MINING_PIPELINE_SERVE".to_string(),
-        #[cfg(feature = "ml-pipeline")]
-        Method::MiningPipelinePredict { .. } => "MINING_PIPELINE_PREDICT".to_string(),
-
-        // ── Message-broker / stream mutations, Outbox domain (CONCEPT:EG-KG.compute.message-broker-exchanges /
-        // replayable-append-log / publisher-confirms-consumer-qos) ──────────────────────
-        // NOT NODES/EDGES rows (`redb_store::apply_method_rows` is a no-op for
-        // them — the control-graph state lives on the in-memory `GraphCore`,
-        // replayed via `wal.rs::apply` on restart) but they DO flow through the
-        // SAME `record`/`record_durable` → `commit_ops`/`commit_crossmodal` →
-        // `append_audit_entry` call as every other durable mutation, so they
-        // chain into the SAME per-graph tamper-evident audit log.
-        #[cfg(feature = "broker")]
-        Method::DeclareExchange { exchange, .. } => format!("DECLARE_EXCHANGE|{exchange}"),
-        #[cfg(feature = "broker")]
-        Method::DeleteExchange { exchange } => format!("DELETE_EXCHANGE|{exchange}"),
-        #[cfg(feature = "broker")]
-        Method::BindQueue {
-            exchange, queue, ..
-        } => format!("BIND_QUEUE|{exchange}|{queue}"),
-        #[cfg(feature = "broker")]
-        Method::UnbindQueue {
-            exchange, queue, ..
-        } => format!("UNBIND_QUEUE|{exchange}|{queue}"),
-        #[cfg(feature = "broker")]
-        Method::Publish {
-            exchange,
-            routing_key,
-            ..
-        } => format!("PUBLISH|{exchange}|{routing_key}"),
-        #[cfg(feature = "broker")]
-        Method::DeclareQueue { queue, .. } => format!("DECLARE_QUEUE|{queue}"),
-        #[cfg(feature = "broker")]
-        Method::PublishEx {
-            exchange,
-            routing_key,
-            ..
-        } => format!("PUBLISH_EX|{exchange}|{routing_key}"),
-        #[cfg(feature = "broker")]
-        Method::BrokerConsume { queue, .. } => format!("BROKER_CONSUME|{queue}"),
-        #[cfg(feature = "broker")]
-        Method::BrokerAck { queue, node_id } => format!("BROKER_ACK|{queue}|{node_id}"),
-        #[cfg(feature = "broker")]
-        Method::BrokerReject { queue, node_id, .. } => format!("BROKER_REJECT|{queue}|{node_id}"),
-        #[cfg(feature = "broker")]
-        Method::SweepExpired { .. } => "SWEEP_EXPIRED".to_string(),
-        #[cfg(feature = "broker")]
-        Method::StreamDeclare { stream, .. } => format!("STREAM_DECLARE|{stream}"),
-        #[cfg(feature = "broker")]
-        Method::StreamPublish { stream, .. } => format!("STREAM_PUBLISH|{stream}"),
-        #[cfg(feature = "broker")]
-        Method::StreamTrim { stream, .. } => format!("STREAM_TRIM|{stream}"),
-        #[cfg(feature = "broker")]
-        Method::StreamCommitOffset { stream, group, .. } => {
-            format!("STREAM_COMMIT_OFFSET|{stream}|{group}")
-        }
-        #[cfg(feature = "broker")]
-        Method::PublishConfirmed {
-            exchange,
-            routing_key,
-            ..
-        } => format!("PUBLISH_CONFIRMED|{exchange}|{routing_key}"),
-        #[cfg(feature = "broker")]
-        Method::PublishIdempotent {
-            exchange,
-            routing_key,
-            ..
-        } => format!("PUBLISH_IDEMPOTENT|{exchange}|{routing_key}"),
-        #[cfg(feature = "broker")]
-        Method::BrokerAckTag { delivery_tag, .. } => format!("BROKER_ACK_TAG|{delivery_tag}"),
-        #[cfg(feature = "broker")]
-        Method::BrokerNackTag { delivery_tag, .. } => format!("BROKER_NACK_TAG|{delivery_tag}"),
-        #[cfg(feature = "broker")]
-        Method::BrokerRenewTag { delivery_tag, .. } => {
-            format!("BROKER_RENEW_TAG|{delivery_tag}")
-        }
-
-        // Transfer paths are logical operator-provisioned names. Keep them out
-        // of the chain so audit records never persist filesystem details.
-        #[cfg(feature = "sqlite-file")]
-        Method::ImportSqliteFile { .. } => "IMPORT_SQLITE_FILE".to_string(),
-        #[cfg(feature = "sqlite-file")]
-        Method::ExportSqliteFile { .. } => "EXPORT_SQLITE_FILE".to_string(),
-
-        // Every non-durable method (`DurabilityDomain::None`) never reaches this
-        // function via the redb write path in the first place; still falls through
-        // here harmlessly for any caller that invokes `audit_line` directly.
-        _ => return None,
     };
-    Some(line)
+
+    let change_envelopes = || -> Option<String> {
+        match method {
+            Method::ApplyChangeEnvelope { envelope } => Some(format!(
+                "APPLY_CHANGE_ENVELOPE|{}|{}|{}",
+                envelope.envelope_id, envelope.mutation.batch_id, envelope.content_version.digest
+            )),
+            // The batch coordinator's per-envelope rows are audited individually inside the
+            // shared transaction (one `audit_line` per envelope operation); this method-level
+            // line keeps policy `audited: true` consistent for the coordinator itself.
+            Method::ApplyChangeEnvelopes { envelopes } => {
+                Some(format!("APPLY_CHANGE_ENVELOPES|{}", envelopes.len()))
+            }
+            _ => None,
+        }
+    };
+
+    #[cfg(feature = "modality-serving")]
+    let modality_operation = |op: &eg_types::ServedModalityOp| match op {
+        eg_types::ServedModalityOp::Ingest { modality, .. } => Some(("INGEST", *modality)),
+        eg_types::ServedModalityOp::IngestStream { modality, .. } => {
+            Some(("INGEST_STREAM", *modality))
+        }
+        eg_types::ServedModalityOp::Delete { modality, .. } => Some(("DELETE", *modality)),
+        eg_types::ServedModalityOp::MoveToCold { modality, .. } => {
+            Some(("MOVE_TO_COLD", *modality))
+        }
+        eg_types::ServedModalityOp::Restore { modality, .. } => Some(("RESTORE", *modality)),
+        eg_types::ServedModalityOp::CollectTombstones { modality, .. } => {
+            Some(("COLLECT_TOMBSTONES", *modality))
+        }
+        _ => None,
+    };
+
+    #[cfg(feature = "modality-serving")]
+    let modality_name = |modality: eg_types::ServedModalityKind| match modality {
+        eg_types::ServedModalityKind::Document => "DOCUMENT",
+        eg_types::ServedModalityKind::Image => "IMAGE",
+        eg_types::ServedModalityKind::Audio => "AUDIO",
+        eg_types::ServedModalityKind::Video => "VIDEO",
+    };
+
+    #[cfg(feature = "modality-serving")]
+    let modality = || -> Option<String> {
+        let eg_types::protocol::Method::ServedModality { op } = method else {
+            return None;
+        };
+        let (operation, modality) = modality_operation(op)?;
+        Some(format!(
+            "SERVED_MODALITY|{}|{operation}",
+            modality_name(modality)
+        ))
+    };
+
+    #[cfg(not(feature = "modality-serving"))]
+    let modality = || -> Option<String> { None };
+
+    let is_authoritative_state_receipt = |event_type: &str, query: &str| {
+        event_type == "authoritative_state_operation"
+            && query.len() == 71
+            && query.starts_with("sha256:")
+            && query[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    };
+
+    let mutation = || -> Option<String> {
+        match method {
+            Method::ApplyMutation { event_type, query }
+                if is_authoritative_state_receipt(event_type, query) =>
+            {
+                // State-backed mutations persist a complete, digest-verified graph
+                // image in the same transaction. Their canonical operation is opaque
+                // by design, so the audit line binds only its SHA-256 receipt.
+                Some(format!("AUTHORITATIVE_STATE_MUTATION|{query}"))
+            }
+            // Fallback for a caller-supplied `ApplyMutation` that is NOT the opaque
+            // digest receipt above (e.g. a direct SPARQL UPDATE `event_type`/`query`
+            // pair) -- W1c: this durable admin/ledger method previously fell through
+            // to `_ => return None`; it is now audited like every other durable
+            // mutation. The query text itself is digested (not persisted verbatim)
+            // for the same reason `Sql`/`CypherQuery`/`GraphQl` hash their query.
+            Method::ApplyMutation { event_type, query } => Some(format!(
+                "APPLY_MUTATION|{event_type}|sha256:{}",
+                hex::encode(Sha256::digest(query.as_bytes()))
+            )),
+            _ => None,
+        }
+    };
+
+    let admin = || -> Option<String> {
+        match method {
+            // ── W1c: close the 9-method audit/CDC-visibility gap. These durable
+            // admin/ledger methods previously fell through to `_ => return None`
+            // (never chained into the tamper-evident audit log) despite being
+            // GraphRedb-durable and GATEWAY_ROUTED. Each line below is a canonical,
+            // deterministic "who/what" summary (the chain's `graph`+`seq` already
+            // bind the "who" via the durable-commit call site; `redb_store`'s
+            // `(graph, seq)` key plus the chain hash supply the "when"/ordering). ──
+            Method::FromMsgpack { msgpack } => Some(format!(
+                "FROM_MSGPACK|sha256:{}",
+                hex::encode(Sha256::digest(msgpack))
+            )),
+            Method::Reconcile {
+                graph_name,
+                msgpack,
+            } => Some(format!(
+                "RECONCILE|{graph_name}|sha256:{}",
+                hex::encode(Sha256::digest(msgpack))
+            )),
+            Method::ApplyMultisigMutation {
+                signatures,
+                threshold,
+                mutation_type,
+                query,
+            } => Some(format!(
+                "APPLY_MULTISIG_MUTATION|{mutation_type}|threshold={threshold}|signers={}|sha256:{}",
+                signatures.len(),
+                hex::encode(Sha256::digest(query.as_bytes()))
+            )),
+            // W2.5 fleet server registry: this variant self-translates into `Method::AddNode`
+            // in `dispatch.rs` BEFORE ever reaching a durable commit (mirroring
+            // `ApplyMultisigMutation` above, which translates into `ApplyMutation`), so the
+            // REAL audit line durable-committed for a registration is `ADD_NODE|srv:<name>`
+            // (AddNode's own arm above). This arm is defense-in-depth only, matching
+            // `ApplyMultisigMutation`'s precedent.
+            Method::RegisterServer { name, .. } => Some(format!("REGISTER_SERVER|srv:{name}")),
+            #[cfg(feature = "shacl")]
+            Method::IcvConfigure { graph, mode, .. } => Some(format!(
+                "ICV_CONFIGURE|{}|{mode}",
+                graph.as_deref().unwrap_or("<default>")
+            )),
+            _ => None,
+        }
+    };
+
+    let ledger = || -> Option<String> {
+        match method {
+            #[cfg(feature = "reasoning")]
+            Method::RunDatalogReasoning { .. } => Some("RUN_DATALOG_REASONING".to_string()),
+            Method::ClearLedger => Some("CLEAR_LEDGER".to_string()),
+            Method::ApplyLedger { transactions } => {
+                Some(format!("APPLY_LEDGER|count={}", transactions.len()))
+            }
+            Method::CompactNodesByType {
+                node_type,
+                threshold,
+            } => Some(format!(
+                "COMPACT_NODES_BY_TYPE|{node_type}|threshold={threshold}"
+            )),
+            _ => None,
+        }
+    };
+
+    let edge = || -> Option<String> {
+        match method {
+            // ── Remaining GraphRedb-durable node/edge/RDF primitives (EG-P0-6) ──
+            Method::InvalidateEdge {
+                source_id,
+                target_id,
+                ..
+            } => Some(format!("INVALIDATE_EDGE|{source_id}|{target_id}")),
+            Method::SupersedeEdge {
+                source_id,
+                target_id,
+                ..
+            } => Some(format!("SUPERSEDE_EDGE|{source_id}|{target_id}")),
+            Method::ClaimNext { label, .. } => Some(format!("CLAIM_NEXT|{label}")),
+            _ => None,
+        }
+    };
+
+    let capacity = || -> Option<String> {
+        match method {
+            Method::ClaimWorkItem { request } => {
+                Some(format!("CLAIM_WORK_ITEM|{}", request.tenant_ref))
+            }
+            Method::SubmitWorkItem { request } => Some(format!(
+                "SUBMIT_WORK_ITEM|{}|{}",
+                request.context.tenant_id, request.idempotency_key
+            )),
+            Method::SubmitWorkItems { request } => Some(format!(
+                "SUBMIT_WORK_ITEMS|{}|{}|{}",
+                request.context.tenant_id,
+                request.idempotency_key,
+                request.requests.len()
+            )),
+            Method::AcquireCapacity { request } => Some(format!(
+                "ACQUIRE_CAPACITY|{}|{}|{}",
+                request.tenant_ref,
+                request.idempotency_key,
+                request.demands.len()
+            )),
+            Method::RenewCapacity { request } => Some(format!(
+                "RENEW_CAPACITY|{}|{}",
+                request.tenant_ref,
+                request.leases.len()
+            )),
+            Method::ReleaseCapacity { request } => Some(format!(
+                "RELEASE_CAPACITY|{}|{}",
+                request.tenant_ref,
+                request.leases.len()
+            )),
+            Method::ReclaimExpiredCapacity { request } => Some(format!(
+                "RECLAIM_EXPIRED_CAPACITY|{}|{}",
+                request.tenant_ref, request.max_count
+            )),
+            Method::UpdateCapacityCell { request } => Some(format!(
+                "UPDATE_CAPACITY_CELL|{}|{}",
+                request.cell.cell_id, request.cell.epoch
+            )),
+            _ => None,
+        }
+    };
+
+    let work_items = || -> Option<String> {
+        match method {
+            Method::RenewWorkItemLease {
+                tenant,
+                work_item_id,
+                lease_epoch,
+                ..
+            } => Some(format!(
+                "RENEW_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}"
+            )),
+            Method::CommitWorkItemResult {
+                tenant,
+                work_item_id,
+                lease_epoch,
+                outcome,
+                ..
+            } => Some(format!(
+                "COMMIT_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}|{outcome}"
+            )),
+            Method::CancelWorkItem {
+                tenant,
+                work_item_id,
+                ..
+            } => Some(format!("CANCEL_WORK_ITEM|{tenant}|{work_item_id}")),
+            Method::DeferWorkItem {
+                tenant,
+                work_item_id,
+                lease_epoch,
+                next_retry_at_ms,
+                ..
+            } => Some(format!(
+                "DEFER_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}|{next_retry_at_ms}"
+            )),
+            // BUG-111: never logs the checkpoint/metadata/prio_bucket VALUE itself
+            // (privacy) -- only the identity + which single field class changed.
+            Method::CasWorkItemMetadata { request } => {
+                let field = if request.set_checkpoint_id.is_some() {
+                    "checkpoint_id"
+                } else if request.set_metadata_msgpack.is_some() {
+                    "metadata"
+                } else {
+                    "prio_bucket"
+                };
+                Some(format!(
+                    "CAS_WORK_ITEM_METADATA|{}|{}|{field}",
+                    request.tenant_ref, request.work_item_id
+                ))
+            }
+            _ => None,
+        }
+    };
+
+    let resources = || -> Option<String> {
+        match method {
+            Method::ReserveWorkItemResources { request } => Some(format!(
+                "RESERVE_WORK_ITEM_RESOURCES|{}|{}|{}",
+                request.tenant_ref, request.work_item_id, request.attempt
+            )),
+            Method::ReleaseWorkItemResources { request } => Some(format!(
+                "RELEASE_WORK_ITEM_RESOURCES|{}|{}|{}",
+                request.tenant_ref, request.work_item_id, request.attempt
+            )),
+            Method::ReclaimWorkItemResources { request } => Some(format!(
+                "RECLAIM_WORK_ITEM_RESOURCES|{}|{}|{}",
+                request.tenant_ref, request.work_item_id, request.attempt
+            )),
+            Method::UpdateResourceHost { request } => Some(format!(
+                "UPDATE_RESOURCE_HOST|{}|{}|{}",
+                request.tenant_ref, request.host_ref, request.revision
+            )),
+            _ => None,
+        }
+    };
+
+    let query = || -> Option<String> {
+        match method {
+            Method::Sql { query, .. } => Some(format!(
+                "SQL_MUTATION|sha256:{}",
+                hex::encode(Sha256::digest(query.as_bytes()))
+            )),
+            Method::CypherQuery { query, .. } => Some(format!(
+                "CYPHER_MUTATION|sha256:{}",
+                hex::encode(Sha256::digest(query.as_bytes()))
+            )),
+            #[cfg(feature = "graphql")]
+            Method::GraphQl { query, .. } => Some(format!(
+                "GRAPHQL_MUTATION|sha256:{}",
+                hex::encode(Sha256::digest(query.as_bytes()))
+            )),
+            Method::AddEmbedding { node_id, .. } => Some(format!("ADD_EMBEDDING|{node_id}")),
+            #[cfg(feature = "rdf")]
+            Method::AddTriples { .. } => Some("ADD_TRIPLES".to_string()),
+            #[cfg(feature = "rdf")]
+            Method::RemoveTriples { .. } => Some("REMOVE_TRIPLES".to_string()),
+            #[cfg(feature = "rdf")]
+            Method::DropNamedGraph => Some("DROP_NAMED_GRAPH".to_string()),
+            _ => None,
+        }
+    };
+
+    let memory = || -> Option<String> {
+        match method {
+            // ── Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ──
+            Method::CreateSummaryNode { .. } => Some("CREATE_SUMMARY_NODE".to_string()),
+            Method::Consolidate { .. } => Some("CONSOLIDATE".to_string()),
+            Method::Reinforce { node_id, .. } => Some(format!("REINFORCE|{node_id}")),
+            Method::DecayNode { node_id, .. } => Some(format!("DECAY_NODE|{node_id}")),
+            Method::DecayMemories { .. } => Some("DECAY_MEMORIES".to_string()),
+            Method::EvictBelow { .. } => Some("EVICT_BELOW".to_string()),
+            Method::Maintain { .. } => Some("MAINTAIN".to_string()),
+            _ => None,
+        }
+    };
+
+    let scene = || -> Option<String> {
+        match method {
+            Method::AddSceneObject { .. } => Some("ADD_SCENE_OBJECT".to_string()),
+            Method::SetPose { node_id, .. } => Some(format!("SET_POSE|{node_id}")),
+            Method::Reparent { node_id, .. } => Some(format!("REPARENT|{node_id}")),
+            Method::StartTrajectory { .. } => Some("START_TRAJECTORY".to_string()),
+            Method::AppendStep { traj_id, .. } => Some(format!("APPEND_STEP|{traj_id}")),
+            _ => None,
+        }
+    };
+
+    let mining = || -> Option<String> {
+        match method {
+            // ── Data-mining / graph-learning writeback (CONCEPT:EG-KG.mining.*) ──────────────
+            // Durability is `writeback`-conditional; `wal.rs::is_durable_mutation` already
+            // gates on the exact condition, so this arm only ever fires when the call
+            // actually reached the durable-commit path — no extra guard needed here.
+            #[cfg(feature = "mining")]
+            Method::MineAssociate { .. } => Some("MINE_ASSOCIATE".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineCluster { .. } => Some("MINE_CLUSTER".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineAnomaly { .. } => Some("MINE_ANOMALY".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineClassifyPredict { .. } => Some("MINE_CLASSIFY_PREDICT".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineReduce { .. } => Some("MINE_REDUCE".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineSequence { .. } => Some("MINE_SEQUENCE".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineForecast { .. } => Some("MINE_FORECAST".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineText { .. } => Some("MINE_TEXT".to_string()),
+            _ => None,
+        }
+    };
+
+    let mining_extended = || -> Option<String> {
+        match method {
+            #[cfg(feature = "mining")]
+            Method::MineSubgraph { .. } => Some("MINE_SUBGRAPH".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineEntityResolve { .. } => Some("MINE_ENTITY_RESOLVE".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineCausalImpact { .. } => Some("MINE_CAUSAL_IMPACT".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineProcess { .. } => Some("MINE_PROCESS".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineRootCause { .. } => Some("MINE_ROOT_CAUSE".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineRiskPropagation { .. } => Some("MINE_RISK_PROPAGATION".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineOntologyGap { .. } => Some("MINE_ONTOLOGY_GAP".to_string()),
+            #[cfg(feature = "mining")]
+            Method::MineRetrievalQuality { .. } => Some("MINE_RETRIEVAL_QUALITY".to_string()),
+            _ => None,
+        }
+    };
+
+    let mining_tail = || -> Option<String> {
+        match method {
+            #[cfg(feature = "mining")]
+            Method::MineCommunity { .. } => Some("MINE_COMMUNITY".to_string()),
+            _ => None,
+        }
+    };
+
+    let graph_learning = || -> Option<String> {
+        match method {
+            #[cfg(feature = "graphlearn")]
+            Method::GraphLearnFit { .. } => Some("GRAPH_LEARN_FIT".to_string()),
+            #[cfg(feature = "graphlearn")]
+            Method::GraphLearnPredict { .. } => Some("GRAPH_LEARN_PREDICT".to_string()),
+            _ => None,
+        }
+    };
+
+    let ml_pipeline = || -> Option<String> {
+        match method {
+            // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): same durable-writeback shape as
+            // the Mine*/GraphLearn* family above (`access.rs::requires_write` only reaches the
+            // durable-commit path when it actually mutates), so it gets the same audit
+            // coverage every sibling in this family already has (GOC-40, eg-capabilities'
+            // `audited_matches_audit_rs_exactly` cross-check caught the omission).
+            #[cfg(feature = "ml-pipeline")]
+            Method::MiningPipelineTrain { .. } => Some("MINING_PIPELINE_TRAIN".to_string()),
+            #[cfg(feature = "ml-pipeline")]
+            Method::MiningPipelineServe { .. } => Some("MINING_PIPELINE_SERVE".to_string()),
+            #[cfg(feature = "ml-pipeline")]
+            Method::MiningPipelinePredict { .. } => Some("MINING_PIPELINE_PREDICT".to_string()),
+            _ => None,
+        }
+    };
+
+    let broker_setup = || -> Option<String> {
+        match method {
+            // ── Message-broker / stream mutations, Outbox domain (CONCEPT:EG-KG.compute.message-broker-exchanges /
+            // replayable-append-log / publisher-confirms-consumer-qos) ──────────────────────
+            // NOT NODES/EDGES rows (`redb_store::apply_method_rows` is a no-op for
+            // them — the control-graph state lives on the in-memory `GraphCore`,
+            // replayed via `wal.rs::apply` on restart) but they DO flow through the
+            // SAME `record`/`record_durable` → `commit_ops`/`commit_crossmodal` →
+            // `append_audit_entry` call as every other durable mutation, so they
+            // chain into the SAME per-graph tamper-evident audit log.
+            #[cfg(feature = "broker")]
+            Method::DeclareExchange { exchange, .. } => {
+                Some(format!("DECLARE_EXCHANGE|{exchange}"))
+            }
+            #[cfg(feature = "broker")]
+            Method::DeleteExchange { exchange } => Some(format!("DELETE_EXCHANGE|{exchange}")),
+            #[cfg(feature = "broker")]
+            Method::BindQueue {
+                exchange, queue, ..
+            } => Some(format!("BIND_QUEUE|{exchange}|{queue}")),
+            #[cfg(feature = "broker")]
+            Method::UnbindQueue {
+                exchange, queue, ..
+            } => Some(format!("UNBIND_QUEUE|{exchange}|{queue}")),
+            #[cfg(feature = "broker")]
+            Method::Publish {
+                exchange,
+                routing_key,
+                ..
+            } => Some(format!("PUBLISH|{exchange}|{routing_key}")),
+            #[cfg(feature = "broker")]
+            Method::DeclareQueue { queue, .. } => Some(format!("DECLARE_QUEUE|{queue}")),
+            #[cfg(feature = "broker")]
+            Method::PublishEx {
+                exchange,
+                routing_key,
+                ..
+            } => Some(format!("PUBLISH_EX|{exchange}|{routing_key}")),
+            _ => None,
+        }
+    };
+
+    let broker_consume = || -> Option<String> {
+        match method {
+            #[cfg(feature = "broker")]
+            Method::BrokerConsume { queue, .. } => Some(format!("BROKER_CONSUME|{queue}")),
+            #[cfg(feature = "broker")]
+            Method::BrokerAck { queue, node_id } => Some(format!("BROKER_ACK|{queue}|{node_id}")),
+            #[cfg(feature = "broker")]
+            Method::BrokerReject { queue, node_id, .. } => {
+                Some(format!("BROKER_REJECT|{queue}|{node_id}"))
+            }
+            #[cfg(feature = "broker")]
+            Method::SweepExpired { .. } => Some("SWEEP_EXPIRED".to_string()),
+            #[cfg(feature = "broker")]
+            Method::StreamDeclare { stream, .. } => Some(format!("STREAM_DECLARE|{stream}")),
+            #[cfg(feature = "broker")]
+            Method::StreamPublish { stream, .. } => Some(format!("STREAM_PUBLISH|{stream}")),
+            #[cfg(feature = "broker")]
+            Method::StreamTrim { stream, .. } => Some(format!("STREAM_TRIM|{stream}")),
+            _ => None,
+        }
+    };
+
+    let broker_misc = || -> Option<String> {
+        match method {
+            #[cfg(feature = "broker")]
+            Method::StreamCommitOffset { stream, group, .. } => {
+                Some(format!("STREAM_COMMIT_OFFSET|{stream}|{group}"))
+            }
+            #[cfg(feature = "broker")]
+            Method::PublishConfirmed {
+                exchange,
+                routing_key,
+                ..
+            } => Some(format!("PUBLISH_CONFIRMED|{exchange}|{routing_key}")),
+            #[cfg(feature = "broker")]
+            Method::PublishIdempotent {
+                exchange,
+                routing_key,
+                ..
+            } => Some(format!("PUBLISH_IDEMPOTENT|{exchange}|{routing_key}")),
+            #[cfg(feature = "broker")]
+            Method::BrokerAckTag { delivery_tag, .. } => {
+                Some(format!("BROKER_ACK_TAG|{delivery_tag}"))
+            }
+            #[cfg(feature = "broker")]
+            Method::BrokerNackTag { delivery_tag, .. } => {
+                Some(format!("BROKER_NACK_TAG|{delivery_tag}"))
+            }
+            #[cfg(feature = "broker")]
+            Method::BrokerRenewTag { delivery_tag, .. } => {
+                Some(format!("BROKER_RENEW_TAG|{delivery_tag}"))
+            }
+            _ => None,
+        }
+    };
+
+    let transfer = || -> Option<String> {
+        match method {
+            // Transfer paths are logical operator-provisioned names. Keep them out
+            // of the chain so audit records never persist filesystem details.
+            #[cfg(feature = "sqlite-file")]
+            Method::ImportSqliteFile { .. } => Some("IMPORT_SQLITE_FILE".to_string()),
+            #[cfg(feature = "sqlite-file")]
+            Method::ExportSqliteFile { .. } => Some("EXPORT_SQLITE_FILE".to_string()),
+            _ => None,
+        }
+    };
+
+    // Every non-durable method (`DurabilityDomain::None`) never reaches this
+    // function via the redb write path in the first place; still falls through
+    // here harmlessly for any caller that invokes `audit_line` directly.
+    graph_crud()
+        .or_else(|| change_envelopes())
+        .or_else(|| modality())
+        .or_else(|| mutation())
+        .or_else(|| admin())
+        .or_else(|| ledger())
+        .or_else(|| edge())
+        .or_else(|| capacity())
+        .or_else(|| work_items())
+        .or_else(|| resources())
+        .or_else(|| query())
+        .or_else(|| memory())
+        .or_else(|| scene())
+        .or_else(|| mining())
+        .or_else(|| mining_extended())
+        .or_else(|| mining_tail())
+        .or_else(|| graph_learning())
+        .or_else(|| ml_pipeline())
+        .or_else(|| broker_setup())
+        .or_else(|| broker_consume())
+        .or_else(|| broker_misc())
+        .or_else(transfer)
 }
 
 /// Walk an ordered iterator of `(seq, stored_blob)` entries and verify the chain.
