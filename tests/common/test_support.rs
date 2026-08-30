@@ -33,6 +33,32 @@ pub fn open_redb_backend(dir: String) -> Result<SharedPersistence, String> {
     )?))
 }
 
+/// Repeatedly invoke an in-process redb reopen until its prior file lock clears.
+///
+/// The opener remains caller-owned so each fixture keeps its exact policy,
+/// capacity, and return type. There are at most 100 retries after the initial
+/// attempt, with one 20ms wait between attempts; the caller supplies the panic
+/// label so the existing failure message remains fixture-specific.
+#[cfg(feature = "redb")]
+pub async fn reopen_with_bounded_retry<T, F, E>(mut open: F, panic_label: &str) -> T
+where
+    F: FnMut() -> Result<T, E>,
+    E: std::fmt::Debug,
+{
+    let mut attempt = 0;
+    loop {
+        match open() {
+            Ok(value) => break value,
+            Err(error) if attempt < 100 => {
+                attempt += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                let _ = error;
+            }
+            Err(error) => panic!("{panic_label}: {error:?}"),
+        }
+    }
+}
+
 /// Provision the process-wide data-at-rest key once before a redb backend opens.
 ///
 /// Integration-test crates compile this module independently, so the key remains
