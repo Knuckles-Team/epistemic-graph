@@ -504,11 +504,11 @@ fn euclidean(a: &[f64], b: &[f64]) -> f64 {
     sq_dist(a, b).sqrt()
 }
 
-fn sq_dist(a: &[f64], b: &[f64]) -> f64 {
+pub(super) fn sq_dist(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
 }
 
-fn dot(a: &[f64], b: &[f64]) -> f64 {
+pub(super) fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 

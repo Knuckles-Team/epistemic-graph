@@ -23,6 +23,7 @@
 // handler (`src/server/handlers/mining.rs`) supplies rows (explicit features or node
 // embeddings), the labels, and does the KG write-back.
 
+use super::anomaly::{dot, sq_dist};
 use super::math::{argmax, log_gaussian_diag};
 
 /// A point in feature space (one matrix row).
@@ -483,14 +484,6 @@ fn softmax(v: &[f64]) -> Vec<f64> {
 
 fn sigmoid(z: f64) -> f64 {
     1.0 / (1.0 + (-z).exp())
-}
-
-fn dot(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b).map(|(x, y)| x * y).sum()
-}
-
-fn sq_dist(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
 }
 
 fn sorted_unique(y: &[i64]) -> Vec<i64> {
