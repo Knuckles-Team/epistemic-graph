@@ -64,15 +64,7 @@ async fn gql(state: &test_support::SharedState, id: u64, query: &str) -> serde_j
 #[tokio::test]
 async fn graphql_cross_modal_commit_survives_reopen() {
     // A unique, self-cleaning persist dir under the system temp dir (no tempfile dep).
-    let dir = std::env::temp_dir().join(format!(
-        "eg-gqlxm-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_support::fresh_dir("eg-gqlxm");
     let dir_s = dir.to_string_lossy().to_string();
 
     // ── Phase 1: open the durable tier, create the graph, run the cross-modal txn ──

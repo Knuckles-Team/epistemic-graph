@@ -70,15 +70,7 @@ fn carrier_tenant_scope(raw_tenant: &str) -> String {
 
 #[tokio::test]
 async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
-    let dir = std::env::temp_dir().join(format!(
-        "eg-txn-reconcile-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_support::fresh_dir("eg-txn-reconcile");
     let dir_s = dir.to_string_lossy().to_string();
 
     // The single/multi-graph OCC `Commit` receipt is sealed via the transaction
