@@ -374,7 +374,6 @@ pub fn spawn(state: Arc<RwLock<ServerState>>, cascade: Arc<ReasoningCascade>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
     use crate::protocol::GraphType;
 
     const SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
@@ -392,13 +391,7 @@ mod tests {
     /// bare-bones-literal convention every other server test file uses
     /// locally (see e.g. `server::mod::tests::test_state`).
     fn test_state() -> Arc<RwLock<ServerState>> {
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: "system".into(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
+        let isolation = ServerState::test_isolation("system");
         Arc::new(RwLock::new(ServerState::new_for_test(SECRET, isolation)))
     }
 
