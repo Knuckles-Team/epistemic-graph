@@ -298,16 +298,191 @@ impl Default for CoalescerConfig {
     }
 }
 
-/// Build the shared map/configuration pair used by both coalescer registries.
-pub(crate) fn new_registry<V>() -> (DashMap<String, V>, CoalescerConfig) {
-    (DashMap::new(), CoalescerConfig::auto())
+/// Shared per-writer state: admission ordering, tuning, and counters are the same
+/// for the topology and routed durable workers even though their payloads differ.
+pub(crate) struct CoalescerState {
+    admission: Mutex<AdmissionState>,
+    config: CoalescerConfig,
+    stats: BatchStatsHandle,
+    admission_error: &'static str,
 }
 
-/// Build a registry pair with an explicit test/runtime configuration.
-pub(crate) fn registry_with_config<V>(
+#[derive(Debug, Default)]
+pub(crate) struct AdmissionState {
+    next_ticket: u64,
+}
+
+impl CoalescerState {
+    pub(crate) fn new(config: CoalescerConfig, admission_error: &'static str) -> Self {
+        Self {
+            admission: Mutex::new(AdmissionState::default()),
+            config,
+            stats: BatchStatsHandle::new(),
+            admission_error,
+        }
+    }
+
+    pub(crate) fn config(&self) -> CoalescerConfig {
+        self.config
+    }
+
+    pub(crate) fn max_batch(&self) -> usize {
+        self.config.max_batch
+    }
+
+    pub(crate) fn stats(&self) -> &Arc<BatchStats> {
+        self.stats.as_ref()
+    }
+
+    pub(crate) fn worker_stats(&self) -> Arc<BatchStats> {
+        self.stats.clone_arc()
+    }
+
+    /// Admit one payload while serializing ticket assignment with the channel
+    /// send. Failed sends release their exact queue footprint and never consume
+    /// a ticket, so an overflow path cannot overtake accepted work.
+    pub(crate) fn try_enqueue<T, F>(&self, item: T, queued_bytes: u64, send: F) -> Result<(), T>
+    where
+        F: FnOnce(u64, T) -> Result<(), T>,
+    {
+        let mut admission = self.admission.lock().expect(self.admission_error);
+        if admission.next_ticket == u64::MAX {
+            return Err(item);
+        }
+        let ticket = admission.next_ticket;
+        queue_admitted(queued_bytes);
+        match send(ticket, item) {
+            Ok(()) => {
+                admission.next_ticket = ticket + 1;
+                Ok(())
+            }
+            Err(item) => {
+                queue_released(queued_bytes);
+                Err(item)
+            }
+        }
+    }
+}
+
+/// Shared bounded receive/drain state. It owns the worker-side ticket cursor and
+/// applies the same greedy drain plus short linger to every coalescer payload.
+pub(crate) async fn receive_batch<T, F>(
+    rx: &mut mpsc::Receiver<(u64, T)>,
+    batch: &mut Vec<T>,
     config: CoalescerConfig,
-) -> (DashMap<String, V>, CoalescerConfig) {
-    (DashMap::new(), config)
+    next_ticket: &mut u64,
+    ticket_label: &str,
+    approx_bytes: F,
+) -> bool
+where
+    F: Fn(&T) -> u64,
+{
+    let Some((ticket, item)) = rx.recv().await else {
+        return false;
+    };
+    accept_batch_item(
+        batch,
+        next_ticket,
+        ticket,
+        item,
+        &approx_bytes,
+        ticket_label,
+    );
+    drain_ready(
+        rx,
+        batch,
+        config.max_batch,
+        next_ticket,
+        ticket_label,
+        &approx_bytes,
+    );
+
+    if batch.len() == 1 && config.max_linger > Duration::ZERO {
+        if let Ok(Some((ticket, item))) = tokio::time::timeout(config.max_linger, rx.recv()).await {
+            accept_batch_item(
+                batch,
+                next_ticket,
+                ticket,
+                item,
+                &approx_bytes,
+                ticket_label,
+            );
+            drain_ready(
+                rx,
+                batch,
+                config.max_batch,
+                next_ticket,
+                ticket_label,
+                &approx_bytes,
+            );
+        }
+    }
+    true
+}
+
+fn drain_ready<T, F>(
+    rx: &mut mpsc::Receiver<(u64, T)>,
+    batch: &mut Vec<T>,
+    max_batch: usize,
+    next_ticket: &mut u64,
+    ticket_label: &str,
+    approx_bytes: &F,
+) where
+    F: Fn(&T) -> u64,
+{
+    while batch.len() < max_batch {
+        match rx.try_recv() {
+            Ok((ticket, item)) => {
+                accept_batch_item(batch, next_ticket, ticket, item, approx_bytes, ticket_label)
+            }
+            Err(_) => break,
+        }
+    }
+}
+
+fn accept_batch_item<T, F>(
+    batch: &mut Vec<T>,
+    next_ticket: &mut u64,
+    ticket: u64,
+    item: T,
+    approx_bytes: &F,
+    ticket_label: &str,
+) where
+    F: Fn(&T) -> u64,
+{
+    queue_released(approx_bytes(&item));
+    assert_eq!(
+        ticket, *next_ticket,
+        "{ticket_label} admission order must be contiguous"
+    );
+    *next_ticket = next_ticket
+        .checked_add(1)
+        .unwrap_or_else(|| panic!("{ticket_label} ticket overflow"));
+    batch.push(item);
+}
+
+pub(crate) fn record_flush(stats: &BatchStats, ops: usize) {
+    stats.record(ops);
+    operations_applied(ops);
+}
+
+/// Shared registry map/configuration state used by both coalescer registries.
+pub(crate) struct CoalescerRegistryState<W> {
+    pub(crate) writers: DashMap<String, Arc<W>>,
+    pub(crate) config: CoalescerConfig,
+}
+
+impl<W> CoalescerRegistryState<W> {
+    pub(crate) fn new() -> Self {
+        Self::with_config(CoalescerConfig::auto())
+    }
+
+    pub(crate) fn with_config(config: CoalescerConfig) -> Self {
+        Self {
+            writers: DashMap::new(),
+            config,
+        }
+    }
 }
 
 /// Per-graph write coalescer: a bounded channel + one drain worker over a graph's
@@ -317,40 +492,30 @@ pub struct GraphWriter {
     // the worker can record `write_lock_wait` = (lock acquired − enqueued). Stamped in
     // `try_enqueue`, so producer call sites can measure the true enqueue→acquire
     // wait without an unordered overflow path.
-    tx: mpsc::Sender<(u64, Instant, WriteOp)>,
-    /// Serializes ticket assignment with `try_send`. Tokio's channel preserves
-    /// the order in which sends linearize; assigning the ticket under this same
-    /// guard makes that order explicit instead of relying on scheduler luck
-    /// between concurrent producers.
-    admission: Mutex<AdmissionState>,
-    config: CoalescerConfig,
-    stats: BatchStatsHandle,
-}
-
-#[derive(Debug, Default)]
-struct AdmissionState {
-    next_ticket: u64,
+    tx: mpsc::Sender<(u64, (Instant, WriteOp))>,
+    state: CoalescerState,
 }
 
 impl GraphWriter {
     /// Spawn the drain worker for `core` (one Tokio task that owns the receiver and
     /// the only writer of this graph's topology lock on the coalesced path).
     pub fn spawn(graph_name: String, core: Arc<GraphCore>, config: CoalescerConfig) -> Arc<Self> {
-        let (tx, rx) = mpsc::channel::<(u64, Instant, WriteOp)>(config.queue_capacity);
-        let stats = BatchStatsHandle::new();
-        tokio::spawn(run_worker(graph_name, core, rx, config, stats.clone_arc()));
-        Arc::new(Self {
-            tx,
-            admission: Mutex::new(AdmissionState::default()),
-            config,
-            stats,
-        })
+        let state = CoalescerState::new(config, "write coalescer admission mutex poisoned");
+        let (tx, rx) = mpsc::channel::<(u64, (Instant, WriteOp))>(config.queue_capacity);
+        tokio::spawn(run_worker(
+            graph_name,
+            core,
+            rx,
+            state.config(),
+            state.worker_stats(),
+        ));
+        Arc::new(Self { tx, state })
     }
 
     /// Coalescing counters for this graph (batches vs ops). Mainly for tests /
     /// in-process diagnostics; the Prometheus counters are the operator surface.
     pub fn stats(&self) -> &Arc<BatchStats> {
-        self.stats.as_ref()
+        self.state.stats()
     }
 
     /// Try to enqueue a pre-built op (its oneshot reply already wired) onto this
@@ -363,37 +528,22 @@ impl GraphWriter {
     ///   An accepted queue ticket is the sole authority for this graph's write order,
     ///   so an overflow path cannot overtake work already admitted ahead of it.
     pub fn try_enqueue(&self, op: WriteOp) -> Result<(), WriteOp> {
-        // Ticket assignment and send linearize together. A producer that loses
-        // `try_send` receives its op back but never receives a ticket, so it is
-        // rejected rather than becoming an unordered inline write.
-        let mut admission = self
-            .admission
-            .lock()
-            .expect("write coalescer admission mutex poisoned");
-        if admission.next_ticket == u64::MAX {
-            return Err(op);
-        }
-        let ticket = admission.next_ticket;
         // CONCEPT:EG-KG.compute.parse-resolve-span — stamp the enqueue instant here (the moment the producer
         // hands the op off) so the worker measures the true enqueue→acquire wait.
         let queued_bytes = op.approx_bytes();
-        queue_admitted(queued_bytes);
-        match self.tx.try_send((ticket, Instant::now(), op)) {
-            Ok(()) => {
-                admission.next_ticket = ticket + 1;
-                Ok(())
-            }
-            Err(mpsc::error::TrySendError::Full((_, _, op)))
-            | Err(mpsc::error::TrySendError::Closed((_, _, op))) => {
-                queue_released(queued_bytes);
-                Err(op)
-            }
-        }
+        let tx = &self.tx;
+        self.state.try_enqueue(op, queued_bytes, |ticket, op| {
+            tx.try_send((ticket, (Instant::now(), op)))
+                .map_err(|error| match error {
+                    mpsc::error::TrySendError::Full((_, (_, op)))
+                    | mpsc::error::TrySendError::Closed((_, (_, op))) => op,
+                })
+        })
     }
 
     /// The active batch size, for diagnostics/tests.
     pub fn max_batch(&self) -> usize {
-        self.config.max_batch
+        self.state.max_batch()
     }
 }
 
@@ -401,79 +551,23 @@ impl GraphWriter {
 async fn run_worker(
     graph_name: String,
     core: Arc<GraphCore>,
-    mut rx: mpsc::Receiver<(u64, Instant, WriteOp)>,
+    mut rx: mpsc::Receiver<(u64, (Instant, WriteOp))>,
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
 ) {
     // CONCEPT:EG-KG.compute.parse-resolve-span — each entry carries its enqueue instant (set by `try_enqueue`).
     let mut batch: Vec<(Instant, WriteOp)> = Vec::with_capacity(config.max_batch);
     let mut next_ticket = 0u64;
-    while let Some(first) = rx.recv().await {
-        let (ticket, enqueued, op) = first;
-        queue_released(op.approx_bytes());
-        assert_eq!(
-            ticket, next_ticket,
-            "write coalescer admission order must be contiguous"
-        );
-        next_ticket = next_ticket
-            .checked_add(1)
-            .expect("write coalescer ticket overflow");
-        batch.push((enqueued, op));
-
-        // Greedily pull everything already queued (no await) up to max_batch — the
-        // common firehose case where producers are ahead of the worker.
-        while batch.len() < config.max_batch {
-            match rx.try_recv() {
-                Ok((ticket, enqueued, op)) => {
-                    queue_released(op.approx_bytes());
-                    assert_eq!(
-                        ticket, next_ticket,
-                        "write coalescer admission order must be contiguous"
-                    );
-                    next_ticket = next_ticket
-                        .checked_add(1)
-                        .expect("write coalescer ticket overflow");
-                    batch.push((enqueued, op));
-                }
-                Err(_) => break,
-            }
-        }
-
-        // If we only got the one op, linger briefly to let a concurrent burst land
-        // in the same lock acquisition — but never longer than max_linger, so a lone
-        // write is essentially undelayed.
-        if batch.len() == 1 && config.max_linger > Duration::ZERO {
-            if let Ok(Some((ticket, enqueued, op))) =
-                tokio::time::timeout(config.max_linger, rx.recv()).await
-            {
-                queue_released(op.approx_bytes());
-                assert_eq!(
-                    ticket, next_ticket,
-                    "write coalescer admission order must be contiguous"
-                );
-                next_ticket = next_ticket
-                    .checked_add(1)
-                    .expect("write coalescer ticket overflow");
-                batch.push((enqueued, op));
-                while batch.len() < config.max_batch {
-                    match rx.try_recv() {
-                        Ok((ticket, enqueued, op)) => {
-                            queue_released(op.approx_bytes());
-                            assert_eq!(
-                                ticket, next_ticket,
-                                "write coalescer admission order must be contiguous"
-                            );
-                            next_ticket = next_ticket
-                                .checked_add(1)
-                                .expect("write coalescer ticket overflow");
-                            batch.push((enqueued, op));
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }
-        }
-
+    while receive_batch(
+        &mut rx,
+        &mut batch,
+        config,
+        &mut next_ticket,
+        "write coalescer",
+        |(_, op)| op.approx_bytes(),
+    )
+    .await
+    {
         apply_batch(&core, &graph_name, std::mem::take(&mut batch), &stats);
         batch = Vec::with_capacity(config.max_batch);
     }
@@ -583,16 +677,15 @@ fn apply_batch(
                 // index (text/temporal) reads only its own field from it, so a
                 // CAS that touches that field re-indexes it and one that does not
                 // is a no-op for the index (its prior entry stays correct).
-                let blob =
-                    rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
-                        .unwrap_or_default();
-                change.updated_nodes.push(
-                    crate::index::NodeChange::with_properties_and_fields(
+                let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
+                    .unwrap_or_default();
+                change
+                    .updated_nodes
+                    .push(crate::index::NodeChange::with_properties_and_fields(
                         node_id,
                         blob,
                         updates.keys().cloned().collect(),
-                    ),
-                );
+                    ));
             } else {
                 change
                     .updated_nodes
@@ -633,14 +726,7 @@ fn apply_batch(
                 target_id,
                 properties_msgpack,
                 reply,
-            } => apply_add_edge(
-                txn,
-                change,
-                source_id,
-                target_id,
-                properties_msgpack,
-                reply,
-            ),
+            } => apply_add_edge(txn, change, source_id, target_id, properties_msgpack, reply),
             WriteOp::RemoveEdge {
                 source_id,
                 target_id,
@@ -710,8 +796,7 @@ fn apply_batch(
     drop(txn); // release the lock; reads + the next batch can proceed.
                // CONCEPT:EG-KG.compute.parse-resolve-span — hold = acquire → release: the window readers were blocked.
     crate::metrics::observe_write_lock_hold(graph_name, acquired.elapsed().as_secs_f64());
-    stats.record(n);
-    operations_applied(n);
+    record_flush(stats, n);
     crate::metrics::write_batch_committed(graph_name, n);
 }
 
@@ -720,35 +805,36 @@ fn apply_batch(
 /// graph that has no writer yet creates one on the spot — automatic per new
 /// connector/graph, with no registration list.
 pub struct WriteCoalescerRegistry {
-    writers: DashMap<String, Arc<GraphWriter>>,
-    config: CoalescerConfig,
+    state: CoalescerRegistryState<GraphWriter>,
 }
 
 impl WriteCoalescerRegistry {
     /// Build an always-on, hardware-sized bounded coalescer registry.
     pub fn new() -> Self {
-        let (writers, config) = new_registry();
-        Self { writers, config }
+        Self {
+            state: CoalescerRegistryState::new(),
+        }
     }
 
     /// Explicit constructor (tests): coalescing on, with the given config.
     pub fn with_config(config: CoalescerConfig) -> Self {
-        let (writers, config) = registry_with_config(config);
-        Self { writers, config }
+        Self {
+            state: CoalescerRegistryState::with_config(config),
+        }
     }
 
     /// Get (or lazily create) the writer for `graph_name`, spawning its worker over
     /// `core` on first use. The `core` passed must be the same `Arc` for a given
     /// name, so a graph has exactly one writer over its one core.
     pub fn writer_for(&self, graph_name: &str, core: &Arc<GraphCore>) -> Arc<GraphWriter> {
-        if let Some(w) = self.writers.get(graph_name) {
+        if let Some(w) = self.state.writers.get(graph_name) {
             return w.clone();
         }
-        self.writers
+        let config = self.state.config;
+        self.state
+            .writers
             .entry(graph_name.to_string())
-            .or_insert_with(|| {
-                GraphWriter::spawn(graph_name.to_string(), core.clone(), self.config)
-            })
+            .or_insert_with(|| GraphWriter::spawn(graph_name.to_string(), core.clone(), config))
             .clone()
     }
 
@@ -763,7 +849,7 @@ impl WriteCoalescerRegistry {
     /// releasing its hold on the old core. The next write to the name lazily spawns a
     /// fresh writer over the NEW core. No-op if no writer exists yet.
     pub fn remove(&self, graph_name: &str) {
-        self.writers.remove(graph_name);
+        self.state.writers.remove(graph_name);
     }
 }
 
