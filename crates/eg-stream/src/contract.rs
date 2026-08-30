@@ -14,6 +14,21 @@ use serde_json::{Map, Value};
 
 use crate::event::Event;
 
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "CDC is already wired via stream.event.append; event retention/GC is a CEP window/pattern-engine concern, not a per-event capability",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the event stream",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "provenance is implicit in the event's timestamp and source attributes; per-event lineage is a CEP pipeline concern, not a modality-value property",
+    ),
+];
+
 impl ModalityContract for Event {
     fn storage_kind(&self) -> &'static str {
         "stream"
@@ -116,18 +131,7 @@ impl ModalityContract for Event {
     /// is at the graph-node layer; provenance is implicit in the event's timestamp/
     /// source attributes.
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "CDC is already wired via stream.event.append; event retention/GC is a CEP window/pattern-engine concern, not a per-event capability",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the event stream",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "provenance is implicit in the event's timestamp and source attributes; per-event lineage is a CEP pipeline concern, not a modality-value property",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, TCK_NOT_APPLICABLE_REASONS)
     }
 }
 

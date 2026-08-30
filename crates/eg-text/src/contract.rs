@@ -18,6 +18,21 @@ use eg_modality::{
 
 use crate::{CitationSpan, TableSpan, TextHit};
 
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "a BM25 hit is a query-time result, not a stored value — change-capture/delete/GC is maintained by the Tantivy index backend",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the result",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "a BM25 hit has no derivation history; provenance/evidence are document-level concerns, not per-hit properties",
+    ),
+];
+
 /// A [`TableSpan`] (from `src/layout.rs`'s heuristic table extractor) IS
 /// field-for-field an `EvidenceAddress::TableCellRange` — this conversion only
 /// exists under `contract` since that's the only place `eg-modality` is linked
@@ -138,18 +153,7 @@ impl ModalityContract for TextHit {
     /// results from any search backend): CDC is the index's concern; policy is at
     /// the graph-node layer; provenance/evidence are per-document, not per-hit.
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "a BM25 hit is a query-time result, not a stored value — change-capture/delete/GC is maintained by the Tantivy index backend",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the result",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "a BM25 hit has no derivation history; provenance/evidence are document-level concerns, not per-hit properties",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, TCK_NOT_APPLICABLE_REASONS)
     }
 }
 

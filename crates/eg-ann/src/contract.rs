@@ -12,6 +12,21 @@ use eg_modality::{
 
 use crate::flat::FlatIndex;
 
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "a vector index is an immutable structure — change-capture/delete/GC is a store-layer concern, not a modality-value capability",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the index",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "a vector index has no derivation history and no located-evidence artifact; lineage, where it exists, is recorded by the producing operator",
+    ),
+];
+
 impl ModalityContract for FlatIndex {
     fn storage_kind(&self) -> &'static str {
         "ann"
@@ -102,18 +117,7 @@ impl ModalityContract for FlatIndex {
     /// enforced at the graph-node layer; provenance/evidence are recorded by the
     /// producing operator, not embedded in the index bytes.
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "a vector index is an immutable structure — change-capture/delete/GC is a store-layer concern, not a modality-value capability",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the index",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "a vector index has no derivation history and no located-evidence artifact; lineage, where it exists, is recorded by the producing operator",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, TCK_NOT_APPLICABLE_REASONS)
     }
 }
 

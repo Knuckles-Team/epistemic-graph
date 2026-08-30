@@ -13,6 +13,21 @@ use eg_modality::{
 use crate::geometry::{Geometry, Point};
 use crate::wkb::{from_wkb, to_wkb};
 
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "a geometry is an immutable spatial literal — change-capture/delete/GC is a store-layer concern, not a modality-value capability",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the geometry",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "a bare geometry literal has no derivation history and no located-evidence artifact; lineage, where it exists, is recorded by the producing plan operator",
+    ),
+];
+
 impl ModalityContract for Geometry {
     fn storage_kind(&self) -> &'static str {
         "geo"
@@ -125,18 +140,7 @@ impl ModalityContract for Geometry {
     /// that owns the geometry; a bare geometry has no derivation history or located-
     /// evidence artifact (its `provenance()`/`evidence_address()` are `None` by design).
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "a geometry is an immutable spatial literal — change-capture/delete/GC is a store-layer concern, not a modality-value capability",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the geometry",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "a bare geometry literal has no derivation history and no located-evidence artifact; lineage, where it exists, is recorded by the producing plan operator",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, TCK_NOT_APPLICABLE_REASONS)
     }
 }
 

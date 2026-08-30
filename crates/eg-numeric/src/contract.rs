@@ -14,6 +14,21 @@ use eg_modality::{
 
 use crate::cluster::KMeansResult;
 
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+    (
+        TckPoint::CdcDeleteRetentionGc,
+        "a KMeans result is a computed output; CDC would require materializing cluster assignments as persistent nodes/edges",
+    ),
+    (
+        TckPoint::TenantRowRegionPolicy,
+        "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the result",
+    ),
+    (
+        TckPoint::ProvenanceEvidenceLineage,
+        "provenance is implicit in the fit parameters (data, k, seed); a KMeans result itself has no derivation history to store",
+    ),
+];
+
 impl ModalityContract for KMeansResult {
     fn storage_kind(&self) -> &'static str {
         "numeric"
@@ -88,18 +103,7 @@ impl ModalityContract for KMeansResult {
     /// to other computed outputs): CDC would require materialized cluster assignments;
     /// policy is at the graph-node layer; provenance is implicit in the fit parameters.
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
-        match point {
-            TckPoint::CdcDeleteRetentionGc => Some(
-                "a KMeans result is a computed output; CDC would require materializing cluster assignments as persistent nodes/edges",
-            ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the result",
-            ),
-            TckPoint::ProvenanceEvidenceLineage => Some(
-                "provenance is implicit in the fit parameters (data, k, seed); a KMeans result itself has no derivation history to store",
-            ),
-            _ => None,
-        }
+        eg_modality::tck_not_applicable_reason(point, TCK_NOT_APPLICABLE_REASONS)
     }
 }
 
