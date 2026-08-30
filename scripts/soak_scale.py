@@ -464,6 +464,25 @@ async def _turn_worker(
     # building this harness — a measurement artifact, not a real system property).
     poll_interval_s = 0.025
     hard_stop = stop_at + drain_grace_s
+
+    async def process_claim(claimed: tuple[str, dict[str, Any]]) -> None:
+        item_id, _props = claimed
+        t_claim = time.monotonic()
+        submit_ts = metrics.submit_ts.get(item_id)
+        if submit_ts is not None:
+            metrics.queue_latency_s.append(t_claim - submit_ts)
+        if turn_duration_s > 0:
+            await asyncio.sleep(turn_duration_s)
+        tier = item_id.rsplit(":turn:", 1)[0]
+        ok = await compare_and_set(
+            conn, tier, item_id, {"status": "running"}, {"status": "succeeded"}
+        )
+        if not ok:
+            return
+        metrics.turns_succeeded += 1
+        if submit_ts is not None:
+            metrics.end_to_end_latency_s.append(time.monotonic() - submit_ts)
+
     while time.monotonic() < hard_stop:
         claimed = None
         for tier in tiers:
@@ -475,21 +494,7 @@ async def _turn_worker(
         if claimed is None:
             await asyncio.sleep(poll_interval_s)
             continue
-        item_id, props = claimed
-        t_claim = time.monotonic()
-        submit_ts = metrics.submit_ts.get(item_id)
-        if submit_ts is not None:
-            metrics.queue_latency_s.append(t_claim - submit_ts)
-        if turn_duration_s > 0:
-            await asyncio.sleep(turn_duration_s)
-        tier = item_id.rsplit(":turn:", 1)[0]
-        ok = await compare_and_set(
-            conn, tier, item_id, {"status": "running"}, {"status": "succeeded"}
-        )
-        if ok:
-            metrics.turns_succeeded += 1
-            if submit_ts is not None:
-                metrics.end_to_end_latency_s.append(time.monotonic() - submit_ts)
+        await process_claim(claimed)
 
 
 def _turn_tier_plan(
