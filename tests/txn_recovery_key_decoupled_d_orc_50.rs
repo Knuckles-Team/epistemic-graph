@@ -60,19 +60,6 @@ const PRE_EXISTING_NODE: &str = "pre-existing";
 /// `cargo test` runs this file's tests concurrently by default.
 static KEY_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> test_support::SharedState {
-    test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir),
-        Some(backend),
-    )
-}
-
-fn req(id: u64, graph: &str, method: Method) -> Request {
-    test_support::request(SECRET, id, graph, method)
-}
-
 async fn dispatch(state: &test_support::SharedState, request: Request) -> Response {
     test_support::dispatch(state, request).await
 }
@@ -144,7 +131,8 @@ async fn compare_and_set_node_embedding(
 ) -> Response {
     let begun: Response = Box::pin(dispatch(
         state,
-        req(
+        test_support::request(
+            SECRET,
             100,
             graph,
             Method::BeginTxn {
@@ -162,7 +150,8 @@ async fn compare_and_set_node_embedding(
 
     let staged_node: Response = Box::pin(dispatch(
         state,
-        req(
+        test_support::request(
+            SECRET,
             101,
             graph,
             Method::TxnAddNode {
@@ -182,7 +171,8 @@ async fn compare_and_set_node_embedding(
 
     let staged_embedding: Response = Box::pin(dispatch(
         state,
-        req(
+        test_support::request(
+            SECRET,
             102,
             graph,
             Method::TxnAddEmbedding {
@@ -202,7 +192,8 @@ async fn compare_and_set_node_embedding(
 
     Box::pin(dispatch(
         state,
-        req(
+        test_support::request(
+            SECRET,
             103,
             graph,
             Method::Commit {
@@ -306,11 +297,17 @@ async fn dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_pl
     // on a brand-new graph name so it never has to touch the pre-existing durable graph
     // through the higher-level dispatch/registry machinery.
     let backend: Arc<dyn PersistenceBackend> = Arc::new(reopened);
-    let state = state_with(backend.clone(), work_s.clone());
+    let state = test_support::state_with(
+        SECRET,
+        common::current_isolation(),
+        Some(work_s.clone()),
+        Some(backend.clone()),
+    );
     let new_graph = "embedding-backfill-target";
     let create: Response = Box::pin(dispatch(
         &state,
-        req(
+        test_support::request(
+            SECRET,
             1,
             new_graph,
             Method::CreateGraph {

@@ -26,25 +26,12 @@ mod test_support;
 use std::sync::Arc;
 
 use epistemic_graph::durability::DurabilityPolicy;
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
 use epistemic_graph::server::dispatch;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
 
 const SECRET: &str = "txn-reconcile-ack-lost-secret";
-
-fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> test_support::SharedState {
-    test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir),
-        Some(backend),
-    )
-}
-
-fn req(id: u64, graph: &str, method: Method) -> Request {
-    common::signed_request(SECRET, id, graph, method)
-}
 
 fn pack(value: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&value).unwrap()
@@ -105,7 +92,12 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
 
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192).unwrap());
-    let state = state_with(backend.clone(), dir_s.clone());
+    let state = test_support::state_with(
+        SECRET,
+        common::current_isolation(),
+        Some(dir_s.clone()),
+        Some(backend.clone()),
+    );
 
     // Register several resident graphs so the retry's reconcile walk actually has
     // more than one (graph x namespace) candidate to consider — the target graph
@@ -122,7 +114,8 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     for graph in &graphs {
         let cr: Response = Box::pin(dispatch(
             &state,
-            req(
+            test_support::request(
+                SECRET,
                 1,
                 graph,
                 Method::CreateGraph {
@@ -143,7 +136,8 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     // begin → stage → commit on the target graph, exactly as a normal client.
     let begun: Response = Box::pin(dispatch(
         &state,
-        req(
+        test_support::request(
+            SECRET,
             10,
             target,
             Method::BeginTxn {
@@ -161,7 +155,8 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
 
     let staged: Response = Box::pin(dispatch(
         &state,
-        req(
+        test_support::request(
+            SECRET,
             11,
             target,
             Method::TxnAddNode {
@@ -181,7 +176,8 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
 
     let first_commit: Response = Box::pin(dispatch(
         &state,
-        req(
+        test_support::request(
+            SECRET,
             12,
             target,
             Method::Commit {
@@ -209,7 +205,8 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     // graph x namespace fully sequentially before finding `target`.
     let retried_commit: Response = Box::pin(dispatch(
         &state,
-        req(
+        test_support::request(
+            SECRET,
             13,
             target,
             Method::Commit {
