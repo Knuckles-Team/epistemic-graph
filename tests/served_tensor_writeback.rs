@@ -80,12 +80,8 @@ async fn served_tensor_scan_and_reduce_writeback_succeeds() {
             },
         },
     ]);
-    let resp = Box::pin(dispatch(
-        &state,
-        test_support::commons_request(SECRET, 100, Method::UnifiedQuery { plan }),
-    ))
-    .await;
-    let rows = test_support::raw_rows(&resp);
+    let rows =
+        test_support::raw_rows(&test_support::unified_query(&state, SECRET, 100, plan).await);
     let mut ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     ids.sort();
     assert_eq!(
