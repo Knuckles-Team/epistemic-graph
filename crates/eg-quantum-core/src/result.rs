@@ -156,6 +156,29 @@ impl QuantumResult {
         }
     }
 
+    /// Construct the non-exact counts payload returned by a hardware adapter.
+    pub fn new_hardware_counts(
+        backend_id: BackendId,
+        shots: Option<u64>,
+        circuit_hash: CircuitHash,
+        fidelity_hint: Option<f64>,
+        counts: std::collections::BTreeMap<String, u64>,
+    ) -> Self {
+        QuantumResult {
+            backend_id,
+            formalism: Formalism::Hardware,
+            seed: None,
+            shots,
+            circuit_hash,
+            exactness: Exactness::Inexact,
+            noise_model_id: None,
+            fidelity_hint,
+            wall_time_ms: 0,
+            peak_memory_bytes: 0,
+            outcome: Outcome::Counts(counts),
+        }
+    }
+
     /// Read-only. Safe to use for logging, telemetry, and UI display — NOT a
     /// substitute for `into_hard_constraint()` at any call site that will feed a
     /// commit path.
