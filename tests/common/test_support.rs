@@ -306,17 +306,7 @@ pub async fn assert_ok(state: &SharedState, auth_secret: &str, id: u64, method: 
 }
 
 pub fn unified_ids(response: &Response) -> Vec<String> {
-    assert!(
-        response.error.is_none(),
-        "unified query error: {:?}",
-        response.error
-    );
-    let bytes = match &response.result {
-        Some(ResultPayload::Raw(bytes)) => bytes.clone(),
-        other => panic!("expected Raw result, got {other:?}"),
-    };
-    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(&bytes).unwrap();
-    rows.into_iter().map(|(id, _)| id).collect()
+    epistemic_graph::server::decode_unified_ids(response)
 }
 
 pub async fn unified_query(
