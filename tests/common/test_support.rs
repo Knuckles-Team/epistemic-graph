@@ -272,6 +272,53 @@ pub async fn dispatch(
     Box::pin(epistemic_graph::server::dispatch(state, request)).await
 }
 
+pub async fn begin_txn(
+    state: &SharedState,
+    auth_secret: &str,
+    id: u64,
+    isolation: Option<String>,
+) -> String {
+    let response = dispatch(
+        state,
+        commons_request(
+            auth_secret,
+            id,
+            Method::BeginTxn {
+                graph: None,
+                isolation,
+            },
+        ),
+    )
+    .await;
+    match response.result {
+        Some(ResultPayload::String(txn_id)) => txn_id,
+        other => panic!("BeginTxn failed: {:?} / {other:?}", response.error),
+    }
+}
+
+pub async fn assert_ok(state: &SharedState, auth_secret: &str, id: u64, method: Method) {
+    let response = dispatch(state, commons_request(auth_secret, id, method)).await;
+    assert!(
+        response.error.is_none(),
+        "op {id} failed: {:?}",
+        response.error
+    );
+}
+
+pub fn unified_ids(response: &Response) -> Vec<String> {
+    assert!(
+        response.error.is_none(),
+        "unified query error: {:?}",
+        response.error
+    );
+    let bytes = match &response.result {
+        Some(ResultPayload::Raw(bytes)) => bytes.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(&bytes).unwrap();
+    rows.into_iter().map(|(id, _)| id).collect()
+}
+
 pub async fn unified_query(
     state: &SharedState,
     auth_secret: &str,
