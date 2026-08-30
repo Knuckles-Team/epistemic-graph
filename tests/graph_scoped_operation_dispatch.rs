@@ -29,31 +29,21 @@ use epistemic_graph::protocol::{CypherMode, GraphType, Method, Response, ResultP
 const SECRET: &str = "cx-eg-06-dispatch-graph-op-inner-secret";
 
 fn state() -> test_support::SharedState {
-    test_support::durable_state(SECRET, common::current_isolation())
+    let isolation = common::current_isolation();
+    test_support::durable_state(SECRET, isolation)
 }
 
 async fn call(state: &test_support::SharedState, id: u64, graph: &str, method: Method) -> Response {
-    test_support::dispatch(state, test_support::request(SECRET, id, graph, method)).await
-}
-
-async fn dispatch(
-    state: &test_support::SharedState,
-    request: epistemic_graph::protocol::Request,
-) -> Response {
+    let request = test_support::request(SECRET, id, graph, method);
     test_support::dispatch(state, request).await
 }
 
 async fn create_graph(state: &test_support::SharedState, id: u64, name: &str) -> Response {
-    call(
-        state,
-        id,
-        name,
-        Method::CreateGraph {
-            graph_name: name.to_string(),
-            graph_type: GraphType::Global,
-        },
-    )
-    .await
+    let method = Method::CreateGraph {
+        graph_name: name.to_string(),
+        graph_type: GraphType::Global,
+    };
+    call(state, id, name, method).await
 }
 
 async fn add_node(
@@ -188,7 +178,7 @@ async fn t07_unregistered_caller_denied_before_graph_op() {
         .await
         .error
         .is_none());
-    let resp = Box::pin(dispatch(
+    let resp = Box::pin(test_support::dispatch(
         &state,
         common::signed_request_as(
             SECRET,
