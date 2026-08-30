@@ -529,6 +529,50 @@ async fn page_in_remaining(
 }
 
 #[cfg(test)]
+pub(crate) async fn test_state_with_backend(
+    secret: &str,
+    dir_s: &str,
+    backend: Arc<dyn PersistenceBackend>,
+    isolation: crate::isolation::IsolationLayer,
+) -> Arc<RwLock<ServerState>> {
+    use crate::server::persistence::read_through::{
+        BackendGraphMaterializer, BackendReadThroughFactory,
+    };
+
+    let mut state = ServerState::new_for_test(secret, isolation);
+    state.persist_dir = Some(dir_s.to_string());
+    state.persistence = Some(backend.clone());
+    state.max_in_flight = Arc::new(tokio::sync::Semaphore::new(64));
+    state.read_admission = Arc::new(tokio::sync::Semaphore::new(64));
+    state.per_graph_inflight_limit = 32;
+    let state = Arc::new(RwLock::new(state));
+    {
+        let mut s = state.write().await;
+        let rt_factory = Arc::new(BackendReadThroughFactory::new(backend.clone()));
+        s.registry.set_read_through_factory(rt_factory);
+        let materializer = Arc::new(BackendGraphMaterializer::new(backend));
+        s.registry.set_materializer(materializer);
+    }
+    state
+}
+
+#[cfg(test)]
+pub(crate) async fn test_redb_state(
+    secret: &str,
+    dir_s: &str,
+    isolation: crate::isolation::IsolationLayer,
+    page_size: usize,
+) -> Arc<RwLock<ServerState>> {
+    use crate::durability::DurabilityPolicy;
+    use crate::server::persistence::redb_backend::RedbBackend;
+
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, page_size).expect("open"),
+    );
+    test_state_with_backend(secret, dir_s, backend, isolation).await
+}
+
+#[cfg(test)]
 mod tracker_tests {
     use super::ColdTenantTracker;
     use std::time::Duration;
@@ -591,13 +635,7 @@ mod admission_tests {
     fn rls_isolation() -> IsolationLayer {
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
 
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: TEST_AGENT.to_string(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
+        let mut isolation = ServerState::test_isolation(TEST_AGENT);
         isolation.register_agent(AgentIdentity {
             agent_id: "alice".to_string(),
             role: AgentRole::Agent,
@@ -627,30 +665,11 @@ mod admission_tests {
         backend: Arc<dyn PersistenceBackend>,
         isolation: IsolationLayer,
     ) -> Arc<RwLock<ServerState>> {
-        let mut state = ServerState::new_for_test(SECRET, isolation);
-        state.persist_dir = Some(dir_s.to_string());
-        state.persistence = Some(backend.clone());
-        state.max_in_flight = Arc::new(Semaphore::new(64));
-        state.read_admission = Arc::new(Semaphore::new(64));
-        state.per_graph_inflight_limit = 32;
-        let state = Arc::new(RwLock::new(state));
-        // Wire the read-through + lazy-open materializer exactly like main.rs does
-        // under authoritative mode.
-        {
-            let mut s = state.write().await;
-            let rt_factory = Arc::new(BackendReadThroughFactory::new(backend.clone()));
-            s.registry.set_read_through_factory(rt_factory);
-            let materializer = Arc::new(BackendGraphMaterializer::new(backend.clone()));
-            s.registry.set_materializer(materializer);
-        }
-        state
+        super::test_state_with_backend(SECRET, dir_s, backend, isolation).await
     }
 
     async fn redb_state(dir_s: &str) -> Arc<RwLock<ServerState>> {
-        let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 64).expect("open"),
-        );
-        state_with_backend(dir_s, backend, ServerState::test_isolation(TEST_AGENT)).await
+        super::test_redb_state(SECRET, dir_s, ServerState::test_isolation(TEST_AGENT), 64).await
     }
 
     fn req(id: u64, graph: &str, method: Method) -> Request {

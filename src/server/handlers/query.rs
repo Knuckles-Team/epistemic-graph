@@ -5457,13 +5457,7 @@ mod current_auth_test_support {
     }
 
     pub(super) fn current_isolation_with_agents(agent_ids: &[&str]) -> IsolationLayer {
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: TEST_AGENT.to_string(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
+        let mut isolation = ServerState::test_isolation(TEST_AGENT);
         // RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory current access
         // decision under `feature = "security"` (`isolation.rs::check_access`) —
         // there is no pre-RBAC "Commons is public" fall-through any more for a
@@ -5536,12 +5530,24 @@ mod current_auth_test_support {
         Arc::new(RwLock::new(state))
     }
 
+    #[cfg(feature = "redb")]
+    pub(super) fn persisted_state(
+        secret: &str,
+        isolation: IsolationLayer,
+    ) -> Arc<RwLock<ServerState>> {
+        let dir = crate::server::sql_tables::test_persist_dir()
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&dir).expect("create test persist dir");
+        let backend = open_test_backend(dir.clone());
+        state_with_backend(secret, isolation, dir, backend)
+    }
+
     pub(super) mod prelude {
         #[cfg(feature = "redb")]
-        pub(in super::super) use super::open_test_backend;
+        pub(in super::super) use super::persisted_state;
         pub(in super::super) use super::{
             current_isolation, current_isolation_with_agents, current_request, current_request_as,
-            state_with_backend,
         };
         pub(in super::super) use crate::acl::{AgentIdentity, AgentRole};
         pub(in super::super) use crate::protocol::{Method, Request, Response, ResultPayload};
@@ -5704,18 +5710,7 @@ mod result_cache_dispatch_tests {
         // persistence backend — a backendless fixture rejects the write
         // ("authoritative MutationBatch commit requires a persistence
         // backend") before the cache paths under test are ever reached.
-        static DIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let dir = std::env::temp_dir()
-            .join(format!(
-                "eg-result-cache-dispatch-{}-{}",
-                std::process::id(),
-                DIR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ))
-            .to_string_lossy()
-            .into_owned();
-        std::fs::create_dir_all(&dir).expect("create test persist dir");
-        let backend = open_test_backend(dir.clone());
-        state_with_backend(SECRET, current_isolation(), dir, backend)
+        persisted_state(SECRET, current_isolation())
     }
 
     fn req(id: u64, method: Method) -> Request {
@@ -5978,11 +5973,6 @@ mod rls_aware_cache_no_cross_agent_leak {
         // backend") before the RLS-aware cache paths under test are ever
         // reached. Mirrors `result_cache_dispatch_tests::state`'s already-fixed
         // fixture.
-        let dir = crate::server::sql_tables::test_persist_dir()
-            .to_string_lossy()
-            .into_owned();
-        std::fs::create_dir_all(&dir).expect("create test persist dir");
-        let backend = open_test_backend(dir.clone());
         let mut isolation = current_isolation_with_agents(&["alice", "bob"]);
         // Under `security`, `check_access` defers entirely to RBAC -- the old
         // "`__commons__` is open to all authenticated agents" graph-type rule is
@@ -6011,7 +6001,7 @@ mod rls_aware_cache_no_cross_agent_leak {
                 });
             }
         }
-        state_with_backend(SECRET, isolation, dir, backend)
+        persisted_state(SECRET, isolation)
     }
 
     /// A request as `agent_id`.
@@ -6308,12 +6298,7 @@ mod dispatch_write_tests {
         // ("authoritative MutationBatch commit requires a persistence backend")
         // before the write path under test is ever reached. Mirrors
         // `result_cache_dispatch_tests::state`'s already-fixed fixture.
-        let dir = crate::server::sql_tables::test_persist_dir()
-            .to_string_lossy()
-            .into_owned();
-        std::fs::create_dir_all(&dir).expect("create test persist dir");
-        let backend = open_test_backend(dir.clone());
-        state_with_backend(SECRET, current_isolation(), dir, backend)
+        persisted_state(SECRET, current_isolation())
     }
 
     fn req(id: u64, method: Method) -> Request {
@@ -6703,12 +6688,7 @@ mod txn_ryow_dispatch_tests {
                 "txn-ryow-test-recovery-key",
             )
         });
-        let dir = crate::server::sql_tables::test_persist_dir()
-            .to_string_lossy()
-            .into_owned();
-        std::fs::create_dir_all(&dir).expect("create test persist dir");
-        let backend = open_test_backend(dir.clone());
-        state_with_backend(SECRET, current_isolation(), dir, backend)
+        persisted_state(SECRET, current_isolation())
     }
 
     fn req(id: u64, method: Method) -> Request {
