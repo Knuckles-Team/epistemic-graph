@@ -492,29 +492,11 @@ async def _turn_worker(
                 metrics.end_to_end_latency_s.append(time.monotonic() - submit_ts)
 
 
-async def run_steady_state(
-    conns: list[Any],
+def _turn_tier_plan(
     tenants: TenantPlan,
-    *,
-    duration_s: float,
-    turns_per_sec: float,
-    tool_calls_per_sec: float,
-    mutations_per_sec: float,
-    num_turn_workers: int,
-    turn_duration_s: float,
-    seed: int,
-) -> dict[str, Any]:
-    rng = random.Random(seed)
-    metrics = Metrics()
-    start = time.monotonic()
-    stop_at = start + duration_s
-    n_conns = len(conns)
-
-    # 3-tier turn skew (see module docstring): elephant tenant's own graph, one
-    # "hot-tail" graph modeling the next few zipf-heavy ordinary tenants, one
-    # "ordinary-tail" graph for the long tail. Fall back to whatever tenant graphs
-    # actually exist at very small scales (< 3 tenants) so a tiny dev run still works.
-    ordinary = [t for t in tenants.ids if t != tenants.elephant_id]
+) -> tuple[list[tuple[str, float]], list[str]]:
+    """Build the three-tier turn skew and its de-duplicated graph list."""
+    ordinary = [tenant for tenant in tenants.ids if tenant != tenants.elephant_id]
     hot_tail = ordinary[0] if ordinary else tenants.elephant_id
     long_tail = ordinary[1] if len(ordinary) > 1 else hot_tail
     turn_tiers = [
@@ -522,47 +504,75 @@ async def run_steady_state(
         (hot_tail, 0.5 * (1.0 - ELEPHANT_ACTIVE_FRACTION)),
         (long_tail, 0.5 * (1.0 - ELEPHANT_ACTIVE_FRACTION)),
     ]
-    # Dedup tier names preserving order (small scales can collapse tiers) and ensure
-    # each tier graph exists (populate created a graph per tenant, but guard anyway).
     tier_names: list[str] = []
-    for t, _ in turn_tiers:
-        if t not in tier_names:
-            tier_names.append(t)
-    for i, t in enumerate(tier_names):
+    for tier, _ in turn_tiers:
+        if tier not in tier_names:
+            tier_names.append(tier)
+    return turn_tiers, tier_names
+
+
+async def _ensure_tier_graphs(conns: list[Any], tier_names: list[str]) -> None:
+    """Ensure the collapsed turn tiers have graphs before producers start."""
+    for i, tier in enumerate(tier_names):
         try:
-            await create_graph(conns[i % n_conns], t)
+            await create_graph(conns[i % len(conns)], tier)
         except RuntimeError:
             pass  # already exists
 
-    # Fan the mutation + tool-call axes across SEVERAL pooled connections so the
-    # target rate is driven by real pipelined concurrency (a single-connection
-    # producer's sequential awaits cap throughput at ~1/latency, which would make
-    # the driver — not the engine — the bottleneck). Each producer targets its
-    # share (rate / n_producers) of the axis rate.
-    n_mut = max(1, min(n_conns // 2, 8))
-    n_tool = max(1, min(n_conns // 4, 4))
+
+def _build_steady_producers(
+    conns: list[Any],
+    tenants: TenantPlan,
+    metrics: Metrics,
+    turn_tiers: list[tuple[str, float]],
+    rates: tuple[float, float, float],
+    stop_at: float,
+    rng: random.Random,
+) -> list[Any]:
+    """Build pipelined producers for mutations, reads, and turns."""
+    turns_per_sec, tool_calls_per_sec, mutations_per_sec = rates
+    n_mut = max(1, min(len(conns) // 2, 8))
+    n_tool = max(1, min(len(conns) // 4, 4))
     producers: list[Any] = []
     for i in range(n_mut):
         producers.append(
             _mutation_producer(
-                conns[i % n_conns], tenants, metrics, mutations_per_sec / n_mut, stop_at, rng
+                conns[i % len(conns)], tenants, metrics, mutations_per_sec / n_mut, stop_at, rng
             )
         )
     for i in range(n_tool):
         producers.append(
             _tool_call_producer(
-                conns[(n_mut + i) % n_conns], tenants, metrics, tool_calls_per_sec / n_tool,
+                conns[(n_mut + i) % len(conns)], tenants, metrics, tool_calls_per_sec / n_tool,
                 stop_at, rng,
             )
         )
     producers.append(
-        _turn_producer(conns[(n_mut + n_tool) % n_conns], turn_tiers, metrics, turns_per_sec, stop_at, rng)
+        _turn_producer(
+            conns[(n_mut + n_tool) % len(conns)],
+            turn_tiers,
+            metrics,
+            turns_per_sec,
+            stop_at,
+            rng,
+        )
     )
-    # Each worker is assigned ONE tier (round-robin) rather than scanning all tiers
-    # every poll — see _turn_worker's note on the ClaimNext write-guard storm.
-    workers = [
+    return producers
+
+
+def _build_turn_workers(
+    conns: list[Any],
+    tier_names: list[str],
+    metrics: Metrics,
+    num_turn_workers: int,
+    turn_duration_s: float,
+    stop_at: float,
+    connection_offset: int,
+) -> list[Any]:
+    """Assign each turn worker one tier and a pooled connection."""
+    return [
         _turn_worker(
-            conns[(n_mut + n_tool + 1 + i) % n_conns],
+            conns[(connection_offset + i) % len(conns)],
             [tier_names[i % len(tier_names)]],
             metrics,
             turn_duration_s,
@@ -571,9 +581,10 @@ async def run_steady_state(
         )
         for i in range(num_turn_workers)
     ]
-    await asyncio.gather(*producers, *workers)
-    wall = time.monotonic() - start
 
+
+def _steady_state_report(metrics: Metrics, wall: float) -> dict[str, Any]:
+    """Summarize steady-state metrics and evaluate each SLO axis."""
     latency_ms = {
         "queue_latency_ms": _percentiles_ms(metrics.queue_latency_s),
         "query_latency_ms": _percentiles_ms(metrics.query_latency_s),
@@ -603,6 +614,46 @@ async def run_steady_state(
         "slo_pass": slo_pass,
         "ok": all(all(v.values()) for v in slo_pass.values()),
     }
+
+
+async def run_steady_state(
+    conns: list[Any],
+    tenants: TenantPlan,
+    *,
+    duration_s: float,
+    turns_per_sec: float,
+    tool_calls_per_sec: float,
+    mutations_per_sec: float,
+    num_turn_workers: int,
+    turn_duration_s: float,
+    seed: int,
+) -> dict[str, Any]:
+    rng = random.Random(seed)
+    metrics = Metrics()
+    start = time.monotonic()
+    stop_at = start + duration_s
+    turn_tiers, tier_names = _turn_tier_plan(tenants)
+    await _ensure_tier_graphs(conns, tier_names)
+    producers = _build_steady_producers(
+        conns,
+        tenants,
+        metrics,
+        turn_tiers,
+        (turns_per_sec, tool_calls_per_sec, mutations_per_sec),
+        stop_at,
+        rng,
+    )
+    workers = _build_turn_workers(
+        conns,
+        tier_names,
+        metrics,
+        num_turn_workers,
+        turn_duration_s,
+        stop_at,
+        len(producers),
+    )
+    await asyncio.gather(*producers, *workers)
+    return _steady_state_report(metrics, time.monotonic() - start)
 
 
 # --------------------------------------------------------------------------- #
