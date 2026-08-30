@@ -28,11 +28,10 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use std::sync::Arc;
-
-use epistemic_graph::server::mysql_wire::{self, MysqlAuthMode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
+use epistemic_graph::server::mysql_wire::{self, MysqlAuthMode};
 
 fn sql_test_persist_dir() -> String {
     test_support::sql_test_persist_dir("mysql")
@@ -50,41 +49,8 @@ fn sql_test_persist_dir() -> String {
 /// before the first backend opens, for the multi-op commit's
 /// transaction-recovery-plan seal (`redb_backend::tests::cm_dir`'s identical
 /// requirement).
-#[cfg(feature = "redb")]
-fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
-{
-    use epistemic_graph::durability::DurabilityPolicy;
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-    ENCRYPTION_KEY.call_once(|| {
-        std::env::set_var(
-            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-            "mysql-roundtrip-recovery-key",
-        );
-    });
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let dir = std::env::temp_dir().join(format!(
-        "epistemic-graph-mysql-persist-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create mysql persist dir");
-    let backend: Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> = Arc::new(
-        RedbBackend::open(
-            dir.to_string_lossy().into_owned(),
-            DurabilityPolicy::Each,
-            4096,
-        )
-        .expect("open tempdir redb backend"),
-    );
-    Some(backend)
-}
-
-#[cfg(not(feature = "redb"))]
-fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
-{
-    None
+fn default_persistence() -> Option<test_support::SharedPersistence> {
+    test_support::durable_persistence("mysql-roundtrip-recovery-key")
 }
 
 /// A minimal authenticated `ServerState` seeded with three nodes so a wire SELECT/UQL has
@@ -100,20 +66,12 @@ fn seeded_state() -> test_support::SharedState {
 
 /// Bind an ephemeral port and serve the MySQL wire with mandatory native auth.
 async fn spawn_listener(state: test_support::SharedState) -> String {
-    let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = probe.local_addr().unwrap().to_string();
-    drop(probe);
+    let addr = test_support::ephemeral_listener_addr().await;
     let serve_addr = addr.clone();
     tokio::spawn(async move {
         let _ = mysql_wire::serve_with_auth(&serve_addr, state, MysqlAuthMode::Native).await;
     });
-    // Wait for the listener to accept.
-    for _ in 0..50 {
-        if TcpStream::connect(&addr).await.is_ok() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
+    test_support::wait_for_listener_ready(&addr).await;
     addr
 }
 
