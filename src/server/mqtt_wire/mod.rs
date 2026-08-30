@@ -74,6 +74,15 @@ const MAX_MQTT_IDENTIFIER_BYTES: usize = 4 * 1024;
 const MAX_MQTT_TOPIC_BYTES: usize = u16::MAX as usize;
 const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
 const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
+const BROKER_CLAIM_LIMITS: broker_wire::BrokerClaimLimits = broker_wire::BrokerClaimLimits {
+    group: "mqtt",
+    lease_ms: BROKER_LEASE_MS,
+    prefetch: 1,
+    max_bytes: MAX_MQTT_PACKET_BYTES,
+    max_items: MAX_BROKER_RESULT_ITEMS,
+    max_identifier_len: Some(MAX_MQTT_IDENTIFIER_BYTES),
+    max_routing_key_len: Some(MAX_MQTT_TOPIC_BYTES),
+};
 
 // ── MQTT control packet types (high nibble of byte 1) ─────────────────────
 const PKT_CONNECT: u8 = 1;
@@ -160,34 +169,6 @@ async fn accept_loop(
             }
         });
     }
-}
-
-/// Claim one deliverable message through the native broker lifecycle. Returns
-/// `(node_id, routing_key, body)` or `None`.
-async fn claim_one(
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    actor: &str,
-    queue: &str,
-    consumer: &str,
-) -> Option<(String, String, Vec<u8>)> {
-    let claim = broker_wire::claim_message(
-        state,
-        graph,
-        actor,
-        next_req_id,
-        queue,
-        "mqtt",
-        consumer,
-        BROKER_LEASE_MS,
-        1,
-        MAX_MQTT_PACKET_BYTES,
-        MAX_BROKER_RESULT_ITEMS,
-        Some(MAX_MQTT_IDENTIFIER_BYTES),
-        Some(MAX_MQTT_TOPIC_BYTES),
-    )
-    .await?;
-    Some((claim.node_id, claim.routing_key, claim.body))
 }
 
 // ── Topic ↔ routing-key translation (CONCEPT:EG-KG.query.mqtt-packet-codec) ──────────────────────
@@ -766,7 +747,16 @@ async fn pump_subscription(
 ) -> std::io::Result<()> {
     const MAX_PER_POLL: usize = 32;
     for _ in 0..MAX_PER_POLL {
-        let Some((node_id, rk, body)) = claim_one(state, graph, actor, queue, consumer).await
+        let Some((node_id, rk, body)) = broker_wire::claim_message(
+            state,
+            graph,
+            actor,
+            next_req_id,
+            queue,
+            consumer,
+            BROKER_CLAIM_LIMITS,
+        )
+        .await
         else {
             break;
         };
@@ -1325,89 +1315,12 @@ mod tests {
     /// persistence backend — a durable `RedbBackend` is wired in under
     /// `feature = "redb"` (which `mqtt-wire` does not itself require, but the round
     /// trip needs to actually publish/deliver a message).
-    fn test_agent_identity(agent_id: String) -> crate::isolation::AgentIdentity {
-        crate::isolation::AgentIdentity {
-            agent_id,
-            role: crate::isolation::AgentRole::Agent,
-            teams: Vec::new(),
-            roles: if cfg!(feature = "security") {
-                vec!["commons-user".to_string()]
-            } else {
-                Vec::new()
-            },
-        }
-    }
-
     async fn test_state() -> Arc<RwLock<ServerState>> {
-        use crate::isolation::IsolationLayer;
-        let mut isolation = IsolationLayer::new();
-        #[cfg(feature = "security")]
-        {
-            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-            isolation.add_role(Role::new("commons-user"));
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action: RbacAction::Read,
-                effect: GrantEffect::Allow,
-            });
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action: RbacAction::Write,
-                effect: GrantEffect::Allow,
-            });
-        }
-        // The engine ACL identity for a broker-wire connection is the pseudonymous
-        // HMAC actor reference `pseudonymous_broker_actor` derives from the CONNECT
-        // username — not the raw username. Register the two principals the
-        // round-trip test authenticates as (see
-        // `eg281_listener_connect_subscribe_publish_deliver_roundtrip`).
-        for principal in ["subscriber", "publisher"] {
-            let actor_ref = crate::server::pseudonymous_broker_actor("test", principal)
-                .expect("test principal pseudonymizes");
-            isolation.register_agent(test_agent_identity(actor_ref));
-        }
-        #[cfg(feature = "redb")]
-        let (persist_dir, persistence) = {
-            use crate::durability::DurabilityPolicy;
-            use crate::server::persistence::redb_backend::RedbBackend;
-            let dir = std::env::temp_dir().join(format!(
-                "eg-mqtt-wire-test-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            let backend = RedbBackend::open(
-                dir.to_string_lossy().to_string(),
-                DurabilityPolicy::Each,
-                64,
-            )
-            .expect("open mqtt-wire test backend");
-            let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> =
-                Arc::new(backend);
-            persistence
-                .register_graph(
-                    "__commons__",
-                    "__commons__",
-                    crate::protocol::GraphType::Commons,
-                )
-                .await
-                .unwrap();
-            (Some(dir.to_string_lossy().into_owned()), Some(persistence))
-        };
-        #[cfg(not(feature = "redb"))]
-        let (persist_dir, persistence): (
-            Option<String>,
-            Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-        ) = (None, None);
-        let mut state = ServerState::new_for_test("test", isolation);
-        state.persist_dir = persist_dir;
-        state.persistence = persistence;
-        Arc::new(RwLock::new(state))
+        broker_wire::test_state_with_broker_agents(
+            "eg-mqtt-wire-test",
+            &["subscriber", "publisher"],
+        )
+        .await
     }
 
     async fn spawn_listener() -> String {
