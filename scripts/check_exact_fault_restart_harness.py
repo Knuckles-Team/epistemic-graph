@@ -85,25 +85,30 @@ def _require(source: str, tokens: set[str], label: str, errors: list[str]) -> No
 
 
 def _literal_string_set(tree: ast.AST, name: str) -> set[str]:
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(
-            isinstance(target, ast.Name) and target.id == name
-            for target in node.targets
-        ):
-            continue
-        value = node.value
-        if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
-            result: set[str] = set()
-            for item in value.elts:
-                if not isinstance(item, ast.Constant) or not isinstance(
-                    item.value, str
-                ):
-                    raise ValueError(f"{name} must contain only string literals")
-                result.add(item.value)
-            return result
-    raise ValueError(f"{name} is not a literal collection")
+    try:
+        value = next(
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(
+                map(
+                    lambda target: isinstance(target, ast.Name) and target.id == name,
+                    node.targets,
+                )
+            )
+            and isinstance(node.value, (ast.Tuple, ast.List, ast.Set))
+        )
+    except StopIteration as error:
+        raise ValueError(f"{name} is not a literal collection") from error
+    items = value.elts
+    if not all(
+        map(
+            lambda item: isinstance(item, ast.Constant) and isinstance(item.value, str),
+            items,
+        )
+    ):
+        raise ValueError(f"{name} must contain only string literals")
+    return {item.value for item in items}
 
 
 def _read_harness() -> tuple[str, ast.AST | None]:
