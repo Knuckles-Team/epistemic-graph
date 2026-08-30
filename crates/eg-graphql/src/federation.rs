@@ -20,7 +20,7 @@
 //! emitted, and resolved for node-backed types. Unsupported nested field sets and
 //! non-node entities are rejected rather than accepted as a partial schema.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use eg_core::graph::GraphView;
 use serde_json::{Map, Value};
@@ -109,230 +109,15 @@ impl FederatedSchema {
     /// `@requires`/`@override`). This is the "parse" half of parse+emit; combined with
     /// [`Self::to_federation_sdl`] it round-trips the directive vocabulary.
     pub fn parse_directives(&mut self, sdl: &str) -> Result<(), String> {
-        let mut entities = self.entities.clone();
-        let mut field_meta = self.field_meta.clone();
-        let mut declared_types = self.declared_types.clone();
-        let mut declared_fields = self.declared_fields.clone();
-        let mut current: Option<String> = None;
+        let mut overlay = DirectiveOverlay::from_schema(self);
         for raw in sdl.lines() {
-            let line = raw.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some(rest) = line.strip_prefix("type ") {
-                if current.is_some() || line.contains('}') {
-                    return Err("GraphQL federation SDL: malformed type definition".to_string());
-                }
-                let open = rest.rfind('{').ok_or_else(|| {
-                    "GraphQL federation SDL: type definition is missing `{`".to_string()
-                })?;
-                if !rest[open + 1..].trim().is_empty() {
-                    return Err(
-                        "GraphQL federation SDL: type header has content after `{`".to_string()
-                    );
-                }
-                let header = rest[..open].trim_end();
-                let name: String = header
-                    .split(|c: char| c.is_whitespace() || c == '@')
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                validate_type_name(&name)?;
-                if !self.base.types.contains_key(&name) {
-                    return Err(format!(
-                        "GraphQL federation SDL: type `{name}` is not present in the derived schema"
-                    ));
-                }
-                if !declared_types.insert(name.clone()) {
-                    return Err(format!(
-                        "GraphQL federation SDL: duplicate type definition `{name}`"
-                    ));
-                }
-                let meta = entities.get_mut(&name).ok_or_else(|| {
-                    format!("GraphQL federation SDL: entity type `{name}` is unavailable")
-                })?;
-                let mut seen_keys = HashSet::new();
-                let mut seen_type_directives = HashSet::new();
-                let directive_text = header
-                    .strip_prefix(name.as_str())
-                    .ok_or_else(|| "GraphQL federation SDL: malformed type header".to_string())?;
-                for d in scan_directives(directive_text)? {
-                    match d.name.as_str() {
-                        "key" => {
-                            if d.from.is_some() {
-                                return Err("GraphQL federation SDL: @key does not accept `from`"
-                                    .to_string());
-                            }
-                            let fields = d.fields.ok_or_else(|| {
-                                "GraphQL federation SDL: @key requires `fields`".to_string()
-                            })?;
-                            validate_key_fields(&self.base, &name, &fields)?;
-                            let resolvable = d.resolvable.unwrap_or(true);
-                            if !seen_keys.insert(fields.clone()) {
-                                return Err(format!(
-                                    "GraphQL federation SDL: duplicate @key `{fields}` on `{name}`"
-                                ));
-                            }
-                            if let Some(existing) =
-                                meta.keys.iter().find(|key| key.fields == fields)
-                            {
-                                if existing.resolvable != resolvable {
-                                    return Err(format!(
-                                        "GraphQL federation SDL: conflicting @key `{fields}` on `{name}`"
-                                    ));
-                                }
-                            } else {
-                                meta.keys.push(KeyDirective { fields, resolvable });
-                            }
-                        }
-                        "shareable" => {
-                            reject_directive_arguments(&d)?;
-                            if !seen_type_directives.insert(d.name) {
-                                return Err(format!(
-                                    "GraphQL federation SDL: duplicate @shareable on `{name}`"
-                                ));
-                            }
-                            meta.shareable = true;
-                        }
-                        other => {
-                            return Err(format!(
-                                "GraphQL federation SDL: @{other} is not valid on a type"
-                            ));
-                        }
-                    }
-                }
-                current = Some(name);
-                continue;
-            }
-            if line.starts_with('}') {
-                if current.is_none() || line != "}" {
-                    return Err("GraphQL federation SDL: unmatched type terminator".to_string());
-                }
-                current = None;
-                continue;
-            }
-            if let Some(tname) = &current {
-                let (field_header, field_body) = line.split_once(':').ok_or_else(|| {
-                    format!("GraphQL federation SDL: malformed field in `{tname}`")
-                })?;
-                let fname: String = field_header
-                    .split(|c: char| c == '(' || c.is_whitespace())
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                validate_field_name(&fname)?;
-                if field_header.trim() != fname {
-                    return Err(format!(
-                        "GraphQL federation SDL: field arguments are not supported on `{tname}.{fname}`"
-                    ));
-                }
-                let known = fname == "id"
-                    || self.base.types[tname].scalar_fields.contains(&fname)
-                    || self.base.types[tname].edge_fields.contains(&fname);
-                if !known {
-                    return Err(format!(
-                        "GraphQL federation SDL: field `{tname}.{fname}` is not present in the derived schema"
-                    ));
-                }
-                let directive_offset = field_body.find('@').unwrap_or(field_body.len());
-                let declared_type = field_body[..directive_offset].trim();
-                let directive_text = &field_body[directive_offset..];
-                let expected_type = if fname == "id" {
-                    "ID!"
-                } else if self.base.types[tname].scalar_fields.contains(&fname) {
-                    "String"
-                } else {
-                    "[Node]"
-                };
-                if declared_type != expected_type {
-                    return Err(format!(
-                        "GraphQL federation SDL: `{tname}.{fname}` declares `{declared_type}`, expected `{expected_type}`"
-                    ));
-                }
-                let field_key = (tname.clone(), fname.clone());
-                if !declared_fields.insert(field_key.clone()) {
-                    return Err(format!(
-                        "GraphQL federation SDL: duplicate field definition `{tname}.{fname}`"
-                    ));
-                }
-                let dirs = scan_directives(directive_text)?;
-                let fm = field_meta.entry(field_key).or_default();
-                let mut seen = HashSet::new();
-                for d in dirs {
-                    if !seen.insert(d.name.clone()) {
-                        return Err(format!(
-                            "GraphQL federation SDL: duplicate @{} on `{tname}.{fname}`",
-                            d.name
-                        ));
-                    }
-                    match d.name.as_str() {
-                        "shareable" => {
-                            reject_directive_arguments(&d)?;
-                            fm.shareable = true;
-                        }
-                        "external" => {
-                            reject_directive_arguments(&d)?;
-                            fm.external = true;
-                        }
-                        "provides" => {
-                            if d.from.is_some() || d.resolvable.is_some() {
-                                return Err(
-                                    "GraphQL federation SDL: @provides only accepts `fields`"
-                                        .to_string(),
-                                );
-                            }
-                            let fields = d.fields.ok_or_else(|| {
-                                "GraphQL federation SDL: @provides requires `fields`".to_string()
-                            })?;
-                            validate_flat_field_set("@provides", &fields)?;
-                            fm.provides = Some(fields);
-                        }
-                        "requires" => {
-                            if d.from.is_some() || d.resolvable.is_some() {
-                                return Err(
-                                    "GraphQL federation SDL: @requires only accepts `fields`"
-                                        .to_string(),
-                                );
-                            }
-                            let fields = d.fields.ok_or_else(|| {
-                                "GraphQL federation SDL: @requires requires `fields`".to_string()
-                            })?;
-                            validate_flat_field_set("@requires", &fields)?;
-                            fm.requires = Some(fields);
-                        }
-                        "override" => {
-                            if d.fields.is_some() || d.resolvable.is_some() {
-                                return Err(
-                                    "GraphQL federation SDL: @override only accepts `from`"
-                                        .to_string(),
-                                );
-                            }
-                            fm.override_from = Some(d.from.ok_or_else(|| {
-                                "GraphQL federation SDL: @override requires `from`".to_string()
-                            })?)
-                        }
-                        other => {
-                            return Err(format!(
-                                "GraphQL federation SDL: @{other} is not valid on a field"
-                            ));
-                        }
-                    }
-                }
-            } else {
-                return Err(format!(
-                    "GraphQL federation SDL: unsupported top-level definition `{line}`"
-                ));
-            }
+            overlay.apply_line(&self.base, raw)?;
         }
-        if let Some(name) = current {
-            return Err(format!(
-                "GraphQL federation SDL: type `{name}` is missing its closing brace"
-            ));
-        }
-        self.entities = entities;
-        self.field_meta = field_meta;
-        self.declared_types = declared_types;
-        self.declared_fields = declared_fields;
+        overlay.ensure_closed()?;
+        self.entities = overlay.entities;
+        self.field_meta = overlay.field_meta;
+        self.declared_types = overlay.declared_types;
+        self.declared_fields = overlay.declared_fields;
         Ok(())
     }
 
@@ -417,6 +202,335 @@ impl FederatedSchema {
         }
         s
     }
+}
+
+/// Transaction-local state for [`FederatedSchema::parse_directives`]. Keeping the
+/// overlay separate from the live schema preserves the method's all-or-nothing
+/// behavior when any SDL line is invalid.
+struct DirectiveOverlay {
+    entities: BTreeMap<String, EntityMeta>,
+    field_meta: BTreeMap<(String, String), FieldFedMeta>,
+    declared_types: BTreeSet<String>,
+    declared_fields: BTreeSet<(String, String)>,
+    current: Option<String>,
+}
+
+impl DirectiveOverlay {
+    fn from_schema(schema: &FederatedSchema) -> Self {
+        Self {
+            entities: schema.entities.clone(),
+            field_meta: schema.field_meta.clone(),
+            declared_types: schema.declared_types.clone(),
+            declared_fields: schema.declared_fields.clone(),
+            current: None,
+        }
+    }
+
+    fn apply_line(&mut self, schema: &Schema, raw: &str) -> Result<(), String> {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return Ok(());
+        }
+        if let Some(rest) = line.strip_prefix("type ") {
+            return self.start_type(schema, line, rest);
+        }
+        if line.starts_with('}') {
+            return self.end_type(line);
+        }
+        match self.current.clone() {
+            Some(tname) => self.apply_field(schema, &tname, line),
+            None => Err(format!(
+                "GraphQL federation SDL: unsupported top-level definition `{line}`"
+            )),
+        }
+    }
+
+    fn start_type(&mut self, schema: &Schema, line: &str, rest: &str) -> Result<(), String> {
+        if self.current.is_some() || line.contains('}') {
+            return Err("GraphQL federation SDL: malformed type definition".to_string());
+        }
+        let (name, directive_text) = parse_type_header(schema, rest)?;
+        let name = name.to_string();
+        if !self.declared_types.insert(name.clone()) {
+            return Err(format!(
+                "GraphQL federation SDL: duplicate type definition `{name}`"
+            ));
+        }
+        let meta = self.entities.get_mut(&name).ok_or_else(|| {
+            format!("GraphQL federation SDL: entity type `{name}` is unavailable")
+        })?;
+        apply_type_directives(schema, &name, meta, directive_text)?;
+        self.current = Some(name);
+        Ok(())
+    }
+
+    fn end_type(&mut self, line: &str) -> Result<(), String> {
+        if self.current.is_none() || line != "}" {
+            return Err("GraphQL federation SDL: unmatched type terminator".to_string());
+        }
+        self.current = None;
+        Ok(())
+    }
+
+    fn apply_field(&mut self, schema: &Schema, tname: &str, line: &str) -> Result<(), String> {
+        let (fname, directive_text) = parse_field_line(schema, tname, line)?;
+        let field_key = (tname.to_string(), fname.clone());
+        if !self.declared_fields.insert(field_key.clone()) {
+            return Err(format!(
+                "GraphQL federation SDL: duplicate field definition `{tname}.{fname}`"
+            ));
+        }
+        let field = self.field_meta.entry(field_key).or_default();
+        let mut seen = HashSet::new();
+        for directive in scan_directives(directive_text)? {
+            apply_field_directive(field, tname, &fname, &mut seen, directive)?;
+        }
+        Ok(())
+    }
+
+    fn ensure_closed(&self) -> Result<(), String> {
+        if let Some(name) = &self.current {
+            return Err(format!(
+                "GraphQL federation SDL: type `{name}` is missing its closing brace"
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn parse_type_header<'a>(schema: &Schema, rest: &'a str) -> Result<(&'a str, &'a str), String> {
+    let open = rest
+        .rfind('{')
+        .ok_or_else(|| "GraphQL federation SDL: type definition is missing `{`".to_string())?;
+    if !rest[open + 1..].trim().is_empty() {
+        return Err("GraphQL federation SDL: type header has content after `{`".to_string());
+    }
+    let header = rest[..open].trim_end();
+    let name = header
+        .split(|c: char| c.is_whitespace() || c == '@')
+        .next()
+        .unwrap_or("");
+    validate_type_name(name)?;
+    if !schema.types.contains_key(name) {
+        return Err(format!(
+            "GraphQL federation SDL: type `{name}` is not present in the derived schema"
+        ));
+    }
+    let directive_text = header
+        .strip_prefix(name)
+        .ok_or_else(|| "GraphQL federation SDL: malformed type header".to_string())?;
+    Ok((name, directive_text))
+}
+
+fn apply_type_directives(
+    schema: &Schema,
+    name: &str,
+    meta: &mut EntityMeta,
+    directive_text: &str,
+) -> Result<(), String> {
+    let mut seen_keys = HashSet::new();
+    let mut seen_directives = HashSet::new();
+    for directive in scan_directives(directive_text)? {
+        apply_type_directive(
+            schema,
+            name,
+            meta,
+            &mut seen_keys,
+            &mut seen_directives,
+            directive,
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_type_directive(
+    schema: &Schema,
+    name: &str,
+    meta: &mut EntityMeta,
+    seen_keys: &mut HashSet<String>,
+    seen_directives: &mut HashSet<String>,
+    directive: ScannedDir,
+) -> Result<(), String> {
+    match directive.name.as_str() {
+        "key" => apply_key_directive(schema, name, meta, seen_keys, directive),
+        "shareable" => apply_type_shareable(meta, name, seen_directives, directive),
+        other => Err(format!(
+            "GraphQL federation SDL: @{other} is not valid on a type"
+        )),
+    }
+}
+
+fn apply_key_directive(
+    schema: &Schema,
+    name: &str,
+    meta: &mut EntityMeta,
+    seen_keys: &mut HashSet<String>,
+    directive: ScannedDir,
+) -> Result<(), String> {
+    if directive.from.is_some() {
+        return Err("GraphQL federation SDL: @key does not accept `from`".to_string());
+    }
+    let fields = directive
+        .fields
+        .ok_or_else(|| "GraphQL federation SDL: @key requires `fields`".to_string())?;
+    validate_key_fields(schema, name, &fields)?;
+    let resolvable = directive.resolvable.unwrap_or(true);
+    if !seen_keys.insert(fields.clone()) {
+        return Err(format!(
+            "GraphQL federation SDL: duplicate @key `{fields}` on `{name}`"
+        ));
+    }
+    merge_key(meta, name, fields, resolvable)
+}
+
+fn merge_key(
+    meta: &mut EntityMeta,
+    name: &str,
+    fields: String,
+    resolvable: bool,
+) -> Result<(), String> {
+    match meta.keys.iter().find(|key| key.fields == fields) {
+        Some(existing) if existing.resolvable != resolvable => Err(format!(
+            "GraphQL federation SDL: conflicting @key `{fields}` on `{name}`"
+        )),
+        Some(_) => Ok(()),
+        None => {
+            meta.keys.push(KeyDirective { fields, resolvable });
+            Ok(())
+        }
+    }
+}
+
+fn apply_type_shareable(
+    meta: &mut EntityMeta,
+    name: &str,
+    seen_directives: &mut HashSet<String>,
+    directive: ScannedDir,
+) -> Result<(), String> {
+    reject_directive_arguments(&directive)?;
+    if !seen_directives.insert(directive.name) {
+        return Err(format!(
+            "GraphQL federation SDL: duplicate @shareable on `{name}`"
+        ));
+    }
+    meta.shareable = true;
+    Ok(())
+}
+
+fn parse_field_line<'a>(
+    schema: &Schema,
+    tname: &str,
+    line: &'a str,
+) -> Result<(String, &'a str), String> {
+    let (field_header, field_body) = line
+        .split_once(':')
+        .ok_or_else(|| format!("GraphQL federation SDL: malformed field in `{tname}`"))?;
+    let fname: String = field_header
+        .split(|c: char| c == '(' || c.is_whitespace())
+        .next()
+        .unwrap_or("")
+        .to_string();
+    validate_field_name(&fname)?;
+    if field_header.trim() != fname {
+        return Err(format!(
+            "GraphQL federation SDL: field arguments are not supported on `{tname}.{fname}`"
+        ));
+    }
+    let object = &schema.types[tname];
+    let known = fname == "id"
+        || object.scalar_fields.contains(&fname)
+        || object.edge_fields.contains(&fname);
+    if !known {
+        return Err(format!(
+            "GraphQL federation SDL: field `{tname}.{fname}` is not present in the derived schema"
+        ));
+    }
+    let directive_offset = field_body.find('@').unwrap_or(field_body.len());
+    let declared_type = field_body[..directive_offset].trim();
+    let directive_text = &field_body[directive_offset..];
+    let expected_type = if fname == "id" {
+        "ID!"
+    } else if object.scalar_fields.contains(&fname) {
+        "String"
+    } else {
+        "[Node]"
+    };
+    if declared_type != expected_type {
+        return Err(format!(
+            "GraphQL federation SDL: `{tname}.{fname}` declares `{declared_type}`, expected `{expected_type}`"
+        ));
+    }
+    Ok((fname, directive_text))
+}
+
+fn apply_field_directive(
+    field: &mut FieldFedMeta,
+    tname: &str,
+    fname: &str,
+    seen: &mut HashSet<String>,
+    directive: ScannedDir,
+) -> Result<(), String> {
+    if !seen.insert(directive.name.clone()) {
+        return Err(format!(
+            "GraphQL federation SDL: duplicate @{} on `{tname}.{fname}`",
+            directive.name
+        ));
+    }
+    match directive.name.as_str() {
+        "shareable" => apply_shareable_field(field, &directive),
+        "external" => apply_external_field(field, &directive),
+        "provides" => {
+            field.provides = Some(parse_field_set_directive("@provides", &directive)?);
+            Ok(())
+        }
+        "requires" => {
+            field.requires = Some(parse_field_set_directive("@requires", &directive)?);
+            Ok(())
+        }
+        "override" => {
+            field.override_from = Some(parse_override_directive(&directive)?);
+            Ok(())
+        }
+        other => Err(format!(
+            "GraphQL federation SDL: @{other} is not valid on a field"
+        )),
+    }
+}
+
+fn apply_shareable_field(field: &mut FieldFedMeta, directive: &ScannedDir) -> Result<(), String> {
+    reject_directive_arguments(directive)?;
+    field.shareable = true;
+    Ok(())
+}
+
+fn apply_external_field(field: &mut FieldFedMeta, directive: &ScannedDir) -> Result<(), String> {
+    reject_directive_arguments(directive)?;
+    field.external = true;
+    Ok(())
+}
+
+fn parse_field_set_directive(name: &str, directive: &ScannedDir) -> Result<String, String> {
+    if directive.from.is_some() || directive.resolvable.is_some() {
+        return Err(format!(
+            "GraphQL federation SDL: {name} only accepts `fields`"
+        ));
+    }
+    let fields = directive
+        .fields
+        .clone()
+        .ok_or_else(|| format!("GraphQL federation SDL: {name} requires `fields`"))?;
+    validate_flat_field_set(name, &fields)?;
+    Ok(fields)
+}
+
+fn parse_override_directive(directive: &ScannedDir) -> Result<String, String> {
+    if directive.fields.is_some() || directive.resolvable.is_some() {
+        return Err("GraphQL federation SDL: @override only accepts `from`".to_string());
+    }
+    directive
+        .from
+        .clone()
+        .ok_or_else(|| "GraphQL federation SDL: @override requires `from`".to_string())
 }
 
 // ── query dispatch (CONCEPT:EG-KG.query.apollo-federation-subgraph) ──────────────────────────────────────────────
