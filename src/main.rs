@@ -1262,6 +1262,42 @@ async fn spawn_obs_listener(
     }
     Ok(())
 }
+async fn wait_for_periodic_tick(ticker: &mut tokio::time::Interval) {
+    ticker.tick().await;
+}
+
+#[cfg(feature = "traces")]
+async fn persist_traces_tick(
+    traces_obs_state: std::sync::Arc<epistemic_graph::server::obs::ObsState>,
+) {
+    if let Err(error) = traces_obs_state.persist_traces() {
+        tracing::warn!(
+            %error,
+            "trace snapshot sweep: persist_traces failed, will retry next tick"
+        );
+    }
+}
+
+fn spawn_periodic_sweep<F, Fut>(interval_secs: u64, metric_name: &'static str, sweep: F)
+where
+    F: Fn() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    if interval_secs == 0 {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        wait_for_periodic_tick(&mut ticker).await; // consume the immediate first tick
+        loop {
+            wait_for_periodic_tick(&mut ticker).await;
+            let loop_started = std::time::Instant::now();
+            sweep().await;
+            epistemic_graph::metrics::loop_tick(metric_name, loop_started.elapsed().as_secs_f64());
+        }
+    });
+}
+
 #[cfg(feature = "traces")]
 fn spawn_obs_trace_persist_sweep(
     obs_state: &std::sync::Arc<epistemic_graph::server::obs::ObsState>,
@@ -1288,24 +1324,8 @@ fn spawn_obs_trace_persist_sweep(
                  (BUG-016, CONCEPT:EG-OS.observability.trace-assembly)",
                 interval_secs
             );
-            tokio::spawn(async move {
-                let mut ticker =
-                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-                ticker.tick().await; // consume the immediate first tick
-                loop {
-                    ticker.tick().await;
-                    let __loop_tick_started = std::time::Instant::now();
-                    if let Err(error) = traces_obs_state.persist_traces() {
-                        tracing::warn!(
-                            %error,
-                            "trace snapshot sweep: persist_traces failed, will retry next tick"
-                        );
-                    }
-                    epistemic_graph::metrics::loop_tick(
-                        "obs_traces_persist",
-                        __loop_tick_started.elapsed().as_secs_f64(),
-                    );
-                }
+            spawn_periodic_sweep(interval_secs, "obs_traces_persist", move || {
+                persist_traces_tick(traces_obs_state.clone())
             });
         }
     }
@@ -1438,13 +1458,9 @@ async fn spawn_lake_materialize_sweep(_state: &Arc<tokio::sync::RwLock<ServerSta
                 .unwrap_or(0);
         if interval_secs > 0 {
             let sweep_state = state.clone();
-            tokio::spawn(async move {
-                let mut ticker =
-                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-                ticker.tick().await; // consume the immediate first tick
-                loop {
-                    ticker.tick().await;
-                    let __loop_tick_started = std::time::Instant::now();
+            spawn_periodic_sweep(interval_secs, "lake_materialize", move || {
+                let sweep_state = sweep_state.clone();
+                async move {
                     // `lake` implies `blob` + `tsdb`, so both are always configured
                     // (`Some`) here — neither is ever independently off in this build.
                     // A18: this is engine-internal system maintenance, not a client
@@ -1467,7 +1483,7 @@ async fn spawn_lake_materialize_sweep(_state: &Arc<tokio::sync::RwLock<ServerSta
                         tracing::warn!(
                             "Lake materialize sweep: no tsdb/blob store configured, skipping tick"
                         );
-                        continue;
+                        return;
                     };
                     let outcome = tokio::task::spawn_blocking(move || {
                         let mut drained = 0usize;
@@ -1499,10 +1515,6 @@ async fn spawn_lake_materialize_sweep(_state: &Arc<tokio::sync::RwLock<ServerSta
                             );
                         }
                     }
-                    epistemic_graph::metrics::loop_tick(
-                        "lake_materialize",
-                        __loop_tick_started.elapsed().as_secs_f64(),
-                    );
                 }
             });
         }
