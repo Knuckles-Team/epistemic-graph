@@ -692,9 +692,31 @@ fn replay_transaction_family(core: &GraphCore, method: &Method) -> bool {
 fn replay_vector_family(core: &GraphCore, method: &Method) -> bool {
     replay_cluster(core, method)
         || replay_anomaly(core, method)
-        || replay_classify_predict(core, method)
-        || replay_reduce(core, method)
+        || replay_classify_or_reduce(core, method)
         || replay_entity_resolve(core, method)
+}
+
+/// Build replay rows once, skipping the operation when the source is empty.
+fn replay_vectors<F>(
+    core: &GraphCore,
+    features: &[Vec<f64>],
+    source: &Option<VectorSource>,
+    #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
+    apply: F,
+) where
+    F: FnOnce(&[Vec<f64>], &[String]),
+{
+    let (rows, ids) = build_vectors_replay(
+        core,
+        features,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+    );
+    if rows.is_empty() {
+        return;
+    }
+    apply(&rows, &ids);
 }
 
 /// Route scalar-series replay requests to their family-specific execution helpers.
@@ -841,90 +863,141 @@ fn replay_anomaly(core: &GraphCore, method: &Method) -> bool {
     true
 }
 
-/// Recognize, validate, and execute a classifier-prediction writeback replay.
-fn replay_classify_predict(core: &GraphCore, method: &Method) -> bool {
-    let Method::MineClassifyPredict {
-        model,
-        x,
-        source,
-        #[cfg(feature = "query")]
-        plan,
-        writeback: true,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method
-    else {
-        return false;
-    };
-    let (rows, ids) = build_vectors_replay(
-        core,
-        x,
-        source,
-        #[cfg(feature = "query")]
-        plan,
-    );
-    if rows.is_empty() {
-        return true;
+/// Recognize and execute classifier-prediction or dimensional-reduction replay.
+fn replay_classify_or_reduce(core: &GraphCore, method: &Method) -> bool {
+    match method {
+        Method::MineClassifyPredict {
+            model,
+            x,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            replay_classify_predict_rows(
+                core,
+                model,
+                x,
+                source,
+                #[cfg(feature = "query")]
+                plan,
+                #[cfg(feature = "epistemic")]
+                as_claim,
+            );
+            true
+        }
+        Method::MineReduce {
+            x,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            labels,
+            algorithm,
+            n_components,
+            n_neighbors,
+            min_dist,
+            perplexity,
+            epochs,
+            lr,
+            seed,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            replay_reduce_rows(
+                core,
+                x,
+                source,
+                #[cfg(feature = "query")]
+                plan,
+                labels,
+                *algorithm,
+                *n_components,
+                *n_neighbors,
+                *min_dist,
+                *perplexity,
+                *epochs,
+                *lr,
+                *seed,
+                #[cfg(feature = "epistemic")]
+                as_claim,
+            );
+            true
+        }
+        _ => false,
     }
-    let out = classify::predict(model, &rows);
-    materialize_classifications(core, &out, &ids);
-    #[cfg(feature = "epistemic")]
-    if *as_claim {
-        materialize_classification_claims(core, &out, &ids, classify_provenance(source));
-    }
-    true
 }
 
-/// Recognize, validate, and execute a dimensional-reduction writeback replay.
-fn replay_reduce(core: &GraphCore, method: &Method) -> bool {
-    let Method::MineReduce {
-        x,
-        source,
-        #[cfg(feature = "query")]
-        plan,
-        labels,
-        algorithm,
-        n_components,
-        n_neighbors,
-        min_dist,
-        perplexity,
-        epochs,
-        lr,
-        seed,
-        writeback: true,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method
-    else {
-        return false;
-    };
-    let (rows, ids) = build_vectors_replay(
+/// Execute a classifier-prediction writeback replay after request matching.
+fn replay_classify_predict_rows(
+    core: &GraphCore,
+    model: &FittedClassifier,
+    x: &[Vec<f64>],
+    source: &Option<VectorSource>,
+    #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
+    #[cfg(feature = "epistemic")] as_claim: &bool,
+) {
+    replay_vectors(
         core,
         x,
         source,
         #[cfg(feature = "query")]
         plan,
+        |rows, ids| {
+            let out = classify::predict(model, rows);
+            materialize_classifications(core, &out, ids);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_classification_claims(core, &out, ids, classify_provenance(source));
+            }
+        },
     );
-    if rows.is_empty() {
-        return true;
-    }
-    let algo = reduce_algo(
-        *algorithm,
-        *n_neighbors,
-        *min_dist,
-        *perplexity,
-        *epochs,
-        *lr,
-        *seed,
+}
+
+/// Execute a dimensional-reduction writeback replay after request matching.
+fn replay_reduce_rows(
+    core: &GraphCore,
+    x: &[Vec<f64>],
+    source: &Option<VectorSource>,
+    #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
+    labels: &[i64],
+    algorithm: ReduceAlgorithm,
+    n_components: usize,
+    n_neighbors: usize,
+    min_dist: f64,
+    perplexity: f64,
+    epochs: usize,
+    lr: f64,
+    seed: u64,
+    #[cfg(feature = "epistemic")] as_claim: &bool,
+) {
+    replay_vectors(
+        core,
+        x,
+        source,
+        #[cfg(feature = "query")]
+        plan,
+        |rows, ids| {
+            let algo = reduce_algo(
+                algorithm,
+                n_neighbors,
+                min_dist,
+                perplexity,
+                epochs,
+                lr,
+                seed,
+            );
+            let lbls = (!labels.is_empty()).then_some(labels);
+            let out = reduce::reduce(rows, lbls, algo, n_components);
+            materialize_embeddings(core, &out, ids);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_reduce_claims(core, rows, &out, ids, algorithm, source);
+            }
+        },
     );
-    let lbls = (!labels.is_empty()).then_some(labels.as_slice());
-    let out = reduce::reduce(&rows, lbls, algo, *n_components);
-    materialize_embeddings(core, &out, &ids);
-    #[cfg(feature = "epistemic")]
-    if *as_claim {
-        materialize_reduce_claims(core, &rows, &out, &ids, *algorithm, source);
-    }
-    true
 }
 
 /// Recognize, validate, and execute a sequential-pattern writeback replay.
