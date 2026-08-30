@@ -23,15 +23,13 @@
 //! `i` = `Z_i`.
 
 use eg_quantum_core::backend::{
-    BackendCapabilities, BackendError, BackendFamily, BackendId, JobHandle, JobStatus,
-    QuantumBackend, RunOptions,
+    BackendCapabilities, BackendError, BackendFamily, BackendId, RunOptions,
 };
 use eg_quantum_core::ir::{ControlQubit, ControlState, GateKind, Instruction, QuantumProgram};
-use eg_quantum_core::result::{Formalism, Outcome, QuantumResult};
+use eg_quantum_core::result::{Formalism, QuantumResult};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 
+use crate::statevector::simulation::{SimulationBackend, SimulationKind, StabilizerKind};
 use crate::{resolve_params, ClassicalMemory, SimError};
 
 /// The CHP tableau. `pub` (appears in `evolve`'s public signature) but every field
@@ -438,187 +436,60 @@ pub fn evolve(
     Ok((tab, classical))
 }
 
-struct JobStore {
-    next: AtomicU64,
-    completed: Mutex<std::collections::HashMap<u64, QuantumResult>>,
-}
-
-impl Default for JobStore {
-    fn default() -> Self {
-        JobStore {
-            next: AtomicU64::new(0),
-            completed: Mutex::new(std::collections::HashMap::new()),
-        }
-    }
-}
-
-/// An Aaronson-Gottesman tableau [`QuantumBackend`]. Same in-process/synchronous
+/// An Aaronson-Gottesman tableau [`eg_quantum_core::backend::QuantumBackend`]. Same in-process/synchronous
 /// job-store shape as [`crate::statevector::StateVectorSimulator`]; the only
 /// difference in `execute` is that it rejects a non-Clifford circuit up front
 /// (`program.is_clifford()`) rather than the qubit-count ceiling statevector uses --
 /// a stabilizer circuit's O(n^2) footprint makes qubit count nearly irrelevant at
 /// smoke-test scale, but REPRESENTABILITY (Clifford-only) is the hard constraint.
-pub struct StabilizerSimulator {
-    id: BackendId,
-    max_qubits: u32,
-    jobs: JobStore,
-}
+pub type StabilizerSimulator = SimulationBackend<StabilizerKind>;
 
-impl Default for StabilizerSimulator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+const STABILIZER_MAX_QUBITS: u32 = 512;
 
-impl StabilizerSimulator {
-    pub fn new() -> Self {
-        StabilizerSimulator {
-            id: BackendId::from("stabilizer"),
-            // O(n^2), not O(2^n) -- generous compared to the statevector cap; still
-            // a finite placeholder ceiling for Q1, not a claim about the tableau
-            // algorithm's real limit.
-            max_qubits: 512,
-            jobs: JobStore::default(),
-        }
+impl SimulationKind for StabilizerKind {
+    fn backend_id() -> BackendId {
+        BackendId::from("stabilizer")
     }
 
-    fn execute(
-        &self,
-        program: &QuantumProgram,
-        opts: &RunOptions,
-    ) -> Result<QuantumResult, BackendError> {
-        program
-            .validate()
-            .map_err(|e| BackendError::InvalidProgram(e.to_string()))?;
-        if opts.noise_model_id.is_some() {
-            return Err(BackendError::Unsupported(self.id.clone()));
-        }
+    fn family() -> BackendFamily {
+        BackendFamily::Stabilizer
+    }
+
+    fn capabilities() -> BackendCapabilities {
+        crate::statevector::simulation::exact_capabilities(true, None)
+    }
+
+    fn execute(program: &QuantumProgram, opts: &RunOptions) -> Result<QuantumResult, BackendError> {
+        crate::statevector::simulation::validate_program(program, opts, Self::backend_id())?;
         if !program.is_clifford() {
             return Err(BackendError::InvalidProgram(
                 "circuit is not Clifford; the stabilizer backend cannot represent it".to_string(),
             ));
         }
-        if program.n_qubits > self.max_qubits {
+        if program.n_qubits > STABILIZER_MAX_QUBITS {
             return Err(BackendError::ResourceLimit(format!(
                 "n_qubits={} exceeds this backend's placeholder max_qubits={}",
-                program.n_qubits, self.max_qubits
+                program.n_qubits, STABILIZER_MAX_QUBITS
             )));
         }
-        let circuit_hash = program
-            .circuit_hash()
-            .map_err(|e| BackendError::InvalidProgram(e.to_string()))?;
-        let shots = opts.shots.unwrap_or(1);
-        let start = std::time::Instant::now();
-        let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-        for shot in 0..shots {
-            let seed = opts.seed.unwrap_or(0).wrapping_add(shot);
-            let mut rng = eg_numeric::random::Generator::new(seed);
-            let (_tab, classical) =
-                evolve(program, &mut rng).map_err(|e| BackendError::Execution(e.to_string()))?;
-            let key = classical.bitstring(&program.classical_registers);
-            *counts.entry(key).or_insert(0) += 1;
-        }
-        let wall_time_ms = start.elapsed().as_millis() as u64;
-        // Tableau footprint: 2n rows * n columns * 2 bits (x,z), plus n phase bits --
-        // approximated in bytes (bool storage, not bit-packed, so 1 byte/entry here).
-        let n = program.n_qubits as u64;
-        let peak_memory_bytes = 2 * n * n * 2 + 2 * n;
-        Ok(QuantumResult::new_exact(
-            self.id.clone(),
+        crate::statevector::simulation::execute_exact(
+            program,
+            opts,
+            Self::backend_id(),
             Formalism::Stabilizer,
-            opts.seed,
-            Some(shots),
-            circuit_hash,
-            wall_time_ms,
-            peak_memory_bytes,
-            Outcome::Counts(counts),
-        ))
-    }
-}
-
-impl QuantumBackend for StabilizerSimulator {
-    fn backend_id(&self) -> BackendId {
-        self.id.clone()
-    }
-
-    fn family(&self) -> BackendFamily {
-        BackendFamily::Stabilizer
-    }
-
-    fn capabilities(&self) -> BackendCapabilities {
-        BackendCapabilities {
-            supports_density_matrix: false,
-            supports_distributed: false,
-            supports_noise: false,
-            supports_gpu: false,
-            supports_mps: false,
-            supports_stabilizer: true,
-            is_exact_capable: true,
-            max_qubits_statevector: None,
-            max_qubits_density_matrix: None,
-            requires_hardware: false,
-        }
-    }
-
-    fn submit(
-        &self,
-        program: &QuantumProgram,
-        opts: &RunOptions,
-    ) -> Result<JobHandle, BackendError> {
-        let result = self.execute(program, opts)?;
-        let handle = self.jobs.next.fetch_add(1, Ordering::SeqCst);
-        self.jobs
-            .completed
-            .lock()
-            .expect("job store mutex poisoned")
-            .insert(handle, result);
-        Ok(JobHandle(handle))
-    }
-
-    fn poll(&self, job: JobHandle) -> Result<JobStatus, BackendError> {
-        if self
-            .jobs
-            .completed
-            .lock()
-            .expect("job store mutex poisoned")
-            .contains_key(&job.0)
-        {
-            Ok(JobStatus::Completed)
-        } else {
-            Err(BackendError::UnknownJob)
-        }
-    }
-
-    fn result(&self, job: JobHandle) -> Result<QuantumResult, BackendError> {
-        self.jobs
-            .completed
-            .lock()
-            .expect("job store mutex poisoned")
-            .get(&job.0)
-            .cloned()
-            .ok_or(BackendError::UnknownJob)
-    }
-
-    fn cancel(&self, job: JobHandle) -> Result<(), BackendError> {
-        if self
-            .jobs
-            .completed
-            .lock()
-            .expect("job store mutex poisoned")
-            .contains_key(&job.0)
-        {
-            Ok(())
-        } else {
-            Err(BackendError::UnknownJob)
-        }
-    }
-
-    fn run(
-        &self,
-        program: &QuantumProgram,
-        opts: &RunOptions,
-    ) -> Result<QuantumResult, BackendError> {
-        self.execute(program, opts)
+            |shot| {
+                let seed = opts.seed.unwrap_or(0).wrapping_add(shot);
+                let mut rng = eg_numeric::random::Generator::new(seed);
+                let (_tab, classical) = evolve(program, &mut rng)
+                    .map_err(|e| BackendError::Execution(e.to_string()))?;
+                let n = program.n_qubits as u64;
+                let memory_bytes = 2 * n * n * 2 + 2 * n;
+                Ok((
+                    classical.bitstring(&program.classical_registers),
+                    memory_bytes,
+                ))
+            },
+        )
     }
 }
 
