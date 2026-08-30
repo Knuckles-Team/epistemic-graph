@@ -138,79 +138,160 @@ pub fn lda(
     if k == 0 || vocab_size == 0 || n_docs == 0 {
         return (Vec::new(), Vec::new());
     }
-    let mut rng = SplitMix64::new(seed);
-    let mut assignments: Vec<Vec<usize>> = docs.iter().map(|d| vec![0usize; d.len()]).collect();
-    let mut doc_topic_counts = vec![vec![0u32; k]; n_docs];
-    let mut topic_term_counts = vec![vec![0u32; vocab_size]; k];
-    let mut topic_totals = vec![0u32; k];
+    let params = LdaParams {
+        k,
+        alpha,
+        beta,
+        vocab_size,
+    };
+    let (mut state, mut rng) = initialize_lda_state(docs, &params, seed);
+    run_lda_iterations(docs, &params, iterations, &mut rng, &mut state);
+    let topics = lda_topic_terms(&state, &params);
+    let doc_topics = lda_doc_topics(&state, &params, n_docs);
+    (topics, doc_topics)
+}
 
-    for (d, doc) in docs.iter().enumerate() {
-        for (i, &term) in doc.iter().enumerate() {
-            let topic = (rng.next_u64() as usize) % k;
-            assignments[d][i] = topic;
-            doc_topic_counts[d][topic] += 1;
-            topic_term_counts[topic][term as usize] += 1;
-            topic_totals[topic] += 1;
+#[derive(Clone, Copy)]
+struct LdaParams {
+    k: usize,
+    alpha: f64,
+    beta: f64,
+    vocab_size: usize,
+}
+
+struct LdaState {
+    assignments: Vec<Vec<usize>>,
+    doc_topic_counts: Vec<Vec<u32>>,
+    topic_term_counts: Vec<Vec<u32>>,
+    topic_totals: Vec<u32>,
+}
+
+/// Seed assignments and count matrices from the same stream used by sampling.
+fn initialize_lda_state(
+    docs: &[Vec<TermId>],
+    params: &LdaParams,
+    seed: u64,
+) -> (LdaState, SplitMix64) {
+    let n_docs = docs.len();
+    let mut rng = SplitMix64::new(seed);
+    let mut state = LdaState {
+        assignments: docs.iter().map(|doc| vec![0usize; doc.len()]).collect(),
+        doc_topic_counts: vec![vec![0u32; params.k]; n_docs],
+        topic_term_counts: vec![vec![0u32; params.vocab_size]; params.k],
+        topic_totals: vec![0u32; params.k],
+    };
+    for (doc_index, doc) in docs.iter().enumerate() {
+        for (token_index, &term) in doc.iter().enumerate() {
+            let topic = (rng.next_u64() as usize) % params.k;
+            state.assignments[doc_index][token_index] = topic;
+            state.doc_topic_counts[doc_index][topic] += 1;
+            state.topic_term_counts[topic][term as usize] += 1;
+            state.topic_totals[topic] += 1;
         }
     }
+    (state, rng)
+}
 
+/// Perform the requested number of deterministic collapsed-Gibbs sweeps.
+fn run_lda_iterations(
+    docs: &[Vec<TermId>],
+    params: &LdaParams,
+    iterations: usize,
+    rng: &mut SplitMix64,
+    state: &mut LdaState,
+) {
     for _ in 0..iterations {
-        for d in 0..n_docs {
-            for i in 0..docs[d].len() {
-                let term = docs[d][i] as usize;
-                let old_topic = assignments[d][i];
-                doc_topic_counts[d][old_topic] -= 1;
-                topic_term_counts[old_topic][term] -= 1;
-                topic_totals[old_topic] -= 1;
-
-                let mut cum = vec![0.0; k];
-                let mut running = 0.0;
-                for t in 0..k {
-                    let p = (doc_topic_counts[d][t] as f64 + alpha)
-                        * (topic_term_counts[t][term] as f64 + beta)
-                        / (topic_totals[t] as f64 + vocab_size as f64 * beta);
-                    running += p;
-                    cum[t] = running;
-                }
-                let r = rng.next_f64() * running;
-                let mut new_topic = k - 1;
-                for (t, &c) in cum.iter().enumerate() {
-                    if r <= c {
-                        new_topic = t;
-                        break;
-                    }
-                }
-
-                assignments[d][i] = new_topic;
-                doc_topic_counts[d][new_topic] += 1;
-                topic_term_counts[new_topic][term] += 1;
-                topic_totals[new_topic] += 1;
+        for (doc_index, doc) in docs.iter().enumerate() {
+            for token_index in 0..doc.len() {
+                resample_lda_token(doc, doc_index, token_index, params, rng, state);
             }
         }
     }
+}
 
-    let mut topics: Vec<Vec<(TermId, f64)>> = Vec::with_capacity(k);
-    for t in 0..k {
-        let denom = topic_totals[t] as f64 + vocab_size as f64 * beta;
-        let mut terms: Vec<(TermId, f64)> = (0..vocab_size)
-            .map(|w| (w as TermId, (topic_term_counts[t][w] as f64 + beta) / denom))
-            .collect();
-        terms.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.0.cmp(&b.0))
-        });
-        topics.push(terms);
+/// Remove one token's old assignment, sample its new topic, and restore counts.
+fn resample_lda_token(
+    doc: &[TermId],
+    doc_index: usize,
+    token_index: usize,
+    params: &LdaParams,
+    rng: &mut SplitMix64,
+    state: &mut LdaState,
+) {
+    let term = doc[token_index] as usize;
+    let old_topic = state.assignments[doc_index][token_index];
+    state.doc_topic_counts[doc_index][old_topic] -= 1;
+    state.topic_term_counts[old_topic][term] -= 1;
+    state.topic_totals[old_topic] -= 1;
+
+    let new_topic = sample_lda_topic(
+        &state.doc_topic_counts[doc_index],
+        &state.topic_term_counts,
+        &state.topic_totals,
+        term,
+        params,
+        rng,
+    );
+    state.assignments[doc_index][token_index] = new_topic;
+    state.doc_topic_counts[doc_index][new_topic] += 1;
+    state.topic_term_counts[new_topic][term] += 1;
+    state.topic_totals[new_topic] += 1;
+}
+
+/// Sample one topic from the collapsed-Gibbs cumulative probability row.
+fn sample_lda_topic(
+    doc_counts: &[u32],
+    term_counts: &[Vec<u32>],
+    topic_totals: &[u32],
+    term: usize,
+    params: &LdaParams,
+    rng: &mut SplitMix64,
+) -> usize {
+    let mut cumulative = vec![0.0; params.k];
+    let mut running = 0.0;
+    for topic in 0..params.k {
+        let probability = (doc_counts[topic] as f64 + params.alpha)
+            * (term_counts[topic][term] as f64 + params.beta)
+            / (topic_totals[topic] as f64 + params.vocab_size as f64 * params.beta);
+        running += probability;
+        cumulative[topic] = running;
     }
-    let doc_topics: Vec<Vec<f64>> = (0..n_docs)
-        .map(|d| {
-            let denom = doc_topic_counts[d].iter().sum::<u32>() as f64 + k as f64 * alpha;
-            (0..k)
-                .map(|t| (doc_topic_counts[d][t] as f64 + alpha) / denom)
+    let draw = rng.next_f64() * running;
+    cumulative
+        .iter()
+        .position(|&value| draw <= value)
+        .unwrap_or(params.k - 1)
+}
+
+/// Convert topic-term count rows into stable, descending term distributions.
+fn lda_topic_terms(state: &LdaState, params: &LdaParams) -> Vec<Vec<(TermId, f64)>> {
+    (0..params.k)
+        .map(|topic| {
+            let denominator =
+                state.topic_totals[topic] as f64 + params.vocab_size as f64 * params.beta;
+            let weights: Vec<f64> = (0..params.vocab_size)
+                .map(|term| {
+                    (state.topic_term_counts[topic][term] as f64 + params.beta) / denominator
+                })
+                .collect();
+            sorted_term_weights(&weights)
+        })
+        .collect()
+}
+
+/// Convert document-topic counts into each document's topic mixture.
+fn lda_doc_topics(state: &LdaState, params: &LdaParams, n_docs: usize) -> Vec<Vec<f64>> {
+    (0..n_docs)
+        .map(|doc| {
+            let denominator = state.doc_topic_counts[doc].iter().sum::<u32>() as f64
+                + params.k as f64 * params.alpha;
+            (0..params.k)
+                .map(|topic| {
+                    (state.doc_topic_counts[doc][topic] as f64 + params.alpha) / denominator
+                })
                 .collect()
         })
-        .collect();
-    (topics, doc_topics)
+        .collect()
 }
 
 // ─────────────────────────── NMF (multiplicative updates) ───────────────────────────
@@ -233,131 +314,164 @@ pub fn nmf(
     if k == 0 || vocab_size == 0 || n_docs == 0 {
         return (Vec::new(), Vec::new());
     }
+    let v = tfidf_matrix(docs, vocab_size);
+    let (mut w_mat, mut h_mat) = initialize_nmf_factors(n_docs, vocab_size, k, seed);
+    run_nmf_updates(&v, &mut w_mat, &mut h_mat, iterations);
+    let topics = topic_terms(&h_mat);
+    let doc_topics = normalized_topics(&w_mat, k);
+    (topics, doc_topics)
+}
+
+/// Materialize the TF-IDF rows as the dense, non-negative matrix NMF consumes.
+fn tfidf_matrix(docs: &[Vec<TermId>], vocab_size: usize) -> Vec<Vec<f64>> {
     let tfidf_rows = tfidf(docs, vocab_size);
-    let mut v = vec![vec![0.0; vocab_size]; n_docs];
+    let mut matrix = vec![vec![0.0; vocab_size]; docs.len()];
     for (d, row) in tfidf_rows.iter().enumerate() {
-        for &(t, w) in row {
-            v[d][t as usize] = w;
+        for &(term, weight) in row {
+            matrix[d][term as usize] = weight;
         }
     }
+    matrix
+}
 
+/// Initialize NMF's positive factors from one deterministic random stream.
+fn initialize_nmf_factors(
+    n_docs: usize,
+    vocab_size: usize,
+    k: usize,
+    seed: u64,
+) -> (Vec<Vec<f64>>, Vec<Vec<f64>>) {
     let mut rng = SplitMix64::new(seed);
     let mut w_mat = vec![vec![0.0; k]; n_docs];
     let mut h_mat = vec![vec![0.0; vocab_size]; k];
-    for row in w_mat.iter_mut() {
-        for x in row.iter_mut() {
-            *x = 0.1 + rng.next_f64();
-        }
-    }
-    for row in h_mat.iter_mut() {
-        for x in row.iter_mut() {
-            *x = 0.1 + rng.next_f64();
-        }
-    }
+    initialize_factor(&mut w_mat, &mut rng);
+    initialize_factor(&mut h_mat, &mut rng);
+    (w_mat, h_mat)
+}
 
-    const EPS: f64 = 1e-10;
+/// Fill one factor with the strictly positive values used by multiplicative updates.
+fn initialize_factor(matrix: &mut [Vec<f64>], rng: &mut SplitMix64) {
+    for row in matrix.iter_mut() {
+        for value in row.iter_mut() {
+            *value = 0.1 + rng.next_f64();
+        }
+    }
+}
+
+/// Run the fixed number of deterministic Lee–Seung updates.
+fn run_nmf_updates(
+    v: &[Vec<f64>],
+    w_mat: &mut [Vec<f64>],
+    h_mat: &mut [Vec<f64>],
+    iterations: usize,
+) {
     for _ in 0..iterations {
-        // H *= (WᵀV) / (WᵀW·H)
-        let mut wtv = vec![vec![0.0; vocab_size]; k];
-        for d in 0..n_docs {
-            for t in 0..k {
-                let wdt = w_mat[d][t];
-                if wdt == 0.0 {
-                    continue;
-                }
-                for j in 0..vocab_size {
-                    wtv[t][j] += wdt * v[d][j];
-                }
-            }
-        }
-        let mut wtw = vec![vec![0.0; k]; k];
-        for d in 0..n_docs {
-            for a in 0..k {
-                for b in 0..k {
-                    wtw[a][b] += w_mat[d][a] * w_mat[d][b];
-                }
-            }
-        }
-        let mut wtwh = vec![vec![0.0; vocab_size]; k];
-        for a in 0..k {
-            for b in 0..k {
-                let wab = wtw[a][b];
-                if wab == 0.0 {
-                    continue;
-                }
-                for j in 0..vocab_size {
-                    wtwh[a][j] += wab * h_mat[b][j];
-                }
-            }
-        }
-        for a in 0..k {
-            for j in 0..vocab_size {
-                h_mat[a][j] *= wtv[a][j] / (wtwh[a][j] + EPS);
-            }
-        }
+        update_h_factor(v, w_mat, h_mat);
+        update_w_factor(v, w_mat, h_mat);
+    }
+}
 
-        // W *= (V·Hᵀ) / (W·H·Hᵀ)
-        let mut vht = vec![vec![0.0; k]; n_docs];
-        for d in 0..n_docs {
-            for a in 0..k {
-                let mut s = 0.0;
-                for j in 0..vocab_size {
-                    s += v[d][j] * h_mat[a][j];
-                }
-                vht[d][a] = s;
+/// Apply the H update: `H *= (WᵀV) / (WᵀW·H)`.
+fn update_h_factor(v: &[Vec<f64>], w_mat: &[Vec<f64>], h_mat: &mut [Vec<f64>]) {
+    let w_transposed = transpose_matrix(w_mat);
+    let wtv = matrix_product(&w_transposed, v, true);
+    let wtw = matrix_product(&w_transposed, w_mat, false);
+    let wtwh = matrix_product(&wtw, h_mat, true);
+    apply_multiplicative_update(h_mat, &wtv, &wtwh);
+}
+
+/// Apply the W update: `W *= (V·Hᵀ) / (W·H·Hᵀ)`.
+fn update_w_factor(v: &[Vec<f64>], w_mat: &mut [Vec<f64>], h_mat: &[Vec<f64>]) {
+    let h_transposed = transpose_matrix(h_mat);
+    let vht = matrix_product(v, &h_transposed, false);
+    let hht = matrix_product(h_mat, &h_transposed, false);
+    let whht = matrix_product(w_mat, &hht, false);
+    apply_multiplicative_update(w_mat, &vht, &whht);
+}
+
+/// Multiply two dense matrices, optionally skipping zero left-hand values.
+/// The flag retains NMF's original sparse-product behavior without duplicating
+/// the matrix traversal for the two multiplicative-update numerators.
+fn matrix_product(left: &[Vec<f64>], right: &[Vec<f64>], skip_zero: bool) -> Vec<Vec<f64>> {
+    let rows = left.len();
+    let columns = right[0].len();
+    let mut product = vec![vec![0.0; columns]; rows];
+    for (row_index, product_row) in product.iter_mut().enumerate() {
+        for (inner_index, right_row) in right.iter().enumerate() {
+            let left_value = left[row_index][inner_index];
+            if skip_zero && left_value == 0.0 {
+                continue;
             }
-        }
-        let mut hht = vec![vec![0.0; k]; k];
-        for a in 0..k {
-            for b in 0..k {
-                let mut s = 0.0;
-                for j in 0..vocab_size {
-                    s += h_mat[a][j] * h_mat[b][j];
-                }
-                hht[a][b] = s;
-            }
-        }
-        let mut whht = vec![vec![0.0; k]; n_docs];
-        for d in 0..n_docs {
-            for a in 0..k {
-                let mut s = 0.0;
-                for b in 0..k {
-                    s += w_mat[d][b] * hht[b][a];
-                }
-                whht[d][a] = s;
-            }
-        }
-        for d in 0..n_docs {
-            for a in 0..k {
-                w_mat[d][a] *= vht[d][a] / (whht[d][a] + EPS);
+            for column in 0..columns {
+                product_row[column] += left_value * right_row[column];
             }
         }
     }
+    product
+}
 
-    let mut topics: Vec<Vec<(TermId, f64)>> = Vec::with_capacity(k);
-    for a in 0..k {
-        let mut terms: Vec<(TermId, f64)> = (0..vocab_size)
-            .map(|j| (j as TermId, h_mat[a][j]))
-            .collect();
-        terms.sort_by(|x, y| {
-            y.1.partial_cmp(&x.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(x.0.cmp(&y.0))
-        });
-        topics.push(terms);
+/// Transpose a rectangular dense matrix while preserving row/column order.
+fn transpose_matrix(matrix: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let rows = matrix.len();
+    let columns = matrix[0].len();
+    let mut transposed = vec![vec![0.0; rows]; columns];
+    for row in 0..rows {
+        for column in 0..columns {
+            transposed[column][row] = matrix[row][column];
+        }
     }
-    let doc_topics: Vec<Vec<f64>> = w_mat
+    transposed
+}
+
+/// Apply one Lee–Seung ratio update with the shared numerical safeguard.
+fn apply_multiplicative_update(
+    factor: &mut [Vec<f64>],
+    numerator: &[Vec<f64>],
+    denominator: &[Vec<f64>],
+) {
+    const EPS: f64 = 1e-10;
+    for row in 0..factor.len() {
+        for column in 0..factor[row].len() {
+            factor[row][column] *= numerator[row][column] / (denominator[row][column] + EPS);
+        }
+    }
+}
+
+/// Sort each H row by descending weight, breaking ties by stable term id.
+fn topic_terms(h_mat: &[Vec<f64>]) -> Vec<Vec<(TermId, f64)>> {
+    h_mat.iter().map(|row| sorted_term_weights(row)).collect()
+}
+
+/// Sort one term-weight row by descending weight and stable term id.
+fn sorted_term_weights(weights: &[f64]) -> Vec<(TermId, f64)> {
+    let mut terms: Vec<(TermId, f64)> = weights
+        .iter()
+        .enumerate()
+        .map(|(term, &weight)| (term as TermId, weight))
+        .collect();
+    terms.sort_by(|left, right| {
+        right
+            .1
+            .partial_cmp(&left.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(left.0.cmp(&right.0))
+    });
+    terms
+}
+
+/// Normalize each W row to a document-topic distribution.
+fn normalized_topics(w_mat: &[Vec<f64>], k: usize) -> Vec<Vec<f64>> {
+    w_mat
         .iter()
         .map(|row| {
-            let s: f64 = row.iter().sum();
-            if s > 0.0 {
-                row.iter().map(|&x| x / s).collect()
+            let sum: f64 = row.iter().sum();
+            if sum > 0.0 {
+                row.iter().map(|&value| value / sum).collect()
             } else {
                 vec![0.0; k]
             }
         })
-        .collect();
-    (topics, doc_topics)
+        .collect()
 }
 
 /// Run the chosen text-mining engine.
