@@ -61,11 +61,11 @@ use crate::protocol::GraphType;
 #[cfg(feature = "security")]
 use crate::redb_store::AUDIT;
 use crate::redb_store::{
+    clear_change_material_rows, clear_graph_rows, decode_graph_meta_identity, sanitize,
     CHANGE_BLOBS, CHANGE_CURSORS, CHANGE_ENVELOPES, CHANGE_EVIDENCE, CHANGE_FEATURES,
     CHANGE_LINEAGE, CHANGE_POLICIES, CONTENT_VERSIONS, EDGES, GRAPH_META, LEDGER, MUTATION_BATCHES,
     MUTATION_FENCE, MUTATION_GRAPH_VERSION, MUTATION_IDEMPOTENCY, MUTATION_LIFECYCLE_HEAD,
     MUTATION_OUTBOX, MUTATION_OUTBOX_DELIVERY, MUTATION_PROJECTION_CURSOR, NODES, SEMANTIC,
-    clear_change_material_rows, clear_graph_rows, decode_graph_meta_identity, sanitize,
 };
 // BUG-CX-016/BUG-CX-054 class, same 25-of-30-table gap WD3-BUG-01 fixed offline in
 // `shard_migrate.rs` and this lane fixed in `backup.rs`: an online reshard moves ONE
@@ -78,12 +78,12 @@ use crate::redb_store::{
 // the full per-table per-graph-vs-global classification.
 #[cfg(feature = "security")]
 use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+use crate::redb_store::{capacity_lease, development_lane};
 use crate::redb_store::{
     RESOURCE_ANTI_AFFINITY, RESOURCE_CONCURRENCY, RESOURCE_DISK_POLICIES, RESOURCE_EXCLUSIVITY,
-    RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATION_ATTEMPTS,
-    RESOURCE_RESERVATION_TENANT_INDEX, RESOURCE_RESERVATIONS, WORK_ITEM_COMMAND_SEQUENCE,
+    RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
+    RESOURCE_RESERVATION_TENANT_INDEX, WORK_ITEM_COMMAND_SEQUENCE,
 };
-use crate::redb_store::{capacity_lease, development_lane};
 
 /// Deserialize an explicitly present nullable field in the current raw-row
 /// snapshot contract. Serde's intrinsic `Option<T>` handling otherwise accepts
@@ -950,6 +950,37 @@ fn clear_graph_three_part_rows<V: Value + 'static>(
     )
 }
 
+/// Export a graph-prefixed two-part table through one bounded raw scan.
+///
+/// The caller retains the table-specific key/value decoding and output type;
+/// this helper owns the shared table-open, `(graph, "")..` bound, graph fence,
+/// iteration order, and redb error propagation. Missing optional tables remain
+/// empty, matching the per-table export contract below.
+fn export_graph_two_part_rows<V, O, Decode>(
+    rtx: &redb::ReadTransaction,
+    table_definition: redb::TableDefinition<'static, (&str, &str), V>,
+    graph: &str,
+    mut decode: Decode,
+) -> Result<Vec<O>, String>
+where
+    V: Value + 'static,
+    Decode: for<'a> FnMut(&str, V::SelfType<'a>) -> O,
+{
+    let mut out = Vec::new();
+    let Ok(table) = rtx.open_table(table_definition) else {
+        return Ok(out);
+    };
+    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        let (row_graph, tail) = key.value();
+        if row_graph != graph {
+            break;
+        }
+        out.push(decode(tail, value.value()));
+    }
+    Ok(out)
+}
+
 fn export_resource_reservations_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
@@ -1385,19 +1416,9 @@ fn export_lane_holds_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut out = Vec::new();
-    let Ok(table) = rtx.open_table(development_lane::HOLDS) else {
-        return Ok(out);
-    };
-    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, hold_id) = k.value();
-        if g != graph {
-            break;
-        }
-        out.push((hold_id.to_string(), v.value().to_vec()));
-    }
-    Ok(out)
+    export_graph_two_part_rows(rtx, development_lane::HOLDS, graph, |hold_id, value| {
+        (hold_id.to_string(), value.to_vec())
+    })
 }
 
 fn clear_lane_holds_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
@@ -1574,19 +1595,12 @@ fn export_lane_worktree_index_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
 ) -> Result<Vec<(String, String)>, String> {
-    let mut out = Vec::new();
-    let Ok(table) = rtx.open_table(development_lane::WORKTREE_INDEX) else {
-        return Ok(out);
-    };
-    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, worktree) = k.value();
-        if g != graph {
-            break;
-        }
-        out.push((worktree.to_string(), v.value().to_string()));
-    }
-    Ok(out)
+    export_graph_two_part_rows(
+        rtx,
+        development_lane::WORKTREE_INDEX,
+        graph,
+        |worktree, value| (worktree.to_string(), value.to_string()),
+    )
 }
 
 fn clear_lane_worktree_index_rows_raw(
@@ -1684,19 +1698,9 @@ fn export_lane_counters_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut out = Vec::new();
-    let Ok(table) = rtx.open_table(development_lane::COUNTERS) else {
-        return Ok(out);
-    };
-    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, counter) = k.value();
-        if g != graph {
-            break;
-        }
-        out.push((counter.to_string(), v.value().to_vec()));
-    }
-    Ok(out)
+    export_graph_two_part_rows(rtx, development_lane::COUNTERS, graph, |counter, value| {
+        (counter.to_string(), value.to_vec())
+    })
 }
 
 fn clear_lane_counters_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
@@ -1834,19 +1838,12 @@ fn export_lane_policies_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut out = Vec::new();
-    let Ok(table) = rtx.open_table(development_lane::POLICIES) else {
-        return Ok(out);
-    };
-    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, policy_id) = k.value();
-        if g != graph {
-            break;
-        }
-        out.push((policy_id.to_string(), v.value().to_vec()));
-    }
-    Ok(out)
+    export_graph_two_part_rows(
+        rtx,
+        development_lane::POLICIES,
+        graph,
+        |policy_id, value| (policy_id.to_string(), value.to_vec()),
+    )
 }
 
 fn clear_lane_policies_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
@@ -1930,19 +1927,9 @@ fn export_capacity_cells_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut out = Vec::new();
-    let Ok(table) = rtx.open_table(capacity_lease::CELLS) else {
-        return Ok(out);
-    };
-    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, cell_id) = k.value();
-        if g != graph {
-            break;
-        }
-        out.push((cell_id.to_string(), v.value().to_vec()));
-    }
-    Ok(out)
+    export_graph_two_part_rows(rtx, capacity_lease::CELLS, graph, |cell_id, value| {
+        (cell_id.to_string(), value.to_vec())
+    })
 }
 
 fn clear_capacity_cells_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
@@ -1972,19 +1959,9 @@ fn export_capacity_leases_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut out = Vec::new();
-    let Ok(table) = rtx.open_table(capacity_lease::LEASES) else {
-        return Ok(out);
-    };
-    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, lease_id) = k.value();
-        if g != graph {
-            break;
-        }
-        out.push((lease_id.to_string(), v.value().to_vec()));
-    }
-    Ok(out)
+    export_graph_two_part_rows(rtx, capacity_lease::LEASES, graph, |lease_id, value| {
+        (lease_id.to_string(), value.to_vec())
+    })
 }
 
 fn clear_capacity_leases_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
@@ -2014,19 +1991,9 @@ fn export_capacity_usage_for_graph(
     rtx: &redb::ReadTransaction,
     graph: &str,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut out = Vec::new();
-    let Ok(table) = rtx.open_table(capacity_lease::USAGE) else {
-        return Ok(out);
-    };
-    for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (k, v) = row.map_err(|e| e.to_string())?;
-        let (g, cell_id) = k.value();
-        if g != graph {
-            break;
-        }
-        out.push((cell_id.to_string(), v.value().to_vec()));
-    }
-    Ok(out)
+    export_graph_two_part_rows(rtx, capacity_lease::USAGE, graph, |cell_id, value| {
+        (cell_id.to_string(), value.to_vec())
+    })
 }
 
 fn clear_capacity_usage_rows_raw(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
