@@ -48,11 +48,10 @@ mod test_support;
 
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::pgwire;
 use epistemic_graph::server::ServerState;
+use tokio::sync::RwLock;
 
 const AUTH_SECRET: &str = "occ-begin-version-secret";
 const AGENT: &str = "occtester";
@@ -75,7 +74,7 @@ fn ensure_env() {
 /// passes (`crates/eg-core/src/isolation.rs::can_see_row` / `check_access`),
 /// so this test proves transaction OCC semantics, never RBAC/RLS (covered
 /// elsewhere).
-fn state_with_sensor_seed() -> Arc<RwLock<ServerState>> {
+fn state_with_sensor_seed() -> test_support::SharedState {
     ensure_env();
     let registry = GraphRegistry::new();
     {
@@ -95,7 +94,7 @@ fn state_with_sensor_seed() -> Arc<RwLock<ServerState>> {
     Arc::new(RwLock::new(state))
 }
 
-async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
+async fn spawn_listener(state: test_support::SharedState) -> String {
     test_support::spawn_pgwire_listener(state, pgwire::PgWireAuthMode::Scram).await
 }
 

@@ -53,14 +53,11 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use std::sync::Arc;
-
 use serde_json::json;
-use tokio::sync::RwLock;
 
 use epistemic_graph::isolation::AgentRole;
 use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "served-semantic-search-discover-rls-secret";
 
@@ -70,7 +67,7 @@ const SECRET: &str = "served-semantic-search-discover-rls-secret";
 /// `advanced_crossmodal_roundtrip.rs`'s identical fixture for the full rationale).
 const COMMONS_USER_ROLE: &str = "commons-user";
 
-async fn state() -> Arc<RwLock<ServerState>> {
+async fn state() -> test_support::SharedState {
     let (persist_dir, persistence) = common::tempdir_persistence();
     test_support::state_with(SECRET, commons_isolation(), persist_dir, persistence)
 }
@@ -121,7 +118,7 @@ fn pack(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
 }
 
-async fn ok(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) {
+async fn ok(state: &test_support::SharedState, id: u64, method: Method) {
     let r = Box::pin(dispatch(state, req(id, method))).await;
     assert!(r.error.is_none(), "op {id} failed: {:?}", r.error);
 }
@@ -170,7 +167,7 @@ fn register_root_req(id: u64, actor: &str) -> Request {
 /// vector every test below queries with, and its `name`/`description` carry every
 /// keyword the `Discover` test searches for -- the worst case for a leak (it would win
 /// an unfiltered top-k on every signal at once).
-async fn seed(state: &Arc<RwLock<ServerState>>) {
+async fn seed(state: &test_support::SharedState) {
     ok(
         state,
         1,
