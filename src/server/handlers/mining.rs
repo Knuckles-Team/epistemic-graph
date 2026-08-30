@@ -1932,15 +1932,22 @@ fn materialize_anomalies(
             continue;
         };
         core.add_node(node_id.clone(), blob);
-        if core.has_node(&src) {
-            let edge = serde_json::json!({ "relationship": "ANOMALY_OF" });
-            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
-                let _ = core.add_edge(node_id.clone(), src.clone(), eb);
-            }
-        }
+        link_writeback_source(core, &node_id, &src, "ANOMALY_OF");
         written += 1;
     }
     written
+}
+
+/// Link a materialized writeback node to its resident source using the canonical
+/// relationship property. Missing sources and serialization failures retain the
+/// writeback's existing best-effort behavior.
+fn link_writeback_source(core: &GraphCore, node_id: &str, source_id: &str, relationship: &str) {
+    if core.has_node(source_id) {
+        let edge = serde_json::json!({ "relationship": relationship });
+        if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+            let _ = core.add_edge(node_id.to_string(), source_id.to_string(), eb);
+        }
+    }
 }
 
 fn anomaly_algo_name(a: AnomalyAlgorithm) -> &'static str {
@@ -2142,12 +2149,7 @@ fn materialize_classifications(
             continue;
         };
         core.add_node(node_id.clone(), blob);
-        if core.has_node(&src) {
-            let edge = serde_json::json!({ "relationship": "CLASSIFIED_AS" });
-            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
-                let _ = core.add_edge(node_id.clone(), src.clone(), eb);
-            }
-        }
+        link_writeback_source(core, &node_id, &src, "CLASSIFIED_AS");
         written += 1;
     }
     written
@@ -2329,12 +2331,7 @@ fn materialize_embeddings(core: &GraphCore, out: &reduce::Reduction, ids: &[Stri
             continue;
         };
         core.add_node(node_id.clone(), blob);
-        if core.has_node(&src) {
-            let edge = serde_json::json!({ "relationship": "REDUCED_FROM" });
-            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
-                let _ = core.add_edge(node_id.clone(), src.clone(), eb);
-            }
-        }
+        link_writeback_source(core, &node_id, &src, "REDUCED_FROM");
         written += 1;
     }
     written
@@ -3832,12 +3829,7 @@ fn materialize_risk_scores(
             continue;
         };
         core.add_node(node_id.clone(), blob);
-        if core.has_node(id) {
-            let edge = serde_json::json!({ "relationship": "RISK_SCORE_OF" });
-            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
-                let _ = core.add_edge(node_id, id.clone(), eb);
-            }
-        }
+        link_writeback_source(core, &node_id, id, "RISK_SCORE_OF");
         written += 1;
     }
     written
