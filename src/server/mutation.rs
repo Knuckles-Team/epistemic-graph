@@ -274,17 +274,22 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     "ServedModality",
 ];
 
-/// Extract a `Method` variant's name as a `&'static str`, covering exactly
-/// [`GATEWAY_ROUTED`] (the only names this module's logic branches on) plus a
-/// catch-all `"other"` for every non-routed variant. NOT a general-purpose
-/// reflection helper — deliberately narrow to this workstream's routed set.
-pub fn method_variant_name(m: &Method) -> &'static str {
+/// Resolve the node and edge CRUD methods owned by the graph core.
+fn node_edge_method_name(m: &Method) -> Option<&'static str> {
     match m {
         Method::AddNode { .. } => "AddNode",
         Method::CreateNodeIfAbsent { .. } => "CreateNodeIfAbsent",
         Method::RemoveNode { .. } => "RemoveNode",
         Method::AddEdge { .. } => "AddEdge",
         Method::RemoveEdge { .. } => "RemoveEdge",
+        _ => None,
+    }
+}
+
+/// Resolve graph-memory lifecycle methods (summaries, reinforcement, claims,
+/// and decay) owned by the graph core.
+fn memory_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         Method::CreateSummaryNode { .. } => "CreateSummaryNode",
         Method::Consolidate { .. } => "Consolidate",
         Method::Reinforce { .. } => "Reinforce",
@@ -294,30 +299,74 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::DecayMemories { .. } => "DecayMemories",
         Method::EvictBelow { .. } => "EvictBelow",
         Method::Maintain { .. } => "Maintain",
+        _ => None,
+    }
+}
+
+/// Resolve scene and trajectory methods owned by the graph core.
+fn scene_trajectory_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         Method::AddSceneObject { .. } => "AddSceneObject",
         Method::SetPose { .. } => "SetPose",
         Method::Reparent { .. } => "Reparent",
         Method::StartTrajectory { .. } => "StartTrajectory",
         Method::AppendStep { .. } => "AppendStep",
+        _ => None,
+    }
+}
+
+/// Resolve embedding and temporal-edge methods owned by the graph core.
+fn embedding_edge_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         Method::AddEmbedding { .. } => "AddEmbedding",
         Method::InvalidateEdge { .. } => "InvalidateEdge",
         Method::SupersedeEdge { .. } => "SupersedeEdge",
+        _ => None,
+    }
+}
+
+/// Resolve graph-wide maintenance methods owned by the graph core.
+fn graph_maintenance_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         Method::ClearGraph => "ClearGraph",
         Method::EvictLRU { .. } => "EvictLRU",
         Method::DecaySweep { .. } => "DecaySweep",
         Method::TouchNodes { .. } => "TouchNodes",
         Method::FromMsgpack { .. } => "FromMsgpack",
         Method::Reconcile { .. } => "Reconcile",
+        _ => None,
+    }
+}
+
+/// Resolve graph mutation and reasoning-control methods. The feature guards
+/// mirror the protocol's ownership of the reasoning and SHACL variants.
+fn graph_control_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         Method::ApplyMutation { .. } => "ApplyMutation",
         #[cfg(feature = "reasoning")]
         Method::RunDatalogReasoning { .. } => "RunDatalogReasoning",
         #[cfg(feature = "shacl")]
         Method::IcvConfigure { .. } => "IcvConfigure",
+        _ => None,
+    }
+}
+
+/// Resolve lifecycle and ledger methods owned by the graph core.
+fn lifecycle_ledger_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         Method::PruneByLifecycle { .. } => "PruneByLifecycle",
         Method::BatchUpdate { .. } => "BatchUpdate",
         Method::ClearLedger => "ClearLedger",
         Method::ApplyLedger { .. } => "ApplyLedger",
         Method::CompactNodesByType { .. } => "CompactNodesByType",
+        _ => None,
+    }
+}
+
+/// Resolve broker topology/control methods. The broker feature guard stays on
+/// each protocol arm so a lean build keeps the same unavailable-method behavior.
+fn broker_control_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "broker")]
         Method::DeclareExchange { .. } => "DeclareExchange",
         #[cfg(feature = "broker")]
@@ -326,10 +375,24 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::BindQueue { .. } => "BindQueue",
         #[cfg(feature = "broker")]
         Method::UnbindQueue { .. } => "UnbindQueue",
-        #[cfg(feature = "broker")]
-        Method::Publish { .. } => "Publish",
+        _ => None,
+    }
+}
+
+/// Resolve broker queue-policy declaration methods.
+fn broker_queue_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "broker")]
         Method::DeclareQueue { .. } => "DeclareQueue",
+        _ => None,
+    }
+}
+
+/// Resolve broker publish and delivery methods.
+fn broker_delivery_method_name(m: &Method) -> Option<&'static str> {
+    match m {
+        #[cfg(feature = "broker")]
+        Method::Publish { .. } => "Publish",
         #[cfg(feature = "broker")]
         Method::PublishEx { .. } => "PublishEx",
         #[cfg(feature = "broker")]
@@ -340,6 +403,13 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::BrokerReject { .. } => "BrokerReject",
         #[cfg(feature = "broker")]
         Method::SweepExpired { .. } => "SweepExpired",
+        _ => None,
+    }
+}
+
+/// Resolve broker stream methods.
+fn broker_stream_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "broker")]
         Method::StreamDeclare { .. } => "StreamDeclare",
         #[cfg(feature = "broker")]
@@ -348,6 +418,13 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::StreamTrim { .. } => "StreamTrim",
         #[cfg(feature = "broker")]
         Method::StreamCommitOffset { .. } => "StreamCommitOffset",
+        _ => None,
+    }
+}
+
+/// Resolve broker confirmation and tag-lifecycle methods.
+fn broker_confirmation_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "broker")]
         Method::PublishConfirmed { .. } => "PublishConfirmed",
         #[cfg(feature = "broker")]
@@ -358,16 +435,37 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::BrokerNackTag { .. } => "BrokerNackTag",
         #[cfg(feature = "broker")]
         Method::BrokerRenewTag { .. } => "BrokerRenewTag",
+        _ => None,
+    }
+}
+
+/// Resolve graph-learning's fit and prediction methods.
+fn graph_learning_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "graphlearn")]
         Method::GraphLearnFit { .. } => "GraphLearnFit",
         #[cfg(feature = "graphlearn")]
         Method::GraphLearnPredict { .. } => "GraphLearnPredict",
+        _ => None,
+    }
+}
+
+/// Resolve ML-pipeline training, serving, and prediction methods.
+fn ml_pipeline_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "ml-pipeline")]
         Method::MiningPipelineTrain { .. } => "MiningPipelineTrain",
         #[cfg(feature = "ml-pipeline")]
         Method::MiningPipelineServe { .. } => "MiningPipelineServe",
         #[cfg(feature = "ml-pipeline")]
         Method::MiningPipelinePredict { .. } => "MiningPipelinePredict",
+        _ => None,
+    }
+}
+
+/// Resolve mining's discovery and classification methods.
+fn mining_discovery_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "mining")]
         Method::MineAssociate { .. } => "MineAssociate",
         #[cfg(feature = "mining")]
@@ -376,24 +474,52 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::MineAnomaly { .. } => "MineAnomaly",
         #[cfg(feature = "mining")]
         Method::MineClassifyPredict { .. } => "MineClassifyPredict",
+        _ => None,
+    }
+}
+
+/// Resolve mining's reduction, sequence, and forecasting methods.
+fn mining_sequence_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "mining")]
         Method::MineReduce { .. } => "MineReduce",
         #[cfg(feature = "mining")]
         Method::MineSequence { .. } => "MineSequence",
         #[cfg(feature = "mining")]
         Method::MineForecast { .. } => "MineForecast",
+        _ => None,
+    }
+}
+
+/// Resolve mining's text, subgraph, and entity-resolution methods.
+fn mining_content_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "mining")]
         Method::MineText { .. } => "MineText",
         #[cfg(feature = "mining")]
         Method::MineSubgraph { .. } => "MineSubgraph",
         #[cfg(feature = "mining")]
         Method::MineEntityResolve { .. } => "MineEntityResolve",
+        _ => None,
+    }
+}
+
+/// Resolve mining's causal, process, and root-cause methods.
+fn mining_reasoning_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "mining")]
         Method::MineCausalImpact { .. } => "MineCausalImpact",
         #[cfg(feature = "mining")]
         Method::MineProcess { .. } => "MineProcess",
         #[cfg(feature = "mining")]
         Method::MineRootCause { .. } => "MineRootCause",
+        _ => None,
+    }
+}
+
+/// Resolve mining's risk, ontology, retrieval, and community methods.
+fn mining_graph_quality_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "mining")]
         Method::MineRiskPropagation { .. } => "MineRiskPropagation",
         #[cfg(feature = "mining")]
@@ -402,28 +528,94 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::MineRetrievalQuality { .. } => "MineRetrievalQuality",
         #[cfg(feature = "mining")]
         Method::MineCommunity { .. } => "MineCommunity",
-        // L11 batch 4: runtime-conditional query surface (`Sql`/`CypherQuery`
-        // unconditional in the enum; `GraphQl` behind `graphql`).
+        _ => None,
+    }
+}
+
+/// Resolve the runtime-conditional SQL/Cypher query surface.
+fn query_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         Method::Sql { .. } => "Sql",
         Method::CypherQuery { .. } => "CypherQuery",
         #[cfg(feature = "graphql")]
         Method::GraphQl { .. } => "GraphQl",
-        // L11 batch 4: native RDF write surface (behind `rdf`).
+        _ => None,
+    }
+}
+
+/// Resolve the native RDF write surface.
+fn rdf_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "rdf")]
         Method::AddTriples { .. } => "AddTriples",
         #[cfg(feature = "rdf")]
         Method::RemoveTriples { .. } => "RemoveTriples",
         #[cfg(feature = "rdf")]
         Method::DropNamedGraph => "DropNamedGraph",
+        _ => None,
+    }
+}
+
+/// Resolve the governed document/image/audio/video service.
+fn modality_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { .. } => "ServedModality",
+        _ => None,
+    }
+}
+
+/// Resolve self-routed cluster administration methods.
+fn cluster_admin_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         // Self-routed cluster-admin (see `SELF_ROUTED_ADMIN_METHODS`): named here
         // too so `cluster_mutation_route`'s drift self-check is meaningful rather
         // than comparing against the `_ => "other"` catch-all.
         Method::RaftAddLearner { .. } => "RaftAddLearner",
         Method::RaftChangeMembership { .. } => "RaftChangeMembership",
-        _ => "other",
+        _ => None,
     }
+}
+
+// These resolvers follow the protocol's semantic sections rather than slicing
+// the old match by size. Keeping the list explicit makes ownership and lookup
+// order auditable while leaving unknown variants to the public fallback.
+const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
+    node_edge_method_name,
+    memory_method_name,
+    scene_trajectory_method_name,
+    embedding_edge_method_name,
+    graph_maintenance_method_name,
+    graph_control_method_name,
+    lifecycle_ledger_method_name,
+    broker_control_method_name,
+    broker_queue_method_name,
+    broker_delivery_method_name,
+    broker_stream_method_name,
+    broker_confirmation_method_name,
+    graph_learning_method_name,
+    ml_pipeline_method_name,
+    mining_discovery_method_name,
+    mining_sequence_method_name,
+    mining_content_method_name,
+    mining_reasoning_method_name,
+    mining_graph_quality_method_name,
+    query_method_name,
+    rdf_method_name,
+    modality_method_name,
+    cluster_admin_method_name,
+];
+
+/// Extract a `Method` variant's name as a `&'static str`, covering exactly
+/// [`GATEWAY_ROUTED`] (the only names this module's logic branches on) plus
+/// the self-routed cluster-admin names and a catch-all `"other"` for every
+/// non-routed variant. NOT a general-purpose reflection helper — deliberately
+/// narrow to this workstream's routed set.
+pub fn method_variant_name(m: &Method) -> &'static str {
+    METHOD_NAME_RESOLVERS
+        .iter()
+        .find_map(|resolve| resolve(m))
+        .unwrap_or("other")
 }
 
 /// Is `method` one of [`GATEWAY_ROUTED`]? `dispatch_graph_op` routes this set to
