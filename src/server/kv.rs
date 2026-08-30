@@ -713,16 +713,7 @@ mod tests {
     use super::*;
 
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "eg-kv-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let _ = std::fs::remove_dir_all(&d);
-        d
+        crate::test_support::temp_dir("eg-kv", tag)
     }
 
     /// put → get → scan → delete → cas round-trip over the durable store.
