@@ -574,6 +574,237 @@ mod tests {
     /// NAIVE reference evaluator — the pre-existing string-keyed five-rule fixpoint,
     /// distilled to pure inference over the base fact lists (no graph mutation). This is
     /// the differential ORACLE: [`infer_semi_naive`] must return the same DERIVED sets.
+    fn naive_relation_map(relations: &[(String, String)]) -> HashMap<String, Vec<String>> {
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for (sub, sup) in relations {
+            map.entry(sub.clone()).or_default().push(sup.clone());
+        }
+        map
+    }
+
+    fn naive_inverse_map(relations: &[(String, String)]) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        for (first, second) in relations {
+            map.insert(first.clone(), second.clone());
+            map.insert(second.clone(), first.clone());
+        }
+        map
+    }
+
+    fn naive_node_types(base: &[(String, String)]) -> HashMap<String, HashSet<String>> {
+        let mut node_types: HashMap<String, HashSet<String>> = HashMap::new();
+        for (node, type_name) in base {
+            node_types
+                .entry(node.clone())
+                .or_default()
+                .insert(type_name.clone());
+        }
+        node_types
+    }
+
+    fn naive_edge_types(
+        base: &[(String, String, String)],
+    ) -> HashMap<(String, String), HashSet<String>> {
+        let mut edge_types: HashMap<(String, String), HashSet<String>> = HashMap::new();
+        for (source, target, property) in base {
+            edge_types
+                .entry((source.clone(), target.clone()))
+                .or_default()
+                .insert(property.clone());
+        }
+        edge_types
+    }
+
+    fn append_node_type_pending(
+        node: &str,
+        types: &HashSet<String>,
+        type_name: &str,
+        subclass_map: &HashMap<String, Vec<String>>,
+        pending: &mut Vec<(String, String)>,
+    ) {
+        if let Some(supers) = subclass_map.get(type_name) {
+            for super_type in supers {
+                if !types.contains(super_type) {
+                    pending.push((node.to_owned(), super_type.clone()));
+                }
+            }
+        }
+    }
+
+    fn append_node_pending(
+        node_types: &HashMap<String, HashSet<String>>,
+        subclass_map: &HashMap<String, Vec<String>>,
+        pending: &mut Vec<(String, String)>,
+    ) {
+        for (node, types) in node_types {
+            for type_name in types {
+                append_node_type_pending(node, types, type_name, subclass_map, pending);
+            }
+        }
+    }
+
+    fn append_subproperty_pending(
+        source: &str,
+        target: &str,
+        property: &str,
+        edge_types: &HashMap<(String, String), HashSet<String>>,
+        subproperty_map: &HashMap<String, Vec<String>>,
+        pending: &mut Vec<(String, String, String)>,
+    ) {
+        if let Some(supers) = subproperty_map.get(property) {
+            for super_property in supers {
+                let exists = edge_types
+                    .get(&(source.to_owned(), target.to_owned()))
+                    .is_some_and(|properties| properties.contains(super_property));
+                if !exists {
+                    pending.push((source.to_owned(), target.to_owned(), super_property.clone()));
+                }
+            }
+        }
+    }
+
+    fn append_symmetric_pending(
+        source: &str,
+        target: &str,
+        property: &str,
+        edge_types: &HashMap<(String, String), HashSet<String>>,
+        symmetric: &HashSet<String>,
+        pending: &mut Vec<(String, String, String)>,
+    ) {
+        if symmetric.contains(property) {
+            let exists = edge_types
+                .get(&(target.to_owned(), source.to_owned()))
+                .is_some_and(|properties| properties.contains(property));
+            if !exists {
+                pending.push((target.to_owned(), source.to_owned(), property.to_owned()));
+            }
+        }
+    }
+
+    fn append_inverse_pending(
+        source: &str,
+        target: &str,
+        property: &str,
+        edge_types: &HashMap<(String, String), HashSet<String>>,
+        inverse_map: &HashMap<String, String>,
+        pending: &mut Vec<(String, String, String)>,
+    ) {
+        if let Some(inverse) = inverse_map.get(property) {
+            let exists = edge_types
+                .get(&(target.to_owned(), source.to_owned()))
+                .is_some_and(|properties| properties.contains(inverse));
+            if !exists {
+                pending.push((target.to_owned(), source.to_owned(), inverse.clone()));
+            }
+        }
+    }
+
+    fn append_edge_pending(
+        edge_types: &HashMap<(String, String), HashSet<String>>,
+        subproperty_map: &HashMap<String, Vec<String>>,
+        symmetric: &HashSet<String>,
+        inverse_map: &HashMap<String, String>,
+        pending: &mut Vec<(String, String, String)>,
+    ) {
+        for ((source, target), properties) in edge_types {
+            for property in properties {
+                append_subproperty_pending(
+                    source,
+                    target,
+                    property,
+                    edge_types,
+                    subproperty_map,
+                    pending,
+                );
+                append_symmetric_pending(source, target, property, edge_types, symmetric, pending);
+                append_inverse_pending(source, target, property, edge_types, inverse_map, pending);
+            }
+        }
+    }
+
+    fn property_edges(
+        edge_types: &HashMap<(String, String), HashSet<String>>,
+        property: &str,
+    ) -> Vec<(String, String)> {
+        let mut edges = Vec::new();
+        for ((source, target), properties) in edge_types {
+            if properties.contains(property) {
+                edges.push((source.clone(), target.clone()));
+            }
+        }
+        edges
+    }
+
+    fn append_transitive_pairs(
+        edge_types: &HashMap<(String, String), HashSet<String>>,
+        property: &str,
+        edges: &[(String, String)],
+        pending: &mut Vec<(String, String, String)>,
+    ) {
+        for (source, middle) in edges {
+            for (middle_candidate, target) in edges {
+                if middle != middle_candidate {
+                    continue;
+                }
+                let exists = edge_types
+                    .get(&(source.to_owned(), target.to_owned()))
+                    .is_some_and(|properties| properties.contains(property));
+                if !exists {
+                    pending.push((source.to_owned(), target.to_owned(), property.to_owned()));
+                }
+            }
+        }
+    }
+
+    fn append_transitive_pending(
+        edge_types: &HashMap<(String, String), HashSet<String>>,
+        transitive: &HashSet<String>,
+        pending: &mut Vec<(String, String, String)>,
+    ) {
+        for property in transitive {
+            let edges = property_edges(edge_types, property);
+            append_transitive_pairs(edge_types, property, &edges, pending);
+        }
+    }
+
+    fn apply_node_pending(
+        node_types: &mut HashMap<String, HashSet<String>>,
+        pending: Vec<(String, String)>,
+        derived: &mut HashSet<(String, String)>,
+    ) -> bool {
+        let mut changed = false;
+        for (node, type_name) in pending {
+            if node_types
+                .entry(node.clone())
+                .or_default()
+                .insert(type_name.clone())
+            {
+                derived.insert((node, type_name));
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn apply_edge_pending(
+        edge_types: &mut HashMap<(String, String), HashSet<String>>,
+        pending: Vec<(String, String, String)>,
+        derived: &mut HashSet<(String, String, String)>,
+    ) -> bool {
+        let mut changed = false;
+        for (source, target, property) in pending {
+            if edge_types
+                .entry((source.clone(), target.clone()))
+                .or_default()
+                .insert(property.clone())
+            {
+                derived.insert((source, target, property));
+                changed = true;
+            }
+        }
+        changed
+    }
+
     #[allow(clippy::type_complexity)]
     fn infer_naive_reference(
         base_node_types: &[(String, String)],
@@ -584,126 +815,32 @@ mod tests {
         transitive_properties: &[String],
         inverse_properties: &[(String, String)],
     ) -> (HashSet<(String, String)>, HashSet<(String, String, String)>) {
-        let mut subclass_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (sub, sup) in subclass_relations {
-            subclass_map
-                .entry(sub.clone())
-                .or_default()
-                .push(sup.clone());
-        }
-        let mut subprop_map: HashMap<String, Vec<String>> = HashMap::new();
-        for (sub, sup) in subproperty_relations {
-            subprop_map
-                .entry(sub.clone())
-                .or_default()
-                .push(sup.clone());
-        }
+        let subclass_map = naive_relation_map(subclass_relations);
+        let subproperty_map = naive_relation_map(subproperty_relations);
         let symmetric_set: HashSet<String> = symmetric_properties.iter().cloned().collect();
         let transitive_set: HashSet<String> = transitive_properties.iter().cloned().collect();
-        let mut inverse_map: HashMap<String, String> = HashMap::new();
-        for (p1, p2) in inverse_properties {
-            inverse_map.insert(p1.clone(), p2.clone());
-            inverse_map.insert(p2.clone(), p1.clone());
-        }
-
-        let mut node_types: HashMap<String, HashSet<String>> = HashMap::new();
-        for (n, t) in base_node_types {
-            node_types.entry(n.clone()).or_default().insert(t.clone());
-        }
-        let mut edge_types: HashMap<(String, String), HashSet<String>> = HashMap::new();
-        for (s, g, p) in base_edge_types {
-            edge_types
-                .entry((s.clone(), g.clone()))
-                .or_default()
-                .insert(p.clone());
-        }
+        let inverse_map = naive_inverse_map(inverse_properties);
+        let mut node_types = naive_node_types(base_node_types);
+        let mut edge_types = naive_edge_types(base_edge_types);
 
         let mut new_nt: HashSet<(String, String)> = HashSet::new();
         let mut new_et: HashSet<(String, String, String)> = HashSet::new();
         let mut changed = true;
         let mut iters = 0;
         while changed && iters < 100 {
-            changed = false;
             let mut pend_nt = Vec::new();
             let mut pend_et = Vec::new();
-            for (node, types) in &node_types {
-                for t in types {
-                    if let Some(sups) = subclass_map.get(t) {
-                        for sup in sups {
-                            if !types.contains(sup) {
-                                pend_nt.push((node.clone(), sup.clone()));
-                            }
-                        }
-                    }
-                }
-            }
-            for ((s, g), types) in &edge_types {
-                for t in types {
-                    if let Some(sups) = subprop_map.get(t) {
-                        for sup in sups {
-                            if !types.contains(sup) {
-                                pend_et.push((s.clone(), g.clone(), sup.clone()));
-                            }
-                        }
-                    }
-                    if symmetric_set.contains(t) {
-                        let exists = edge_types
-                            .get(&(g.clone(), s.clone()))
-                            .is_some_and(|ts| ts.contains(t));
-                        if !exists {
-                            pend_et.push((g.clone(), s.clone(), t.clone()));
-                        }
-                    }
-                    if let Some(inv) = inverse_map.get(t) {
-                        let exists = edge_types
-                            .get(&(g.clone(), s.clone()))
-                            .is_some_and(|ts| ts.contains(inv));
-                        if !exists {
-                            pend_et.push((g.clone(), s.clone(), inv.clone()));
-                        }
-                    }
-                }
-            }
-            for p in &transitive_set {
-                let mut p_edges = Vec::new();
-                for ((s, g), ts) in &edge_types {
-                    if ts.contains(p) {
-                        p_edges.push((s.clone(), g.clone()));
-                    }
-                }
-                for (x, y) in &p_edges {
-                    for (y2, z) in &p_edges {
-                        if y == y2 {
-                            let exists = edge_types
-                                .get(&(x.clone(), z.clone()))
-                                .is_some_and(|ts| ts.contains(p));
-                            if !exists {
-                                pend_et.push((x.clone(), z.clone(), p.clone()));
-                            }
-                        }
-                    }
-                }
-            }
-            for (node, t) in pend_nt {
-                if node_types
-                    .entry(node.clone())
-                    .or_default()
-                    .insert(t.clone())
-                {
-                    new_nt.insert((node, t));
-                    changed = true;
-                }
-            }
-            for (s, g, p) in pend_et {
-                if edge_types
-                    .entry((s.clone(), g.clone()))
-                    .or_default()
-                    .insert(p.clone())
-                {
-                    new_et.insert((s, g, p));
-                    changed = true;
-                }
-            }
+            append_node_pending(&node_types, &subclass_map, &mut pend_nt);
+            append_edge_pending(
+                &edge_types,
+                &subproperty_map,
+                &symmetric_set,
+                &inverse_map,
+                &mut pend_et,
+            );
+            append_transitive_pending(&edge_types, &transitive_set, &mut pend_et);
+            changed = apply_node_pending(&mut node_types, pend_nt, &mut new_nt);
+            changed |= apply_edge_pending(&mut edge_types, pend_et, &mut new_et);
             iters += 1;
         }
         (new_nt, new_et)
