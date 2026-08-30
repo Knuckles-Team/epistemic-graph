@@ -286,72 +286,80 @@ class ExactEngine:
         redb_shards: int = 1,
         extra_env: dict[str, str] | None = None,
     ) -> None:
-        if self.process is not None:
-            _fail("engine_already_started")
-        if isinstance(redb_shards, bool) or not 1 <= redb_shards <= 64:
-            _fail("invalid_redb_shard_count")
-        for directory in (
-            self.persist_dir,
-            self.security_dir,
-            self.backup_dir,
-            self.home_dir,
-            self.temporary_dir,
-        ):
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            directory.chmod(0o700)
-        self.socket_path.unlink(missing_ok=True)
-        self._log = self.log_path.open("wb")
-        if _sha256_file(self.binary.path) != self.binary.digest:
-            _fail("sealed_binary_digest_changed")
-        env = {
-            "HOME": str(self.home_dir),
-            "LANG": "C.UTF-8",
-            "LC_ALL": "C.UTF-8",
-            "PATH": "/usr/bin:/bin",
-            "TMPDIR": str(self.temporary_dir),
-            "TZ": "UTC",
-            "GRAPH_SERVICE_AUTH_SECRET": self.authority.auth_secret,
-            # Explicit, deliberate opt-out of the MANDATORY-OIDC posture (secure
-            # by default since 2026-07-22 -- see `auth.rs`'s `require_oidc()`).
-            # Without this the engine refuses to start at all ("invalid verified
-            # request-context configuration: EPISTEMIC_GRAPH_REQUIRE_OIDC
-            # requires OIDC identity binding ... but no usable OIDC verifier is
-            # configured"), which every certification run here hit as
-            # `engine_exited_during_startup` -- no Keycloak/OIDC provider exists
-            # in this sealed, network-isolated certification sandbox, and the
-            # `eg2.` HMAC-envelope protocol this harness authenticates with is
-            # exactly the documented local/dev/test opt-out use case (mirrors
-            # `tests/conftest.py`'s `strict_server_env`, which sets the same var
-            # for the identical reason).
-            "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
-            "EPISTEMIC_GRAPH_AUDIENCE": AUDIENCE,
-            "EPISTEMIC_GRAPH_TENANT": tenant,
-            "EPISTEMIC_GRAPH_POLICY_VERSION": POLICY_VERSION,
-            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": str(self.security_dir),
-            # NE-247: the SCOPED signer-registry shape. NE-065 made the flat
-            # `{signer_id: key}` form fail closed (no roles, no System grant),
-            # so this sandbox's own genesis `bootstrap_system_identity` -- an
-            # `AgentRole::System` self-registration -- is denied under it.
-            # `certify_exact_protocol_authorization.py` reuses this exact
-            # engine sandbox and additionally registers a peer carrying
-            # `PEER_ROLE`, so that role is enumerated here too.
-            "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
-                {
-                    AGENT_ID: {
-                        "key": self.authority.signer_key,
-                        "allowed_roles": list(CERTIFIER_ALLOWED_ROLES),
-                        "may_grant_system": True,
-                    }
-                },
-                separators=(",", ":"),
-            ),
-            "EPISTEMIC_GRAPH_REDB_COMMIT_POLICY": "each",
-            "EPISTEMIC_GRAPH_REDB_SHARDS": str(redb_shards),
-            "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE": str(lazy_page_size),
-            "EPISTEMIC_GRAPH_BACKUP_ROOT": str(self.backup_dir),
-            "RUST_BACKTRACE": "0",
-        }
-        if extra_env is not None:
+        def validate_start_request() -> None:
+            if self.process is not None:
+                _fail("engine_already_started")
+            if isinstance(redb_shards, bool) or not 1 <= redb_shards <= 64:
+                _fail("invalid_redb_shard_count")
+
+        def prepare_runtime() -> None:
+            for directory in (
+                self.persist_dir,
+                self.security_dir,
+                self.backup_dir,
+                self.home_dir,
+                self.temporary_dir,
+            ):
+                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+                directory.chmod(0o700)
+            self.socket_path.unlink(missing_ok=True)
+            self._log = self.log_path.open("wb")
+            if _sha256_file(self.binary.path) != self.binary.digest:
+                _fail("sealed_binary_digest_changed")
+
+        def base_environment() -> dict[str, str]:
+            return {
+                "HOME": str(self.home_dir),
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "PATH": "/usr/bin:/bin",
+                "TMPDIR": str(self.temporary_dir),
+                "TZ": "UTC",
+                "GRAPH_SERVICE_AUTH_SECRET": self.authority.auth_secret,
+                # Explicit, deliberate opt-out of the MANDATORY-OIDC posture (secure
+                # by default since 2026-07-22 -- see `auth.rs`'s `require_oidc()`).
+                # Without this the engine refuses to start at all ("invalid verified
+                # request-context configuration: EPISTEMIC_GRAPH_REQUIRE_OIDC
+                # requires OIDC identity binding ... but no usable OIDC verifier is
+                # configured"), which every certification run here hit as
+                # `engine_exited_during_startup` -- no Keycloak/OIDC provider exists
+                # in this sealed, network-isolated certification sandbox, and the
+                # `eg2.` HMAC-envelope protocol this harness authenticates with is
+                # exactly the documented local/dev/test opt-out use case (mirrors
+                # `tests/conftest.py`'s `strict_server_env`, which sets the same var
+                # for the identical reason).
+                "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
+                "EPISTEMIC_GRAPH_AUDIENCE": AUDIENCE,
+                "EPISTEMIC_GRAPH_TENANT": tenant,
+                "EPISTEMIC_GRAPH_POLICY_VERSION": POLICY_VERSION,
+                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": str(self.security_dir),
+                # NE-247: the SCOPED signer-registry shape. NE-065 made the flat
+                # `{signer_id: key}` form fail closed (no roles, no System grant),
+                # so this sandbox's own genesis `bootstrap_system_identity` -- an
+                # `AgentRole::System` self-registration -- is denied under it.
+                # `certify_exact_protocol_authorization.py` reuses this exact
+                # engine sandbox and additionally registers a peer carrying
+                # `PEER_ROLE`, so that role is enumerated here too.
+                "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
+                    {
+                        AGENT_ID: {
+                            "key": self.authority.signer_key,
+                            "allowed_roles": list(CERTIFIER_ALLOWED_ROLES),
+                            "may_grant_system": True,
+                        }
+                    },
+                    separators=(",", ":"),
+                ),
+                "EPISTEMIC_GRAPH_REDB_COMMIT_POLICY": "each",
+                "EPISTEMIC_GRAPH_REDB_SHARDS": str(redb_shards),
+                "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE": str(lazy_page_size),
+                "EPISTEMIC_GRAPH_BACKUP_ROOT": str(self.backup_dir),
+                "RUST_BACKTRACE": "0",
+            }
+
+        def apply_environment_overrides(env: dict[str, str]) -> None:
+            if extra_env is None:
+                return
             for name, value in extra_env.items():
                 if (
                     name not in EXACT_OPTIONAL_LISTENER_ENV
@@ -360,11 +368,16 @@ class ExactEngine:
                 ):
                     _fail("invalid_exact_engine_environment_override")
             env.update(extra_env)
-        if fault is not None:
-            env["EPISTEMIC_GRAPH_CERTIFICATION_FAULT"] = json.dumps(
-                fault, sort_keys=True, separators=(",", ":")
-            )
-        if modality_source_limit is not None:
+
+        def apply_fault_configuration(env: dict[str, str]) -> None:
+            if fault is not None:
+                env["EPISTEMIC_GRAPH_CERTIFICATION_FAULT"] = json.dumps(
+                    fault, sort_keys=True, separators=(",", ":")
+                )
+
+        def apply_modality_configuration(env: dict[str, str]) -> None:
+            if modality_source_limit is None:
+                return
             if (
                 isinstance(modality_source_limit, bool)
                 or not isinstance(modality_source_limit, int)
@@ -374,26 +387,36 @@ class ExactEngine:
             env["EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES"] = str(
                 modality_source_limit
             )
-        self.process = subprocess.Popen(  # noqa: S603 - exact caller-supplied argv
-            [
-                str(self.binary.path),
-                "--socket-path",
-                str(self.socket_path),
-                "--persist-dir",
-                str(self.persist_dir),
-            ],
-            cwd=self.root,
-            env=env,
-            stdout=self._log,
-            stderr=subprocess.STDOUT,
-            preexec_fn=_disable_core_dumps,
-            start_new_session=True,
-        )
-        try:
-            self._wait_ready()
-        except BaseException:
-            self.stop()
-            raise
+
+        def launch(env: dict[str, str]) -> None:
+            self.process = subprocess.Popen(  # noqa: S603 - exact caller-supplied argv
+                [
+                    str(self.binary.path),
+                    "--socket-path",
+                    str(self.socket_path),
+                    "--persist-dir",
+                    str(self.persist_dir),
+                ],
+                cwd=self.root,
+                env=env,
+                stdout=self._log,
+                stderr=subprocess.STDOUT,
+                preexec_fn=_disable_core_dumps,
+                start_new_session=True,
+            )
+            try:
+                self._wait_ready()
+            except BaseException:
+                self.stop()
+                raise
+
+        validate_start_request()
+        prepare_runtime()
+        environment = base_environment()
+        apply_environment_overrides(environment)
+        apply_fault_configuration(environment)
+        apply_modality_configuration(environment)
+        launch(environment)
 
     def crash(self) -> None:
         """Kill the exact process group without a graceful shutdown."""
