@@ -13380,16 +13380,11 @@ mod admin_scope_tests {
 #[cfg(all(test, feature = "blob"))]
 mod blob_dispatch_tests {
     use super::*;
-    use crate::acl::{AgentIdentity, AgentRole};
-    use crate::channels::ChannelManager;
-    use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request};
-    use crate::registry::GraphRegistry;
     use crate::server::auth::sign_current_test_request;
     use crate::server::blob::{BlobCursors, RedbChunkStore};
-    use dashmap::DashMap;
     use std::sync::Arc;
-    use tokio::sync::{RwLock, Semaphore};
+    use tokio::sync::RwLock;
 
     const SECRET: &str = "blob-test-secret";
 
@@ -13405,33 +13400,14 @@ mod blob_dispatch_tests {
 
     fn state_with_blob(dir: &str) -> Arc<RwLock<ServerState>> {
         let store = Arc::new(RedbChunkStore::open(dir).unwrap());
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: "system".to_string(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir.to_string()),
-            // `BlobRef` creates a durable :Media graph node -- a GATEWAY_ROUTED
-            // write that fails closed without a persistence backend, same
-            // reasoning as `server::mod.rs`'s `test_state()`. A separate
-            // uniquely-named dir from the blob chunk store above (redb's
-            // exclusive per-process file lock is per-file, not per-test, but
-            // keeping them apart avoids any accidental path collision).
-            #[cfg(feature = "redb")]
-            persistence: Some(std::sync::Arc::new(
+        // Use the canonical fixture so feature-gated fields stay in one place.
+        // `BlobRef` still gets the durable backend it requires, while the graph
+        // state remains isolated from the chunk store's redb file.
+        let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation("system"));
+        state.persist_dir = Some(dir.to_string());
+        #[cfg(feature = "redb")]
+        {
+            state.persistence = Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
                     std::env::temp_dir()
                         .join(format!(
@@ -13448,45 +13424,11 @@ mod blob_dispatch_tests {
                     256,
                 )
                 .expect("open blob-dispatch test redb backend"),
-            )),
-            #[cfg(not(feature = "redb"))]
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            blob: Some(Arc::new(BlobCursors::new(store))),
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+            ));
+        }
+        state.blob = Some(Arc::new(BlobCursors::new(store)));
+        state.blob_cursor_ttl_secs = 300;
+        Arc::new(RwLock::new(state))
     }
 
     fn req(id: u64, method: Method) -> Request {
