@@ -38,6 +38,18 @@ fn state() -> Arc<RwLock<ServerState>> {
     )
 }
 
+fn rank_text_plan() -> Plan {
+    Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::RankText {
+            query: "kubernetes rollout crashloop".into(),
+        },
+        Op::Limit { k: 5 },
+    ])
+}
+
 /// Seed a small text-bearing Doc corpus over the SERVED write path (AddNode + AddEmbedding).
 /// Each doc's `text` field is what the served snapshot-derived BM25 index will tokenize.
 async fn seed_corpus(state: &Arc<RwLock<ServerState>>) {
@@ -101,21 +113,9 @@ async fn served_ranktext_returns_lexical_hits() {
     seed_corpus(&state).await;
 
     // Scan Doc → RankText "kubernetes rollout" → Limit. The lexically-matching doc is `kube`.
-    let plan = Plan::new(vec![
-        Op::Scan {
-            label: "Doc".into(),
-        },
-        Op::RankText {
-            query: "kubernetes rollout crashloop".into(),
-        },
-        Op::Limit { k: 5 },
-    ]);
-    let resp = Box::pin(dispatch(
-        &state,
-        test_support::commons_request(SECRET, 100, Method::UnifiedQuery { plan }),
-    ))
-    .await;
-    let rows = test_support::raw_rows(&resp);
+    let rows = test_support::raw_rows(
+        &test_support::unified_query(&state, SECRET, 100, rank_text_plan()).await,
+    );
     assert!(
         !rows.is_empty(),
         "served RankText now returns real lexical hits (was ZERO before the binding): {rows:?}"
@@ -155,12 +155,8 @@ async fn served_fuserrf_text_branch_contributes_lexical_hits() {
         },
         Op::Limit { k: 3 },
     ]);
-    let resp = Box::pin(dispatch(
-        &state,
-        test_support::commons_request(SECRET, 200, Method::UnifiedQuery { plan }),
-    ))
-    .await;
-    let rows = test_support::raw_rows(&resp);
+    let rows =
+        test_support::raw_rows(&test_support::unified_query(&state, SECRET, 200, plan).await);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(
         ids.contains(&"kube"),
@@ -203,39 +199,21 @@ async fn served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback
     // BOTH the persistent index and a snapshot rebuild). `noncanonical` carries the exact
     // SAME phrase under a key (`note`) the persistent index's fixed key list does not
     // recognize — it matches ONLY a snapshot-derived rebuild.
-    for (id, key) in [("canonical", "text"), ("noncanonical", "note")] {
-        let r = Box::pin(dispatch(
-            &state,
-            test_support::commons_request(
-                SECRET,
-                if id == "canonical" { 1 } else { 2 },
-                Method::AddNode {
-                    node_id: id.to_string(),
-                    properties_msgpack: test_support::json_bytes(
-                        json!({ "type": "Doc", key: "kubernetes rollout crashloop" }),
-                    ),
-                },
-            ),
-        ))
-        .await;
+    for (id, r) in test_support::add_nodes_with_property(
+        &state,
+        SECRET,
+        &[("canonical", "text"), ("noncanonical", "note")],
+        "Doc",
+        "kubernetes rollout crashloop",
+    )
+    .await
+    {
         assert!(r.error.is_none(), "AddNode {id}: {:?}", r.error);
     }
 
-    let plan = Plan::new(vec![
-        Op::Scan {
-            label: "Doc".into(),
-        },
-        Op::RankText {
-            query: "kubernetes rollout crashloop".into(),
-        },
-        Op::Limit { k: 5 },
-    ]);
-    let resp = Box::pin(dispatch(
-        &state,
-        test_support::commons_request(SECRET, 3, Method::UnifiedQuery { plan }),
-    ))
-    .await;
-    let rows = test_support::raw_rows(&resp);
+    let rows = test_support::raw_rows(
+        &test_support::unified_query(&state, SECRET, 3, rank_text_plan()).await,
+    );
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(
         ids.contains(&"canonical"),

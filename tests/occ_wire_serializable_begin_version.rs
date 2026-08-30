@@ -48,10 +48,10 @@ mod test_support;
 
 use std::sync::Arc;
 
-use epistemic_graph::isolation::{AgentIdentity, AgentRole, IsolationLayer};
 use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::persistence::PersistenceBackend;
 use epistemic_graph::server::pgwire;
+use epistemic_graph::server::ServerState;
+use tokio::sync::RwLock;
 
 const AUTH_SECRET: &str = "occ-begin-version-secret";
 const AGENT: &str = "occtester";
@@ -69,27 +69,6 @@ fn ensure_env() {
     });
 }
 
-/// A real tempdir-backed `RedbBackend` — the wire graph-node commit path
-/// (`commit_cross_modal_txn`) fails closed without durable persistence.
-fn persistence_pair() -> (String, Arc<dyn PersistenceBackend>) {
-    use epistemic_graph::durability::DurabilityPolicy;
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let dir = std::env::temp_dir().join(format!(
-        "eg-occ-begin-version-test-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create occ test persist dir");
-    let dir_s = dir.to_string_lossy().into_owned();
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 4096)
-            .expect("open occ test redb backend"),
-    );
-    (dir_s, backend)
-}
-
 /// Build a `ServerState` with one seeded `Sensor` node. `AGENT` is registered
 /// `AgentRole::System` — every graph-ACL and row-visibility check trivially
 /// passes (`crates/eg-core/src/isolation.rs::can_see_row` / `check_access`),
@@ -103,21 +82,16 @@ fn state_with_sensor_seed() -> test_support::SharedState {
         let blob = rmp_serde::to_vec_named(&serde_json::json!({"type": "Sensor"})).unwrap();
         core.add_node("s0".to_string(), blob);
     }
-    let mut isolation = IsolationLayer::new();
-    isolation.register_agent(AgentIdentity {
-        agent_id: AGENT.into(),
-        role: AgentRole::System,
-        teams: Vec::new(),
-        roles: Vec::new(),
-    });
-    let (persist_dir, persistence) = persistence_pair();
-    test_support::state_with_registry(
-        AUTH_SECRET,
-        isolation,
-        registry,
-        Some(persist_dir),
-        Some(persistence),
-    )
+    let (persist_dir, persistence) = common::tempdir_persistence();
+    let mut state = ServerState::new_for_test(AUTH_SECRET, ServerState::test_isolation(AGENT));
+    state.registry = registry;
+    state.persist_dir = persist_dir;
+    state.persistence = persistence;
+    #[cfg(feature = "tsdb")]
+    {
+        state.tsdb_store = Some(test_support::temporary_series("occ-begin-version"));
+    }
+    Arc::new(RwLock::new(state))
 }
 
 async fn spawn_listener(state: test_support::SharedState) -> String {

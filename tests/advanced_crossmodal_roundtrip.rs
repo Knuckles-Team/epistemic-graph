@@ -189,26 +189,11 @@ fn pack_points(points: &[(i64, Vec<f64>)]) -> Vec<u8> {
 }
 
 async fn begin(state: &Arc<RwLock<ServerState>>, id: u64, isolation: Option<String>) -> String {
-    let r = Box::pin(dispatch(
-        state,
-        req(
-            id,
-            Method::BeginTxn {
-                graph: None,
-                isolation,
-            },
-        ),
-    ))
-    .await;
-    match r.result {
-        Some(ResultPayload::String(s)) => s,
-        other => panic!("BeginTxn failed: {:?} / {other:?}", r.error),
-    }
+    test_support::begin_txn(state, SECRET, id, isolation).await
 }
 
 async fn ok(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) {
-    let r = Box::pin(dispatch(state, req(id, method))).await;
-    assert!(r.error.is_none(), "op {id} failed: {:?}", r.error);
+    test_support::assert_ok(state, SECRET, id, method).await
 }
 
 #[cfg(feature = "security")]
@@ -312,17 +297,7 @@ async fn stage_rls_overlay(state: &Arc<RwLock<ServerState>>, first_id: u64, agen
 
 /// Decode a unified-query response into its result node ids.
 fn unified_ids(resp: &Response) -> Vec<String> {
-    assert!(
-        resp.error.is_none(),
-        "unified query error: {:?}",
-        resp.error
-    );
-    let bytes = match &resp.result {
-        Some(ResultPayload::Raw(b)) => b.clone(),
-        other => panic!("expected Raw result, got {other:?}"),
-    };
-    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(&bytes).unwrap();
-    rows.into_iter().map(|(id, _)| id).collect()
+    test_support::unified_ids(resp)
 }
 
 async fn in_txn_text(
@@ -1103,12 +1078,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
             .simple_query("SELECT id FROM nodes WHERE type = 'Robot'")
             .await
             .expect("pgwire SELECT");
-        rows.into_iter()
-            .filter_map(|m| match m {
-                tokio_postgres::SimpleQueryMessage::Row(r) => Some(r.get(0).unwrap().to_string()),
-                _ => None,
-            })
-            .collect::<Vec<String>>()
+        test_support::simple_ids(rows)
     };
     // The SPARQL surface reads the committed node as an RDF subject (its literal property
     // yields a `?s ?p ?o` triple). We assert the subject IRI appears / is absent in the body.
