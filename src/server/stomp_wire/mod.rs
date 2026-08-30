@@ -33,15 +33,13 @@
 //! isolation is unsupported.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::RwLock;
-
-use crate::protocol::{Method, Request, ResultPayload};
+use crate::protocol::ResultPayload;
+use crate::protocol::{Method, Request};
+use crate::server::broker_wire::{self, invalid_data, prelude::*, BrokerProtocol};
+use crate::server::broker_wire::{
+    derive_password as derive_stomp_passcode_impl, verify_password as verify_stomp_passcode_impl,
+};
 use crate::server::dispatch::dispatch_authenticated_broker_actor;
 use crate::server::ServerState;
 
@@ -55,6 +53,8 @@ pub const STOMP_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_STOMP_GRAPH";
 /// `stomp.direct`.
 pub const STOMP_EXCHANGE_ENV: &str = "EPISTEMIC_GRAPH_STOMP_EXCHANGE";
 
+const WIRE: BrokerProtocol = BrokerProtocol::Stomp;
+
 const DEFAULT_EXCHANGE: &str = "stomp.direct";
 const MAX_STOMP_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_STOMP_HEADERS: usize = 256;
@@ -67,24 +67,11 @@ const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
 const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
 const BROKER_PREFETCH: u32 = 32;
 
-fn invalid_data(message: &'static str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
-}
-
 fn decode_broker_result<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
-    eg_types::msgpack::decode_bounded(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_STOMP_FRAME_BYTES,
-            MAX_BROKER_RESULT_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .ok()
+    broker_wire::decode_broker_result(bytes, MAX_STOMP_FRAME_BYTES, MAX_BROKER_RESULT_ITEMS)
 }
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
-type HmacSha256 = Hmac<Sha256>;
 
 fn next_req_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
@@ -92,29 +79,17 @@ fn next_req_id() -> u64 {
 
 /// Derive the STOMP CONNECT passcode for a principal.
 pub fn derive_stomp_passcode(secret: &str, principal: &str) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"stomp:");
-    mac.update(principal.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    derive_stomp_passcode_impl(WIRE, secret, principal)
 }
 
 fn verify_stomp_passcode(secret: &str, principal: &str, passcode: &str) -> bool {
-    if secret.is_empty()
-        || principal.is_empty()
-        || principal.len() > MAX_STOMP_IDENTIFIER_BYTES
-        || passcode.len() != 64
-    {
-        return false;
-    }
-    let Ok(candidate) = hex::decode(passcode) else {
-        return false;
-    };
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"stomp:");
-    mac.update(principal.as_bytes());
-    mac.verify_slice(&candidate).is_ok()
+    verify_stomp_passcode_impl(
+        WIRE,
+        secret,
+        principal,
+        passcode.as_bytes(),
+        MAX_STOMP_IDENTIFIER_BYTES,
+    )
 }
 
 /// Fail closed before binding the plaintext STOMP listener.
