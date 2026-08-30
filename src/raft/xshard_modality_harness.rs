@@ -166,6 +166,28 @@ impl ModalityState {
     }
 }
 
+/// Reopen the durable modality fixture and resolve its in-doubt transaction. Both crash
+/// scenarios use this exact restart boundary so their recovery assertions remain distinct
+/// while backend initialization, placement wiring, and read-back happen in one fixture.
+async fn reopen_and_recover(
+    dir: &str,
+) -> Result<
+    (
+        fixture::Backend,
+        Arc<MultiRaft>,
+        Arc<RwLock<crate::server::ServerState>>,
+        usize,
+        ModalityState,
+    ),
+    String,
+> {
+    let backend2 = fixture::open_backend(dir)?;
+    let (multi2, coord2, state2) = bring_up(dir, backend2.clone()).await;
+    let resolved = coord2.recover_in_doubt().await?;
+    let modal = ModalityState::read(&state2).await;
+    Ok((backend2, multi2, state2, resolved, modal))
+}
+
 /// A structured report of the four scenarios, returned by [`prove_crossshard_modality_2pc_single_decision`].
 #[derive(Debug, Clone)]
 pub struct ProofReport {
@@ -311,11 +333,7 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
     drop(backend);
 
     // Process restart: reopen a brand-new backend over the SAME files.
-    let backend2 = fixture::open_backend(&dir)?;
-    let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
-
-    let resolved = coord2.recover_in_doubt().await?;
-    let modal = ModalityState::read(&state2).await;
+    let (backend2, multi2, _state2, resolved, modal) = reopen_and_recover(&dir).await?;
 
     let redb = backend2.as_redb().ok_or("redb")?;
     let cleared = redb
@@ -368,11 +386,7 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
     backend.shutdown();
     drop(backend);
 
-    let backend2 = fixture::open_backend(&dir)?;
-    let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
-
-    let resolved = coord2.recover_in_doubt().await?;
-    let modal = ModalityState::read(&state2).await;
+    let (backend2, multi2, _state2, resolved, modal) = reopen_and_recover(&dir).await?;
 
     let redb = backend2.as_redb().ok_or("redb")?;
     let prepares_cleared = redb
