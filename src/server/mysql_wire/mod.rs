@@ -449,14 +449,10 @@ mod tests {
     //! TCP socket (no mysql client crate) — proving SELECT / CREATE TABLE / INSERT
     //! end-to-end through the shared `WireSession` execution core (CONCEPT:EG-KG.query.kg-2).
     use super::*;
-    use crate::channels::ChannelManager;
     use crate::isolation::IsolationLayer;
-    use crate::registry::GraphRegistry;
     use crate::server::ServerState;
-    use dashmap::DashMap;
     use eg_query::{TypedColumn, TypedQueryResult};
     use tokio::net::TcpStream;
-    use tokio::sync::Semaphore;
 
     #[test]
     fn encode_rows_outcome_frames_columns_then_rows() {
@@ -496,53 +492,23 @@ mod tests {
     }
 
     /// A minimal `ServerState` seeded with three nodes so a wire SELECT over `nodes`
-    /// returns rows. Mirrors the pgwire round-trip test's `state_with`.
+    /// returns rows. The shared test constructor keeps feature-gated state fields in
+    /// one place, while this fixture retains the MySQL-specific persistence directory,
+    /// RBAC grants, authenticated agent, and row data needed by the round-trip.
     fn seeded_state() -> Arc<RwLock<ServerState>> {
-        let registry = GraphRegistry::new();
-        {
-            let core = registry.get("__commons__").unwrap().core.clone();
-            for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
-                // Some RLS ownership tag is mandatory under default-deny RLS
-                // (`IsolationLayer::can_see_row`): an untagged row is hidden
-                // from a non-System actor, not just a permissive default —
-                // see `bolt_wire::tests::test_state`'s identical seeding
-                // convention. A bare `_visibility: "public"` with NO owner is
-                // no longer sufficient on its own (BUG-192/BUG-064: that
-                // exact shape is the 21,064-row incident population and is
-                // correctly denied by `row_visibility`'s middle branch) — tag
-                // `_owner_id` instead, the BUG-052/GOC-61 canonical
-                // convention a real gateway write now stamps when the caller
-                // supplies none (BUG-193, `stamp_owner_id_if_absent`). With
-                // no `_visibility`/`_shared_scope` set, the row keeps the
-                // pre-existing bare-absent-default (visible beyond its
-                // owner), so it is still readable by the test's non-owning
-                // wire caller.
-                let blob = rmp_serde::to_vec_named(&serde_json::json!({
-                    "type": ty,
-                    "rank": rank,
-                    "_owner_id": "system-writer"
-                }))
-                .unwrap();
-                core.add_node(id.to_string(), blob);
-            }
-        }
         let mut isolation = IsolationLayer::new();
         #[cfg(feature = "security")]
         {
             use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
             isolation.add_role(Role::new("commons-user"));
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action: RbacAction::Read,
-                effect: GrantEffect::Allow,
-            });
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action: RbacAction::Write,
-                effect: GrantEffect::Allow,
-            });
+            for action in [RbacAction::Read, RbacAction::Write] {
+                isolation.add_grant(Grant {
+                    role: "commons-user".to_string(),
+                    resource: ResourceSelector::Graph("__commons__".to_string()),
+                    action,
+                    effect: GrantEffect::Allow,
+                });
+            }
         }
         // Agent id "tester" matches the MySQL native-password handshake's
         // authenticated username used by `client_connect` below — the wire
@@ -557,61 +523,38 @@ mod tests {
             #[cfg(not(feature = "security"))]
             roles: Vec::new(),
         });
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry,
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: "test".to_string(),
-            #[cfg(feature = "kv")]
-            kv: None,
-            persist_dir: Some(
-                crate::server::sql_tables::test_persist_dir()
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        let mut state = ServerState::new_for_test("test", isolation);
+        state.persist_dir = Some(
+            crate::server::sql_tables::test_persist_dir()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let core = state.registry.get("__commons__").unwrap().core.clone();
+        for (id, ty, rank) in [("n1", "Agent", 1i64), ("n2", "Agent", 2), ("n3", "Tool", 3)] {
+            // Some RLS ownership tag is mandatory under default-deny RLS
+            // (`IsolationLayer::can_see_row`): an untagged row is hidden
+            // from a non-System actor, not just a permissive default —
+            // see `bolt_wire::tests::test_state`'s identical seeding
+            // convention. A bare `_visibility: "public"` with NO owner is
+            // no longer sufficient on its own (BUG-192/BUG-064: that
+            // exact shape is the 21,064-row incident population and is
+            // correctly denied by `row_visibility`'s middle branch) — tag
+            // `_owner_id` instead, the BUG-052/GOC-61 canonical
+            // convention a real gateway write now stamps when the caller
+            // supplies none (BUG-193, `stamp_owner_id_if_absent`). With
+            // no `_visibility`/`_shared_scope` set, the row keeps the
+            // pre-existing bare-absent-default (visible beyond its
+            // owner), so it is still readable by the test's non-owning
+            // wire caller.
+            let blob = rmp_serde::to_vec_named(&serde_json::json!({
+                "type": ty,
+                "rank": rank,
+                "_owner_id": "system-writer"
+            }))
+            .unwrap();
+            core.add_node(id.to_string(), blob);
+        }
+        Arc::new(RwLock::new(state))
     }
 
     /// A hand-built MySQL client: complete the mandatory native-password handshake
