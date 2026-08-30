@@ -828,8 +828,6 @@ mod tests {
 /// over a `ServerState` carrying a durable KV store.
 #[cfg(test)]
 mod dispatch_tests {
-    use crate::acl::{AgentIdentity, AgentRole};
-    use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request, ResultPayload};
     use crate::server::{
         auth::{build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap},
@@ -841,20 +839,9 @@ mod dispatch_tests {
     const SECRET: &str = "kv-test-secret";
     const TEST_AGENT: &str = "unit-test-agent";
 
-    fn current_isolation() -> IsolationLayer {
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: TEST_AGENT.to_string(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-        isolation
-    }
-
     fn state_with_kv(dir: &str) -> Arc<RwLock<ServerState>> {
         let kv = Arc::new(super::KvStore::open(Some(dir)).unwrap());
-        let mut state = ServerState::new_for_test(SECRET, current_isolation());
+        let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation(TEST_AGENT));
         state.persist_dir = Some(dir.to_string());
         #[cfg(feature = "kv")]
         {

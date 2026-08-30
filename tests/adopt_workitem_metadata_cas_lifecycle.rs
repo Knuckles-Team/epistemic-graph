@@ -53,10 +53,8 @@ mod common;
 
 use std::sync::Arc;
 
-use dashmap::DashMap;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::RwLock;
 
-use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::epistemic_operations::{
     ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ClaimWorkItemResult,
@@ -87,57 +85,11 @@ fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> Arc<RwLock<S
     registry
         .create_graph(GRAPH, GraphType::Commons, None)
         .expect("create graph");
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        cold_tracker: std::sync::Arc::new(
-            epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
-        ),
-        registry,
-        isolation: common::current_isolation(),
-        channels: ChannelManager::new(),
-        #[cfg(feature = "viz-static-export")]
-        viz_engine: None,
-        auth_secret: SECRET.to_string(),
-        persist_dir: Some(dir),
-        persistence: Some(backend),
-        max_in_flight: Arc::new(Semaphore::new(16)),
-        read_admission: Arc::new(Semaphore::new(16)),
-        per_graph_inflight: Arc::new(DashMap::new()),
-        per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
-        routed_write_coalescer: Arc::new(
-            epistemic_graph::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-        ),
-        open_txns: Arc::new(DashMap::new()),
-        txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen),
-        txn_ttl_secs: 300,
-        txn_max_per_graph: 256,
-        txn_max_per_agent: 256,
-        #[cfg(feature = "blob")]
-        blob: None,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs: 300,
-        #[cfg(feature = "raft")]
-        raft: None,
-        #[cfg(feature = "raft")]
-        multi_raft: None,
-        #[cfg(feature = "tsdb")]
-        tsdb_store: None,
-        #[cfg(feature = "streaming")]
-        cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
-        #[cfg(feature = "wasm-udf")]
-        udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-        #[cfg(feature = "compute-dist")]
-        matviews: Arc::new(parking_lot::Mutex::new(
-            epistemic_graph::raft::pregel::MatViewStore::new(),
-        )),
-        #[cfg(feature = "federation")]
-        foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "kv")]
-        kv: None,
-        #[cfg(feature = "lake")]
-        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
-    }))
+    let mut state = ServerState::new_for_test(SECRET, common::current_isolation());
+    state.registry = registry;
+    state.persist_dir = Some(dir);
+    state.persistence = Some(backend);
+    Arc::new(RwLock::new(state))
 }
 
 fn req(id: u64, method: Method) -> Request {

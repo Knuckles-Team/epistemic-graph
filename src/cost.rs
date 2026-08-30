@@ -1170,12 +1170,8 @@ mod tests {
     #[cfg(feature = "redb")]
     mod integration {
         use super::super::*;
-        use crate::acl::{AgentIdentity, AgentRole};
-        use crate::channels::ChannelManager;
         use crate::durability::DurabilityPolicy;
-        use crate::isolation::IsolationLayer;
         use crate::protocol::{GraphType, Method, Request, Response, ResultPayload};
-        use crate::registry::GraphRegistry;
         use crate::server::persistence::read_through::{
             BackendGraphMaterializer, BackendReadThroughFactory,
         };
@@ -1191,17 +1187,6 @@ mod tests {
         const SECRET: &str = "cost-budget-test";
         const TEST_AGENT: &str = "unit-test-agent";
 
-        fn current_isolation() -> IsolationLayer {
-            let mut isolation = IsolationLayer::new();
-            isolation.register_agent(AgentIdentity {
-                agent_id: TEST_AGENT.to_string(),
-                role: AgentRole::System,
-                teams: Vec::new(),
-                roles: Vec::new(),
-            });
-            isolation
-        }
-
         fn props(v: serde_json::Value) -> Vec<u8> {
             rmp_serde::to_vec(&v).unwrap()
         }
@@ -1210,57 +1195,14 @@ mod tests {
             let backend: Arc<dyn PersistenceBackend> = Arc::new(
                 RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 256).expect("open"),
             );
-            let state = Arc::new(RwLock::new(ServerState {
-                #[cfg(feature = "redb")]
-                cold_tracker: std::sync::Arc::new(
-                    crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-                ),
-                registry: GraphRegistry::new(),
-                isolation: current_isolation(),
-                channels: ChannelManager::new(),
-                #[cfg(feature = "viz-static-export")]
-                viz_engine: None,
-                auth_secret: SECRET.to_string(),
-                persist_dir: Some(dir_s.to_string()),
-                persistence: Some(backend.clone()),
-                max_in_flight: Arc::new(Semaphore::new(64)),
-                read_admission: Arc::new(Semaphore::new(64)),
-                per_graph_inflight: Arc::new(dashmap::DashMap::new()),
-                per_graph_inflight_limit: 32,
-                write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-                routed_write_coalescer: Arc::new(
-                    crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-                ),
-                open_txns: Arc::new(dashmap::DashMap::new()),
-                txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-                txn_ttl_secs: 300,
-                txn_max_per_graph: 256,
-                txn_max_per_agent: 256,
-                #[cfg(feature = "blob")]
-                blob: None,
-                #[cfg(feature = "blob")]
-                blob_cursor_ttl_secs: 300,
-                #[cfg(feature = "raft")]
-                raft: None,
-                #[cfg(feature = "raft")]
-                multi_raft: None,
-                #[cfg(feature = "tsdb")]
-                tsdb_store: None,
-                #[cfg(feature = "streaming")]
-                cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
-                #[cfg(feature = "wasm-udf")]
-                udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-                #[cfg(feature = "compute-dist")]
-                matviews: Arc::new(parking_lot::Mutex::new(
-                    crate::raft::pregel::MatViewStore::new(),
-                )),
-                #[cfg(feature = "federation")]
-                foreign_sources: Arc::new(dashmap::DashMap::new()),
-                #[cfg(feature = "kv")]
-                kv: None,
-                #[cfg(feature = "lake")]
-                lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-            }));
+            let mut state =
+                ServerState::new_for_test(SECRET, ServerState::test_isolation(TEST_AGENT));
+            state.persist_dir = Some(dir_s.to_string());
+            state.persistence = Some(backend.clone());
+            state.max_in_flight = Arc::new(Semaphore::new(64));
+            state.read_admission = Arc::new(Semaphore::new(64));
+            state.per_graph_inflight_limit = 32;
+            let state = Arc::new(RwLock::new(state));
             // Wire the durable read-through exactly like main.rs under authoritative mode.
             {
                 let mut s = state.write().await;

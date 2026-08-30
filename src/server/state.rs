@@ -405,13 +405,17 @@ mod placement_authority_tests {
     }
 }
 
-#[cfg(test)]
 impl ServerState {
-    /// Build the explicit empty state used by unit tests that exercise dispatch
-    /// without a durable backend. Keeping every field in one test-only literal
-    /// makes a newly feature-gated field fail this constructor at compile time
+    /// Build the explicit empty state used by unit and integration tests that
+    /// exercise dispatch without a durable backend. Keeping every field in one
+    /// constructor makes a newly feature-gated field fail here at compile time
     /// instead of silently disappearing from one test target.
-    pub(crate) fn new_for_test(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
+    ///
+    /// This is public because Cargo compiles integration-test crates as
+    /// dependants of the library, so their fixtures cannot use a `pub(crate)`
+    /// test-only constructor.
+    #[doc(hidden)]
+    pub fn new_for_test(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
         let state = Self {
             registry: GraphRegistry::new(),
             isolation,
@@ -476,5 +480,20 @@ impl ServerState {
             state
         };
         state
+    }
+
+    /// Build the standard single-system-agent isolation used by wire-level
+    /// fixtures. The helper is public for integration tests, whose library
+    /// dependency is compiled without `cfg(test)`.
+    #[doc(hidden)]
+    pub fn test_isolation(agent_id: impl Into<String>) -> IsolationLayer {
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(crate::isolation::AgentIdentity {
+            agent_id: agent_id.into(),
+            role: crate::isolation::AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        isolation
     }
 }

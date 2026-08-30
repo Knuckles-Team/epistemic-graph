@@ -1403,8 +1403,6 @@ fn parse_either(turtle: &str, ntriples: &str) -> Result<Vec<eg_rdf::oxrdf::Tripl
 // ── RunRules dispatch wiring (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023) ────────────────────────────
 #[cfg(all(test, feature = "rdf"))]
 mod run_rules_dispatch_tests {
-    use crate::acl::{AgentIdentity, AgentRole};
-    use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request, Response, ResultPayload};
     use crate::server::auth::{
         build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap,
@@ -1416,19 +1414,8 @@ mod run_rules_dispatch_tests {
     const SECRET: &str = "run-rules-test-secret";
     const TEST_AGENT: &str = "unit-test-agent";
 
-    fn current_isolation() -> IsolationLayer {
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: TEST_AGENT.to_string(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-        isolation
-    }
-
     fn state() -> Arc<RwLock<ServerState>> {
-        let mut state = ServerState::new_for_test(SECRET, current_isolation());
+        let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation(TEST_AGENT));
         state.persist_dir = Some(
             crate::server::sql_tables::test_persist_dir()
                 .to_string_lossy()
