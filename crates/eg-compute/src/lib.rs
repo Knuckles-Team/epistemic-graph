@@ -12,6 +12,19 @@
 pub use eg_core::{compute, graph, isolation, registry};
 pub use eg_types::{acl, protocol, types, wire};
 
+/// Advance a SplitMix64 state by one step.
+///
+/// Compute domains use the same mixing algorithm while retaining their own
+/// seed conventions. Keeping only the state transition here preserves each
+/// caller's stream and gives the implementation one canonical home.
+pub(crate) fn splitmix64_next(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
 pub mod algorithms;
 // CONCEPT:EG-KG.compute.graph-data-science-algorithms — standalone graph data-science algorithms (Neo4j GDS parity).
 // Pure-Rust, deterministic, generic over node id; decoupled from the live engine
