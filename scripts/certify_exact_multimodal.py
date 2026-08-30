@@ -785,6 +785,18 @@ def _assert_events(
         _fail("modality_event_authority_missing")
 
 
+def _scan_modality_source(path: Path, source: bytes) -> None:
+    overlap = b""
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            candidate = overlap + block
+            if source in candidate:
+                _fail("raw_modality_source_was_persisted")
+            overlap = (
+                candidate[-(len(source) - 1) :] if len(source) > 1 else b""
+            )
+
+
 def _assert_sources_absent(root: Path, sources: tuple[bytes, ...]) -> None:
     for path in root.rglob("*"):
         if path.is_symlink():
@@ -793,15 +805,7 @@ def _assert_sources_absent(root: Path, sources: tuple[bytes, ...]) -> None:
             continue
         try:
             for source in sources:
-                overlap = b""
-                with path.open("rb") as handle:
-                    for block in iter(lambda: handle.read(1024 * 1024), b""):
-                        candidate = overlap + block
-                        if source in candidate:
-                            _fail("raw_modality_source_was_persisted")
-                        overlap = (
-                            candidate[-(len(source) - 1) :] if len(source) > 1 else b""
-                        )
+                _scan_modality_source(path, source)
         except OSError:
             _fail("modality_store_privacy_scan_failed")
 
