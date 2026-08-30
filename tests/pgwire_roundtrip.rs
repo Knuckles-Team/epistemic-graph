@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use epistemic_graph::isolation::{AgentIdentity, AgentRole, IsolationLayer};
+use epistemic_graph::isolation::{AgentIdentity, AgentRole};
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::persistence::PersistenceBackend;
 use epistemic_graph::server::pgwire;
@@ -117,6 +117,7 @@ fn interval_backend(label: &str) -> (String, Arc<dyn PersistenceBackend>) {
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
+    let _ = std::fs::remove_dir_all(&dir);
     let dir_s = dir.to_string_lossy().into_owned();
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open(
@@ -602,6 +603,7 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
     assert_eq!(props.get("rank").and_then(|v| v.as_i64()), Some(7));
 
     reopened.shutdown();
+    let _ = std::fs::remove_dir_all(&dir_s);
 }
 
 /// Extended-protocol durable-on-ack (CONCEPT:EG-KG.query.describe + KG-2.198): a parameterized
@@ -658,6 +660,7 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
     );
 
     reopened.shutdown();
+    let _ = std::fs::remove_dir_all(&dir_s);
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -794,22 +797,18 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
             }
         }
     }
-    #[cfg(feature = "security")]
-    {
-        use epistemic_graph::isolation::{AgentIdentity, AgentRole};
-        isolation.register_agent(AgentIdentity {
-            agent_id: "worker".to_string(),
-            role: AgentRole::Agent,
-            teams: vec![],
-            roles: vec!["commons-user".to_string(), "owner-worker".to_string()],
-        });
-        isolation.register_agent(AgentIdentity {
-            agent_id: "peer".to_string(),
-            role: AgentRole::Agent,
-            teams: vec![],
-            roles: vec!["commons-user".to_string(), "owner-peer".to_string()],
-        });
-    }
+    isolation.register_agent(AgentIdentity {
+        agent_id: "worker".to_string(),
+        role: AgentRole::Agent,
+        teams: vec![],
+        roles: vec!["commons-user".to_string(), "owner-worker".to_string()],
+    });
+    isolation.register_agent(AgentIdentity {
+        agent_id: "peer".to_string(),
+        role: AgentRole::Agent,
+        teams: vec![],
+        roles: vec!["commons-user".to_string(), "owner-peer".to_string()],
+    });
 
     test_support::state_with_registry(
         secret,

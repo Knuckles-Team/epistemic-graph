@@ -32,8 +32,10 @@ fn state() -> test_support::SharedState {
 async fn add_node(state: &test_support::SharedState, id: u64, node_id: &str) {
     let resp = test_support::dispatch(
         state,
-        test_support::commons_request(
+        test_support::request(
+            SECRET,
             id,
+            "g",
             Method::AddNode {
                 node_id: node_id.to_string(),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"type": "Doc"}))
@@ -48,8 +50,10 @@ async fn add_node(state: &test_support::SharedState, id: u64, node_id: &str) {
 async fn add_edge(state: &test_support::SharedState, id: u64, src: &str, tgt: &str, tag: &str) {
     let resp = test_support::dispatch(
         state,
-        test_support::commons_request(
+        test_support::request(
+            SECRET,
             id,
+            "g",
             Method::AddEdge {
                 source_id: src.to_string(),
                 target_id: tgt.to_string(),
@@ -108,7 +112,7 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
     // by the new oversize guard).
     let full = test_support::dispatch(
         &state,
-        test_support::commons_request(SECRET, 20, Method::GetEdges),
+        test_support::request(SECRET, 20, "g", Method::GetEdges),
     )
     .await;
     let mut full_rows = edge_list_rows(&full);
@@ -126,8 +130,10 @@ async fn edges_page_recovers_every_edge_including_parallel_edges_in_order() {
     loop {
         let resp = test_support::dispatch(
             &state,
-            test_support::commons_request(
+            test_support::request(
+                SECRET,
                 next_id,
+                "g",
                 Method::GetEdgesPage {
                     after: after.clone(),
                     limit: 1,
@@ -191,8 +197,10 @@ async fn edges_page_limit_zero_returns_everything_in_one_call() {
 
     let resp = test_support::dispatch(
         &state,
-        test_support::commons_request(
+        test_support::request(
+            SECRET,
             3,
+            "g",
             Method::GetEdgesPage {
                 after: None,
                 limit: 0,
@@ -217,8 +225,10 @@ async fn edges_page_on_empty_graph_returns_empty_first_page() {
     }
     let resp = test_support::dispatch(
         &state,
-        test_support::commons_request(
+        test_support::request(
+            SECRET,
             1,
+            "g",
             Method::GetEdgesPage {
                 after: None,
                 limit: 10,
