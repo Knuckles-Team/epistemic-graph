@@ -48,12 +48,11 @@ fn sql_test_persist_dir() -> String {
 #[cfg(feature = "redb")]
 fn default_persistence() -> Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>
 {
-    test_support::temporary_redb_backend(
-        "mssql",
+    std::env::set_var(
+        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
         "mssql-roundtrip-recovery-key",
-        epistemic_graph::durability::DurabilityPolicy::Each,
-        4096,
-    )
+    );
+    common::tempdir_persistence().1
 }
 
 #[cfg(not(feature = "redb"))]

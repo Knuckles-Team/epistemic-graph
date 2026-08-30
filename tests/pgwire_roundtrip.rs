@@ -60,12 +60,11 @@ fn state_with_dir(
 /// the first backend opens.
 #[cfg(feature = "redb")]
 fn default_persistence() -> Option<Arc<dyn PersistenceBackend>> {
-    test_support::temporary_redb_backend(
-        "pgwire",
+    std::env::set_var(
+        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
         "pgwire-roundtrip-recovery-key",
-        epistemic_graph::durability::DurabilityPolicy::Each,
-        4096,
-    )
+    );
+    common::tempdir_persistence().1
 }
 
 /// `redb`-off fallback: no durable gateway exists, so this stays `None` (a build

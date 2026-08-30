@@ -107,42 +107,6 @@ pub fn sql_test_persist_dir(label: &str) -> String {
         .into_owned()
 }
 
-#[cfg(feature = "redb")]
-pub fn temporary_redb_backend(
-    label: &str,
-    encryption_key: &str,
-    policy: epistemic_graph::durability::DurabilityPolicy,
-    cache_capacity: usize,
-) -> Option<SharedPersistence> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    std::env::set_var(epistemic_graph::crypto::ENCRYPTION_KEY_ENV, encryption_key);
-    let path = std::env::temp_dir().join(format!(
-        "eg-{label}-persistence-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir_all(&path).expect("create temporary persistence directory");
-    let backend = epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
-        path.to_string_lossy().into_owned(),
-        policy,
-        cache_capacity,
-    )
-    .expect("open temporary redb backend");
-    Some(Arc::new(backend))
-}
-
-#[cfg(not(feature = "redb"))]
-pub fn temporary_redb_backend(
-    _label: &str,
-    _encryption_key: &str,
-    _policy: epistemic_graph::durability::DurabilityPolicy,
-    _cache_capacity: usize,
-) -> Option<SharedPersistence> {
-    None
-}
-
 #[cfg(feature = "security")]
 pub fn wire_isolation(users: &[&str]) -> IsolationLayer {
     use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
