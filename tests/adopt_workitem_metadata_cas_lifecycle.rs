@@ -50,10 +50,10 @@
 #![cfg(all(feature = "server", feature = "security"))]
 
 mod common;
+#[path = "common/test_support.rs"]
+mod test_support;
 
 use std::sync::Arc;
-
-use tokio::sync::RwLock;
 
 use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::epistemic_operations::{
@@ -66,9 +66,7 @@ use epistemic_graph::epistemic_operations_ext::{
 };
 use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
-use epistemic_graph::server::{dispatch, ServerState};
+use epistemic_graph::server::persistence::{redb_backend::RedbBackend, PersistenceBackend};
 
 const SECRET: &str = "adopt-workitem-cas-lifecycle-secret";
 // Lowercase-alnum-and-hyphen ⇒ this engine's graph-name sanitize() is identity,
@@ -80,16 +78,18 @@ const WORK_ITEM: &str = "wi-adopt-cas-1";
 const WORKER_A: &str = "worker-a";
 const WORKER_B: &str = "worker-b";
 
-fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> Arc<RwLock<ServerState>> {
+fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> test_support::SharedState {
     let mut registry = GraphRegistry::new();
     registry
         .create_graph(GRAPH, GraphType::Commons, None)
         .expect("create graph");
-    let mut state = ServerState::new_for_test(SECRET, common::current_isolation());
-    state.registry = registry;
-    state.persist_dir = Some(dir);
-    state.persistence = Some(backend);
-    Arc::new(RwLock::new(state))
+    test_support::state_with_registry(
+        SECRET,
+        common::current_isolation(),
+        registry,
+        Some(dir),
+        Some(backend),
+    )
 }
 
 fn req(id: u64, method: Method) -> Request {
@@ -237,11 +237,12 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     let state = state_with(backend.clone(), dir_s.clone());
 
     // ── 1. Submit ──────────────────────────────────────────────────────────
-    let add = dispatch(&state, req(1, add_work_item(1_000))).await;
+    let add = test_support::dispatch(&state, req(1, add_work_item(1_000))).await;
     assert_eq!(add.error, None, "AddNode failed: {add:?}");
 
     // ── 2. Claim (worker-a) ───────────────────────────────────────────────
-    let claim_a = dispatch(&state, req(2, claim_request(WORKER_A, 1_000, 5_000))).await;
+    let claim_a =
+        test_support::dispatch(&state, req(2, claim_request(WORKER_A, 1_000, 5_000))).await;
     let claim_a_result: ClaimWorkItemResult = decode_raw(&claim_a, "ClaimWorkItem(worker-a)");
     assert!(
         claim_a_result.claimed,
@@ -258,7 +259,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     };
 
     // ── 3. Checkpoint / input / priority CAS, all Applied ──────────────────
-    let cp1 = dispatch(
+    let cp1 = test_support::dispatch(
         &state,
         req(
             3,
@@ -273,18 +274,20 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
         vec![WORK_ITEM.to_string()]
     );
 
-    let input = dispatch(&state, req(4, cas_metadata_request(lease_a.clone(), 1_200))).await;
+    let input =
+        test_support::dispatch(&state, req(4, cas_metadata_request(lease_a.clone(), 1_200))).await;
     let input_result: CasWorkItemMetadataResult = decode_raw(&input, "CasWorkItemMetadata(input)");
     assert_eq!(input_result.outcome, CasWorkItemMetadataOutcome::Applied);
 
-    let prio = dispatch(&state, req(5, cas_priority_request(lease_a.clone(), 1_300))).await;
+    let prio =
+        test_support::dispatch(&state, req(5, cas_priority_request(lease_a.clone(), 1_300))).await;
     let prio_result: CasWorkItemMetadataResult = decode_raw(&prio, "CasWorkItemMetadata(priority)");
     assert_eq!(prio_result.outcome, CasWorkItemMetadataOutcome::Applied);
 
     // ── 4. A genuine CAS conflict: same stale pre-read (`expected_checkpoint_id:
     // None`), now stale because step 3 already committed "checkpoint:1". Must
     // be a distinct Conflict, never silently applied. ──────────────────────
-    let cp_conflict = dispatch(
+    let cp_conflict = test_support::dispatch(
         &state,
         req(
             6,
@@ -306,7 +309,8 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     // ── 5. Crash + reclaim: worker-a's lease (5s from now_ms=1_000, so expires
     // at 6_000ms) is left to expire; a claim at now_ms=10_000 by worker-b
     // reclaims it in the SAME call that selects it. ────────────────────────
-    let claim_b = dispatch(&state, req(7, claim_request(WORKER_B, 10_000, 5_000))).await;
+    let claim_b =
+        test_support::dispatch(&state, req(7, claim_request(WORKER_B, 10_000, 5_000))).await;
     let claim_b_result: ClaimWorkItemResult =
         decode_raw(&claim_b, "ClaimWorkItem(worker-b reclaim)");
     assert!(
@@ -357,7 +361,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     // worker-a's now-superseded fence must be fenced OUT: a CAS under the OLD
     // epoch/token is a Conflict, never silently honored. The single "control
     // authority" over scheduling metadata moved atomically with the lease.
-    let stale_cas = dispatch(
+    let stale_cas = test_support::dispatch(
         &state,
         req(
             8,
@@ -379,7 +383,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     );
 
     // ── 6. Commit (worker-b, the current lease holder) ─────────────────────
-    let commit = dispatch(
+    let commit = test_support::dispatch(
         &state,
         req(
             9,
