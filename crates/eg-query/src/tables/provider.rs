@@ -208,8 +208,10 @@ fn materialize_string_like(
         ColumnType::Numeric(Some((precision, scale))) => {
             materialize_decimal(rows, ci, ty, precision, scale)
         }
-        ColumnType::Numeric(None) | ColumnType::Text => Ok(materialize_text(rows, ci, ty)),
-        ColumnType::Json => Ok(materialize_json(rows, ci, ty)),
+        ColumnType::Numeric(None) | ColumnType::Text => {
+            Ok(materialize_string_values(rows, ci, ty, true))
+        }
+        ColumnType::Json => Ok(materialize_string_values(rows, ci, ty, false)),
         _ => unreachable!("materialize_string_like called for a non-string column"),
     }
 }
@@ -238,7 +240,12 @@ fn materialize_decimal(
     Ok(Arc::new(builder.finish()))
 }
 
-fn materialize_text(rows: &[Vec<Cell>], ci: usize, ty: ColumnType) -> ArrayRef {
+fn materialize_string_values(
+    rows: &[Vec<Cell>],
+    ci: usize,
+    ty: ColumnType,
+    preserve_strings: bool,
+) -> ArrayRef {
     let mut builder = StringBuilder::new();
     for row in rows {
         match row.get(ci) {
@@ -247,26 +254,12 @@ fn materialize_text(rows: &[Vec<Cell>], ci: usize, ty: ColumnType) -> ArrayRef {
                 let value = cell.to_typed_json(ty);
                 if value.is_null() {
                     builder.append_null();
-                } else if let Some(text) = value.as_str() {
-                    builder.append_value(text);
-                } else {
-                    builder.append_value(value.to_string());
-                }
-            }
-        }
-    }
-    Arc::new(builder.finish())
-}
-
-fn materialize_json(rows: &[Vec<Cell>], ci: usize, ty: ColumnType) -> ArrayRef {
-    let mut builder = StringBuilder::new();
-    for row in rows {
-        match row.get(ci) {
-            Some(Cell::Null) | None => builder.append_null(),
-            Some(cell) => {
-                let value = cell.to_typed_json(ty);
-                if value.is_null() {
-                    builder.append_null();
+                } else if preserve_strings {
+                    if let Some(text) = value.as_str() {
+                        builder.append_value(text);
+                    } else {
+                        builder.append_value(value.to_string());
+                    }
                 } else {
                     builder.append_value(value.to_string());
                 }
