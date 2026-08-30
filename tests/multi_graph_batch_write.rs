@@ -28,17 +28,13 @@ mod test_support;
 
 use serde_json::json;
 
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
 use epistemic_graph::server::dispatch;
 
 const SECRET: &str = "multi-graph-batch-write-secret";
 
 fn state() -> test_support::SharedState {
     test_support::durable_state(SECRET, common::current_isolation())
-}
-
-fn req(id: u64, method: Method) -> Request {
-    common::signed_request(SECRET, id, "__commons__", method)
 }
 
 /// One graph's `BatchUpdate` op list, encoded as the inner `operations_msgpack`.
@@ -57,7 +53,7 @@ fn batches_blob(entries: Vec<(&str, serde_json::Value)>) -> Vec<u8> {
 }
 
 async fn has_node(state: &test_support::SharedState, id: u64, graph: &str, node: &str) -> bool {
-    let request = common::signed_request(
+    let request = test_support::request(
         SECRET,
         id,
         graph,
@@ -123,7 +119,8 @@ async fn multi_graph_batch_write_fans_across_graphs() {
 
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             1,
             Method::MultiGraphBatchUpdate {
                 batches_msgpack: payload,
@@ -183,7 +180,8 @@ async fn multi_graph_batch_write_is_partial_success() {
     ]);
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             2,
             Method::MultiGraphBatchUpdate {
                 batches_msgpack: payload,
@@ -221,7 +219,8 @@ async fn single_graph_multi_batch_equals_plain_batch() {
     )]);
     let resp = Box::pin(dispatch(
         &state,
-        req(
+        test_support::commons_request(
+            SECRET,
             3,
             Method::MultiGraphBatchUpdate {
                 batches_msgpack: payload,
