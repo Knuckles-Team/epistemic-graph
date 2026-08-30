@@ -218,198 +218,24 @@ impl Validator<'_> {
         depth: usize,
     ) -> Result<(), String> {
         match c {
-            Constraint::Datatype(dt) => {
-                let ok = matches!(vn, Term::Literal(l) if l.datatype().as_str() == dt.as_str());
-                if !ok {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_DATATYPE,
-                        format!("value is not of datatype <{}>", dt.as_str()),
-                    ));
-                }
-            }
-            Constraint::Class(cls) => {
-                let ok = as_subject_ref(vn).is_some_and(|s| {
-                    self.data
-                        .objects_for_subject_predicate(s, nn(vocab::RDF_TYPE))
-                        .any(|o| matches!(o, eg_rdf::oxrdf::TermRef::NamedNode(n) if n.as_str() == cls.as_str()))
-                });
-                if !ok {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_CLASS,
-                        format!("value is not an instance of <{}>", cls.as_str()),
-                    ));
-                }
-            }
-            Constraint::NodeKind(k) => {
-                if !node_kind_ok(vn, *k) {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_NODE_KIND,
-                        "value has the wrong node kind".into(),
-                    ));
-                }
-            }
-            Constraint::Range(kind, bound) => {
-                if !range_ok(vn, *kind, bound) {
-                    let (cc, word) = match kind {
-                        RangeKind::MinInclusive => (vocab::CC_MIN_INCLUSIVE, "< minInclusive"),
-                        RangeKind::MaxInclusive => (vocab::CC_MAX_INCLUSIVE, "> maxInclusive"),
-                        RangeKind::MinExclusive => (vocab::CC_MIN_EXCLUSIVE, "<= minExclusive"),
-                        RangeKind::MaxExclusive => (vocab::CC_MAX_EXCLUSIVE, ">= maxExclusive"),
-                    };
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        cc,
-                        format!("value {word} {bound}"),
-                    ));
-                }
-            }
-            Constraint::MinLength(n) => {
-                if !length_ok(vn, Some(*n), None) {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_MIN_LENGTH,
-                        format!("value shorter than {n}"),
-                    ));
-                }
-            }
-            Constraint::MaxLength(n) => {
-                if !length_ok(vn, None, Some(*n)) {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_MAX_LENGTH,
-                        format!("value longer than {n}"),
-                    ));
-                }
-            }
-            Constraint::Pattern { pattern, flags } => {
-                if !pattern_ok(vn, pattern, flags.as_deref()) {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_PATTERN,
-                        format!("value does not match pattern {pattern}"),
-                    ));
-                }
-            }
-            Constraint::LanguageIn(langs) => {
-                if !language_ok(vn, langs) {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_LANGUAGE_IN,
-                        "value language not in the allowed set".into(),
-                    ));
-                }
-            }
-            Constraint::In(list) => {
-                if !list.iter().any(|x| x == vn) {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_IN,
-                        "value is not in the allowed set".into(),
-                    ));
-                }
-            }
-            // ── Shape-based (recursive) ──────────────────────────────────
-            Constraint::Node(shape_ref) => {
-                if !self.node_conforms(shape_ref, vn, depth)? {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_NODE,
-                        format!("value does not conform to shape {shape_ref}"),
-                    ));
-                }
-            }
-            Constraint::Not(shape_ref) => {
-                if self.node_conforms(shape_ref, vn, depth)? {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_NOT,
-                        format!("value conforms to negated shape {shape_ref}"),
-                    ));
-                }
-            }
-            Constraint::And(list) => {
-                let mut all = true;
-                for s in list {
-                    if !self.node_conforms(s, vn, depth)? {
-                        all = false;
-                    }
-                }
-                if !all {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_AND,
-                        "value does not conform to all sh:and shapes".into(),
-                    ));
-                }
-            }
-            Constraint::Or(list) => {
-                let mut any = false;
-                for s in list {
-                    if self.node_conforms(s, vn, depth)? {
-                        any = true;
-                    }
-                }
-                if !any {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_OR,
-                        "value conforms to none of the sh:or shapes".into(),
-                    ));
-                }
-            }
-            Constraint::Xone(list) => {
-                let mut n = 0usize;
-                for s in list {
-                    if self.node_conforms(s, vn, depth)? {
-                        n += 1;
-                    }
-                }
-                if n != 1 {
-                    out.push(self.result(
-                        shape,
-                        focus,
-                        Some(vn),
-                        vocab::CC_XONE,
-                        format!("value conforms to {n} sh:xone shapes (want exactly 1)"),
-                    ));
-                }
+            Constraint::Datatype(_)
+            | Constraint::Class(_)
+            | Constraint::NodeKind(_)
+            | Constraint::Range(_, _)
+            | Constraint::MinLength(_)
+            | Constraint::MaxLength(_)
+            | Constraint::Pattern { .. }
+            | Constraint::LanguageIn(_)
+            | Constraint::In(_) => self.check_simple_constraint(shape, focus, vn, c, out),
+            Constraint::Node(_)
+            | Constraint::Not(_)
+            | Constraint::And(_)
+            | Constraint::Or(_)
+            | Constraint::Xone(_) => {
+                self.check_shape_constraint(shape, focus, vn, c, out, depth)?;
             }
             Constraint::Property(prop_ref) => {
-                // Validate the value node against the referenced property shape and
-                // surface its results directly (the SHACL sh:property semantics).
-                let prop_shape = self.shapes.parse_shape(prop_ref);
-                if !prop_shape.deactivated {
-                    self.validate_focus(&prop_shape, vn, out, depth + 1)?;
-                }
+                self.check_property_constraint(vn, prop_ref, out, depth)?;
             }
             // Set-level constraints (incl. sh:sparql) never reach here.
             Constraint::MinCount(_)
@@ -418,6 +244,412 @@ impl Validator<'_> {
             | Constraint::Sparql(_) => {}
         }
         Ok(())
+    }
+
+    fn check_simple_constraint(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        c: &Constraint,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        match c {
+            Constraint::Datatype(dt) => self.check_datatype(shape, focus, vn, dt, out),
+            Constraint::Class(cls) => self.check_class(shape, focus, vn, cls, out),
+            Constraint::NodeKind(k) => self.check_node_kind(shape, focus, vn, *k, out),
+            Constraint::Range(kind, bound) => self.check_range(shape, focus, vn, *kind, bound, out),
+            Constraint::MinLength(n) => self.check_min_length(shape, focus, vn, *n, out),
+            Constraint::MaxLength(n) => self.check_max_length(shape, focus, vn, *n, out),
+            Constraint::Pattern { pattern, flags } => {
+                self.check_pattern(shape, focus, vn, pattern, flags.as_deref(), out)
+            }
+            Constraint::LanguageIn(langs) => self.check_language_in(shape, focus, vn, langs, out),
+            Constraint::In(list) => self.check_in(shape, focus, vn, list, out),
+            _ => unreachable!("non-simple constraint passed to check_simple_constraint"),
+        }
+    }
+
+    fn check_datatype(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        datatype: &NamedNode,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        let ok = matches!(vn, Term::Literal(l) if l.datatype().as_str() == datatype.as_str());
+        if !ok {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_DATATYPE,
+                format!("value is not of datatype <{}>", datatype.as_str()),
+                out,
+            );
+        }
+    }
+
+    fn check_class(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        class: &NamedNode,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        let ok = as_subject_ref(vn).is_some_and(|s| {
+            self.data
+                .objects_for_subject_predicate(s, nn(vocab::RDF_TYPE))
+                .any(|o| {
+                    matches!(o, eg_rdf::oxrdf::TermRef::NamedNode(n) if n.as_str() == class.as_str())
+                })
+        });
+        if !ok {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_CLASS,
+                format!("value is not an instance of <{}>", class.as_str()),
+                out,
+            );
+        }
+    }
+
+    fn check_node_kind(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        kind: NodeKind,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !node_kind_ok(vn, kind) {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_NODE_KIND,
+                "value has the wrong node kind".into(),
+                out,
+            );
+        }
+    }
+
+    fn check_range(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        kind: RangeKind,
+        bound: &Term,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !range_ok(vn, kind, bound) {
+            let (component, word) = match kind {
+                RangeKind::MinInclusive => (vocab::CC_MIN_INCLUSIVE, "< minInclusive"),
+                RangeKind::MaxInclusive => (vocab::CC_MAX_INCLUSIVE, "> maxInclusive"),
+                RangeKind::MinExclusive => (vocab::CC_MIN_EXCLUSIVE, "<= minExclusive"),
+                RangeKind::MaxExclusive => (vocab::CC_MAX_EXCLUSIVE, ">= maxExclusive"),
+            };
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                component,
+                format!("value {word} {bound}"),
+                out,
+            );
+        }
+    }
+
+    fn check_min_length(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        length: usize,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !length_ok(vn, Some(length), None) {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_MIN_LENGTH,
+                format!("value shorter than {length}"),
+                out,
+            );
+        }
+    }
+
+    fn check_max_length(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        length: usize,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !length_ok(vn, None, Some(length)) {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_MAX_LENGTH,
+                format!("value longer than {length}"),
+                out,
+            );
+        }
+    }
+
+    fn check_pattern(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        pattern: &str,
+        flags: Option<&str>,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !pattern_ok(vn, pattern, flags) {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_PATTERN,
+                format!("value does not match pattern {pattern}"),
+                out,
+            );
+        }
+    }
+
+    fn check_language_in(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        languages: &[String],
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !language_ok(vn, languages) {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_LANGUAGE_IN,
+                "value language not in the allowed set".into(),
+                out,
+            );
+        }
+    }
+
+    fn check_in(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        allowed: &[Term],
+        out: &mut Vec<ValidationResult>,
+    ) {
+        if !allowed.iter().any(|value| value == vn) {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_IN,
+                "value is not in the allowed set".into(),
+                out,
+            );
+        }
+    }
+
+    fn check_shape_constraint(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        c: &Constraint,
+        out: &mut Vec<ValidationResult>,
+        depth: usize,
+    ) -> Result<(), String> {
+        match c {
+            Constraint::Node(shape_ref) => {
+                self.check_node(shape, focus, vn, shape_ref, out, depth)?;
+            }
+            Constraint::Not(shape_ref) => {
+                self.check_not(shape, focus, vn, shape_ref, out, depth)?;
+            }
+            Constraint::And(list) => {
+                self.check_and(shape, focus, vn, list, out, depth)?;
+            }
+            Constraint::Or(list) => {
+                self.check_or(shape, focus, vn, list, out, depth)?;
+            }
+            Constraint::Xone(list) => {
+                self.check_xone(shape, focus, vn, list, out, depth)?;
+            }
+            _ => unreachable!("non-shape constraint passed to check_shape_constraint"),
+        }
+        Ok(())
+    }
+
+    fn check_node(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        shape_ref: &Term,
+        out: &mut Vec<ValidationResult>,
+        depth: usize,
+    ) -> Result<(), String> {
+        if !self.node_conforms(shape_ref, vn, depth)? {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_NODE,
+                format!("value does not conform to shape {shape_ref}"),
+                out,
+            );
+        }
+        Ok(())
+    }
+
+    fn check_not(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        shape_ref: &Term,
+        out: &mut Vec<ValidationResult>,
+        depth: usize,
+    ) -> Result<(), String> {
+        if self.node_conforms(shape_ref, vn, depth)? {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_NOT,
+                format!("value conforms to negated shape {shape_ref}"),
+                out,
+            );
+        }
+        Ok(())
+    }
+
+    fn check_and(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        shapes: &[Term],
+        out: &mut Vec<ValidationResult>,
+        depth: usize,
+    ) -> Result<(), String> {
+        let all = shapes
+            .iter()
+            .try_fold(true, |all, shape_ref| -> Result<bool, String> {
+                let conforms = self.node_conforms(shape_ref, vn, depth)?;
+                Ok(all && conforms)
+            })?;
+        if !all {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_AND,
+                "value does not conform to all sh:and shapes".into(),
+                out,
+            );
+        }
+        Ok(())
+    }
+
+    fn check_or(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        shapes: &[Term],
+        out: &mut Vec<ValidationResult>,
+        depth: usize,
+    ) -> Result<(), String> {
+        let any = shapes
+            .iter()
+            .try_fold(false, |any, shape_ref| -> Result<bool, String> {
+                let conforms = self.node_conforms(shape_ref, vn, depth)?;
+                Ok(any || conforms)
+            })?;
+        if !any {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_OR,
+                "value conforms to none of the sh:or shapes".into(),
+                out,
+            );
+        }
+        Ok(())
+    }
+
+    fn check_xone(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        shapes: &[Term],
+        out: &mut Vec<ValidationResult>,
+        depth: usize,
+    ) -> Result<(), String> {
+        let count =
+            shapes
+                .iter()
+                .try_fold(0usize, |count, shape_ref| -> Result<usize, String> {
+                    Ok(count + usize::from(self.node_conforms(shape_ref, vn, depth)?))
+                })?;
+        if count != 1 {
+            self.push_violation(
+                shape,
+                focus,
+                vn,
+                vocab::CC_XONE,
+                format!("value conforms to {count} sh:xone shapes (want exactly 1)"),
+                out,
+            );
+        }
+        Ok(())
+    }
+
+    fn check_property_constraint(
+        &self,
+        vn: &Term,
+        property_ref: &Term,
+        out: &mut Vec<ValidationResult>,
+        depth: usize,
+    ) -> Result<(), String> {
+        // Validate the value node against the referenced property shape and
+        // surface its results directly (the SHACL sh:property semantics).
+        let property_shape = self.shapes.parse_shape(property_ref);
+        if !property_shape.deactivated {
+            self.validate_focus(&property_shape, vn, out, depth + 1)?;
+        }
+        Ok(())
+    }
+
+    fn push_violation(
+        &self,
+        shape: &Shape,
+        focus: &Term,
+        vn: &Term,
+        component: &str,
+        message: String,
+        out: &mut Vec<ValidationResult>,
+    ) {
+        out.push(self.result(shape, focus, Some(vn), component, message));
     }
 
     /// Whether `focus` conforms to the shape identified by `shape_ref` (no results of any
