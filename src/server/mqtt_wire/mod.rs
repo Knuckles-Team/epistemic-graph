@@ -406,323 +406,459 @@ struct Subscription {
     pattern: String,
 }
 
+type MqttPacket = (u8, u8, Vec<u8>);
+type PublishNotify = Arc<tokio::sync::Notify>;
+
+enum NextPacket {
+    Packet(Option<MqttPacket>),
+    Pumped,
+}
+
+struct PublishPacket {
+    qos: u8,
+    packet_id: u16,
+    topic: String,
+    body: Vec<u8>,
+    producer_id: Option<String>,
+    producer_seq: Option<i64>,
+}
+
+#[derive(Clone, Copy)]
+enum FilterRequestKind {
+    Subscribe,
+    Unsubscribe,
+}
+
+impl FilterRequestKind {
+    fn invalid_packet(self) -> &'static str {
+        match self {
+            Self::Subscribe => "invalid MQTT SUBSCRIBE packet",
+            Self::Unsubscribe => "invalid MQTT UNSUBSCRIBE packet",
+        }
+    }
+
+    fn limit_error(self) -> &'static str {
+        match self {
+            Self::Subscribe => "MQTT subscription packet exceeds resource limits",
+            Self::Unsubscribe => "MQTT unsubscription packet exceeds resource limits",
+        }
+    }
+
+    fn filter_error(self) -> &'static str {
+        match self {
+            Self::Subscribe => "invalid MQTT subscription filter",
+            Self::Unsubscribe => "invalid MQTT unsubscription filter",
+        }
+    }
+}
+
+enum SubscriptionDecision {
+    Reject,
+    Duplicate,
+    Bind(usize),
+}
+
 async fn handle_connection(
     socket: &mut TcpStream,
     state: Arc<RwLock<ServerState>>,
     graph: String,
     exchange: String,
     auth_secret: String,
-    publish_notify: Arc<tokio::sync::Notify>,
+    publish_notify: PublishNotify,
 ) -> std::io::Result<()> {
-    // ── CONNECT ──
-    let Some((ptype, _flags, payload)) = read_packet(socket).await? else {
-        return Ok(()); // clean EOF before CONNECT
-    };
-    if ptype != PKT_CONNECT {
-        return Ok(()); // protocol violation → drop silently
-    }
-    let version = parse_connect_version(&payload)
-        .ok_or_else(|| invalid_data("invalid MQTT CONNECT packet"))?;
-    let Some(actor) = authenticate_connect(&payload, &auth_secret) else {
-        write_packet(
-            socket,
-            PKT_CONNACK << 4,
-            &build_auth_failure_connack(version),
-        )
-        .await?;
+    let Some(mut session) =
+        MqttSession::accept(socket, state, graph, exchange, auth_secret, publish_notify).await?
+    else {
         return Ok(());
     };
-    write_packet(socket, PKT_CONNACK << 4, &build_connack(version)).await?;
+    session.run(socket).await
+}
 
-    // Ensure the shared broker TOPIC exchange exists (idempotent).
-    let _ = engine_call(
-        &state,
-        &graph,
-        &actor,
-        Method::DeclareExchange {
-            exchange: exchange.clone(),
-            kind: "topic".to_string(),
-        },
-    )
-    .await;
+struct MqttSession {
+    state: Arc<RwLock<ServerState>>,
+    graph: String,
+    exchange: String,
+    actor: String,
+    version: u8,
+    session_queue: String,
+    session_consumer: String,
+    publish_notify: PublishNotify,
+    subscriptions: Vec<Subscription>,
+    subscription_bytes: usize,
+}
 
-    // A per-session queue receives this subscriber's routed copies.
-    let session_queue = format!("mqtt.{}", next_req_id());
-    let session_consumer = format!("{actor}:{}", next_req_id());
-    let mut subs: Vec<Subscription> = Vec::new();
-    let mut subscription_bytes = 0usize;
-
-    loop {
-        // With active subscriptions, bound the read so the delivery pump can run.
-        let pkt = if subs.is_empty() {
-            match read_packet(socket).await? {
-                Some(p) => p,
-                None => break,
-            }
-        } else {
-            // GOC-70 (EG-281): race the read against BOTH the listener-wide
-            // publish notify (fast path: wake as soon as a same-listener
-            // PUBLISH commits, instead of waiting out the poll cadence) and a
-            // 200ms fallback tick (unchanged safety net — a missed/foreign
-            // wakeup, or a backlog already pending at SUBSCRIBE time, is still
-            // bounded by the same cadence as before). `read_packet` was
-            // already raced against a timer here pre-fix, so this carries the
-            // exact same read-cancellation profile, not a new one: on an idle
-            // socket the first byte of the next packet has not arrived yet,
-            // so there is nothing buffered to lose when a sibling branch wins.
-            tokio::select! {
-                biased;
-                result = read_packet(socket) => {
-                    match result? {
-                        Some(p) => p,
-                        None => break,
-                    }
-                }
-                _ = publish_notify.notified() => {
-                    pump_subscription(
-                        socket,
-                        &state,
-                        &graph,
-                        &actor,
-                        &session_queue,
-                        &session_consumer,
-                        version,
-                    )
-                    .await?;
-                    continue;
-                }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => {
-                    pump_subscription(
-                        socket,
-                        &state,
-                        &graph,
-                        &actor,
-                        &session_queue,
-                        &session_consumer,
-                        version,
-                    )
-                    .await?;
-                    continue;
-                }
-            }
+impl MqttSession {
+    async fn accept(
+        socket: &mut TcpStream,
+        state: Arc<RwLock<ServerState>>,
+        graph: String,
+        exchange: String,
+        auth_secret: String,
+        publish_notify: PublishNotify,
+    ) -> std::io::Result<Option<Self>> {
+        let Some((ptype, _flags, payload)) = read_packet(socket).await? else {
+            return Ok(None); // clean EOF before CONNECT
         };
-        let (ptype, flags, mut payload) = pkt;
-
-        match ptype {
-            PKT_PUBLISH => {
-                let qos = (flags >> 1) & 0x03;
-                let mut c = Cursor::new(&payload);
-                let topic = c.mqtt_str();
-                let packet_id = if qos > 0 { c.u16() } else { 0 };
-                // MQTT 5.0 property block → extract the EG-314 idempotency user
-                // properties (`producer-id` / `producer-seq`); MQTT 3.1.1 has none.
-                let (producer_id, producer_seq) = if version >= 5 {
-                    let props = c.take_props();
-                    parse_publish_properties(props)
-                        .ok_or_else(|| invalid_data("invalid MQTT property block"))?
-                } else {
-                    (None, None)
-                };
-                if !c.valid
-                    || !valid_topic_name(&topic)
-                    || qos > 1
-                    || flags & 0x01 != 0
-                    || (qos > 0 && packet_id == 0)
-                {
-                    return Err(invalid_data("invalid MQTT PUBLISH packet"));
-                }
-                let body_start = c.i.min(payload.len());
-                let _ = c;
-                // Reuse the packet allocation for the body instead of cloning a
-                // potentially-large payload into a second Vec.
-                payload.drain(..body_start);
-                let body = payload;
-                // Route through the idempotent path — with no producer-id it is a plain
-                // at-least-once publish (byte-identical to before); with one the broker
-                // dedups (CONCEPT:EG-KG.ingest.mqtt-publish-property-block).
-                let _ = engine_call(
-                    &state,
-                    &graph,
-                    &actor,
-                    Method::PublishIdempotent {
-                        exchange: exchange.clone(),
-                        routing_key: mqtt_topic_to_key(&topic),
-                        payload: body,
-                        producer_id,
-                        seq: producer_seq.unwrap_or(0),
-                        priority: 0,
-                        delay_ms: None,
-                        ttl_ms: None,
-                        now_ms: None,
-                    },
-                )
-                .await;
-                // GOC-70 (EG-281): the publish has committed through the engine (the
-                // `.await` above already ordered that) — wake every subscriber
-                // connection on this listener that is currently parked in the
-                // select above so it re-polls the queue NOW instead of waiting out
-                // the fallback tick. `notify_waiters` only wakes tasks already
-                // awaiting `.notified()`, so this is a best-effort fast path, not
-                // the sole delivery mechanism; the 200ms fallback (unchanged)
-                // still guarantees eventual delivery if this notification lands
-                // between a subscriber's poll iterations.
-                publish_notify.notify_waiters();
-                // QoS 1 requires a PUBACK echoing the packet id; QoS 0 is fire-and-forget.
-                if qos == 1 {
-                    write_packet(socket, PKT_PUBACK << 4, &packet_id.to_be_bytes()).await?;
-                }
-            }
-            PKT_SUBSCRIBE => {
-                let mut c = Cursor::new(&payload);
-                let packet_id = c.u16();
-                if version >= 5 {
-                    c.skip_props();
-                }
-                if !c.valid || packet_id == 0 {
-                    return Err(invalid_data("invalid MQTT SUBSCRIBE packet"));
-                }
-                let mut granted: Vec<u8> = Vec::new();
-                let mut filter_count = 0usize;
-                while c.remaining() >= 2 {
-                    filter_count += 1;
-                    if filter_count > MAX_MQTT_FILTERS_PER_PACKET {
-                        return Err(invalid_data(
-                            "MQTT subscription packet exceeds resource limits",
-                        ));
-                    }
-                    let filter = c.mqtt_str();
-                    let opts = c.u8(); // requested QoS / v5 subscription options
-                    if !c.valid {
-                        return Err(invalid_data("invalid MQTT SUBSCRIBE packet"));
-                    }
-                    let invalid_options = opts & 0x03 == 0x03
-                        || (version < 5 && opts & 0xfc != 0)
-                        || (version >= 5 && (opts & 0xc0 != 0 || (opts >> 4) & 0x03 == 0x03));
-                    if !valid_topic_filter(&filter) || invalid_options {
-                        return Err(invalid_data("invalid MQTT subscription filter"));
-                    }
-                    if subs.len() >= MAX_MQTT_SUBSCRIPTIONS {
-                        granted.push(0x80); // subscription rejected: resource limit
-                        continue;
-                    }
-                    let pattern = mqtt_filter_to_pattern(&filter);
-                    if subs
-                        .iter()
-                        .any(|subscription| subscription.pattern == pattern)
-                    {
-                        granted.push(0x00);
-                        continue;
-                    }
-                    let Some(next_subscription_bytes) =
-                        subscription_bytes.checked_add(pattern.len())
-                    else {
-                        granted.push(0x80);
-                        continue;
-                    };
-                    if next_subscription_bytes > MAX_MQTT_SUBSCRIPTION_BYTES {
-                        granted.push(0x80);
-                        continue;
-                    }
-                    let _ = engine_call(
-                        &state,
-                        &graph,
-                        &actor,
-                        Method::BindQueue {
-                            exchange: exchange.clone(),
-                            queue: session_queue.clone(),
-                            routing_key: pattern.clone(),
-                        },
-                    )
-                    .await;
-                    subs.push(Subscription { pattern });
-                    subscription_bytes = next_subscription_bytes;
-                    granted.push(0x00); // granted QoS 0
-                }
-                write_packet(
-                    socket,
-                    PKT_SUBACK << 4,
-                    &build_suback(packet_id, &granted, version),
-                )
-                .await?;
-            }
-            PKT_UNSUBSCRIBE => {
-                let mut c = Cursor::new(&payload);
-                let packet_id = c.u16();
-                if version >= 5 {
-                    c.skip_props();
-                }
-                if !c.valid || packet_id == 0 {
-                    return Err(invalid_data("invalid MQTT UNSUBSCRIBE packet"));
-                }
-                let mut count = 0usize;
-                while c.remaining() >= 2 {
-                    if count >= MAX_MQTT_FILTERS_PER_PACKET {
-                        return Err(invalid_data(
-                            "MQTT unsubscription packet exceeds resource limits",
-                        ));
-                    }
-                    let filter = c.mqtt_str();
-                    if !c.valid {
-                        return Err(invalid_data("invalid MQTT UNSUBSCRIBE packet"));
-                    }
-                    if !valid_topic_filter(&filter) {
-                        return Err(invalid_data("invalid MQTT unsubscription filter"));
-                    }
-                    let pattern = mqtt_filter_to_pattern(&filter);
-                    let _ = engine_call(
-                        &state,
-                        &graph,
-                        &actor,
-                        Method::UnbindQueue {
-                            exchange: exchange.clone(),
-                            queue: session_queue.clone(),
-                            routing_key: pattern.clone(),
-                        },
-                    )
-                    .await;
-                    let mut removed_bytes = 0usize;
-                    subs.retain(|subscription| {
-                        let keep = subscription.pattern != pattern;
-                        if !keep {
-                            removed_bytes =
-                                removed_bytes.saturating_add(subscription.pattern.len());
-                        }
-                        keep
-                    });
-                    subscription_bytes = subscription_bytes.saturating_sub(removed_bytes);
-                    count += 1;
-                }
-                write_packet(
-                    socket,
-                    PKT_UNSUBACK << 4,
-                    &build_unsuback(packet_id, count, version),
-                )
-                .await?;
-            }
-            PKT_PUBACK => return Err(invalid_data("unexpected MQTT PUBACK packet")),
-            PKT_PINGREQ => {
-                write_packet(socket, PKT_PINGRESP << 4, &[]).await?;
-            }
-            PKT_DISCONNECT => break,
-            _ => return Err(invalid_data("unsupported MQTT packet type")),
+        if ptype != PKT_CONNECT {
+            return Ok(None); // protocol violation → drop silently
         }
-    }
+        let version = parse_connect_version(&payload)
+            .ok_or_else(|| invalid_data("invalid MQTT CONNECT packet"))?;
+        let Some(actor) = authenticate_connect(&payload, &auth_secret) else {
+            write_packet(
+                socket,
+                PKT_CONNACK << 4,
+                &build_auth_failure_connack(version),
+            )
+            .await?;
+            return Ok(None);
+        };
+        write_packet(socket, PKT_CONNACK << 4, &build_connack(version)).await?;
 
-    // Best-effort teardown: unbind this session's routes.
-    for s in &subs {
+        // Ensure the shared broker TOPIC exchange exists (idempotent).
         let _ = engine_call(
             &state,
             &graph,
             &actor,
-            Method::UnbindQueue {
+            Method::DeclareExchange {
                 exchange: exchange.clone(),
-                queue: session_queue.clone(),
-                routing_key: s.pattern.clone(),
+                kind: "topic".to_string(),
             },
         )
         .await;
+
+        Ok(Some(Self {
+            state,
+            graph,
+            exchange,
+            actor: actor.clone(),
+            version,
+            session_queue: format!("mqtt.{}", next_req_id()),
+            session_consumer: format!("{actor}:{}", next_req_id()),
+            publish_notify,
+            subscriptions: Vec::new(),
+            subscription_bytes: 0,
+        }))
     }
-    Ok(())
+
+    async fn run(&mut self, socket: &mut TcpStream) -> std::io::Result<()> {
+        loop {
+            match self.next_packet(socket).await? {
+                NextPacket::Packet(Some(packet)) => {
+                    if !self.handle_packet(socket, packet).await? {
+                        break;
+                    }
+                }
+                NextPacket::Packet(None) => break,
+                NextPacket::Pumped => {}
+            }
+        }
+        teardown_session(self).await;
+        Ok(())
+    }
+
+    async fn next_packet(&mut self, socket: &mut TcpStream) -> std::io::Result<NextPacket> {
+        if self.subscriptions.is_empty() {
+            return Ok(NextPacket::Packet(read_packet(socket).await?));
+        }
+
+        // GOC-70 (EG-281): race the read against BOTH the listener-wide publish
+        // notify and the unchanged 200ms fallback tick. `read_packet` was
+        // already raced against a timer here pre-fix, so this carries the same
+        // read-cancellation profile while keeping the delivery pump bounded.
+        let next = tokio::select! {
+            biased;
+            result = read_packet(socket) => NextPacket::Packet(result?),
+            _ = self.publish_notify.notified() => NextPacket::Pumped,
+            _ = tokio::time::sleep(std::time::Duration::from_millis(200)) => NextPacket::Pumped,
+        };
+        match next {
+            NextPacket::Pumped => {
+                pump_session(self, socket).await?;
+                Ok(NextPacket::Pumped)
+            }
+            packet => Ok(packet),
+        }
+    }
+
+    async fn handle_packet(
+        &mut self,
+        socket: &mut TcpStream,
+        packet: MqttPacket,
+    ) -> std::io::Result<bool> {
+        let (ptype, flags, payload) = packet;
+        match ptype {
+            PKT_PUBLISH => self.handle_publish(socket, flags, payload).await?,
+            PKT_SUBSCRIBE => self.handle_subscribe(socket, &payload).await?,
+            PKT_UNSUBSCRIBE => self.handle_unsubscribe(socket, &payload).await?,
+            PKT_PUBACK => return Err(invalid_data("unexpected MQTT PUBACK packet")),
+            PKT_PINGREQ => write_packet(socket, PKT_PINGRESP << 4, &[]).await?,
+            PKT_DISCONNECT => return Ok(false),
+            _ => return Err(invalid_data("unsupported MQTT packet type")),
+        }
+        Ok(true)
+    }
+
+    async fn handle_publish(
+        &self,
+        socket: &mut TcpStream,
+        flags: u8,
+        mut payload: Vec<u8>,
+    ) -> std::io::Result<()> {
+        let packet = parse_publish(&mut payload, self.version, flags)?;
+        let _ = engine_call(
+            &self.state,
+            &self.graph,
+            &self.actor,
+            Method::PublishIdempotent {
+                exchange: self.exchange.clone(),
+                routing_key: mqtt_topic_to_key(&packet.topic),
+                payload: packet.body,
+                producer_id: packet.producer_id,
+                seq: packet.producer_seq.unwrap_or(0),
+                priority: 0,
+                delay_ms: None,
+                ttl_ms: None,
+                now_ms: None,
+            },
+        )
+        .await;
+        // The engine call above is the commit barrier; this wake is only the
+        // listener-local fast path, with the 200ms poll as the safety net.
+        self.publish_notify.notify_waiters();
+        if packet.qos == 1 {
+            write_packet(socket, PKT_PUBACK << 4, &packet.packet_id.to_be_bytes()).await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_subscribe(
+        &mut self,
+        socket: &mut TcpStream,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
+        let (packet_id, patterns) =
+            parse_filter_request(payload, self.version, FilterRequestKind::Subscribe)?;
+        let granted = self.bind_subscriptions(patterns).await;
+        write_packet(
+            socket,
+            PKT_SUBACK << 4,
+            &build_suback(packet_id, &granted, self.version),
+        )
+        .await
+    }
+
+    async fn bind_subscriptions(&mut self, patterns: Vec<String>) -> Vec<u8> {
+        let mut granted = Vec::with_capacity(patterns.len());
+        for pattern in patterns {
+            match subscription_decision(&self.subscriptions, self.subscription_bytes, &pattern) {
+                SubscriptionDecision::Reject => granted.push(0x80),
+                SubscriptionDecision::Duplicate => granted.push(0x00),
+                SubscriptionDecision::Bind(next_bytes) => {
+                    let _ = engine_call(
+                        &self.state,
+                        &self.graph,
+                        &self.actor,
+                        Method::BindQueue {
+                            exchange: self.exchange.clone(),
+                            queue: self.session_queue.clone(),
+                            routing_key: pattern.clone(),
+                        },
+                    )
+                    .await;
+                    self.subscriptions.push(Subscription { pattern });
+                    self.subscription_bytes = next_bytes;
+                    granted.push(0x00);
+                }
+            }
+        }
+        granted
+    }
+
+    async fn handle_unsubscribe(
+        &mut self,
+        socket: &mut TcpStream,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
+        let (packet_id, patterns) =
+            parse_filter_request(payload, self.version, FilterRequestKind::Unsubscribe)?;
+        let count = patterns.len();
+        self.unbind_subscriptions(patterns).await;
+        write_packet(
+            socket,
+            PKT_UNSUBACK << 4,
+            &build_unsuback(packet_id, count, self.version),
+        )
+        .await
+    }
+
+    async fn unbind_subscriptions(&mut self, patterns: Vec<String>) {
+        for pattern in patterns {
+            unbind_pattern(self, &pattern).await;
+            remove_subscription(
+                &mut self.subscriptions,
+                &mut self.subscription_bytes,
+                &pattern,
+            );
+        }
+    }
+}
+
+async fn pump_session(session: &MqttSession, socket: &mut TcpStream) -> std::io::Result<()> {
+    pump_subscription(
+        socket,
+        &session.state,
+        &session.graph,
+        &session.actor,
+        &session.session_queue,
+        &session.session_consumer,
+        session.version,
+    )
+    .await
+}
+
+fn subscription_decision(
+    subscriptions: &[Subscription],
+    subscription_bytes: usize,
+    pattern: &str,
+) -> SubscriptionDecision {
+    if subscriptions.len() >= MAX_MQTT_SUBSCRIPTIONS {
+        return SubscriptionDecision::Reject;
+    }
+    if subscriptions
+        .iter()
+        .any(|subscription| subscription.pattern == pattern)
+    {
+        return SubscriptionDecision::Duplicate;
+    }
+    match subscription_bytes.checked_add(pattern.len()) {
+        Some(next) if next <= MAX_MQTT_SUBSCRIPTION_BYTES => SubscriptionDecision::Bind(next),
+        _ => SubscriptionDecision::Reject,
+    }
+}
+
+fn remove_subscription(
+    subscriptions: &mut Vec<Subscription>,
+    subscription_bytes: &mut usize,
+    pattern: &str,
+) {
+    let mut removed_bytes = 0usize;
+    subscriptions.retain(|subscription| {
+        let keep = subscription.pattern != pattern;
+        if !keep {
+            removed_bytes = removed_bytes.saturating_add(subscription.pattern.len());
+        }
+        keep
+    });
+    *subscription_bytes = subscription_bytes.saturating_sub(removed_bytes);
+}
+
+async fn teardown_session(session: &MqttSession) {
+    for subscription in &session.subscriptions {
+        unbind_pattern(session, &subscription.pattern).await;
+    }
+}
+
+async fn unbind_pattern(session: &MqttSession, pattern: &str) {
+    let _ = engine_call(
+        &session.state,
+        &session.graph,
+        &session.actor,
+        Method::UnbindQueue {
+            exchange: session.exchange.clone(),
+            queue: session.session_queue.clone(),
+            routing_key: pattern.to_string(),
+        },
+    )
+    .await;
+}
+
+fn parse_publish(payload: &mut Vec<u8>, version: u8, flags: u8) -> std::io::Result<PublishPacket> {
+    let qos = (flags >> 1) & 0x03;
+    let (topic, packet_id, producer_id, producer_seq, body_start) = {
+        let mut c = Cursor::new(payload);
+        let topic = c.mqtt_str();
+        let packet_id = if qos > 0 { c.u16() } else { 0 };
+        // MQTT 5.0 property block → extract the EG-314 idempotency user
+        // properties (`producer-id` / `producer-seq`); MQTT 3.1.1 has none.
+        let (producer_id, producer_seq) = if version >= 5 {
+            let props = c.take_props();
+            parse_publish_properties(props)
+                .ok_or_else(|| invalid_data("invalid MQTT property block"))?
+        } else {
+            (None, None)
+        };
+        if !c.valid
+            || !valid_topic_name(&topic)
+            || qos > 1
+            || flags & 0x01 != 0
+            || (qos > 0 && packet_id == 0)
+        {
+            return Err(invalid_data("invalid MQTT PUBLISH packet"));
+        }
+        (
+            topic,
+            packet_id,
+            producer_id,
+            producer_seq,
+            c.i.min(payload.len()),
+        )
+    };
+    // Reuse the packet allocation for the body instead of cloning a
+    // potentially-large payload into a second Vec.
+    payload.drain(..body_start);
+    Ok(PublishPacket {
+        qos,
+        packet_id,
+        topic,
+        body: std::mem::take(payload),
+        producer_id,
+        producer_seq,
+    })
+}
+
+fn valid_subscription_options(options: u8, version: u8) -> bool {
+    options & 0x03 != 0x03
+        && (version >= 5 || options & 0xfc == 0)
+        && (version < 5 || options & 0xc0 == 0 && (options >> 4) & 0x03 != 0x03)
+}
+
+fn parse_filter_options(cursor: &mut Cursor<'_>, kind: FilterRequestKind, version: u8) -> bool {
+    match kind {
+        FilterRequestKind::Subscribe => valid_subscription_options(cursor.u8(), version),
+        FilterRequestKind::Unsubscribe => true,
+    }
+}
+
+fn parse_filter_request(
+    payload: &[u8],
+    version: u8,
+    kind: FilterRequestKind,
+) -> std::io::Result<(u16, Vec<String>)> {
+    let mut c = Cursor::new(payload);
+    let packet_id = c.u16();
+    if version >= 5 {
+        c.skip_props();
+    }
+    if !c.valid || packet_id == 0 {
+        return Err(invalid_data(kind.invalid_packet()));
+    }
+    let mut patterns = Vec::new();
+    while c.remaining() >= 2 {
+        if patterns.len() >= MAX_MQTT_FILTERS_PER_PACKET {
+            return Err(invalid_data(kind.limit_error()));
+        }
+        let filter = c.mqtt_str();
+        let options_valid = parse_filter_options(&mut c, kind, version);
+        if !c.valid {
+            return Err(invalid_data(kind.invalid_packet()));
+        }
+        if !valid_topic_filter(&filter) || !options_valid {
+            return Err(invalid_data(kind.filter_error()));
+        }
+        patterns.push(mqtt_filter_to_pattern(&filter));
+    }
+    Ok((packet_id, patterns))
 }
 
 /// Deliver a bounded batch of pending messages from the session queue as QoS-0 PUBLISH
