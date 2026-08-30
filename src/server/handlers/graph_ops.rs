@@ -539,39 +539,48 @@ fn apply_declare_exchange(
         .map(|()| ResultPayload::String("ok".to_string()))
 }
 
-#[cfg(feature = "mining")]
-fn apply_mine_associate(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineAssociate {
-        transactions,
-        source,
-        min_support,
-        min_confidence,
-        algorithm,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
+/// Generate the uniform method-destructure → mining-handler → response-result
+/// adapter used by the mining methods without duplicating that gateway glue.
+macro_rules! define_mining_apply {
+    ($name:ident, $method:ident { $($field:ident),* $(,)? }, $handler:ident) => {
+        #[cfg(feature = "mining")]
+        fn $name(
+            core: &GraphCore,
+            req_id: u64,
+            method_owned: Method,
+        ) -> Result<ResultPayload, String> {
+            let Method::$method {
+                $($field,)*
+                #[cfg(feature = "epistemic")]
+                as_claim,
+            } = method_owned
+            else {
+                unreachable!()
+            };
+            let resp = super::mining::$handler(
+                req_id,
+                core,
+                $($field,)*
+                #[cfg(feature = "epistemic")]
+                as_claim,
+            );
+            mining_response_to_gateway_result(resp)
+        }
     };
-    let resp = super::mining::handle_associate(
-        req_id,
-        core,
+}
+
+define_mining_apply!(
+    apply_mine_associate,
+    MineAssociate {
         transactions,
         source,
         min_support,
         min_confidence,
         algorithm,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_associate
+);
 
 #[cfg(feature = "mining")]
 fn apply_mine_cluster(
@@ -767,45 +776,21 @@ fn apply_mine_reduce(
     mining_response_to_gateway_result(resp)
 }
 
-#[cfg(feature = "mining")]
-fn apply_mine_sequence(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineSequence {
+define_mining_apply!(
+    apply_mine_sequence,
+    MineSequence {
         sequences,
         source,
         min_support,
         algorithm,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_sequence(
-        req_id,
-        core,
-        sequences,
-        source,
-        min_support,
-        algorithm,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_sequence
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_forecast(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineForecast {
+define_mining_apply!(
+    apply_mine_forecast,
+    MineForecast {
         values,
         algorithm,
         horizon,
@@ -819,41 +804,13 @@ fn apply_mine_forecast(
         confidence,
         series_id,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_forecast(
-        req_id,
-        core,
-        values,
-        algorithm,
-        horizon,
-        p,
-        d,
-        q,
-        period,
-        alpha,
-        beta,
-        gamma,
-        confidence,
-        series_id,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_forecast
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_text(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineText {
+define_mining_apply!(
+    apply_mine_text,
+    MineText {
         docs,
         source,
         algorithm,
@@ -864,70 +821,25 @@ fn apply_mine_text(
         seed,
         top_n,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_text(
-        req_id,
-        core,
-        docs,
-        source,
-        algorithm,
-        k,
-        alpha,
-        beta,
-        iterations,
-        seed,
-        top_n,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_text
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_subgraph(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineSubgraph {
+define_mining_apply!(
+    apply_mine_subgraph,
+    MineSubgraph {
         label,
         min_support,
         max_edges,
         algorithm,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_subgraph(
-        req_id,
-        core,
-        label,
-        min_support,
-        max_edges,
-        algorithm,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_subgraph
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_entity_resolve(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineEntityResolve {
+define_mining_apply!(
+    apply_mine_entity_resolve,
+    MineEntityResolve {
         records,
         block_keys,
         vectors,
@@ -936,96 +848,35 @@ fn apply_mine_entity_resolve(
         bucket_precision,
         threshold,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_entity_resolve(
-        req_id,
-        core,
-        records,
-        block_keys,
-        vectors,
-        source,
-        ids,
-        bucket_precision,
-        threshold,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_entity_resolve
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_causal_impact(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineCausalImpact {
+define_mining_apply!(
+    apply_mine_causal_impact,
+    MineCausalImpact {
         series,
         control,
         intervention_index,
         series_id,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_causal_impact(
-        req_id,
-        core,
-        series,
-        control,
-        intervention_index,
-        series_id,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_causal_impact
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_process(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineProcess {
+define_mining_apply!(
+    apply_mine_process,
+    MineProcess {
         traces,
         process_id,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_process(
-        req_id,
-        core,
-        traces,
-        process_id,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_process
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_root_cause(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineRootCause {
+define_mining_apply!(
+    apply_mine_root_cause,
+    MineRootCause {
         nodes,
         scores,
         edges,
@@ -1033,35 +884,13 @@ fn apply_mine_root_cause(
         max_hops,
         decay,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_root_cause(
-        req_id,
-        core,
-        nodes,
-        scores,
-        edges,
-        symptom,
-        max_hops,
-        decay,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_root_cause
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_risk_propagation(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineRiskPropagation {
+define_mining_apply!(
+    apply_mine_risk_propagation,
+    MineRiskPropagation {
         nodes,
         seed,
         edges,
@@ -1069,27 +898,9 @@ fn apply_mine_risk_propagation(
         tolerance,
         max_iterations,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_risk_propagation(
-        req_id,
-        core,
-        nodes,
-        seed,
-        edges,
-        damping,
-        tolerance,
-        max_iterations,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_risk_propagation
+);
 
 #[cfg(feature = "mining")]
 fn apply_mine_ontology_gap(
@@ -1117,43 +928,20 @@ fn apply_mine_ontology_gap(
     mining_response_to_gateway_result(resp)
 }
 
-#[cfg(feature = "mining")]
-fn apply_mine_retrieval_quality(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineRetrievalQuality {
+define_mining_apply!(
+    apply_mine_retrieval_quality,
+    MineRetrievalQuality {
         traces,
         k,
         query_id,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_retrieval_quality(
-        req_id,
-        core,
-        traces,
-        k,
-        query_id,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_retrieval_quality
+);
 
-#[cfg(feature = "mining")]
-fn apply_mine_community(
-    core: &GraphCore,
-    req_id: u64,
-    method_owned: Method,
-) -> Result<ResultPayload, String> {
-    let Method::MineCommunity {
+define_mining_apply!(
+    apply_mine_community,
+    MineCommunity {
         label,
         algorithm,
         resolution,
@@ -1161,27 +949,9 @@ fn apply_mine_community(
         seed,
         weighted,
         writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    } = method_owned
-    else {
-        unreachable!()
-    };
-    let resp = super::mining::handle_community(
-        req_id,
-        core,
-        label,
-        algorithm,
-        resolution,
-        max_iterations,
-        seed,
-        weighted,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
-    );
-    mining_response_to_gateway_result(resp)
-}
+    },
+    handle_community
+);
 
 /// Read a node's human-readable `(name, description, type)` triple from its
 /// MessagePack property blob (CONCEPT:EG-KG.retrieval.one-round-trip-discovery), used to hydrate `Discover` hits.
