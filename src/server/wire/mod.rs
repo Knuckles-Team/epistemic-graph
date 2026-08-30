@@ -4841,6 +4841,60 @@ impl WireProtocol for WireSession {
 }
 
 #[cfg(test)]
+fn test_isolation(agents: &[&str]) -> crate::isolation::IsolationLayer {
+    let mut isolation = crate::isolation::IsolationLayer::new();
+    for agent in agents {
+        isolation.register_agent(crate::isolation::AgentIdentity {
+            agent_id: (*agent).into(),
+            role: crate::isolation::AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+    }
+    isolation
+}
+
+#[cfg(test)]
+fn test_state_with_services(
+    auth_secret: &str,
+    isolation: crate::isolation::IsolationLayer,
+    persistence_label: &str,
+    tsdb_label: &str,
+) -> Arc<RwLock<ServerState>> {
+    let _ = (persistence_label, tsdb_label);
+    let mut state = ServerState::new_for_test(auth_secret.to_owned(), isolation);
+    #[cfg(feature = "query")]
+    {
+        state.persist_dir = Some(
+            crate::server::sql_tables::test_persist_dir()
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    #[cfg(feature = "redb")]
+    {
+        state.persistence = Some(std::sync::Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open(
+                crate::server::unique_temp_dir(persistence_label)
+                    .to_string_lossy()
+                    .into_owned(),
+                crate::durability::DurabilityPolicy::Each,
+                256,
+            )
+            .expect("open test redb backend"),
+        ));
+    }
+    #[cfg(feature = "tsdb")]
+    {
+        state.tsdb_store = Some(std::sync::Arc::new(
+            eg_tsdb::store::SeriesStore::open_in_dir(&crate::server::unique_temp_dir(tsdb_label))
+                .expect("open test series store"),
+        ));
+    }
+    Arc::new(RwLock::new(state))
+}
+
+#[cfg(test)]
 mod ne_004_ne_005_tests {
     //! Unit tests for NE-004 (mixed graph+table transaction atomicity via a
     //! durable commit-intent) and NE-005 (SQL-selectable isolation level).
@@ -4852,11 +4906,7 @@ mod ne_004_ne_005_tests {
     //! is the SAME native-SQL-identity seam `sqlite_wire`/`mysql_wire` use;
     //! it is not a test-only shortcut.
     use super::*;
-    use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
     use crate::protocol::{GraphType, Method};
-    use crate::registry::GraphRegistry;
-    use dashmap::DashMap;
-    use tokio::sync::Semaphore;
 
     const SECRET: &str = "eg-txn-atomicity-test-secret";
     const AGENT: &str = "txn-test-agent";
@@ -4883,93 +4933,12 @@ mod ne_004_ne_005_tests {
     /// elsewhere).
     fn test_state() -> Arc<RwLock<ServerState>> {
         ensure_env();
-        let mut isolation = IsolationLayer::new();
-        isolation.register_agent(AgentIdentity {
-            agent_id: AGENT.into(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: crate::channels::ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            #[cfg(feature = "query")]
-            persist_dir: Some(
-                crate::server::sql_tables::test_persist_dir()
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            #[cfg(not(feature = "query"))]
-            persist_dir: None,
-            #[cfg(feature = "redb")]
-            persistence: Some(std::sync::Arc::new(
-                crate::server::persistence::redb_backend::RedbBackend::open(
-                    crate::server::unique_temp_dir("eg-wire-txn-atomicity-test")
-                        .to_string_lossy()
-                        .into_owned(),
-                    crate::durability::DurabilityPolicy::Each,
-                    256,
-                )
-                .expect("open test redb backend"),
-            )),
-            #[cfg(not(feature = "redb"))]
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: Some(Arc::new(
-                eg_tsdb::store::SeriesStore::open(&std::env::temp_dir().join(format!(
-                    "eg-wire-txn-atomicity-tsdb-test-{}-{}.redb",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_nanos() as u64)
-                        .unwrap_or(0)
-                )))
-                .expect("open test series store"),
-            )),
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        test_state_with_services(
+            SECRET,
+            test_isolation(&[AGENT]),
+            "eg-wire-txn-atomicity-test",
+            "eg-wire-txn-atomicity-tsdb-test",
+        )
     }
 
     /// Build a signed `Request` exactly like `server::mod::tests::request` —
@@ -5534,13 +5503,9 @@ mod wired_catalog_tests {
     //! path (`run_read` / `authorized_read_store`) — to prove the ACL is
     //! actually ENFORCED at those sites now, not merely correct on its own.
     use super::*;
-    use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
     use crate::protocol::{GraphType, Method};
-    use crate::registry::GraphRegistry;
     use crate::server::auth::VerifiedRequestContext;
     use crate::server::sql_catalog_acl::{self, SqlPrivilege};
-    use dashmap::DashMap;
-    use tokio::sync::Semaphore;
 
     const SECRET: &str = "eg-wired-catalog-test-secret";
     const CREATOR: &str = "wired-catalog-graph-creator";
@@ -5568,95 +5533,12 @@ mod wired_catalog_tests {
     /// track wires on top, not a replacement for the engine ACL.
     fn test_state(agents: &[&str]) -> Arc<RwLock<ServerState>> {
         ensure_env();
-        let mut isolation = IsolationLayer::new();
-        for agent in agents {
-            isolation.register_agent(AgentIdentity {
-                agent_id: (*agent).into(),
-                role: AgentRole::System,
-                teams: Vec::new(),
-                roles: Vec::new(),
-            });
-        }
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: crate::channels::ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            #[cfg(feature = "query")]
-            persist_dir: Some(
-                crate::server::sql_tables::test_persist_dir()
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-            #[cfg(not(feature = "query"))]
-            persist_dir: None,
-            #[cfg(feature = "redb")]
-            persistence: Some(std::sync::Arc::new(
-                crate::server::persistence::redb_backend::RedbBackend::open(
-                    crate::server::unique_temp_dir("eg-wired-catalog-test")
-                        .to_string_lossy()
-                        .into_owned(),
-                    crate::durability::DurabilityPolicy::Each,
-                    256,
-                )
-                .expect("open test redb backend"),
-            )),
-            #[cfg(not(feature = "redb"))]
-            persistence: None,
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: Some(Arc::new(
-                eg_tsdb::store::SeriesStore::open(&std::env::temp_dir().join(format!(
-                    "eg-wired-catalog-tsdb-test-{}-{}.redb",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_nanos() as u64)
-                        .unwrap_or(0)
-                )))
-                .expect("open test series store"),
-            )),
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        test_state_with_services(
+            SECRET,
+            test_isolation(agents),
+            "eg-wired-catalog-test",
+            "eg-wired-catalog-tsdb-test",
+        )
     }
 
     fn request(id: u64, graph: &str, method: Method) -> Request {
