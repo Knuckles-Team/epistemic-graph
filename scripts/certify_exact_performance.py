@@ -32,6 +32,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -273,6 +274,21 @@ class ScenarioExecution:
 
 
 @dataclass(frozen=True)
+class RunInputs:
+    authority: AuthorityConfig
+    dataset: dict[str, Any]
+    dataset_manifest_sha256: str
+    thresholds: dict[str, Any]
+    threshold_manifest_sha256: str
+    scenario_contracts: ScenarioContracts
+    workload: Workload
+    hardware_class: dict[str, Any]
+    work_dir: Path
+    json_output: Path
+    markdown_output: Path
+
+
+@dataclass(frozen=True)
 class NodeMeasurements:
     routing_groups: list[list[float]]
     point_query_groups: list[list[float]]
@@ -411,6 +427,25 @@ class RssSampler:
                 else:
                     self._samples_kib.append(value)
             self._stop.wait(0.01)
+
+
+@dataclass
+class MeasurementState:
+    engine: EngineHandle | None = None
+    sampler: RssSampler | None = None
+    client: Any = None
+    failure_code: str | None = None
+    metrics: dict[str, float] = dataclass_field(default_factory=dict)
+    complexity: dict[str, float] = dataclass_field(default_factory=dict)
+    measurements: dict[str, Any] = dataclass_field(default_factory=dict)
+    coverage: dict[str, Any] = dataclass_field(default_factory=dict)
+    binary_size: int = 0
+    staged_copy_verified: bool = False
+    client_digest: str = ""
+    client_version: str = "unknown"
+    bootstrap_verified: bool = False
+    scenario_executions: dict[str, ScenarioExecution] = dataclass_field(default_factory=dict)
+    cleanup_failed: bool = False
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -2909,7 +2944,24 @@ def _write_new(path: Path, content: bytes) -> None:
             os.close(descriptor)
 
 
-async def _run(args: argparse.Namespace) -> tuple[dict[str, Any], AuthorityConfig]:
+def _create_work_dir(work_root: Path) -> Path:
+    work_dir = Path(os.path.realpath(Path(work_root) / f"g37-{os.urandom(16).hex()}"))
+    try:
+        work_dir.mkdir(mode=0o700)
+    except OSError as error:
+        raise CertificationError("work_directory_creation_failed") from error
+    return work_dir
+
+
+def _output_paths(args: argparse.Namespace) -> tuple[Path, Path]:
+    json_output = _validate_output_path(args.json_output, ".json")
+    markdown_output = _validate_output_path(args.markdown_output, ".md")
+    if json_output == markdown_output:
+        raise CertificationError("duplicate_output_path")
+    return json_output, markdown_output
+
+
+def _prepare_run(args: argparse.Namespace) -> RunInputs:
     authority = _load_authority(args.authority_config)
     dataset, dataset_manifest_sha256 = _load_dataset(args.dataset_manifest)
     thresholds, threshold_manifest_sha256 = _load_thresholds(args.thresholds)
@@ -2921,139 +2973,186 @@ async def _run(args: argparse.Namespace) -> tuple[dict[str, Any], AuthorityConfi
     workload = _workload_from_manifest(dataset)
     hardware_class = _memory_class()
     work_root = _validate_work_root(args.work_root)
-    json_output = _validate_output_path(args.json_output, ".json")
-    markdown_output = _validate_output_path(args.markdown_output, ".md")
-    if json_output == markdown_output:
-        raise CertificationError("duplicate_output_path")
+    json_output, markdown_output = _output_paths(args)
+    return RunInputs(
+        authority=authority,
+        dataset=dataset,
+        dataset_manifest_sha256=dataset_manifest_sha256,
+        thresholds=thresholds,
+        threshold_manifest_sha256=threshold_manifest_sha256,
+        scenario_contracts=scenario_contracts,
+        workload=workload,
+        hardware_class=hardware_class,
+        work_dir=_create_work_dir(work_root),
+        json_output=json_output,
+        markdown_output=markdown_output,
+    )
 
-    work_dir = Path(os.path.realpath(Path(work_root) / f"g37-{os.urandom(16).hex()}"))
-    try:
-        work_dir.mkdir(mode=0o700)
-    except OSError as error:
-        raise CertificationError("work_directory_creation_failed") from error
-    engine = None
-    sampler = None
-    client = None
-    started_at = datetime.now(UTC)
-    failure_code = None
-    metrics: dict[str, float] = {}
-    complexity: dict[str, float] = {}
-    measurements: dict[str, Any] = {}
-    coverage: dict[str, Any] = {}
-    binary_size = 0
-    staged_copy_verified = False
-    client_digest = ""
-    client_version = "unknown"
-    bootstrap_verified = False
-    scenario_executions: dict[str, ScenarioExecution] = {}
-    try:
-        binary, binary_size = _stage_binary(args.engine_binary, args.engine_sha256, work_dir)
-        staged_copy_verified = True
-        scenario_executions = _run_exact_scenarios(
-            binary,
-            args.engine_sha256,
-            work_dir,
-            scenario_contracts,
-            seed=dataset["seed"],
-            workload_sha256=workload.digest,
-        )
-        spawn_started_ns = time.perf_counter_ns()
-        engine = _spawn_engine(binary, work_dir, authority, args.engine_sha256)
-        sampler = RssSampler(engine.process.pid)
-        sampler.start()
-        client, cold_start_ms, _ = await _bootstrap_and_connect(
-            engine,
-            authority,
-            dataset["graph_ref"],
-            args.startup_timeout_seconds,
-            spawn_started_ns,
-        )
-        bootstrap_verified = True
-        from epistemic_graph import __version__ as package_version
-        from epistemic_graph import client as client_module
 
-        client_file = Path(client_module.__file__ or "")
-        if not client_file.is_file():
-            raise CertificationError("client_source_unavailable")
-        client_digest = _sha256_file(client_file)
-        client_version = str(package_version)
-        if not _SAFE_VERSION.fullmatch(client_version):
-            raise CertificationError("invalid_client_version")
-        metrics, complexity, measurements, coverage = await _measure(
-            client,
-            dataset,
-            workload,
-            cold_start_ms,
-            sampler,
-            authority.context["tenant"],
-        )
-        if engine.process.poll() is not None:
-            raise CertificationError("exact_engine_exited_during_measurement")
+async def _run_measurement_steps(
+    args: argparse.Namespace, inputs: RunInputs, state: MeasurementState
+) -> None:
+    binary, state.binary_size = _stage_binary(
+        args.engine_binary, args.engine_sha256, inputs.work_dir
+    )
+    state.staged_copy_verified = True
+    state.scenario_executions = _run_exact_scenarios(
+        binary,
+        args.engine_sha256,
+        inputs.work_dir,
+        inputs.scenario_contracts,
+        seed=inputs.dataset["seed"],
+        workload_sha256=inputs.workload.digest,
+    )
+    spawn_started_ns = time.perf_counter_ns()
+    engine = _spawn_engine(binary, inputs.work_dir, inputs.authority, args.engine_sha256)
+    state.engine = engine
+    sampler = RssSampler(engine.process.pid)
+    state.sampler = sampler
+    sampler.start()
+    client, cold_start_ms, _ = await _bootstrap_and_connect(
+        engine,
+        inputs.authority,
+        inputs.dataset["graph_ref"],
+        args.startup_timeout_seconds,
+        spawn_started_ns,
+    )
+    state.client = client
+    state.bootstrap_verified = True
+    from epistemic_graph import __version__ as package_version
+    from epistemic_graph import client as client_module
+
+    client_file = Path(client_module.__file__ or "")
+    if not client_file.is_file():
+        raise CertificationError("client_source_unavailable")
+    state.client_digest = _sha256_file(client_file)
+    state.client_version = str(package_version)
+    if not _SAFE_VERSION.fullmatch(state.client_version):
+        raise CertificationError("invalid_client_version")
+    (
+        state.metrics,
+        state.complexity,
+        state.measurements,
+        state.coverage,
+    ) = await _measure(
+        client,
+        inputs.dataset,
+        inputs.workload,
+        cold_start_ms,
+        sampler,
+        inputs.authority.context["tenant"],
+    )
+    if engine.process.poll() is not None:
+        raise CertificationError("exact_engine_exited_during_measurement")
+
+
+async def _close_client(client: Any) -> bool:
+    if client is None:
+        return False
+    try:
+        await client.close()
+    except Exception:
+        return True
+    return False
+
+
+def _stop_sampler(sampler: RssSampler | None) -> bool:
+    if sampler is None:
+        return False
+    try:
+        sampler.stop()
+    except Exception:
+        return True
+    return False
+
+
+def _stop_engine(engine: EngineHandle | None) -> bool:
+    if engine is None:
+        return False
+    try:
+        engine.stop()
+    except Exception:
+        return True
+    return False
+
+
+def _remove_work_dir(work_dir: Path) -> bool:
+    try:
+        shutil.rmtree(work_dir)
+    except OSError:
+        return True
+    return False
+
+
+async def _cleanup_measurement(state: MeasurementState, work_dir: Path) -> bool:
+    cleanup_failed = await _close_client(state.client)
+    cleanup_failed |= _stop_sampler(state.sampler)
+    cleanup_failed |= _stop_engine(state.engine)
+    cleanup_failed |= _remove_work_dir(work_dir)
+    return cleanup_failed
+
+
+async def _collect_measurements(
+    args: argparse.Namespace, inputs: RunInputs
+) -> MeasurementState:
+    state = MeasurementState()
+    try:
+        await _run_measurement_steps(args, inputs, state)
     except CertificationError as error:
-        failure_code = error.code
+        state.failure_code = error.code
     except Exception as error:  # Fail closed without persisting raw exception text.
-        failure_code = f"measurement_error:{type(error).__name__.lower()}"
-        if not _SAFE_CODE.fullmatch(failure_code):
-            failure_code = "measurement_error:unknown"
+        state.failure_code = f"measurement_error:{type(error).__name__.lower()}"
+        if not _SAFE_CODE.fullmatch(state.failure_code):
+            state.failure_code = "measurement_error:unknown"
     finally:
-        cleanup_failed = False
-        if client is not None:
-            try:
-                await client.close()
-            except Exception:
-                cleanup_failed = True
-        if sampler is not None:
-            try:
-                sampler.stop()
-            except Exception:
-                cleanup_failed = True
-        if engine is not None:
-            try:
-                engine.stop()
-            except Exception:
-                cleanup_failed = True
-        try:
-            shutil.rmtree(work_dir)
-        except OSError:
-            cleanup_failed = True
+        state.cleanup_failed = await _cleanup_measurement(state, inputs.work_dir)
+    return state
+
+
+def _evaluate_run(
+    args: argparse.Namespace,
+    inputs: RunInputs,
+    state: MeasurementState,
+    started_at: datetime,
+) -> dict[str, Any]:
     evidence_binding, evidence_binding_sha256 = _scenario_binding(
         engine_sha256=args.engine_sha256,
-        dataset_manifest_sha256=dataset_manifest_sha256,
-        workload_sha256=workload.digest,
-        threshold_manifest_sha256=threshold_manifest_sha256,
-        contracts=scenario_contracts,
-        authority_fingerprint=authority.fingerprint,
-        hardware_class=hardware_class,
+        dataset_manifest_sha256=inputs.dataset_manifest_sha256,
+        workload_sha256=inputs.workload.digest,
+        threshold_manifest_sha256=inputs.threshold_manifest_sha256,
+        contracts=inputs.scenario_contracts,
+        authority_fingerprint=inputs.authority.fingerprint,
+        hardware_class=inputs.hardware_class,
     )
     hot_path_row_evidence, scenario_family_evidence, scenario_failures = (
         _evaluate_scenarios(
-            scenario_contracts,
-            scenario_executions,
+            inputs.scenario_contracts,
+            state.scenario_executions,
             evidence_binding_sha256,
         )
     )
-    if len(scenario_executions) == EXPECTED_SCENARIO_COUNT:
-        coverage["hot_path_scenarios"] = {
+    if len(state.scenario_executions) == EXPECTED_SCENARIO_COUNT:
+        state.coverage["hot_path_scenarios"] = {
             "scenario_families": EXPECTED_SCENARIO_COUNT,
             "ledger_rows": EXPECTED_LEDGER_ROW_COUNT,
             "raw_results_validated": True,
             "exact_binary_subcommands": EXPECTED_SCENARIO_COUNT,
         }
     metric_results, failures = _evaluate(
-        metrics, thresholds["metrics"], METRIC_CONTRACT
+        state.metrics, inputs.thresholds["metrics"], METRIC_CONTRACT
     )
     complexity_results, complexity_failures = _evaluate(
-        complexity, thresholds["complexity"], COMPLEXITY_CONTRACT
+        state.complexity, inputs.thresholds["complexity"], COMPLEXITY_CONTRACT
     )
     failures.extend(complexity_failures)
     failures.extend(scenario_failures)
-    failures.extend(_coverage_failures(coverage))
-    if cleanup_failed:
+    failures.extend(_coverage_failures(state.coverage))
+    if state.cleanup_failed:
         failures.append("runtime_cleanup_failed")
-    if failure_code is not None:
-        failures.insert(0, failure_code)
+    if state.failure_code is not None:
+        failures.insert(0, state.failure_code)
     failures = sorted(set(failures))
-    report = {
+    return {
         "schema_version": SCHEMA_VERSION,
         "gate": GATE_ID,
         "status": "pass" if not failures else "fail",
@@ -3062,37 +3161,37 @@ async def _run(args: argparse.Namespace) -> tuple[dict[str, Any], AuthorityConfi
         "exact_artifact": {
             "component": "epistemic-graph-server",
             "sha256": args.engine_sha256,
-            "size_bytes": binary_size,
-            "staged_copy_verified": staged_copy_verified,
+            "size_bytes": state.binary_size,
+            "staged_copy_verified": state.staged_copy_verified,
         },
         "client_artifact": {
             "component": "epistemic-graph-python-client",
-            "version": client_version,
-            "source_sha256": client_digest,
+            "version": state.client_version,
+            "source_sha256": state.client_digest,
         },
         "authority": {
             "protocol": "eg2",
             "configuration_verified": True,
-            "context_sha256": authority.fingerprint,
-            "bootstrap_verified": bootstrap_verified,
+            "context_sha256": inputs.authority.fingerprint,
+            "bootstrap_verified": state.bootstrap_verified,
             "secret_material_persisted": False,
         },
         "deployment_profile": PROFILE,
         "dataset": {
-            "manifest_sha256": dataset_manifest_sha256,
-            "workload_sha256": workload.digest,
-            "seed": dataset["seed"],
-            "nodes": dataset["node_count"],
-            "edges": dataset["edge_count"],
-            "jobs": dataset["job_count"],
-            "records_per_modality": dataset["modality_records_per_kind"],
+            "manifest_sha256": inputs.dataset_manifest_sha256,
+            "workload_sha256": inputs.workload.digest,
+            "seed": inputs.dataset["seed"],
+            "nodes": inputs.dataset["node_count"],
+            "edges": inputs.dataset["edge_count"],
+            "jobs": inputs.dataset["job_count"],
+            "records_per_modality": inputs.dataset["modality_records_per_kind"],
         },
-        "threshold_manifest_sha256": threshold_manifest_sha256,
+        "threshold_manifest_sha256": inputs.threshold_manifest_sha256,
         "scenario_contract": {
-            "manifest_id": scenario_contracts.manifest["manifest_id"],
-            "manifest_sha256": scenario_contracts.manifest_sha256,
-            "schema_sha256": scenario_contracts.schema_sha256,
-            "complexity_ledger_sha256": scenario_contracts.ledger_sha256,
+            "manifest_id": inputs.scenario_contracts.manifest["manifest_id"],
+            "manifest_sha256": inputs.scenario_contracts.manifest_sha256,
+            "schema_sha256": inputs.scenario_contracts.schema_sha256,
+            "complexity_ledger_sha256": inputs.scenario_contracts.ledger_sha256,
             "scenario_families": EXPECTED_SCENARIO_COUNT,
             "ledger_rows": EXPECTED_LEDGER_ROW_COUNT,
         },
@@ -3100,15 +3199,23 @@ async def _run(args: argparse.Namespace) -> tuple[dict[str, Any], AuthorityConfi
             **evidence_binding,
             "binding_sha256": evidence_binding_sha256,
         },
-        "hardware_class": hardware_class,
-        "coverage": coverage,
-        "measurements": measurements,
+        "hardware_class": inputs.hardware_class,
+        "coverage": state.coverage,
+        "measurements": state.measurements,
         "metric_results": metric_results,
         "complexity_results": complexity_results,
         "scenario_family_evidence": scenario_family_evidence,
         "hot_path_row_evidence": hot_path_row_evidence,
         "failures": failures,
     }
+
+
+def _write_report(
+    report: dict[str, Any],
+    authority: AuthorityConfig,
+    json_output: Path,
+    markdown_output: Path,
+) -> None:
     _assert_evidence_safe(report, authority)
     markdown = _markdown(report)
     if _PATH_OR_ENDPOINT.search(markdown):
@@ -3127,7 +3234,15 @@ async def _run(args: argparse.Namespace) -> tuple[dict[str, Any], AuthorityConfi
             with contextlib.suppress(OSError):
                 json_output.unlink()
         raise
-    return report, authority
+
+
+async def _run(args: argparse.Namespace) -> tuple[dict[str, Any], AuthorityConfig]:
+    inputs = _prepare_run(args)
+    started_at = datetime.now(UTC)
+    state = await _collect_measurements(args, inputs)
+    report = _evaluate_run(args, inputs, state, started_at)
+    _write_report(report, inputs.authority, inputs.json_output, inputs.markdown_output)
+    return report, inputs.authority
 
 
 def _parser() -> argparse.ArgumentParser:
