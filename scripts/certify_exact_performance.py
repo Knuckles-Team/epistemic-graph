@@ -2670,65 +2670,88 @@ def _evaluate_scenarios(
     return row_evidence, scenario_evidence, failures
 
 
-def _coverage_failures(coverage: dict[str, Any]) -> list[str]:
+def _coverage_structure_failures(coverage: dict[str, Any]) -> list[str]:
+    names = set(coverage)
     failures = [
         f"missing_coverage:{name}"
-        for name in sorted(COVERAGE_CONTRACT - set(coverage))
+        for name in sorted(COVERAGE_CONTRACT - names)
     ]
-    if set(coverage) - COVERAGE_CONTRACT:
+    if names - COVERAGE_CONTRACT:
         failures.append("invalid_coverage:unexpected")
-    for name in sorted(COVERAGE_CONTRACT & set(coverage)):
+    for name in sorted(COVERAGE_CONTRACT & names):
         if not isinstance(coverage[name], dict) or not coverage[name]:
             failures.append(f"invalid_coverage:{name}")
-    modality = coverage.get("modality")
-    expected_modalities = set(MODALITIES)
-    if isinstance(modality, dict):
-        expected_fields = {
-            "component_probes",
-            "ingests_by_modality",
-            "native_query_samples_by_modality",
-            "index_growth_ratio_by_modality",
-            "results_verified",
-        }
-        ingests = modality.get("ingests_by_modality")
-        queries = modality.get("native_query_samples_by_modality")
-        growth = modality.get("index_growth_ratio_by_modality")
-        if (
-            set(modality) != expected_fields
-            or modality.get("component_probes") != list(MODALITIES)
-            or modality.get("results_verified") is not True
-            or not isinstance(ingests, dict)
-            or set(ingests) != expected_modalities
-            or not isinstance(queries, dict)
-            or set(queries) != expected_modalities
-            or not isinstance(growth, dict)
-            or set(growth) != expected_modalities
-            or any(
-                isinstance(value, bool) or not isinstance(value, int) or value < 1
-                for value in (
-                    *(ingests.values() if isinstance(ingests, dict) else ()),
-                    *(queries.values() if isinstance(queries, dict) else ()),
-                )
-            )
-            or any(
-                isinstance(value, bool)
-                or not isinstance(value, int | float)
-                or not math.isfinite(float(value))
-                or value <= 0
-                for value in (growth.values() if isinstance(growth, dict) else ())
-            )
-        ):
-            failures.append("invalid_coverage:modality_inventory")
-    hot_paths = coverage.get("hot_path_scenarios")
-    if isinstance(hot_paths, dict):
-        if hot_paths != {
-            "scenario_families": EXPECTED_SCENARIO_COUNT,
-            "ledger_rows": EXPECTED_LEDGER_ROW_COUNT,
-            "raw_results_validated": True,
-            "exact_binary_subcommands": EXPECTED_SCENARIO_COUNT,
-        }:
-            failures.append("invalid_coverage:hot_path_scenarios")
     return failures
+
+
+def _coverage_counts_are_valid(values: Any, expected: set[str]) -> bool:
+    if not isinstance(values, dict) or set(values) != expected:
+        return False
+    return all(
+        not isinstance(value, bool)
+        and isinstance(value, int)
+        and value >= 1
+        for value in values.values()
+    )
+
+
+def _coverage_growth_is_valid(values: Any, expected: set[str]) -> bool:
+    if not isinstance(values, dict) or set(values) != expected:
+        return False
+    return all(_positive_number(value) for value in values.values())
+
+
+def _modality_coverage_is_valid(modality: dict[str, Any]) -> bool:
+    expected_modalities = set(MODALITIES)
+    expected_fields = {
+        "component_probes",
+        "ingests_by_modality",
+        "native_query_samples_by_modality",
+        "index_growth_ratio_by_modality",
+        "results_verified",
+    }
+    return (
+        set(modality) == expected_fields
+        and modality.get("component_probes") == list(MODALITIES)
+        and modality.get("results_verified") is True
+        and _coverage_counts_are_valid(
+            modality.get("ingests_by_modality"), expected_modalities
+        )
+        and _coverage_counts_are_valid(
+            modality.get("native_query_samples_by_modality"), expected_modalities
+        )
+        and _coverage_growth_is_valid(
+            modality.get("index_growth_ratio_by_modality"), expected_modalities
+        )
+    )
+
+
+def _modality_coverage_failures(coverage: dict[str, Any]) -> list[str]:
+    modality = coverage.get("modality")
+    if isinstance(modality, dict) and not _modality_coverage_is_valid(modality):
+        return ["invalid_coverage:modality_inventory"]
+    return []
+
+
+def _hot_path_coverage_failures(coverage: dict[str, Any]) -> list[str]:
+    hot_paths = coverage.get("hot_path_scenarios")
+    expected = {
+        "scenario_families": EXPECTED_SCENARIO_COUNT,
+        "ledger_rows": EXPECTED_LEDGER_ROW_COUNT,
+        "raw_results_validated": True,
+        "exact_binary_subcommands": EXPECTED_SCENARIO_COUNT,
+    }
+    if isinstance(hot_paths, dict) and hot_paths != expected:
+        return ["invalid_coverage:hot_path_scenarios"]
+    return []
+
+
+def _coverage_failures(coverage: dict[str, Any]) -> list[str]:
+    return [
+        *_coverage_structure_failures(coverage),
+        *_modality_coverage_failures(coverage),
+        *_hot_path_coverage_failures(coverage),
+    ]
 
 
 def _memory_class() -> dict[str, Any]:
