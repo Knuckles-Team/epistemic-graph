@@ -5441,15 +5441,16 @@ fn rls_cache_hash(
 
 #[cfg(test)]
 mod current_auth_test_support {
-    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+    use crate::acl::{AgentIdentity, AgentRole};
     use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request};
-    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use crate::server::auth::build_shared_test_request;
+    use crate::server::persistence::PersistenceBackend;
+    use crate::server::state::ServerState;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
 
     const TEST_AGENT: &str = "unit-test-agent";
-    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
     pub(super) fn current_isolation() -> IsolationLayer {
         current_isolation_with_agents(&[])
@@ -5508,59 +5509,19 @@ mod current_auth_test_support {
         agent_id: &str,
         method: Method,
     ) -> Request {
-        // See `cost.rs`'s `req()` for why this is `Once`-guarded: process-global
-        // `set_var`, called from every request built by every test in this module.
-        static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
-        TEST_AUTH_ENV.call_once(|| {
-            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-            std::env::set_var(
-                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-                std::env::temp_dir()
-                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-            );
-        });
-        let context = RequestContextClaims {
-            principal: agent_id.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: agent_id.to_string(),
-            roles: Vec::new(),
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
-        let mut request = Request {
-            id,
-            graph: graph.to_string(),
-            auth_token: String::new(),
-            agent_id: Some(agent_id.to_string()),
-            method,
-        };
-        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let issued_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the system clock is after the Unix epoch");
-        let nonce = format!(
-            "query-{}-{id}-{sequence}-{}",
-            std::process::id(),
-            issued_at.as_nanos()
-        );
-        let idempotency_key = format!("query-request-{id}-{sequence}");
-        request.auth_token = compute_verified_envelope_token(
-            secret,
-            &request,
-            &VerifiedEnvelopeParams {
-                context: &context,
-                timestamp: issued_at.as_secs(),
-                nonce: &nonce,
-                idempotency_key: &idempotency_key,
-            },
-        );
-        request
+        build_shared_test_request(secret, id, graph, agent_id, method)
+    }
+
+    pub(super) fn state_with_backend(
+        secret: &str,
+        isolation: IsolationLayer,
+        dir: String,
+        backend: Arc<dyn PersistenceBackend>,
+    ) -> Arc<RwLock<ServerState>> {
+        let mut state = ServerState::new_for_test(secret, isolation);
+        state.persist_dir = Some(dir);
+        state.persistence = Some(backend);
+        Arc::new(RwLock::new(state))
     }
 }
 
@@ -5705,15 +5666,14 @@ mod rls_no_exfiltrate_tests {
     feature = "streaming"
 ))]
 mod result_cache_dispatch_tests {
-    use super::current_auth_test_support::{current_isolation, current_request};
-    use crate::channels::ChannelManager;
+    use super::current_auth_test_support::{
+        current_isolation, current_request, state_with_backend,
+    };
     use crate::protocol::{Method, Request, Response, ResultPayload};
-    use crate::registry::GraphRegistry;
-    use crate::server::dispatch;
+    use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
     use crate::server::state::ServerState;
-    use dashmap::DashMap;
     use std::sync::Arc;
-    use tokio::sync::{RwLock, Semaphore};
+    use tokio::sync::RwLock;
 
     const SECRET: &str = "result-cache-test-secret";
 
@@ -5741,79 +5701,11 @@ mod result_cache_dispatch_tests {
             )
             .expect("open test redb backend"),
         );
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation: current_isolation(),
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir),
-            persistence: Some(backend),
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        state_with_backend(SECRET, current_isolation(), dir, backend)
     }
 
     fn req(id: u64, method: Method) -> Request {
         current_request(SECRET, id, "__commons__", method)
-    }
-
-    /// Keep the full (`--features full`) dispatcher's state machine behind one heap
-    /// indirection — mirrors `src/cost.rs`'s `dispatch_on_heap`. `dispatch()` bottoms
-    /// out in `dispatch_inner` (`src/server/dispatch.rs`), a single ~8k-line async fn
-    /// whose generated `Future` is sized to the UNION of every feature-gated
-    /// `Method` match arm; under `full` every arm is compiled in, so that future is
-    /// large. Awaiting it INLINE (never boxed) embeds the whole thing in the
-    /// caller's own generated state machine, and nesting a couple of calls deep (a
-    /// helper awaiting `dispatch` inside a test awaiting the helper) can exhaust the
-    /// test harness thread's stack before the first request is even polled — this is
-    /// exactly what crashed `hit_on_unchanged_then_write_invalidates` with a stack
-    /// overflow (SIGABRT) in CI. Route every call in this module through here.
-    fn dispatch_on_heap<'a>(
-        state: &'a Arc<RwLock<ServerState>>,
-        request: Request,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
-        Box::pin(dispatch(state, request))
     }
 
     async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, node: &str, label: &str) {
@@ -6059,29 +5951,18 @@ mod result_cache_dispatch_tests {
     feature = "security"
 ))]
 mod rls_aware_cache_no_cross_agent_leak {
-    use super::current_auth_test_support::{current_isolation_with_agents, current_request_as};
+    use super::current_auth_test_support::{
+        current_isolation_with_agents, current_request_as, state_with_backend,
+    };
     #[cfg(feature = "security")]
     use crate::acl::{AgentIdentity, AgentRole};
-    use crate::channels::ChannelManager;
     use crate::protocol::{Method, Request, Response, ResultPayload};
-    use crate::registry::GraphRegistry;
-    use crate::server::dispatch;
+    use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
     use crate::server::state::ServerState;
-    use dashmap::DashMap;
     use std::sync::Arc;
-    use tokio::sync::{RwLock, Semaphore};
+    use tokio::sync::RwLock;
 
     const SECRET: &str = "rls-cache-test-secret";
-
-    /// BUG-044-class: see `result_cache_dispatch_tests::dispatch_on_heap` for why
-    /// every `dispatch_on_heap()` call in a test needs one heap indirection to avoid
-    /// overflowing the harness thread's stack and SIGABRTing the whole test binary.
-    fn dispatch_on_heap<'a>(
-        state: &'a Arc<RwLock<ServerState>>,
-        request: Request,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
-        Box::pin(dispatch(state, request))
-    }
 
     fn state() -> Arc<RwLock<ServerState>> {
         // Post-FLIP every dispatch-served mutation is authoritative
@@ -6131,57 +6012,7 @@ mod rls_aware_cache_no_cross_agent_leak {
                 });
             }
         }
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation,
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir),
-            persistence: Some(backend),
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        state_with_backend(SECRET, isolation, dir, backend)
     }
 
     /// A request as `agent_id`.
@@ -6461,27 +6292,16 @@ mod rls_aware_cache_no_cross_agent_leak {
 // SELECT; and the read paths still work.
 #[cfg(all(test, feature = "query", feature = "cypher", feature = "graphql"))]
 mod dispatch_write_tests {
-    use super::current_auth_test_support::{current_isolation, current_request};
-    use crate::channels::ChannelManager;
+    use super::current_auth_test_support::{
+        current_isolation, current_request, state_with_backend,
+    };
     use crate::protocol::{Method, Request, Response, ResultPayload};
-    use crate::registry::GraphRegistry;
-    use crate::server::dispatch;
+    use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
     use crate::server::state::ServerState;
-    use dashmap::DashMap;
     use std::sync::Arc;
-    use tokio::sync::{RwLock, Semaphore};
+    use tokio::sync::RwLock;
 
     const SECRET: &str = "dispatch-write-test-secret";
-
-    /// BUG-044-class: see `result_cache_dispatch_tests::dispatch_on_heap` for why
-    /// every `dispatch_on_heap()` call in a test needs one heap indirection to avoid
-    /// overflowing the harness thread's stack and SIGABRTing the whole test binary.
-    fn dispatch_on_heap<'a>(
-        state: &'a Arc<RwLock<ServerState>>,
-        request: Request,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
-        Box::pin(dispatch(state, request))
-    }
 
     fn state() -> Arc<RwLock<ServerState>> {
         // Post-FLIP every dispatch-served mutation is authoritative
@@ -6502,57 +6322,7 @@ mod dispatch_write_tests {
             )
             .expect("open test redb backend"),
         );
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation: current_isolation(),
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir),
-            persistence: Some(backend),
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        state_with_backend(SECRET, current_isolation(), dir, backend)
     }
 
     fn req(id: u64, method: Method) -> Request {
@@ -6907,30 +6677,17 @@ mod dispatch_write_tests {
 // overlaid query → commit exactly as a client would.
 #[cfg(all(test, feature = "query"))]
 mod txn_ryow_dispatch_tests {
-    use super::current_auth_test_support::{current_isolation, current_request};
-    use crate::channels::ChannelManager;
+    use super::current_auth_test_support::{
+        current_isolation, current_request, state_with_backend,
+    };
     use crate::protocol::{Method, Request, Response, ResultPayload};
-    use crate::registry::GraphRegistry;
-    use crate::server::dispatch;
+    use crate::server::auth::dispatch_test_on_heap as dispatch_on_heap;
     use crate::server::state::ServerState;
-    use dashmap::DashMap;
     use serde_json::json;
     use std::sync::Arc;
-    use tokio::sync::{RwLock, Semaphore};
+    use tokio::sync::RwLock;
 
     const SECRET: &str = "txn-ryow-test-secret";
-
-    /// BUG-044-class: `in_txn_cross_modal_ryow` is the concrete test that overflowed
-    /// the harness thread's stack and SIGABRTed the whole `epistemic-graph` test
-    /// binary (`--features full`). See `result_cache_dispatch_tests::dispatch_on_heap`
-    /// for the mechanism: every bare `dispatch_on_heap()` call in a test needs one heap
-    /// indirection.
-    fn dispatch_on_heap<'a>(
-        state: &'a Arc<RwLock<ServerState>>,
-        request: Request,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
-        Box::pin(dispatch(state, request))
-    }
 
     fn state() -> Arc<RwLock<ServerState>> {
         // Post-FLIP every dispatch-served mutation (including a transaction
@@ -6974,57 +6731,7 @@ mod txn_ryow_dispatch_tests {
             )
             .expect("open test redb backend"),
         );
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation: current_isolation(),
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: SECRET.to_string(),
-            persist_dir: Some(dir),
-            persistence: Some(backend),
-            max_in_flight: Arc::new(Semaphore::new(16)),
-            read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        state_with_backend(SECRET, current_isolation(), dir, backend)
     }
 
     fn req(id: u64, method: Method) -> Request {

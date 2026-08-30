@@ -5020,39 +5020,16 @@ fn get_raft_meta(db: &Database, gid: u64, key: &str) -> Result<Option<Vec<u8>>, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
-    use crate::channels::ChannelManager;
+    use crate::acl::{AgentIdentity, AgentRole};
     use crate::isolation::IsolationLayer;
     use crate::protocol::Request;
-    use crate::registry::GraphRegistry;
-    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+    use crate::server::auth::{
+        build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap,
+    };
     #[cfg(feature = "tsdb")]
     use sha2::Digest;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    /// Keep the full (`--features full`) dispatcher's state machine behind one heap
-    /// indirection — mirrors `src/cost.rs`'s and `src/server/handlers/query.rs`'s
-    /// `dispatch_on_heap`. `dispatch_on_heap()` bottoms out in `dispatch_inner`
-    /// (`src/server/dispatch.rs`), a single ~8k-line async fn whose generated
-    /// `Future` is sized to the UNION of every feature-gated `Method` match arm;
-    /// under `full` every arm is compiled in, so that future is large. Awaiting it
-    /// INLINE embeds the whole thing in the caller's own generated state machine,
-    /// and a test that awaits several in sequence exhausts the harness thread's
-    /// stack — which is exactly how
-    /// `delete_then_recreate_same_name_keeps_new_writes` aborted CI's
-    /// `Test (facade full)` step with `has overflowed its stack` / SIGABRT (and
-    /// took 29 sibling tests down with it as collateral, since the whole test
-    /// process dies). Route every `dispatch` call in this module through here.
-    fn dispatch_on_heap<'a>(
-        state: &'a Arc<RwLock<ServerState>>,
-        request: Request,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>>
-    {
-        Box::pin(crate::server::dispatch(state, request))
-    }
 
     const TEST_AGENT: &str = "unit-test-agent";
-    static AUTH_NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
     fn current_isolation() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
@@ -5066,59 +5043,7 @@ mod tests {
     }
 
     fn current_request(secret: &str, id: u64, graph: &str, method: Method) -> Request {
-        // See `cost.rs`'s `req()` for why this is `Once`-guarded: process-global
-        // `set_var`, called from every request built by every test in this module.
-        static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
-        TEST_AUTH_ENV.call_once(|| {
-            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-            std::env::set_var(
-                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-                std::env::temp_dir()
-                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-            );
-        });
-        let context = RequestContextClaims {
-            principal: TEST_AGENT.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: TEST_AGENT.to_string(),
-            roles: Vec::new(),
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
-        let mut request = Request {
-            id,
-            graph: graph.to_string(),
-            auth_token: String::new(),
-            agent_id: Some(TEST_AGENT.to_string()),
-            method,
-        };
-        let sequence = AUTH_NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let issued_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the system clock is after the Unix epoch");
-        let nonce = format!(
-            "redb-{}-{id}-{sequence}-{}",
-            std::process::id(),
-            issued_at.as_nanos()
-        );
-        let idempotency_key = format!("redb-request-{id}-{sequence}");
-        request.auth_token = compute_verified_envelope_token(
-            secret,
-            &request,
-            &VerifiedEnvelopeParams {
-                context: &context,
-                timestamp: issued_at.as_secs(),
-                nonce: &nonce,
-                idempotency_key: &idempotency_key,
-            },
-        );
-        request
+        build_shared_test_request(secret, id, graph, TEST_AGENT, method)
     }
 
     #[cfg(feature = "tsdb")]
@@ -5514,57 +5439,9 @@ mod tests {
     /// A minimal `ServerState` (no persistence backend stored on it — the test
     /// drives the backend directly) with a persist dir set.
     fn new_state(persist_dir: Option<String>) -> Arc<RwLock<ServerState>> {
-        Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "redb")]
-            cold_tracker: std::sync::Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
-            registry: GraphRegistry::new(),
-            isolation: current_isolation(),
-            channels: ChannelManager::new(),
-            #[cfg(feature = "viz-static-export")]
-            viz_engine: None,
-            auth_secret: "test".to_string(),
-            persist_dir,
-            persistence: None,
-            max_in_flight: Arc::new(tokio::sync::Semaphore::new(16)),
-            read_admission: Arc::new(tokio::sync::Semaphore::new(16)),
-            per_graph_inflight: Arc::new(dashmap::DashMap::new()),
-            per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(dashmap::DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
-            txn_ttl_secs: 300,
-            txn_max_per_graph: 256,
-            txn_max_per_agent: 256,
-            #[cfg(feature = "blob")]
-            blob: None,
-            #[cfg(feature = "blob")]
-            blob_cursor_ttl_secs: 300,
-            #[cfg(feature = "raft")]
-            raft: None,
-            #[cfg(feature = "raft")]
-            multi_raft: None,
-            #[cfg(feature = "tsdb")]
-            tsdb_store: None,
-            #[cfg(feature = "streaming")]
-            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
-            #[cfg(feature = "wasm-udf")]
-            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
-            #[cfg(feature = "compute-dist")]
-            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
-                crate::raft::pregel::MatViewStore::new(),
-            )),
-            #[cfg(feature = "federation")]
-            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
-            #[cfg(feature = "kv")]
-            kv: None,
-            #[cfg(feature = "lake")]
-            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
-        }))
+        let mut state = ServerState::new_for_test("test", current_isolation());
+        state.persist_dir = persist_dir;
+        Arc::new(RwLock::new(state))
     }
 
     #[tokio::test(flavor = "multi_thread")]

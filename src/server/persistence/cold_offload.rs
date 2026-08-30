@@ -561,7 +561,7 @@ mod admission_tests {
     //! backend (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — the durable tier a lazily-opened
     //! graph rehydrates from, and the tier that makes eviction loss-free.
     use super::*;
-    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+    use crate::acl::{AgentIdentity, AgentRole};
     use crate::channels::ChannelManager;
     use crate::durability::DurabilityPolicy;
     use crate::isolation::IsolationLayer;
@@ -573,11 +573,11 @@ mod admission_tests {
     use crate::server::persistence::redb_backend::RedbBackend;
     use crate::server::persistence::PersistenceBackend;
     use crate::server::{
-        compute_verified_envelope_token, dispatch, ServerState, VerifiedEnvelopeParams,
+        auth::{build_current_test_request, dispatch_test_on_heap as dispatch_on_heap},
+        ServerState,
     };
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
-    use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::{RwLock, Semaphore};
 
     fn props(v: serde_json::Value) -> Vec<u8> {
@@ -587,20 +587,6 @@ mod admission_tests {
     const SECRET: &str = "lazy-lifecycle-test";
     const TEST_AGENT: &str = "unit-test-agent";
     static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-
-    /// BUG-044-class: keep the full (`--features full`) dispatcher's state machine
-    /// behind one heap indirection. `dispatch_on_heap()` bottoms out in `dispatch_inner`
-    /// (`src/server/dispatch.rs`), one very large async fn whose generated future is
-    /// enormous; awaiting it inline inside a test's own future can exhaust the
-    /// harness thread's stack before the first request is even polled, SIGABRTing
-    /// the whole test binary. Mirrors `server::mod::tests::dispatch_on_heap` (8e00e0b).
-    fn dispatch_on_heap<'a>(
-        state: &'a Arc<RwLock<ServerState>>,
-        request: Request,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::protocol::Response> + Send + 'a>>
-    {
-        Box::pin(dispatch(state, request))
-    }
 
     fn current_isolation() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
@@ -732,59 +718,7 @@ mod admission_tests {
         tenant: &str,
         method: Method,
     ) -> Request {
-        // See `cost.rs`'s `req()` for why this is `Once`-guarded: process-global
-        // `set_var`, called from every request built by every test in this module.
-        static TEST_AUTH_ENV: std::sync::Once = std::sync::Once::new();
-        TEST_AUTH_ENV.call_once(|| {
-            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-            std::env::set_var(
-                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
-                std::env::temp_dir()
-                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
-            );
-        });
-        let context = RequestContextClaims {
-            principal: agent_id.to_string(),
-            tenant: tenant.to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: agent_id.to_string(),
-            roles: Vec::new(),
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
-        let mut request = Request {
-            id,
-            graph: graph.to_string(),
-            auth_token: String::new(),
-            agent_id: Some(agent_id.to_string()),
-            method,
-        };
-        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let issued_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the system clock is after the Unix epoch");
-        let nonce = format!(
-            "cold-offload-{}-{id}-{sequence}-{}-{agent_id}",
-            std::process::id(),
-            issued_at.as_nanos()
-        );
-        let idempotency_key = format!("cold-offload-request-{id}-{sequence}");
-        request.auth_token = compute_verified_envelope_token(
-            SECRET,
-            &request,
-            &VerifiedEnvelopeParams {
-                context: &context,
-                timestamp: issued_at.as_secs(),
-                nonce: &nonce,
-                idempotency_key: &idempotency_key,
-            },
-        );
-        request
+        build_current_test_request(SECRET, tenant, id, graph, agent_id, method)
     }
 
     async fn create(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str) {
