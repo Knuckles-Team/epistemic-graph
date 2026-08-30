@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+#[cfg(test)]
+use tokio::sync::RwLock;
 
 use crate::protocol::{Method, Request, ResultPayload};
 use crate::server::dispatch::dispatch_authenticated_broker_actor;
@@ -16,6 +18,87 @@ pub(crate) mod prelude {
     pub(crate) use tokio::io::{AsyncReadExt, AsyncWriteExt};
     pub(crate) use tokio::net::{TcpListener, TcpStream};
     pub(crate) use tokio::sync::RwLock;
+}
+
+#[cfg(test)]
+pub(crate) fn register_broker_test_agent(
+    isolation: &mut crate::isolation::IsolationLayer,
+    agent_id: impl Into<String>,
+) {
+    isolation.register_agent(crate::isolation::AgentIdentity {
+        agent_id: agent_id.into(),
+        role: crate::isolation::AgentRole::Agent,
+        teams: Vec::new(),
+        #[cfg(feature = "security")]
+        roles: vec!["commons-user".to_string()],
+        #[cfg(not(feature = "security"))]
+        roles: Vec::new(),
+    });
+}
+
+#[cfg(test)]
+pub(crate) async fn test_state_with_broker_agents(
+    prefix: &str,
+    principals: &[&str],
+) -> Arc<RwLock<ServerState>> {
+    use crate::isolation::IsolationLayer;
+
+    let mut isolation = IsolationLayer::new();
+    #[cfg(feature = "security")]
+    {
+        use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+
+        isolation.add_role(Role::new("commons-user"));
+        isolation.add_grant(Grant {
+            role: "commons-user".to_string(),
+            resource: ResourceSelector::Graph("__commons__".to_string()),
+            action: RbacAction::Read,
+            effect: GrantEffect::Allow,
+        });
+        isolation.add_grant(Grant {
+            role: "commons-user".to_string(),
+            resource: ResourceSelector::Graph("__commons__".to_string()),
+            action: RbacAction::Write,
+            effect: GrantEffect::Allow,
+        });
+    }
+    for principal in principals {
+        let actor_ref = crate::server::pseudonymous_broker_actor("test", principal)
+            .expect("test principal pseudonymizes");
+        register_broker_test_agent(&mut isolation, actor_ref);
+    }
+
+    #[cfg(feature = "redb")]
+    let (persist_dir, persistence) = {
+        use crate::durability::DurabilityPolicy;
+        use crate::server::persistence::redb_backend::RedbBackend;
+
+        let dir = crate::server::unique_temp_dir(prefix);
+        let dir_s = dir.to_string_lossy().into_owned();
+        let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            .expect("open broker-wire test backend");
+        let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> =
+            Arc::new(backend);
+        persistence
+            .register_graph(
+                "__commons__",
+                "__commons__",
+                crate::protocol::GraphType::Commons,
+            )
+            .await
+            .unwrap();
+        (Some(dir_s), Some(persistence))
+    };
+    #[cfg(not(feature = "redb"))]
+    let (persist_dir, persistence) = {
+        let _ = prefix;
+        (None, None)
+    };
+
+    let mut state = ServerState::new_for_test("test", isolation);
+    state.persist_dir = persist_dir;
+    state.persistence = persistence;
+    Arc::new(RwLock::new(state))
 }
 
 /// Selects the authentication domain for one broker adapter.
@@ -100,6 +183,18 @@ pub(crate) struct BrokerClaim {
     pub(crate) body: Vec<u8>,
 }
 
+/// Per-adapter bounds for one broker consume request.
+#[derive(Clone, Copy)]
+pub(crate) struct BrokerClaimLimits {
+    pub(crate) group: &'static str,
+    pub(crate) lease_ms: u64,
+    pub(crate) prefetch: u32,
+    pub(crate) max_bytes: usize,
+    pub(crate) max_items: usize,
+    pub(crate) max_identifier_len: Option<usize>,
+    pub(crate) max_routing_key_len: Option<usize>,
+}
+
 /// Decode one native broker claim and apply the adapter's size bounds.
 pub(crate) fn decode_claim(
     payload: ResultPayload,
@@ -148,15 +243,9 @@ pub(crate) async fn claim_message(
     actor: &str,
     next_id: fn() -> u64,
     queue: &str,
-    group: &str,
     consumer: &str,
-    lease_ms: u64,
-    prefetch: u32,
-    max_bytes: usize,
-    max_items: usize,
-    max_identifier_len: Option<usize>,
-    max_routing_key_len: Option<usize>,
-) -> Option<BrokerClaim> {
+    limits: BrokerClaimLimits,
+) -> Option<(String, String, Vec<u8>)> {
     let payload = engine_call(
         state,
         graph,
@@ -164,21 +253,22 @@ pub(crate) async fn claim_message(
         next_id,
         Method::BrokerConsume {
             queue: queue.to_string(),
-            group: group.to_string(),
+            group: limits.group.to_string(),
             consumer: consumer.to_string(),
             now_ms: current_time_ms(),
-            lease_ms,
-            prefetch,
+            lease_ms: limits.lease_ms,
+            prefetch: limits.prefetch,
         },
     )
     .await;
-    decode_claim(
+    let claim = decode_claim(
         payload,
-        max_bytes,
-        max_items,
-        max_identifier_len,
-        max_routing_key_len,
-    )
+        limits.max_bytes,
+        limits.max_items,
+        limits.max_identifier_len,
+        limits.max_routing_key_len,
+    )?;
+    Some((claim.node_id, claim.routing_key, claim.body))
 }
 
 /// Dispatch one broker method with the adapter-supplied request sequence.

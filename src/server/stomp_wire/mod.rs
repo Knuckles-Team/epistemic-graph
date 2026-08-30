@@ -64,6 +64,15 @@ const MAX_STOMP_UNACKED: usize = 65_536;
 const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
 const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
 const BROKER_PREFETCH: u32 = 32;
+const BROKER_CLAIM_LIMITS: broker_wire::BrokerClaimLimits = broker_wire::BrokerClaimLimits {
+    group: "stomp",
+    lease_ms: BROKER_LEASE_MS,
+    prefetch: BROKER_PREFETCH,
+    max_bytes: MAX_STOMP_FRAME_BYTES,
+    max_items: MAX_BROKER_RESULT_ITEMS,
+    max_identifier_len: Some(MAX_STOMP_IDENTIFIER_BYTES),
+    max_routing_key_len: Some(MAX_STOMP_HEADER_LINE_BYTES),
+};
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -129,34 +138,6 @@ async fn accept_loop(
             }
         });
     }
-}
-
-/// Claim one deliverable message through the native broker lifecycle. Returns
-/// `(node_id, routing_key, body)` or `None`.
-async fn claim_one(
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    actor: &str,
-    queue: &str,
-    consumer: &str,
-) -> Option<(String, String, Vec<u8>)> {
-    let claim = broker_wire::claim_message(
-        state,
-        graph,
-        actor,
-        next_req_id,
-        queue,
-        "stomp",
-        consumer,
-        BROKER_LEASE_MS,
-        BROKER_PREFETCH,
-        MAX_STOMP_FRAME_BYTES,
-        MAX_BROKER_RESULT_ITEMS,
-        Some(MAX_STOMP_IDENTIFIER_BYTES),
-        Some(MAX_STOMP_HEADER_LINE_BYTES),
-    )
-    .await?;
-    Some((claim.node_id, claim.routing_key, claim.body))
 }
 
 /// Return a claimed message to the claimable pool through the native rejection path.
@@ -498,8 +479,16 @@ async fn pump_subscriptions(
             if unacked.len() >= MAX_STOMP_UNACKED {
                 return Ok(());
             }
-            let Some((node_id, _rk, body)) =
-                claim_one(state, graph, actor, &sub.queue, &sub.consumer_id).await
+            let Some((node_id, _rk, body)) = broker_wire::claim_message(
+                state,
+                graph,
+                actor,
+                next_req_id,
+                &sub.queue,
+                &sub.consumer_id,
+                BROKER_CLAIM_LIMITS,
+            )
+            .await
             else {
                 break;
             };
@@ -885,82 +874,8 @@ mod tests {
     /// `feature = "redb"` (which `stomp-wire` does not itself require, but the
     /// round trip needs to actually publish/deliver a message).
     async fn test_state() -> Arc<RwLock<ServerState>> {
-        use crate::isolation::IsolationLayer;
-        let mut isolation = IsolationLayer::new();
-        #[cfg(feature = "security")]
-        {
-            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-            isolation.add_role(Role::new("commons-user"));
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action: RbacAction::Read,
-                effect: GrantEffect::Allow,
-            });
-            isolation.add_grant(Grant {
-                role: "commons-user".to_string(),
-                resource: ResourceSelector::Graph("__commons__".to_string()),
-                action: RbacAction::Write,
-                effect: GrantEffect::Allow,
-            });
-        }
-        // The engine ACL identity for a broker-wire connection is the pseudonymous
-        // HMAC actor reference `pseudonymous_broker_actor` derives from the CONNECT
-        // `login` — not the raw login string. Register the two principals the
-        // round-trip test authenticates as (see `eg282_listener_connect_subscribe_send_message_roundtrip`).
-        for principal in ["subscriber", "publisher"] {
-            let actor_ref = crate::server::pseudonymous_broker_actor("test", principal)
-                .expect("test principal pseudonymizes");
-            isolation.register_agent(crate::isolation::AgentIdentity {
-                agent_id: actor_ref,
-                role: crate::isolation::AgentRole::Agent,
-                teams: Vec::new(),
-                #[cfg(feature = "security")]
-                roles: vec!["commons-user".to_string()],
-                #[cfg(not(feature = "security"))]
-                roles: Vec::new(),
-            });
-        }
-        #[cfg(feature = "redb")]
-        let (persist_dir, persistence) = {
-            use crate::durability::DurabilityPolicy;
-            use crate::server::persistence::redb_backend::RedbBackend;
-            let dir = std::env::temp_dir().join(format!(
-                "eg-stomp-wire-test-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            let backend = RedbBackend::open(
-                dir.to_string_lossy().to_string(),
-                DurabilityPolicy::Each,
-                64,
-            )
-            .expect("open stomp-wire test backend");
-            let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> =
-                Arc::new(backend);
-            persistence
-                .register_graph(
-                    "__commons__",
-                    "__commons__",
-                    crate::protocol::GraphType::Commons,
-                )
-                .await
-                .unwrap();
-            (Some(dir.to_string_lossy().into_owned()), Some(persistence))
-        };
-        #[cfg(not(feature = "redb"))]
-        let (persist_dir, persistence): (
-            Option<String>,
-            Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-        ) = (None, None);
-        let mut state = ServerState::new_for_test("test", isolation);
-        state.persist_dir = persist_dir;
-        state.persistence = persistence;
-        Arc::new(RwLock::new(state))
+        const PRINCIPALS: &[&str] = &["subscriber", "publisher"];
+        broker_wire::test_state_with_broker_agents("eg-stomp-wire-test", PRINCIPALS).await
     }
 
     async fn spawn_listener() -> String {
