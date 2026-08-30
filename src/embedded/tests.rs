@@ -8,16 +8,7 @@ fn props(v: serde_json::Value) -> Vec<u8> {
 }
 
 fn tmp_dir(tag: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!(
-        "eg-embedded-{tag}-{}-{:?}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    let _ = std::fs::remove_dir_all(&d);
-    d
+    crate::test_support::temp_dir("eg-embedded", tag)
 }
 
 /// Open → write nodes/edges + a vector → read them back → run an algorithm + a
