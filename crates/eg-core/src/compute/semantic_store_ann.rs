@@ -21,14 +21,26 @@
 // cache-friendly and NUMA-friendly. CONCEPT:EG-KG.compute.cached-row-norm — each row's L2 norm is cached
 // so cosine is ONE dot product per candidate instead of two.
 
-use super::{check_embedding_dimension, EmbeddingDimensionError};
+use super::{check_embedding_dimension, EmbeddingDimensionError, SemanticQueryError};
 use crate::compute::semantic_ann::{AnnIndex, ANN_BUILD_THRESHOLD};
+use eg_types::{EmbeddingSpaceRef, StampedVector};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU8, Ordering};
+
+/// Raw/native exact vectors may use the generic 16k coordinate ceiling.  The
+/// persisted IVF-PQ artifact below has a stricter 4k ceiling; wider rows stay
+/// on exact search and never cross the maintained-index boundary.
+const MAX_GENERIC_DIMENSION: usize = eg_types::MAX_EMBEDDING_DIMENSIONS;
+const MAX_MAINTAINED_DIMENSION: usize = eg_types::MAX_MAINTAINED_ANN_DIMENSIONS;
+const INDEX_MANIFEST_FILE: &str = "store.bin";
+const INDEX_MANIFEST_MAGIC: &[u8] = b"EGSEMSTORE\x01\0";
+const MAX_INDEX_MANIFEST_BYTES: usize = 64 * 1024 * 1024;
+const MAX_INDEX_MEMBERS: usize = 5_000_000;
+const MAX_MEMBER_ID_BYTES: usize = 4_096;
 
 /// Threshold below which we use brute-force (index overhead not worth it).
 const BRUTE_FORCE_THRESHOLD: usize = 32;
@@ -75,24 +87,20 @@ struct EmbeddingArena {
 }
 
 impl EmbeddingArena {
-    #[inline]
     fn len(&self) -> usize {
         self.ids.len()
     }
 
-    #[inline]
     fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
 
     /// Row `r` as a contiguous slice.
-    #[inline]
     fn row(&self, r: usize) -> &[f32] {
         &self.data[r * self.dim..(r + 1) * self.dim]
     }
 
     /// Current embedding for `id`, if present.
-    #[inline]
     fn get(&self, id: &str) -> Option<&[f32]> {
         self.id_to_row.get(id).map(|&r| self.row(r))
     }
@@ -107,6 +115,12 @@ impl EmbeddingArena {
     /// touches `self` at all, so a rejected write leaves the arena byte-for-byte
     /// unchanged — proven by `mismatched_dimension_insert_does_not_erase_corpus`.
     fn insert(&mut self, id: String, emb: &[f32]) -> Result<(), EmbeddingDimensionError> {
+        if emb.len() > MAX_GENERIC_DIMENSION {
+            return Err(EmbeddingDimensionError::Oversized {
+                received: emb.len(),
+                max: MAX_GENERIC_DIMENSION,
+            });
+        }
         self.dim = check_embedding_dimension(emb, self.dim)?;
         let norm = l2_norm(emb);
         match self.id_to_row.get(&id).copied() {
@@ -155,12 +169,11 @@ impl EmbeddingArena {
     /// Reconstruct an arena from the sole current persisted flat wire shape
     /// (CONCEPT:EG-KG.storage.arena-row-append). Norms are recomputed on load.
     fn from_flat(dim: usize, ids: Vec<String>, data: Vec<f32>) -> Result<Self, String> {
-        let expected = ids
-            .len()
-            .checked_mul(dim)
-            .ok_or_else(|| "embedding arena dimensions overflow".to_string())?;
-        if expected != data.len() || (dim == 0 && !ids.is_empty()) {
-            return Err("embedding arena dimensions are inconsistent".to_string());
+        validate_flat_shape(dim, ids.len(), data.len())?;
+        if let Some(index) = data.iter().position(|value| !value.is_finite()) {
+            return Err(format!(
+                "embedding arena contains a non-finite value at flat index {index}"
+            ));
         }
         let mut id_to_row = HashMap::with_capacity(ids.len());
         for (r, id) in ids.iter().enumerate() {
@@ -183,15 +196,32 @@ impl EmbeddingArena {
     }
 
     /// Resident bytes held by the flat embedding buffer (CONCEPT:EG-KG.compute.lane-v).
-    #[inline]
     fn embedding_bytes(&self) -> u64 {
         (self.data.len() * std::mem::size_of::<f32>()) as u64
     }
 }
 
+fn validate_flat_shape(dim: usize, row_count: usize, data_len: usize) -> Result<(), String> {
+    if dim > MAX_GENERIC_DIMENSION {
+        return Err(format!(
+            "embedding arena dimension {dim} exceeds the generic maximum of {MAX_GENERIC_DIMENSION}"
+        ));
+    }
+    let expected = row_count
+        .checked_mul(dim)
+        .ok_or_else(|| "embedding arena dimensions overflow".to_string())?;
+    if expected != data_len || (dim == 0 && row_count != 0) {
+        return Err("embedding arena dimensions are inconsistent".to_string());
+    }
+    Ok(())
+}
+
 pub struct SemanticStore {
     /// CONCEPT:EG-KG.storage.arena-row-append — contiguous arena of all live embeddings (see above).
     arena: EmbeddingArena,
+    /// Exact model/preprocessing coordinate space for model-produced queries.
+    /// `None` preserves legacy raw-vector stores without inventing an identity.
+    space: Option<EmbeddingSpaceRef>,
     /// eg-ann IVF-PQ index. `None` until the store is WARMED (off the query path)
     /// or a persisted index is reopened. The index is non-serialized, so a fresh
     /// snapshot load starts `Cold`; it is NEVER built inline on a search.
@@ -203,10 +233,20 @@ pub struct SemanticStore {
     state: AtomicU8,
 }
 
+mod semantic_ann_index;
+mod semantic_ann_lifecycle;
+mod semantic_ann_mutation;
+mod semantic_ann_persistence;
+mod semantic_ann_query;
+mod semantic_ann_shape;
+
+use semantic_ann_persistence::PersistedIndexManifest as IndexManifest;
+
 impl Clone for SemanticStore {
     fn clone(&self) -> Self {
         Self {
             arena: self.arena.clone(),
+            space: self.space.clone(),
             index: RwLock::new(None),
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),
@@ -219,403 +259,100 @@ impl std::fmt::Debug for SemanticStore {
         f.debug_struct("SemanticStore")
             .field("embeddings", &self.arena.len())
             .field("dim", &self.arena.dim)
+            .field("space", &self.space.as_ref().map(|space| &space.digest))
             .field("backend", &"eg-ann")
             .finish()
     }
 }
 
-// CONCEPT:EG-KG.storage.arena-row-append — persist the sole current arena schema:
-// `dim` + `ids` + row-major `data`. Norms are derived on load.
-impl Serialize for SemanticStore {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut st = s.serialize_struct("SemanticStore", 3)?;
-        st.serialize_field("dim", &self.arena.dim)?;
-        st.serialize_field("ids", &self.arena.ids)?;
-        st.serialize_field("data", &self.arena.data)?;
-        st.end()
-    }
+fn valid_query(query: &[f32], store_dim: usize) -> bool {
+    query.len() <= MAX_GENERIC_DIMENSION && check_embedding_dimension(query, store_dim).is_ok()
 }
 
-impl<'de> Deserialize<'de> for SemanticStore {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Raw {
-            dim: usize,
-            ids: Vec<String>,
-            data: Vec<f32>,
-        }
-        let raw = Raw::deserialize(d)?;
-        let arena = EmbeddingArena::from_flat(raw.dim, raw.ids, raw.data)
-            .map_err(serde::de::Error::custom)?;
-        Ok(Self {
-            arena,
-            index: RwLock::new(None),
-            built_len: RwLock::new(0),
-            state: AtomicU8::new(STATE_COLD),
-        })
+fn canonical_members(ids: &[String]) -> std::io::Result<Vec<String>> {
+    if ids.len() > MAX_INDEX_MEMBERS {
+        return Err(invalid_index_manifest(
+            "ANN member set exceeds its safety bound",
+        ));
     }
+    if ids.iter().any(|id| id.len() > MAX_MEMBER_ID_BYTES) {
+        return Err(invalid_index_manifest(
+            "ANN member id exceeds its safety bound",
+        ));
+    }
+    let mut members = ids.to_vec();
+    members.sort_unstable();
+    if members.windows(2).any(|window| window[0] == window[1]) {
+        return Err(invalid_index_manifest(
+            "ANN member set contains a duplicate id",
+        ));
+    }
+    Ok(members)
 }
 
-impl Default for SemanticStore {
-    fn default() -> Self {
-        Self::new()
+fn encode_index_manifest(manifest: &IndexManifest) -> std::io::Result<Vec<u8>> {
+    let payload = rmp_serde::to_vec_named(manifest)
+        .map_err(|_| invalid_index_manifest("ANN store manifest serialization failed"))?;
+    let total = INDEX_MANIFEST_MAGIC
+        .len()
+        .checked_add(payload.len())
+        .ok_or_else(|| invalid_index_manifest("ANN store manifest size overflow"))?;
+    if total > MAX_INDEX_MANIFEST_BYTES {
+        return Err(invalid_index_manifest(
+            "ANN store manifest exceeds its safety bound",
+        ));
     }
+    let mut encoded = Vec::with_capacity(total);
+    encoded.extend_from_slice(INDEX_MANIFEST_MAGIC);
+    encoded.extend_from_slice(&payload);
+    Ok(encoded)
 }
 
-impl SemanticStore {
-    pub fn new() -> Self {
-        Self {
-            arena: EmbeddingArena::default(),
-            index: RwLock::new(None),
-            built_len: RwLock::new(0),
-            state: AtomicU8::new(STATE_COLD),
-        }
+fn decode_index_manifest(bytes: &[u8]) -> std::io::Result<IndexManifest> {
+    if bytes.len() > MAX_INDEX_MANIFEST_BYTES {
+        return Err(invalid_index_manifest(
+            "ANN store manifest exceeds its safety bound",
+        ));
     }
-
-    /// Raw stored embedding for `node_id`, if present (CONCEPT:AU-KG.retrieval.mmr-diversification — the MMR
-    /// reranker needs per-candidate vectors to compute pairwise diversity).
-    pub fn get_embedding(&self, node_id: &str) -> Option<Vec<f32>> {
-        self.arena.get(node_id).map(|s| s.to_vec())
+    let payload = bytes
+        .strip_prefix(INDEX_MANIFEST_MAGIC)
+        .ok_or_else(|| invalid_index_manifest("ANN store manifest format is unsupported"))?;
+    let mut deserializer = rmp_serde::Deserializer::from_read_ref(payload);
+    let manifest = IndexManifest::deserialize(&mut deserializer)
+        .map_err(|_| invalid_index_manifest("ANN store manifest is invalid"))?;
+    if deserializer.position() != payload.len() as u64 {
+        return Err(invalid_index_manifest(
+            "ANN store manifest contains trailing bytes",
+        ));
     }
+    validate_manifest(&manifest)?;
+    Ok(manifest)
+}
 
-    /// Deterministic owned image used by the MutationBatch row-delta compiler.
-    /// The ANN directory itself is derived and intentionally excluded.
-    pub fn embeddings_snapshot(&self) -> Vec<(String, Vec<f32>)> {
-        let mut rows: Vec<_> = self
-            .arena
-            .ids
-            .iter()
-            .enumerate()
-            .map(|(row, id)| {
-                let start = row * self.arena.dim;
-                let end = start + self.arena.dim;
-                (id.clone(), self.arena.data[start..end].to_vec())
-            })
-            .collect();
-        rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-        rows
+fn validate_manifest(manifest: &IndexManifest) -> std::io::Result<()> {
+    if manifest.version != 1
+        || manifest.dimension == 0
+        || manifest.dimension > MAX_MAINTAINED_DIMENSION
+    {
+        return Err(invalid_index_manifest(
+            "ANN store manifest version or dimension is unsupported",
+        ));
     }
-
-    /// CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): a mismatched-dimension `embedding` is
-    /// REJECTED with a typed error and leaves the store — arena, index, and
-    /// readiness state — completely untouched. Only a validated write reaches any
-    /// mutation below.
-    pub fn add_embedding(
-        &mut self,
-        node_id: String,
-        embedding: Vec<f32>,
-    ) -> Result<(), EmbeddingDimensionError> {
-        // CONCEPT:EG-KG.storage.arena-row-append — append/overwrite a contiguous row (no per-vector alloc).
-        self.arena.insert(node_id.clone(), &embedding)?;
-        let live_len = self.arena.len();
-
-        let mut idx = self.index.write();
-        match idx.as_mut() {
-            None => {
-                // Not built yet → stays brute-force until the threshold; built
-                // lazily (off the query path) on warm.
-            }
-            Some(ann) => {
-                // Incremental insert (overwrite tombstones the prior row in the index).
-                // The arena guard above already guarantees `embedding` matches the
-                // arena's (and therefore the resident index's) established dimension,
-                // so this should never observe a dimension mismatch of its own; kept
-                // as defense-in-depth against any other reason `add` might decline.
-                if !ann.add(&node_id, &embedding) {
-                    *idx = None;
-                    *self.built_len.write() = 0;
-                    self.state.store(STATE_COLD, Ordering::Release);
-                    return Ok(());
-                }
-                *self.built_len.write() = live_len;
-                // Deferred compaction once tombstones pile up.
-                if ann.tombstone_ratio() >= COMPACT_TOMBSTONE_PCT {
-                    ann.compact();
-                }
-            }
-        }
-        Ok(())
+    canonical_members(&manifest.members)?;
+    let Some(space) = manifest.space.as_ref() else {
+        return Ok(());
+    };
+    space.validate().map_err(invalid_index_manifest)?;
+    if space.dimensions != manifest.dimension || space.dimensions > MAX_MAINTAINED_DIMENSION {
+        return Err(invalid_index_manifest(
+            "ANN store manifest space does not match its maintained dimension",
+        ));
     }
+    Ok(())
+}
 
-    /// Incrementally remove `node_id`'s embedding (CONCEPT:EG-KG.storage.incremental-ann): swap-remove
-    /// its row from the arena (O(dim)) and tombstone its row in the resident ANN
-    /// index — NO full rebuild. Returns `true` if an embedding was removed, `false`
-    /// if the node had none. Called from the write coalescer's index-maintenance
-    /// seam when a node is removed, so kNN never returns a dead node.
-    pub fn remove_embedding(&mut self, node_id: &str) -> bool {
-        if !self.arena.remove(node_id) {
-            return false;
-        }
-        let live_len = self.arena.len();
-        if let Some(ann) = self.index.write().as_mut() {
-            ann.remove(node_id);
-            // Keep the staleness gate exact: the index still reflects the current
-            // (now smaller) live set, so search keeps using it rather than falling
-            // back to brute force.
-            *self.built_len.write() = live_len;
-            if ann.tombstone_ratio() >= COMPACT_TOMBSTONE_PCT {
-                ann.compact();
-            }
-        }
-        true
-    }
-
-    /// Force a clean compaction that drops all tombstones (ops/maintenance hook).
-    pub fn force_compact(&self) {
-        if let Some(ann) = self.index.write().as_mut() {
-            ann.compact();
-        }
-    }
-
-    pub fn semantic_search(&self, query_embedding: &[f32], n_results: usize) -> Vec<(String, f32)> {
-        if self.arena.len() < BRUTE_FORCE_THRESHOLD.max(ANN_BUILD_THRESHOLD) {
-            return self.brute_force_search(query_embedding, n_results);
-        }
-        // CONCEPT:EG-KG.storage.semantic-index-directory — NEVER build the index inline on the request path. Use the
-        // ANN index only if it has been warmed AND still reflects the current
-        // embeddings; otherwise serve an EXACT brute-force result (sub-second even at
-        // 168k×1024) while the background warm task builds/loads the index. `try_read`
-        // means a search that races an in-progress `warm` (which holds the index
-        // write lock) falls straight through to brute force instead of blocking.
-        if self.state.load(Ordering::Acquire) == STATE_READY {
-            if let Some(guard) = self.index.try_read() {
-                if let Some(ann) = guard.as_ref() {
-                    if *self.built_len.read() == self.arena.len() {
-                        return ann.search(query_embedding, n_results);
-                    }
-                }
-            }
-        }
-        self.brute_force_search(query_embedding, n_results)
-    }
-
-    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). The predicate is
-    /// pushed INTO the ANN scan (or the exact brute-force fallback) so filtering happens
-    /// DURING the probe rather than as an over-fetch + post-filter in the planner. Same
-    /// backend-selection logic as [`Self::semantic_search`]: brute force below the build
-    /// threshold or while the index is cold/stale, the eg-ann index otherwise.
-    pub fn semantic_search_filtered(
-        &self,
-        query_embedding: &[f32],
-        n_results: usize,
-        allow: impl Fn(&str) -> bool + Sync,
-    ) -> Vec<(String, f32)> {
-        if self.arena.len() < BRUTE_FORCE_THRESHOLD.max(ANN_BUILD_THRESHOLD) {
-            return self.brute_force_search_filtered(query_embedding, n_results, allow);
-        }
-        if self.state.load(Ordering::Acquire) == STATE_READY {
-            if let Some(guard) = self.index.try_read() {
-                if let Some(ann) = guard.as_ref() {
-                    if *self.built_len.read() == self.arena.len() {
-                        return ann.search_filtered(query_embedding, n_results, allow);
-                    }
-                }
-            }
-        }
-        self.brute_force_search_filtered(query_embedding, n_results, allow)
-    }
-
-    /// The store's embedding dimensionality — `0` until the first vector is
-    /// inserted (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard). Lets a caller reject a
-    /// query vector of the wrong width with a clear error instead of silently
-    /// scoring against a truncated/misaligned dot product (`dot_product` zips to
-    /// the shorter of the two slices, so a mismatched-length query does not panic —
-    /// it silently computes over the WRONG dimensions).
-    pub fn dim(&self) -> usize {
-        self.arena.dim
-    }
-
-    /// True once a fresh ANN index is resident (the "semantic index ready" signal).
-    pub fn is_ready(&self) -> bool {
-        self.state.load(Ordering::Acquire) == STATE_READY
-            && *self.built_len.read() == self.arena.len()
-    }
-
-    /// True while a background `warm()` build is in flight for this store (W0.4).
-    /// Lets a caller (the on-write trigger, the periodic re-check sweep) skip
-    /// scheduling a redundant warm task for a graph that is already warming
-    /// instead of discovering that only after paying for a `spawn_blocking` slot.
-    pub fn is_warming(&self) -> bool {
-        self.state.load(Ordering::Acquire) == STATE_WARMING
-    }
-
-    /// True if a resident index reflects the CURRENT embedding count (no staleness).
-    /// Used by the warm task to decide whether a reopened persisted index is usable
-    /// as-is or must be rebuilt because the store grew since it was saved.
-    pub fn index_matches_len(&self) -> bool {
-        self.index.read().is_some() && *self.built_len.read() == self.arena.len()
-    }
-
-    /// CONCEPT:EG-KG.storage.semantic-index-directory — build the IVF-PQ index OFF the query path. Called by the
-    /// background warm-on-start task (and `save_index`), NEVER by `semantic_search`.
-    /// No-op for stores below the build threshold (brute force is exact + fast).
-    /// `label` is the graph name, for the build-throughput log line.
-    pub fn warm(&self, label: &str) {
-        if self.arena.len() < BRUTE_FORCE_THRESHOLD.max(ANN_BUILD_THRESHOLD) {
-            return;
-        }
-        self.ensure_index(label);
-    }
-
-    /// Ensure the index reflects the current embeddings. Builds (IVF-PQ train +
-    /// encode) if absent or stale and flips the store to `Ready`. This is the
-    /// expensive path — it is run only off the request path (`warm`/`save_index`).
-    fn ensure_index(&self, label: &str) {
-        {
-            let idx = self.index.read();
-            if idx.is_some() && *self.built_len.read() == self.arena.len() {
-                return;
-            }
-        }
-        // W0.4 duplicate-concurrent-warm guard: claim the warm slot BEFORE taking
-        // the (potentially minutes-long) index write lock. `swap` is a single
-        // atomic RMW, so exactly one concurrent caller observes a previous value
-        // other than `STATE_WARMING` (COLD, or READY-but-stale after a
-        // `load_index` reopen whose persisted index undercounts a since-grown
-        // arena) and proceeds to build below; every other concurrent caller (the
-        // on-write trigger racing the periodic re-check sweep for the same graph)
-        // observes `STATE_WARMING` and returns immediately instead of blocking on
-        // `index.write()` for the entire build.
-        if self.state.swap(STATE_WARMING, Ordering::AcqRel) == STATE_WARMING {
-            return;
-        }
-        let mut idx = self.index.write();
-        let n = self.arena.len();
-        let span = tracing::info_span!("ann_index_build", graph = label, n_vectors = n);
-        let _g = span.enter();
-        let start = std::time::Instant::now();
-        // CONCEPT:EG-KG.storage.arena-row-append — build straight off the contiguous arena (no HashMap rebuild).
-        *idx = AnnIndex::build(&self.arena.ids, &self.arena.data, self.arena.dim);
-        let built = idx.is_some();
-        *self.built_len.write() = if built { n } else { 0 };
-        self.state.store(
-            if built { STATE_READY } else { STATE_COLD },
-            Ordering::Release,
-        );
-        tracing::info!(
-            graph = label,
-            n_vectors = n,
-            build_ms = start.elapsed().as_millis() as u64,
-            ready = built,
-            "semantic ANN index build complete (CONCEPT:EG-KG.storage.semantic-index-directory)"
-        );
-    }
-
-    /// Brute-force cosine similarity search. CONCEPT:EG-KG.compute.lane-chunked-dot-product/EG-015 — this is the path
-    /// EVERY query takes until the ANN index warms (and after every restart), so it
-    /// is rayon-parallel across all cores with a partial-select top-k. EG-015 streams
-    /// the embeddings as CONTIGUOUS rows (`par_chunks_exact(dim)`) out of one flat
-    /// buffer — hardware-prefetchable, cache-friendly, NUMA-friendly — instead of
-    /// pointer-chasing 168k scattered heap allocations. EG-016 reads the row's cached
-    /// L2 norm rather than recomputing `√(emb·emb)`, so cosine is ONE dot product per
-    /// candidate. String ids are cloned only for the surviving top-k.
-    fn brute_force_search(&self, query_embedding: &[f32], n_results: usize) -> Vec<(String, f32)> {
-        self.brute_force_search_filtered(query_embedding, n_results, |_| true)
-    }
-
-    /// Brute-force cosine search restricted to ids that pass `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter —
-    /// the exact fallback for the pre-filtered path when the ANN index is cold/stale or
-    /// the store is below the build threshold). The predicate is applied INSIDE the
-    /// parallel scan so disallowed rows never reach the top-k.
-    fn brute_force_search_filtered(
-        &self,
-        query_embedding: &[f32],
-        n_results: usize,
-        allow: impl Fn(&str) -> bool + Sync,
-    ) -> Vec<(String, f32)> {
-        let arena = &self.arena;
-        if arena.is_empty() || n_results == 0 || arena.dim == 0 {
-            return Vec::new();
-        }
-        let query_norm = l2_norm(query_embedding);
-        if query_norm == 0.0 {
-            return Vec::new();
-        }
-        let inv_qnorm = 1.0 / query_norm;
-        let dim = arena.dim;
-        // Parallel distance map over CONTIGUOUS rows. `par_chunks_exact` hands each
-        // worker a cache-line-aligned run of rows; the row index recovers the id only
-        // for survivors, so the 168k-candidate fan-out stays pointer-cheap. rayon's
-        // adaptive splitting is a no-op-overhead sequential pass for tiny stores and a
-        // full all-core fan-out for large ones.
-        let norms = &arena.norms;
-        let mut scored: Vec<(usize, f32)> = arena
-            .data
-            .par_chunks_exact(dim)
-            .enumerate()
-            .filter_map(|(row, emb)| {
-                let emb_norm = norms[row]; // CONCEPT:EG-KG.compute.cached-row-norm cached
-                if emb_norm == 0.0 || !allow(arena.ids[row].as_str()) {
-                    None
-                } else {
-                    let similarity = dot_product(query_embedding, emb) * inv_qnorm / emb_norm;
-                    Some((row, similarity))
-                }
-            })
-            .collect();
-        // Top-k: partial-select the k best (O(n)) then sort only that prefix, rather
-        // than a full O(n log n) sort of all candidates.
-        let cmp_desc = |a: &(usize, f32), b: &(usize, f32)| {
-            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-        };
-        let k = n_results.min(scored.len());
-        if k < scored.len() {
-            scored.select_nth_unstable_by(k.saturating_sub(1), cmp_desc);
-            scored.truncate(k);
-        }
-        scored.sort_by(cmp_desc);
-        scored
-            .into_iter()
-            .map(|(row, sim)| (arena.ids[row].clone(), sim))
-            .collect()
-    }
-
-    /// Persist the eg-ann index (codes + meta + id map) for a no-rebuild reopen.
-    /// Builds the index first if it isn't resident. Errors if there is nothing to
-    /// index (empty / below the build threshold).
-    pub fn save_index(&self, dir: &Path) -> std::io::Result<()> {
-        self.ensure_index("save_index");
-        match self.index.read().as_ref() {
-            Some(ann) => ann.save(dir),
-            None => Err(std::io::Error::other(
-                "no ANN index to persist (store empty or below build threshold)",
-            )),
-        }
-    }
-
-    /// Reopen a persisted eg-ann index WITHOUT rebuilding from raw vectors and
-    /// attach it to this store. The caller is responsible for the matching
-    /// `embeddings` arena (loaded from the snapshot).
-    pub fn load_index(&self, dir: &Path) -> std::io::Result<()> {
-        let ann = AnnIndex::load(dir)?;
-        let n = ann.live_len();
-        *self.index.write() = Some(ann);
-        *self.built_len.write() = n;
-        // Reopened WITHOUT rebuilding — flip to Ready so searches use it immediately.
-        // (If the store grew since the save, `built_len != arena.len()` and the
-        // search staleness check falls back to brute force until a re-warm.)
-        self.state.store(STATE_READY, Ordering::Release);
-        Ok(())
-    }
-
-    /// Returns the number of stored embeddings.
-    pub fn len(&self) -> usize {
-        self.arena.len()
-    }
-
-    /// Returns true if the store is empty.
-    pub fn is_empty(&self) -> bool {
-        self.arena.is_empty()
-    }
-
-    /// Approximate resident bytes held by the embedding vectors (CONCEPT:EG-KG.compute.lane-v):
-    /// the flat arena's `len × 4` (f32). Used by the per-tenant memory-budget
-    /// estimate; the IVF-PQ index built on top is rebuildable and not counted (the
-    /// raw vectors are the durable footprint).
-    pub fn embedding_bytes(&self) -> u64 {
-        self.arena.embedding_bytes()
-    }
+fn invalid_index_manifest(error: impl std::fmt::Display) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
 }
 
 /// SIMD-friendly dot product (CONCEPT:EG-KG.compute.lane-chunked-dot-product). Accumulating into a single `f32`
@@ -625,7 +362,6 @@ impl SemanticStore {
 /// to one packed 256-bit AVX2 multiply-add per chunk (under `-C target-cpu=x86-64-v3`,
 /// see `.cargo/config.toml`), so a 1024-dim dot product is ~128 vector ops instead of
 /// 1024 scalar ones. The tail (< 8 elems) is scalar.
-#[inline]
 fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     let mut acc = [0.0f32; 8];
     let mut ca = a.chunks_exact(8);
@@ -643,7 +379,6 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// CONCEPT:EG-KG.compute.cached-row-norm — L2 norm via the SIMD dot kernel (cached per row at insert).
-#[inline]
 fn l2_norm(v: &[f32]) -> f32 {
     dot_product(v, v).sqrt()
 }
@@ -651,6 +386,116 @@ fn l2_norm(v: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_space(model: &str, dimensions: usize) -> EmbeddingSpaceRef {
+        EmbeddingSpaceRef::pinned(model, "1", "a".repeat(64), "b".repeat(64), dimensions, true)
+            .unwrap()
+    }
+
+    #[test]
+    fn stamped_search_requires_exact_declared_space() {
+        let space = test_space("model", 2);
+        let mut store = SemanticStore::new_in_space(space.clone()).unwrap();
+        store.add_embedding("a".into(), vec![1.0, 0.0]).unwrap();
+        let other = StampedVector::new(test_space("other", 2), vec![1.0, 0.0]).unwrap();
+        assert!(matches!(
+            store.semantic_search_stamped_filtered(&other, 1, |_| true),
+            Err(SemanticQueryError::SpaceMismatch { .. })
+        ));
+        let exact = StampedVector::new(space, vec![1.0, 0.0]).unwrap();
+        assert_eq!(
+            store
+                .semantic_search_stamped_filtered(&exact, 1, |_| true)
+                .unwrap()[0]
+                .0,
+            "a"
+        );
+    }
+
+    #[test]
+    fn declared_space_survives_serde_and_rejects_wrong_width_insert() {
+        let space = test_space("model", 2);
+        let store = SemanticStore::new_in_space(space.clone()).unwrap();
+        let bytes = rmp_serde::to_vec_named(&store).unwrap();
+        let mut restored: SemanticStore = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(restored.space(), Some(&space));
+        assert_eq!(
+            restored.add_embedding("wrong".into(), vec![1.0; 3]),
+            Err(EmbeddingDimensionError::Mismatch {
+                expected: 2,
+                received: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn raw_queries_reject_width_and_non_finite_values() {
+        let mut store = SemanticStore::new();
+        store.add_embedding("a".into(), vec![1.0, 0.0]).unwrap();
+        assert!(store.semantic_search(&[1.0], 1).is_empty());
+        assert!(store.semantic_search(&[1.0, f32::NAN], 1).is_empty());
+        assert!(store
+            .semantic_search_filtered(&[1.0, f32::INFINITY], 1, |_| true)
+            .is_empty());
+    }
+
+    #[test]
+    fn serde_rejects_unknown_fields_and_non_finite_rows() {
+        let unknown = rmp_serde::to_vec_named(&serde_json::json!({
+            "dim": 2,
+            "ids": ["a"],
+            "data": [1.0, 0.0],
+            "unknown": true
+        }))
+        .unwrap();
+        assert!(rmp_serde::from_slice::<SemanticStore>(&unknown).is_err());
+
+        #[derive(serde::Serialize)]
+        struct Raw {
+            dim: usize,
+            ids: Vec<String>,
+            data: Vec<f32>,
+        }
+        let poisoned = rmp_serde::to_vec_named(&Raw {
+            dim: 2,
+            ids: vec!["a".to_string()],
+            data: vec![1.0, f32::NAN],
+        })
+        .unwrap();
+        assert!(rmp_serde::from_slice::<SemanticStore>(&poisoned).is_err());
+    }
+
+    #[test]
+    fn index_manifest_is_closed_and_trailing_bytes_are_rejected() {
+        let manifest = IndexManifest {
+            version: 1,
+            dimension: 2,
+            members: vec!["a".to_string()],
+            space: None,
+        };
+        let encoded = encode_index_manifest(&manifest).unwrap();
+        assert_eq!(
+            decode_index_manifest(&encoded).unwrap().members,
+            vec!["a".to_string()]
+        );
+
+        let mut trailing = encoded.clone();
+        trailing.push(0);
+        assert!(decode_index_manifest(&trailing).is_err());
+
+        let mut unknown = INDEX_MANIFEST_MAGIC.to_vec();
+        unknown.extend_from_slice(
+            &rmp_serde::to_vec_named(&serde_json::json!({
+                "version": 1,
+                "dimension": 2,
+                "members": ["a"],
+                "space": null,
+                "unknown": true
+            }))
+            .unwrap(),
+        );
+        assert!(decode_index_manifest(&unknown).is_err());
+    }
 
     /// Plain scalar reference for the SIMD-kernel A/B check.
     fn scalar_dot(a: &[f32], b: &[f32]) -> f32 {
@@ -916,13 +761,12 @@ mod tests {
         store
             .add_embedding("a".into(), vec![1.0, 0.0, 0.0])
             .unwrap();
-        use super::super::MAX_EMBEDDING_DIMENSION;
-        let oversized = vec![0.0f32; MAX_EMBEDDING_DIMENSION + 1];
+        let oversized = vec![0.0f32; MAX_GENERIC_DIMENSION + 1];
         assert_eq!(
             store.add_embedding("intruder".into(), oversized),
             Err(EmbeddingDimensionError::Oversized {
-                received: MAX_EMBEDDING_DIMENSION + 1,
-                max: MAX_EMBEDDING_DIMENSION,
+                received: MAX_GENERIC_DIMENSION + 1,
+                max: MAX_GENERIC_DIMENSION,
             })
         );
         assert_eq!(
@@ -1228,6 +1072,7 @@ mod tests {
         // Fresh store with the same embeddings (snapshot path) + no-rebuild load.
         let reloaded = SemanticStore {
             arena: store.arena.clone(),
+            space: store.space.clone(),
             index: RwLock::new(None),
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),

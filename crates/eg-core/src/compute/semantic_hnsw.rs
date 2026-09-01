@@ -9,11 +9,18 @@
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed), which reopens a persisted index without rebuilding from raw
 // vectors. `compute::semantic` re-exports whichever backend is active.
 
-use super::{check_embedding_dimension, EmbeddingDimensionError};
+use super::{check_embedding_dimension, EmbeddingDimensionError, SemanticQueryError};
 use eg_ann::{HnswIndex as NativeHnswIndex, Metric};
+use eg_types::{EmbeddingSpaceRef, StampedVector};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Generic native exact/vector surfaces accept this width.  A resident HNSW
+/// artifact uses the narrower maintained-ANN ceiling below; wider vectors stay
+/// on the exact path and never cross the eg-ann constructor boundary.
+const MAX_GENERIC_DIMENSION: usize = eg_types::MAX_EMBEDDING_DIMENSIONS;
+const MAX_MAINTAINED_DIMENSION: usize = eg_types::MAX_MAINTAINED_ANN_DIMENSIONS;
 
 /// Maximum number of connections per layer in the HNSW graph.
 const HNSW_MAX_NB_CONN: usize = 16;
@@ -76,6 +83,9 @@ impl HnswIndex {
 
 pub struct SemanticStore {
     embeddings: HashMap<String, Vec<f32>>,
+    /// Exact model/preprocessing coordinate space for model-produced queries.
+    /// `None` preserves legacy raw-vector stores without inventing an identity.
+    space: Option<EmbeddingSpaceRef>,
     /// Incrementally-maintained HNSW index (Phase C-D). Skipped on (de)serialize
     /// and rebuilt lazily from `embeddings` on the first search after load — which
     /// also closes the pre-existing post-restore gap where the index metadata came
@@ -83,12 +93,19 @@ pub struct SemanticStore {
     index: RwLock<HnswIndex>,
 }
 
+mod semantic_hnsw_index;
+mod semantic_hnsw_lifecycle;
+mod semantic_hnsw_mutation;
+mod semantic_hnsw_persistence;
+mod semantic_hnsw_query;
+
 // The index is interior, non-Clone, non-Serialize → hand-roll the derives so the
 // on-disk format is UNCHANGED (only `embeddings` is persisted, exactly as before).
 impl Clone for SemanticStore {
     fn clone(&self) -> Self {
         Self {
             embeddings: self.embeddings.clone(),
+            space: self.space.clone(),
             index: RwLock::new(HnswIndex::empty()),
         }
     }
@@ -98,393 +115,58 @@ impl std::fmt::Debug for SemanticStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SemanticStore")
             .field("embeddings", &self.embeddings.len())
+            .field("space", &self.space.as_ref().map(|space| &space.digest))
             .finish()
     }
 }
 
-impl Serialize for SemanticStore {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-        let mut st = s.serialize_struct("SemanticStore", 1)?;
-        st.serialize_field("embeddings", &self.embeddings)?;
-        st.end()
+/// Apply the generic native width ceiling before delegating to the shared
+/// legacy validator.  The shared validator intentionally remains wider for
+/// numerical callers; this store is a model/vector boundary and must not pass
+/// a >16k vector to either exact storage or the ANN constructor.
+fn check_embedding_dimension_bounded(
+    embedding: &[f32],
+    store_dim: usize,
+    maximum: usize,
+) -> Result<usize, EmbeddingDimensionError> {
+    if embedding.len() > maximum {
+        return Err(EmbeddingDimensionError::Oversized {
+            received: embedding.len(),
+            max: maximum,
+        });
     }
+    check_embedding_dimension(embedding, store_dim)
 }
 
-impl<'de> Deserialize<'de> for SemanticStore {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            embeddings: HashMap<String, Vec<f32>>,
-        }
-        let raw = Raw::deserialize(d)?;
-        Ok(Self {
-            embeddings: raw.embeddings,
-            index: RwLock::new(HnswIndex::empty()),
-        })
-    }
+/// Validate a raw query before any backend call.  Both native ANN libraries
+/// assert on width; returning no hits from the legacy `Vec` API keeps malformed
+/// caller input a rejection instead of allowing `zip` truncation or a panic.
+fn valid_query(query: &[f32], store_dim: usize) -> bool {
+    check_embedding_dimension_bounded(query, store_dim, MAX_GENERIC_DIMENSION).is_ok()
 }
 
-impl Default for SemanticStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SemanticStore {
-    pub fn new() -> Self {
-        Self {
-            embeddings: HashMap::new(),
-            index: RwLock::new(HnswIndex::empty()),
+fn validate_persisted_embeddings(
+    embeddings: &HashMap<String, Vec<f32>>,
+    space: Option<&EmbeddingSpaceRef>,
+) -> Result<(), String> {
+    let expected = space.map(|value| value.dimensions).unwrap_or(0);
+    let mut established = expected;
+    for embedding in embeddings.values() {
+        let next = check_embedding_dimension_bounded(embedding, established, MAX_GENERIC_DIMENSION)
+            .map_err(|error| error.to_string())?;
+        if established == 0 {
+            established = next;
         }
     }
-
-    /// Raw stored embedding for `node_id`, if present (CONCEPT:AU-KG.retrieval.mmr-diversification — the MMR
-    /// reranker needs per-candidate vectors to compute pairwise diversity).
-    pub fn get_embedding(&self, node_id: &str) -> Option<Vec<f32>> {
-        self.embeddings.get(node_id).cloned()
-    }
-
-    /// Deterministic owned image used by the MutationBatch row-delta compiler.
-    /// HNSW internals are derived and intentionally excluded.
-    pub fn embeddings_snapshot(&self) -> Vec<(String, Vec<f32>)> {
-        let mut rows: Vec<_> = self
-            .embeddings
-            .iter()
-            .map(|(id, embedding)| (id.clone(), embedding.clone()))
-            .collect();
-        rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-        rows
-    }
-
-    /// CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007, P0 — data loss): a mismatched
-    /// dimension is REJECTED with a typed error before `embeddings`/the resident
-    /// index are touched at all — `self.dim()` (the store's established
-    /// dimensionality, `0` while empty) is checked FIRST. This also closes a
-    /// pre-existing gap in this backend: without the guard, `embeddings` could hold
-    /// vectors of different widths simultaneously (only the resident index quietly
-    /// dropped a mismatched vector from search), contradicting this backend's own
-    /// documented invariant that embeddings are never mixed-width.
-    pub fn add_embedding(
-        &mut self,
-        node_id: String,
-        embedding: Vec<f32>,
-    ) -> Result<(), EmbeddingDimensionError> {
-        check_embedding_dimension(&embedding, self.dim())?;
-
-        let is_update = self.embeddings.contains_key(&node_id);
-        self.embeddings.insert(node_id.clone(), embedding.clone());
-        let live_len = self.embeddings.len();
-
-        let mut idx = self.index.write();
-        if idx.hnsw.is_none() {
-            return Ok(()); // not built yet → built lazily on next search
-        }
-        // The guard above already guarantees `embedding` matches the store's
-        // established dimension, so the resident index's dimension always matches
-        // too — no separate drift branch needed here anymore.
-        let internal = idx.order.len();
-        idx.hnsw
-            .as_mut()
-            .expect("resident HNSW checked above")
-            .insert(internal as u64, embedding);
-        idx.order.push(node_id.clone());
-        if is_update {
-            // Overwrite: tombstone the node's previous internal id (HNSW can't
-            // remove it) so search filters the stale vector — no full rebuild.
-            if let Some(&old) = idx.id_to_internal.get(&node_id) {
-                idx.tombstones.insert(old);
-            }
-        }
-        idx.id_to_internal.insert(node_id, internal);
-        idx.built_len = live_len;
-
-        // Deferred compaction: once dead points exceed COMPACT_TOMBSTONE_PCT of all
-        // inserts, drop the index so the next search rebuilds a clean one — O(n)
-        // amortized across many overwrites instead of per overwrite.
-        if idx.order.len() >= BRUTE_FORCE_THRESHOLD
-            && idx.tombstones.len() * 100 >= idx.order.len() * COMPACT_TOMBSTONE_PCT
-        {
-            idx.hnsw = None;
-        }
-        Ok(())
-    }
-
-    /// Incrementally remove `node_id`'s embedding (CONCEPT:EG-KG.storage.incremental-ann): drop it
-    /// from the embedding map and tombstone its live internal id in the resident HNSW
-    /// index (the additive HNSW cannot delete a point) — NO full rebuild. Returns `true` if an
-    /// embedding was removed. Called from the write coalescer's index-maintenance seam
-    /// when a node is removed, so kNN never returns a dead node.
-    pub fn remove_embedding(&mut self, node_id: &str) -> bool {
-        if self.embeddings.remove(node_id).is_none() {
-            return false;
-        }
-        let live_len = self.embeddings.len();
-        let mut idx = self.index.write();
-        if idx.hnsw.is_some() {
-            if let Some(&internal) = idx.id_to_internal.get(node_id) {
-                idx.tombstones.insert(internal);
-            }
-            idx.id_to_internal.remove(node_id);
-            idx.built_len = live_len;
-            // Deferred compaction: once dead points exceed the ratio, drop the index
-            // so the next search rebuilds a clean one (amortized O(n)).
-            if idx.order.len() >= BRUTE_FORCE_THRESHOLD
-                && idx.tombstones.len() * 100 >= idx.order.len() * COMPACT_TOMBSTONE_PCT
-            {
-                idx.hnsw = None;
-            }
-        }
-        true
-    }
-
-    /// Force a clean rebuild that drops all tombstones (ops/maintenance hook).
-    pub fn force_compact(&self) {
-        let mut idx = self.index.write();
-        if idx.hnsw.is_some() {
-            self.rebuild(&mut idx);
+    if let Some(space) = space {
+        if established != 0 && established != space.dimensions {
+            return Err(format!(
+                "semantic store space declares {} dimensions but persisted rows carry {established}",
+                space.dimensions
+            ));
         }
     }
-
-    pub fn semantic_search(&self, query_embedding: &[f32], n_results: usize) -> Vec<(String, f32)> {
-        if n_results == 0 {
-            return Vec::new();
-        }
-        if self.embeddings.len() < BRUTE_FORCE_THRESHOLD {
-            return self.brute_force_search(query_embedding, n_results);
-        }
-        self.ensure_index();
-        let idx = self.index.read();
-        self.hnsw_query(query_embedding, n_results, &idx)
-    }
-
-    /// kNN search restricted to ids passing `allow`, with the predicate PUSHED INTO
-    /// the HNSW neighbour expansion (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). `allow` is tested during the
-    /// layer-0 graph walk (`HnswIndex::search_filtered`), so disallowed rows never
-    /// enter the result beam and the returned top-`k` already satisfies the predicate
-    /// — the same push-down win the `ann` (IVF-PQ) backend gets, now on the graph-walk
-    /// path instead of an over-fetch + post-filter. The traversal still routes through
-    /// disallowed nodes so recall over the allowed subset is preserved. The signature
-    /// matches the `ann` backend so the planner calls it identically.
-    pub fn semantic_search_filtered(
-        &self,
-        query_embedding: &[f32],
-        n_results: usize,
-        allow: impl Fn(&str) -> bool + Sync,
-    ) -> Vec<(String, f32)> {
-        if n_results == 0 {
-            return Vec::new();
-        }
-        if self.embeddings.len() < BRUTE_FORCE_THRESHOLD {
-            return self.brute_force_search_filtered(query_embedding, n_results, allow);
-        }
-        self.ensure_index();
-        let idx = self.index.read();
-        let Some(hnsw) = idx.hnsw.as_ref() else {
-            return Vec::new();
-        };
-        // Map the HNSW internal id (insertion ordinal) → node id and fold BOTH the
-        // tombstone check and the caller's predicate into one `allow` closure the
-        // graph walk applies during expansion: a tombstoned or out-of-range internal
-        // id is treated as disallowed (still a routing bridge, never a result), which
-        // is exactly the tombstone filtering the unfiltered `hnsw_query` does after
-        // the fact — unified here into the push-down.
-        let allow_internal = |internal_id: u64| -> bool {
-            let Ok(internal) = usize::try_from(internal_id) else {
-                return false;
-            };
-            if idx.tombstones.contains(&internal) {
-                return false;
-            }
-            match idx.order.get(internal) {
-                Some(node_id) => allow(node_id.as_str()),
-                None => false,
-            }
-        };
-        let ef = HNSW_EF_SEARCH_FILTERED.max(n_results);
-        hnsw.search_filtered(query_embedding, n_results, ef, Some(&allow_internal))
-            .into_iter()
-            .filter_map(|neighbor| {
-                usize::try_from(neighbor.id)
-                    .ok()
-                    .and_then(|internal| idx.order.get(internal))
-                    .map(|id| (id.clone(), 1.0 - neighbor.distance))
-            })
-            .collect()
-    }
-
-    /// Brute-force cosine search restricted to ids passing `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter) —
-    /// the exact fallback for a collection below the HNSW build threshold. The
-    /// predicate is applied INSIDE the scan so disallowed ids never reach the top-k.
-    fn brute_force_search_filtered(
-        &self,
-        query_embedding: &[f32],
-        n_results: usize,
-        allow: impl Fn(&str) -> bool,
-    ) -> Vec<(String, f32)> {
-        let query_norm = dot_product(query_embedding, query_embedding).sqrt();
-        if query_norm == 0.0 {
-            return Vec::new();
-        }
-        let mut scores: Vec<(String, f32)> = self
-            .embeddings
-            .iter()
-            .filter(|(node_id, _)| allow(node_id.as_str()))
-            .filter_map(|(node_id, emb)| {
-                let emb_norm = dot_product(emb, emb).sqrt();
-                if emb_norm == 0.0 {
-                    None
-                } else {
-                    let similarity = dot_product(query_embedding, emb) / (query_norm * emb_norm);
-                    Some((node_id.clone(), similarity))
-                }
-            })
-            .collect();
-        truncate_highest_similarity(&mut scores, n_results);
-        scores
-    }
-
-    /// Ensure the HNSW index reflects the current embeddings (double-checked).
-    fn ensure_index(&self) {
-        {
-            let idx = self.index.read();
-            if idx.hnsw.is_some() && idx.built_len == self.embeddings.len() {
-                return;
-            }
-        }
-        let mut idx = self.index.write();
-        if idx.hnsw.is_some() && idx.built_len == self.embeddings.len() {
-            return; // another thread rebuilt while we waited for the write lock
-        }
-        self.rebuild(&mut idx);
-    }
-
-    /// Build a fresh HNSW index from all embeddings (one-time after load / update).
-    fn rebuild(&self, idx: &mut HnswIndex) {
-        let dim = self
-            .embeddings
-            .values()
-            .next()
-            .map(|e| e.len())
-            .unwrap_or(0);
-        if dim == 0 {
-            *idx = HnswIndex::empty();
-            return;
-        }
-        let mut hnsw = NativeHnswIndex::new(
-            dim,
-            Metric::Cosine,
-            HNSW_MAX_NB_CONN,
-            HNSW_EF_CONSTRUCTION,
-            HNSW_SEED,
-        );
-        let mut order = Vec::with_capacity(self.embeddings.len());
-        let mut id_to_internal = HashMap::with_capacity(self.embeddings.len());
-        for (id, emb) in &self.embeddings {
-            if emb.len() == dim {
-                let internal = order.len();
-                hnsw.insert(internal as u64, emb.clone());
-                order.push(id.clone());
-                id_to_internal.insert(id.clone(), internal);
-            }
-        }
-        idx.hnsw = Some(hnsw);
-        idx.order = order;
-        idx.id_to_internal = id_to_internal;
-        idx.tombstones.clear();
-        idx.dim = dim;
-        idx.built_len = self.embeddings.len();
-    }
-
-    /// Query the (already-current) HNSW index. `Metric::Cosine` returns a
-    /// distance of `1 - cosine_similarity`, converted back to similarity here.
-    fn hnsw_query(
-        &self,
-        query_embedding: &[f32],
-        n_results: usize,
-        idx: &HnswIndex,
-    ) -> Vec<(String, f32)> {
-        let hnsw = match &idx.hnsw {
-            Some(h) => h,
-            None => return Vec::new(),
-        };
-        // Over-fetch to absorb tombstoned hits — dead points are still traversed by
-        // the additive index and can appear in the raw result list. Bounded (compaction caps
-        // the tombstone ratio), so this stays a small constant-factor over-fetch.
-        let want = if idx.tombstones.is_empty() {
-            n_results
-        } else {
-            (n_results * 2).max(n_results + 16).min(idx.order.len())
-        };
-        hnsw.search(query_embedding, want, HNSW_EF_SEARCH)
-            .iter()
-            .filter_map(|neighbor| usize::try_from(neighbor.id).ok().map(|id| (id, neighbor)))
-            .filter(|(internal, _)| !idx.tombstones.contains(internal))
-            .filter_map(|(internal, neighbor)| {
-                idx.order
-                    .get(internal)
-                    .map(|id| (id.clone(), 1.0 - neighbor.distance))
-            })
-            .take(n_results)
-            .collect()
-    }
-
-    /// Brute-force cosine similarity search for small collections.
-    fn brute_force_search(&self, query_embedding: &[f32], n_results: usize) -> Vec<(String, f32)> {
-        let query_norm = dot_product(query_embedding, query_embedding).sqrt();
-        if query_norm == 0.0 {
-            return Vec::new();
-        }
-
-        let mut scores: Vec<(String, f32)> = self
-            .embeddings
-            .iter()
-            .filter_map(|(node_id, emb)| {
-                let emb_norm = dot_product(emb, emb).sqrt();
-                if emb_norm == 0.0 {
-                    None
-                } else {
-                    let similarity = dot_product(query_embedding, emb) / (query_norm * emb_norm);
-                    Some((node_id.clone(), similarity))
-                }
-            })
-            .collect();
-
-        truncate_highest_similarity(&mut scores, n_results);
-        scores
-    }
-
-    /// Returns the number of stored embeddings.
-    pub fn len(&self) -> usize {
-        self.embeddings.len()
-    }
-
-    /// Returns true if the store is empty.
-    pub fn is_empty(&self) -> bool {
-        self.embeddings.is_empty()
-    }
-
-    /// The store's embedding dimensionality — `0` until the first vector is
-    /// inserted (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard). Lets a caller reject a query vector
-    /// of the wrong width with a clear error before it ever reaches a search.
-    /// Cheap: an arbitrary stored vector's length — embeddings are never
-    /// mixed-width, now ENFORCED by `add_embedding`'s dimension guard (BUG-007)
-    /// rather than merely assumed.
-    pub fn dim(&self) -> usize {
-        self.embeddings.values().next().map(Vec::len).unwrap_or(0)
-    }
-
-    /// Approximate resident bytes held by the embedding vectors (CONCEPT:EG-KG.compute.lane-v):
-    /// the sum of every stored vector's `len × 4` (f32). Used by the per-tenant
-    /// memory-budget estimate; the HNSW index built on top is rebuildable and not
-    /// counted (the raw vectors are the durable footprint).
-    pub fn embedding_bytes(&self) -> u64 {
-        self.embeddings
-            .values()
-            .map(|v| (v.len() * std::mem::size_of::<f32>()) as u64)
-            .sum()
-    }
+    Ok(())
 }
 
 /// Pure-Rust dot product.
@@ -495,7 +177,6 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
 /// Retain the exact best `limit` cosine hits without fully sorting the small-set
 /// fallback. Selection is expected O(N), followed by O(limit log limit) ordering
 /// of the returned prefix. Ids break equal-score ties and NaN is always last.
-#[inline]
 fn truncate_highest_similarity(scores: &mut Vec<(String, f32)>, limit: usize) {
     if limit == 0 {
         scores.clear();
@@ -508,7 +189,6 @@ fn truncate_highest_similarity(scores: &mut Vec<(String, f32)>, limit: usize) {
     scores.sort_unstable_by(similarity_cmp);
 }
 
-#[inline]
 fn similarity_cmp(left: &(String, f32), right: &(String, f32)) -> std::cmp::Ordering {
     let score_order = match (left.1.is_nan(), right.1.is_nan()) {
         (true, false) => std::cmp::Ordering::Greater,
@@ -522,6 +202,84 @@ fn similarity_cmp(left: &(String, f32), right: &(String, f32)) -> std::cmp::Orde
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_space(model: &str, dimensions: usize) -> EmbeddingSpaceRef {
+        EmbeddingSpaceRef::pinned(model, "1", "a".repeat(64), "b".repeat(64), dimensions, true)
+            .unwrap()
+    }
+
+    #[test]
+    fn stamped_search_requires_exact_declared_space() {
+        let space = test_space("model", 2);
+        let mut store = SemanticStore::new_in_space(space.clone()).unwrap();
+        store.add_embedding("a".into(), vec![1.0, 0.0]).unwrap();
+        let other = StampedVector::new(test_space("other", 2), vec![1.0, 0.0]).unwrap();
+        assert!(matches!(
+            store.semantic_search_stamped_filtered(&other, 1, |_| true),
+            Err(SemanticQueryError::SpaceMismatch { .. })
+        ));
+        let exact = StampedVector::new(space, vec![1.0, 0.0]).unwrap();
+        assert_eq!(
+            store
+                .semantic_search_stamped_filtered(&exact, 1, |_| true)
+                .unwrap()[0]
+                .0,
+            "a"
+        );
+    }
+
+    #[test]
+    fn declared_space_survives_serde_and_rejects_wrong_width_insert() {
+        let space = test_space("model", 2);
+        let store = SemanticStore::new_in_space(space.clone()).unwrap();
+        let bytes = rmp_serde::to_vec_named(&store).unwrap();
+        let mut restored: SemanticStore = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(restored.space(), Some(&space));
+        assert_eq!(
+            restored.add_embedding("wrong".into(), vec![1.0; 3]),
+            Err(EmbeddingDimensionError::Mismatch {
+                expected: 2,
+                received: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn raw_queries_reject_width_and_non_finite_values() {
+        let mut store = SemanticStore::new();
+        store.add_embedding("a".into(), vec![1.0, 0.0]).unwrap();
+        assert!(store.semantic_search(&[1.0], 1).is_empty());
+        assert!(store.semantic_search(&[1.0, f32::NAN], 1).is_empty());
+        assert!(store
+            .semantic_search_filtered(&[1.0, f32::INFINITY], 1, |_| true)
+            .is_empty());
+    }
+
+    #[test]
+    fn serde_rejects_unknown_fields_and_mixed_width_rows() {
+        let unknown = rmp_serde::to_vec_named(&serde_json::json!({
+            "embeddings": {"a": [1.0, 0.0]},
+            "unknown": true
+        }))
+        .unwrap();
+        assert!(rmp_serde::from_slice::<SemanticStore>(&unknown).is_err());
+
+        let mixed = rmp_serde::to_vec_named(&serde_json::json!({
+            "embeddings": {"a": [1.0, 0.0], "b": [1.0, 0.0, 0.0]}
+        }))
+        .unwrap();
+        assert!(rmp_serde::from_slice::<SemanticStore>(&mixed).is_err());
+
+        #[derive(serde::Serialize)]
+        struct Raw {
+            embeddings: HashMap<String, Vec<f32>>,
+        }
+        let poisoned = rmp_serde::to_vec_named(&Raw {
+            embeddings: HashMap::from([("a".to_string(), vec![1.0, f32::NAN])]),
+        })
+        .unwrap();
+        assert!(rmp_serde::from_slice::<SemanticStore>(&poisoned).is_err());
+    }
 
     #[test]
     fn partial_brute_force_selection_matches_total_full_sort() {
@@ -660,17 +418,16 @@ mod tests {
     /// be rejected before it is ever inserted.
     #[test]
     fn oversized_dimension_embedding_is_rejected() {
-        use super::super::MAX_EMBEDDING_DIMENSION;
         let mut store = SemanticStore::new();
         store
             .add_embedding("a".into(), vec![1.0, 0.0, 0.0])
             .unwrap();
-        let oversized = vec![0.0f32; MAX_EMBEDDING_DIMENSION + 1];
+        let oversized = vec![0.0f32; MAX_GENERIC_DIMENSION + 1];
         assert_eq!(
             store.add_embedding("intruder".into(), oversized),
             Err(EmbeddingDimensionError::Oversized {
-                received: MAX_EMBEDDING_DIMENSION + 1,
-                max: MAX_EMBEDDING_DIMENSION,
+                received: MAX_GENERIC_DIMENSION + 1,
+                max: MAX_GENERIC_DIMENSION,
             })
         );
         assert_eq!(store.len(), 1);
