@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, squash
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +26,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def knowledge_stream_handler_source() -> str:
+    """Return the complete declared KnowledgeStream module tree."""
+
+    paths = (
+        "src/server/handlers/knowledge_stream/mod.rs",
+        "src/server/handlers/knowledge_stream/families.rs",
+        "src/server/handlers/knowledge_stream/stream.rs",
+    )
+    return "\n".join(map(read, paths))
 
 
 def require(condition: bool, message: str) -> None:
@@ -52,16 +64,20 @@ def method_enum_names(protocol: str) -> set[str]:
     )
 
 
-def capability_inventory(capabilities: str) -> dict[str, bool]:
-    entries = re.findall(
-        r'^\s*\("([A-Z][A-Za-z0-9_]*)",\s*MethodPolicy\s*\{\s*mutates:\s*(true|false)',
-        capabilities,
-        re.MULTILINE,
-    )
+def capability_inventory() -> dict[str, bool]:
+    """Return every declared method's mutates flag from the domain registry.
+
+    The policy ledger lives across the eleven domain-owned `ROWS` modules
+    under `crates/eg-capabilities/src/domains/`, unified by one `REGISTRY` in
+    `domains/mod.rs` (`eg_capabilities::method_policy_entries()` is the public
+    read surface) -- there is no separately ordered projection. Delegates to
+    the canonical parser in `method_policy_inventory` rather than re-deriving
+    a second, independently maintained regex over that layout.
+    """
     inventory: dict[str, bool] = {}
-    for name, mutates in entries:
-        require(name not in inventory, f"duplicate capability policy for {name}")
-        inventory[name] = mutates == "true"
+    for row in parse_method_policy_table(load_capability_sources(ROOT)):
+        require(row.name not in inventory, f"duplicate capability policy for {row.name}")
+        inventory[row.name] = row.mutates
     return inventory
 
 
@@ -87,9 +103,8 @@ def call_blocks(source: str, needle: str) -> list[str]:
 
 def main() -> None:
     protocol = read("crates/eg-types/src/protocol.rs")
-    capabilities = read("crates/eg-capabilities/src/lib.rs")
     methods = method_enum_names(protocol)
-    policies = capability_inventory(capabilities)
+    policies = capability_inventory()
     require(len(methods) >= 350, "protocol method inventory is unexpectedly small")
     require(
         methods == set(policies),
@@ -104,7 +119,7 @@ def main() -> None:
     isolation = read("crates/eg-core/src/isolation.rs")
     dispatch = read("src/server/dispatch.rs")
     graph_ops = read("src/server/handlers/graph_ops.rs")
-    knowledge = read("src/server/handlers/knowledge_stream.rs")
+    knowledge = knowledge_stream_handler_source()
     query = read("src/server/handlers/query.rs")
     rdf = read("src/server/handlers/rdf.rs")
     distributed = read("src/server/handlers/dist_compute.rs")

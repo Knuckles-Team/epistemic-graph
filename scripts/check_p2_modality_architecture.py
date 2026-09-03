@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, top_level_fns
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,42 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def knowledge_stream_handler_source() -> str:
+    """Return the one declared KnowledgeStream module tree."""
+
+    legacy_handler = ROOT / "src/server/handlers/knowledge_stream.rs"
+    require(
+        not legacy_handler.exists(),
+        "KnowledgeStream retains an ambiguous legacy handler module",
+    )
+    return "\n".join(
+        read(path)
+        for path in (
+            "src/server/handlers/knowledge_stream/mod.rs",
+            "src/server/handlers/knowledge_stream/families.rs",
+            "src/server/handlers/knowledge_stream/stream.rs",
+        )
+    )
+
+
+def require_knowledge_stream_authority(handler: str) -> None:
+    """Pin the sole lease-bound served authority and page fences."""
+
+    dispatch = read("src/server/dispatch.rs")
+    require(
+        "KnowledgeStreamAuthority::from_verified_with_lease(" in dispatch
+        and "keyed_ref(server_secret" in handler,
+        "served wire authority is not bound to a durable policy lease",
+    )
+    require(
+        "pub(crate) fn from_verified(" not in handler
+        and "validate_if_bound" not in handler
+        and "authority.validate_before()?" in handler
+        and "authority.validate_after()?" in handler,
+        "KnowledgeStream retains a claims-only or conditionally fenced served path",
+    )
 
 
 def require(condition: bool, message: str) -> None:
@@ -211,7 +248,7 @@ def main() -> None:
     require("write_arrow_ipc" in stream, "native batch stream has no bounded Arrow writer")
     require("safe_reference(&row.id)" in stream, "result ids are not forced opaque")
 
-    handler = read("src/server/handlers/knowledge_stream.rs")
+    handler = knowledge_stream_handler_source()
     wire = read("crates/eg-types/src/knowledge_stream.rs")
     require(
         "pub enum KnowledgeStreamQuery" in wire,
@@ -247,8 +284,9 @@ def main() -> None:
     )
 
     protocol = read("crates/eg-types/src/protocol.rs")
+    registry_rows = parse_method_policy_table(load_capability_sources(ROOT))
     require(
-        "Method::KnowledgeStream" in read("crates/eg-capabilities/src/lib.rs")
+        any(row.name == "KnowledgeStream" for row in registry_rows)
         and "KnowledgeStream {" in protocol,
         "KnowledgeStream is not a governed served protocol method",
     )
@@ -266,11 +304,7 @@ def main() -> None:
         "resume_from(&native_cursor)" in handler,
         "served wire does not enforce native cursor resumption",
     )
-    require(
-        "KnowledgeStreamAuthority::from_verified" in read("src/server/dispatch.rs")
-        and "keyed_ref(server_secret" in handler,
-        "served wire authority is not keyed from verified RequestContext claims",
-    )
+    require_knowledge_stream_authority(handler)
     require(
         "placement_ref: keyed_opaque(authority, \"placement\"" in handler
         and "cursor.placement_ref != self.context.placement_ref" in stream,

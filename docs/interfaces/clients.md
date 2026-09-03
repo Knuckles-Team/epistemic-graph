@@ -143,7 +143,7 @@ flowchart LR
   M_BAK  --> H3["handlers/admin.rs\nredb backup/restore · EG-090"]
   M_NL   --> H4["handlers/query.rs → NlPlanner\n→ UQL → run_unified · EG-078/080"]
   M_MODAL --> H5["handlers/modality.rs\nverified governed serving"]
-  M_KNOW --> H6["handlers/knowledge_stream.rs\nsole Arrow IPC result stream"]
+  M_KNOW --> H6["handlers/knowledge_stream/{mod,families,stream}.rs\nsole Arrow IPC result stream"]
 ```
 
 ## Parity gate
