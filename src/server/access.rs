@@ -2492,8 +2492,8 @@ mod read_rls_coverage_tests {
     /// exhaustive-partition idiom on the read side.
     ///
     /// A handful of methods (e.g. `KnowledgeStream`, feature `knowledge-batch`)
-    /// are themselves `#[cfg(feature = ...)]`-gated INSIDE `eg_capabilities::
-    /// ALL_METHODS`'s own array literal, so `all_read` legitimately varies by
+    /// are themselves `#[cfg(feature = ...)]`-gated in their domain-owned
+    /// policy declarations, so `all_read` legitimately varies by
     /// build. This test therefore checks every method ACTUALLY PRESENT in the
     /// CURRENT build's `all_read` against the three lists (which are a
     /// superset spanning every feature combination) rather than requiring
@@ -2502,10 +2502,9 @@ mod read_rls_coverage_tests {
     /// coverage; CI's per-feature test matrix covers the rest.
     #[test]
     fn every_read_method_routes_through_rls_or_is_a_documented_exception() {
-        let all_read: BTreeSet<&'static str> = eg_capabilities::ALL_METHODS
-            .iter()
+        let all_read: BTreeSet<&'static str> = eg_capabilities::method_policy_entries()
             .filter(|(_, p, _)| !p.mutates)
-            .map(|(name, _, _)| *name)
+            .map(|(name, _, _)| name)
             .collect();
 
         let routed_set: BTreeSet<&'static str> = RLS_ROUTED.iter().copied().collect();

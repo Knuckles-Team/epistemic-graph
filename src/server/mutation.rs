@@ -150,7 +150,7 @@ impl MutationPlan {
 /// The methods currently routed through [`commit_mutation`] (CONCEPT:EG-P0-2). Kept
 /// as a public, testable allowlist so the migration surface is machine-visible: see
 /// `tests::gateway_routed_set_matches_mutating_policy_surface` for the computed
-/// complement (every other mutating method, per `eg_capabilities::ALL_METHODS`),
+/// complement (every other mutating method, per `eg_capabilities::method_policy_entries()`),
 /// which is owned by an explicit engine-native consensus coordinator.
 pub const GATEWAY_ROUTED: &[&str] = &[
     "AddNode",
@@ -679,7 +679,7 @@ pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyC
 /// `crate::server::mutation::tests::clustered_mutation_inventory_is_complete`
 /// keeps this list, `GATEWAY_ROUTED`, `crate::raft::NATIVE_CONSENSUS_METHODS`,
 /// and `CONSENSUS_FANOUT_METHODS` an exhaustive, non-overlapping partition of
-/// every mutating method in `eg_capabilities::ALL_METHODS` — a Method added to
+/// every mutating method in `eg_capabilities::method_policy_entries()` — a Method added to
 /// the protocol without being placed in exactly one of these buckets fails that
 /// test, not a silent `CLUSTER_MUTATION_UNAVAILABLE` at request time.
 pub const SELF_ROUTED_ADMIN_METHODS: &[&str] = &["RaftAddLearner", "RaftChangeMembership"];
@@ -4478,8 +4478,8 @@ mod tests {
             // 16 would. Full name-level coverage (every Mine* name really is a
             // mutating, policy-known method) is still asserted for ALL 17 by
             // `gateway_routed_set_matches_mutating_policy_surface` below, which
-            // needs no `Method` construction (it reads `eg_capabilities::ALL_METHODS`
-            // by name). The runtime-conditional (`writeback`) gateway PATH itself is
+            // needs no `Method` construction (it reads
+            // `eg_capabilities::method_policy_entries()` by name). The runtime-conditional (`writeback`) gateway PATH itself is
             // proven end-to-end (WAL + audit, no CDC, Read-vs-Write ACL both ways)
             // by `mining_family_writeback_gates_durability_and_authz` below.
             #[cfg(feature = "mining")]
@@ -4740,7 +4740,7 @@ mod tests {
     const OPEN_NOT_JUSTIFIED: &[(&str, &str)] = &[];
 
     /// (d) Bypass guard, part 2: the migration surface is machine-visible. Every
-    /// name in [`GATEWAY_ROUTED`] really exists in `eg_capabilities::ALL_METHODS`
+    /// name in [`GATEWAY_ROUTED`] really exists in `eg_capabilities::method_policy_entries()`
     /// and really is `mutates == true` (catches a rename/typo silently un-routing
     /// a method); the COMPLEMENT (every other mutating method) must fall ENTIRELY
     /// into [`NON_GATEWAY_COORDINATED`] or [`OPEN_NOT_JUSTIFIED`] -- an undocumented name in
@@ -4749,17 +4749,16 @@ mod tests {
     fn gateway_routed_set_matches_mutating_policy_surface() {
         use std::collections::BTreeSet;
 
-        let all_mutating: BTreeSet<&'static str> = eg_capabilities::ALL_METHODS
-            .iter()
+        let all_mutating: BTreeSet<&'static str> = eg_capabilities::method_policy_entries()
             .filter(|(_, p, _)| p.mutates)
-            .map(|(name, _, _)| *name)
+            .map(|(name, _, _)| name)
             .collect();
 
         for routed in GATEWAY_ROUTED {
             assert!(
                 all_mutating.contains(routed),
                 "GATEWAY_ROUTED name '{routed}' is not a mutating method in \
-                 eg_capabilities::ALL_METHODS (renamed/typo'd?)"
+                 eg_capabilities::method_policy_entries() (renamed/typo'd?)"
             );
         }
 
@@ -4829,10 +4828,9 @@ mod tests {
     fn clustered_mutation_inventory_is_complete() {
         use std::collections::BTreeSet;
 
-        let expected: BTreeSet<&'static str> = eg_capabilities::ALL_METHODS
-            .iter()
+        let expected: BTreeSet<&'static str> = eg_capabilities::method_policy_entries()
             .filter(|(_, policy, _)| policy.mutates)
-            .map(|(name, _, _)| *name)
+            .map(|(name, _, _)| name)
             .collect();
         let mut covered: BTreeSet<&'static str> = GATEWAY_ROUTED.iter().copied().collect();
         covered.extend(crate::raft::NATIVE_CONSENSUS_METHODS.iter().copied());

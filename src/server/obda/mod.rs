@@ -21,7 +21,8 @@
 //! * `src/server/access.rs:2161` and `crates/eg-capabilities/src/lib.rs:2189,2848` —
 //!   already classified (`mutates: false`, `authz_action: "sparql:read"`,
 //!   `durability_domain: None`, `audited: false`, `idempotent: true`,
-//!   `txn_participation: Snapshot`) and present in `eg-capabilities`' `ALL_METHODS`
+//!   `txn_participation: Snapshot`) and present in `eg-capabilities`'
+//!   domain-owned method-policy registry
 //!   consistency test.
 //! * `epistemic_graph/client.py` — `RdfClient.sparql_virtual` (pre-existing, ~line
 //!   10578) already sends `Method::SparqlVirtual` and decodes the row-dict result.

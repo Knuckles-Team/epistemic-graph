@@ -1,0 +1,57 @@
+{
+  "schema": "eg-method-policy-registry/v1",
+  "method_count": 412,
+  "domain_order": [
+    "cluster",
+    "compute",
+    "coordination",
+    "graph",
+    "ingestion",
+    "messaging",
+    "query",
+    "reasoning",
+    "security",
+    "storage",
+    "transactions"
+  ],
+  "cfg_rows": [
+    {
+      "name": "AnalyticsJob",
+      "feature": "jobs"
+    },
+    {
+      "name": "Statechart",
+      "feature": "statechart"
+    },
+    {
+      "name": "ServedModality",
+      "feature": "modality-serving"
+    },
+    {
+      "name": "Quantum",
+      "feature": "quantum"
+    },
+    {
+      "name": "Asr",
+      "feature": "asr-native"
+    },
+    {
+      "name": "Viz",
+      "feature": "viz"
+    },
+    {
+      "name": "TtsSynthesize",
+      "feature": "tts-piper"
+    },
+    {
+      "name": "KnowledgeStream",
+      "feature": "knowledge-batch"
+    },
+    {
+      "name": "PolicyExport",
+      "feature": "policy_export"
+    }
+  ],
+  "order_sha256": "444934c9dd6c618095a5ff0a03c5ae5e7c53af393e6f3dcc84c0b26a6f65454c",
+  "policy_sha256": "a9fc6474677001819db53e19ca73163ac673d4ebed5164ef3c3b8a0e7de75e45"
+}

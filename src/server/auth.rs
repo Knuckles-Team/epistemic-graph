@@ -2577,7 +2577,7 @@ mod tests {
         wrong_tenant.tenant = "tenant-b".into();
         let request = ping_request(599, "tenant-a-graph", String::new());
 
-        for (method, policy, _) in eg_capabilities::ALL_METHODS {
+        for (method, policy, _) in eg_capabilities::method_policy_entries() {
             assert!(
                 !denied.allows_method(policy.authz_action, policy.mutates),
                 "{method}: a verified context with no scopes must be denied before row access"
@@ -2590,7 +2590,7 @@ mod tests {
             );
         }
         assert!(
-            eg_capabilities::ALL_METHODS.len() >= 350,
+            eg_capabilities::method_policy_entries().count() >= 350,
             "negative matrix must track the exhaustive protocol inventory"
         );
     }

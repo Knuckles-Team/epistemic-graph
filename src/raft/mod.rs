@@ -1124,7 +1124,7 @@ fn native_method_key(server_secret: &str) -> [u8; 32] {
 ///
 /// This is deliberately data, not prose: the clustered-admission test joins it
 /// with the graph gateway and the two specialized commands, then compares that
-/// union with `eg_capabilities::ALL_METHODS`. Adding a mutating protocol variant
+/// union with `eg_capabilities::method_policy_entries()`. Adding a mutating protocol variant
 /// without a replicated command therefore fails the source-level inventory gate.
 pub const NATIVE_CONSENSUS_METHODS: &[&str] = &[
     "EvictLRU",
