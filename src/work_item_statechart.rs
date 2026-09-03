@@ -1,7 +1,7 @@
 //! The **WorkItem statechart** (CONCEPT:INT-P2-2, ADR-5 / W2.2 — the statechart
 //! substrate for the durable unit-of-work lifecycle).
 //!
-//! `agent_utilities.orchestration.work_item`'s eight-value lifecycle
+//! `agent_utilities.knowledge_graph.core.work_durability`'s eight-value lifecycle
 //! (`submitted → ready → leased → running → {succeeded|failed|cancelled|dead_letter}`)
 //! is enforced today by ~20 hand-rolled `matches!`/`if` state-literal sites inside
 //! `redb_store.rs`'s five native WorkItem handlers. This module expresses that lifecycle
@@ -28,7 +28,8 @@
 //! [`mirror_outcome`], and compares the chart's independently-computed next state against
 //! the authority's. A disagreement raises the [`emit_divergence`] alarm (a structured
 //! `tracing::warn!` + a Prometheus counter). Phase 2 flips authority to the chart; phase 3
-//! deletes the Python enum vocabulary. See `reports/wave2/w2_2-statechart-phase-plan.md`.
+//! deletes the Python enum vocabulary. See
+//! `plans/_archive/au-eg-program/wave2/w2_2-statechart-phase-plan.md`.
 //!
 //! ## Fencing / retry / DLQ policy is DATA on the event, not code here (ADR-5 §1)
 //!

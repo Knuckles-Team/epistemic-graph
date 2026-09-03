@@ -1,6 +1,6 @@
 # Native capacity and WorkItem admission authority
 
-This document describes the additive native protocol implemented by the
+This document describes the required current native protocol implemented by the
 epistemic-graph engine for the GOC-21 capacity lease and GOC-19 WorkItem submit
 surfaces.  The engine's redb tables are authoritative; AU schedulers and local
 queues are projections and must reconcile by the returned lease fences or
@@ -88,15 +88,15 @@ The Rust protocol variants are `AcquireCapacity`, `RenewCapacity`,
 `CapacityStatus`, `UpdateCapacityCell`, `SubmitWorkItem`, and
 `SubmitWorkItems`.  The async/sync Python client exposes them under
 `client.capacity_leases` and `client.work_items.submit`/
-`submit_batch`, with additive capability negotiation and fail-closed behavior
-when an older engine does not advertise the method.
+`submit_batch`. A missing required method is an incompatible deployment and a
+readiness failure that callers must reject before work submission. There is one
+served contract and no alternate implementation.
 
-AU callers remain outside this engine lane.  The eventual adapter should replace
-the read-before-create path in
-`agent_utilities/orchestration/work_item.py`/`work_item_command.py` with
-`client.work_items.submit`, and replace scheduler-local capacity gates in
+AU callers remain outside this engine lane. The canonical
+`agent_utilities/knowledge_graph/core/work_durability.py` authority delegates
+submission to `client.work_items.submit`; scheduler-local capacity gates in
 `resource_priority.py`, `worker_scheduler.py`, `gpu_group_budget.py`,
-`engine_tasks.py`, and the dispatch worker with
+`engine_tasks.py`, and the dispatch worker use
 `client.capacity_leases.acquire`/`renew`/`release`/`reclaim`/`reconcile`.
-It must pass the verified carrier-derived owner digest and preserve each native
+These calls must pass the verified carrier-derived owner digest and preserve each native
 `lease_epoch`/`fence_token`; local semaphores remain advisory only.

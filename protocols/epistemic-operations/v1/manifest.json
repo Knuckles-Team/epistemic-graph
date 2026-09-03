@@ -1227,7 +1227,7 @@
       "schema": "development_lane"
     }
   ],
-  "catalog_sha256": "bd6b8e3152be72cd5a0adb04bd0d2b0b4991bc610ee72d971b9813c9a7a2a6f0",
+  "catalog_sha256": "ddeadbecc613d0e9c05e0b9e496a5ec9c6a0b743444131babdea60e788cfffe9",
   "compatibility_policy": "current-only",
   "privacy_contract": {
     "content": "content-addressed-reference",
@@ -1266,7 +1266,7 @@
       "file": "work-item.schema.json",
       "id": "urn:epistemic-operations:v1:work-item",
       "name": "work_item",
-      "sha256": "b664fd408c035faefb6602c380a9f56e4e49baa76d1cc2accb763353761e2ffa",
+      "sha256": "1755feef2adba794137637aa1d122d4d92e3475f9f0bba2d20cdf718cab427e0",
       "title": "WorkItem",
       "version": "1"
     },
