@@ -83,6 +83,60 @@ impl std::fmt::Display for EmbeddingDimensionError {
 
 impl std::error::Error for EmbeddingDimensionError {}
 
+/// Typed rejection for `SemanticStore::semantic_search_stamped_filtered` — the
+/// space-checked query path built on `eg_types::StampedVector`/`EmbeddingSpaceRef`
+/// (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed). Shared by both backends
+/// (`semantic_hnsw`/`semantic_store_ann`) for the same reason
+/// [`EmbeddingDimensionError`] is: a consumer written against
+/// `compute::semantic::SemanticStore` sees the identical error type regardless of
+/// which backend the `ann` feature selects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SemanticQueryError {
+    /// The query's own `StampedVector` failed structural validation (see
+    /// `StampedVector::validate`) — a malformed space or a non-finite component.
+    InvalidVector(String),
+    /// The store has no declared `EmbeddingSpaceRef` (a legacy raw-vector store),
+    /// so a space-checked query has nothing to compare the stamp against.
+    StoreSpaceUnbound,
+    /// The store's OWN declared space failed structural validation — a corrupt or
+    /// hostile persisted manifest, caught before it can gate a comparison.
+    InvalidStoreSpace(String),
+    /// The query vector's stamped space digest does not match the store's
+    /// declared space digest — comparing vectors from two different embedding
+    /// spaces would yield confident nonsense, so the query is refused rather
+    /// than silently answered.
+    SpaceMismatch { expected: String, received: String },
+    /// The query vector's width does not match the store's resident row width.
+    DimensionMismatch { expected: usize, received: usize },
+}
+
+impl std::fmt::Display for SemanticQueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidVector(reason) => write!(f, "invalid stamped query vector: {reason}"),
+            Self::StoreSpaceUnbound => write!(
+                f,
+                "semantic store has no declared embedding space; a stamped query cannot be checked against it"
+            ),
+            Self::InvalidStoreSpace(reason) => {
+                write!(f, "semantic store's declared embedding space is invalid: {reason}")
+            }
+            Self::SpaceMismatch { expected, received } => write!(
+                f,
+                "embedding space mismatch: query was stamped with space `{received}` but the \
+                 store declares space `{expected}`; refusing to compare vectors from different \
+                 embedding spaces"
+            ),
+            Self::DimensionMismatch { expected, received } => write!(
+                f,
+                "embedding dimension mismatch: store expects {expected}, received {received}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SemanticQueryError {}
+
 /// Shared entry-point validation every `add_embedding` implementation runs BEFORE
 /// touching any state (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard, BUG-007 + GOC-08). `store_dim == 0`
 /// means the store has no established dimension yet (empty store — the first vector

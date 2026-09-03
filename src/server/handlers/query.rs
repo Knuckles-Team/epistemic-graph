@@ -351,6 +351,296 @@ async fn try_handle_inner(
     }
 }
 
+// ── Policy-lease-aware entry point (GRAPH-POLICY-LEASE-CONTRACT.md §6) ──────
+//
+// `KnowledgeStream`'s `execute_sql`/`execute_cross_modal` families
+// (`server::handlers::knowledge_stream::families`) delegate their read here
+// instead of the shared `try_handle` above, so that a lease-bearing call uses
+// `lease.filter_view` as the SOLE row-visibility authority — never
+// `rls.filter_view(caller, ..)` — exactly like `execute_graph`'s own
+// `filtered_snapshot` comment requires for graph/vector reads. A closed,
+// two-variant `PolicyAwareQuery` (R7) rather than the full `Method` +
+// `Err(method)` fallthrough `try_handle` uses: a fallthrough would let a
+// future `Method` variant silently inherit stream authorization without a
+// compile-time decision to add lease-based filtering for it.
+#[cfg(feature = "query")]
+pub(crate) enum PolicyAwareQuery {
+    Sql {
+        query: String,
+        params_msgpack: Vec<u8>,
+    },
+    UnifiedQueryText {
+        text: String,
+    },
+}
+
+#[cfg(all(feature = "query", feature = "security"))]
+pub(crate) fn try_handle_with_policy<'a>(
+    state: &'a Arc<RwLock<ServerState>>,
+    ctx: super::TryHandleContext<'a>,
+    core: Arc<GraphCore>,
+    query: PolicyAwareQuery,
+    policy_lease: &'a Arc<crate::isolation::GraphPolicyLease>,
+    rls: &'a Arc<crate::isolation::IsolationLayer>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, String>> + Send + 'a>> {
+    Box::pin(try_handle_with_policy_inner(
+        state,
+        ctx,
+        core,
+        query,
+        policy_lease,
+        rls,
+    ))
+}
+
+/// A build without `security` has no `GraphPolicyLease` to bind — and every
+/// production caller of this function is itself gated `feature = "security"`
+/// upstream (`KnowledgeStreamAuthority::validate_request_binding` denies
+/// unconditionally without it, mod.rs). This arm exists purely so
+/// `families.rs`'s call site — which references this function unconditionally,
+/// only its trailing `policy_lease`/`rls` ARGUMENTS are `#[cfg]`-gated —
+/// compiles in that configuration too; it is never reachable in practice.
+#[cfg(all(feature = "query", not(feature = "security")))]
+pub(crate) fn try_handle_with_policy<'a>(
+    state: &'a Arc<RwLock<ServerState>>,
+    ctx: super::TryHandleContext<'a>,
+    core: Arc<GraphCore>,
+    query: PolicyAwareQuery,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, String>> + Send + 'a>> {
+    let _ = (state, ctx, core, query);
+    Box::pin(async {
+        Err("KnowledgeStream requires the security policy lease feature".to_string())
+    })
+}
+
+#[cfg(all(feature = "query", feature = "security"))]
+async fn try_handle_with_policy_inner(
+    state: &Arc<RwLock<ServerState>>,
+    ctx: super::TryHandleContext<'_>,
+    core: Arc<GraphCore>,
+    query: PolicyAwareQuery,
+    policy_lease: &Arc<crate::isolation::GraphPolicyLease>,
+    rls: &Arc<crate::isolation::IsolationLayer>,
+) -> Result<Response, String> {
+    let super::TryHandleContext {
+        req_id,
+        graph_name,
+        read_authority,
+        caller,
+    } = ctx;
+    // R6/§8 item 13's mint-time case has an execution-time analogue: a lease
+    // was minted against a bound store, but this specific call's
+    // `IsolationLayer` has none. Fail closed with the same generic message
+    // `KnowledgeStreamAuthority::filter_view`/`validate_lease` already use
+    // for exactly this condition (mod.rs).
+    let store = rls
+        .policy_store()
+        .ok_or_else(|| "KnowledgeStream policy authority is unavailable".to_string())?;
+    let lease_ctx = LeaseQueryCtx {
+        state,
+        req_id,
+        graph_name,
+        read_authority,
+        caller,
+        core: &core,
+        policy_lease,
+        store: store.as_ref(),
+    };
+    match query {
+        PolicyAwareQuery::Sql {
+            query,
+            params_msgpack,
+        } => handle_sql_with_lease(&lease_ctx, query, params_msgpack).await,
+        PolicyAwareQuery::UnifiedQueryText { text } => {
+            handle_unified_query_text_with_lease(&lease_ctx, text).await
+        }
+    }
+}
+
+/// The fields `handle_sql_with_lease`/`handle_unified_query_text_with_lease`
+/// need beyond their own per-query payload, bundled so each stays under the
+/// clippy argument-count ceiling — the same `QueryHandlerCtx`/
+/// `FamilyExecutionCtx` bundling idiom this file and `families.rs` already
+/// use for the same reason.
+#[cfg(all(feature = "query", feature = "security"))]
+struct LeaseQueryCtx<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req_id: u64,
+    graph_name: &'a str,
+    read_authority: Option<&'a GraphReadAuthority>,
+    caller: &'a str,
+    core: &'a Arc<GraphCore>,
+    policy_lease: &'a Arc<crate::isolation::GraphPolicyLease>,
+    store: &'a dyn eg_core::rbac_persist::RbacPolicyStore,
+}
+
+/// Fresh, per-call row-visibility snapshot using the lease as the sole
+/// filtering authority (contract §5/§6, `execute_graph`'s `filtered_snapshot`
+/// comment). Deliberately bypasses BOTH `FilteredViewCache`
+/// (`(actor, version)`-keyed, `crate::graph::GraphCore::cached_filtered_view`)
+/// and `ResultCache` entirely — R2/§4's option (a) — rather than re-keying
+/// them to fold in the lease's policy/identity digest: neither cache's key
+/// includes anything RBAC-derived today (SEC-FINDING-RLS-VIEW-CACHE-STALENESS-20260902.md),
+/// so a policy/identity mutation with no accompanying graph write leaves a
+/// stale entry servable through EITHER cache indefinitely; always recomputing
+/// `lease.filter_view` here closes that hole for this lease-bound path without
+/// having to widen every probe/put call site `versioned_rls_snapshot`/
+/// `rls_snapshot`/`ResultCache` use elsewhere in this file.
+#[cfg(all(feature = "query", feature = "security"))]
+fn lease_filtered_snapshot(
+    core: &Arc<GraphCore>,
+    lease: &Arc<crate::isolation::GraphPolicyLease>,
+    store: &dyn eg_core::rbac_persist::RbacPolicyStore,
+) -> Result<(Arc<crate::graph::GraphView>, u64), String> {
+    // `version` is read before the snapshot, the same "safe LOWER BOUND"
+    // idiom `rls_snapshot`'s `not(result-cache)` branch documents above — a
+    // concurrent write racing the two reads can only make `view` reflect
+    // content NEWER than `version` claims, never older. This path never
+    // stores the pair under `version` as a cache key (bypass, not reuse), so
+    // the only consumer of `version` here is the SQL executor's node-batch
+    // sub-cache key, a perf concern, not a correctness one.
+    let version = core.version();
+    let mut view = core.analysis_snapshot();
+    lease
+        .filter_view(store, &mut view)
+        .map_err(|_| "KnowledgeStream graph policy lease is stale".to_string())?;
+    Ok((Arc::new(view), version))
+}
+
+#[cfg(all(feature = "query", feature = "security"))]
+async fn handle_sql_with_lease(
+    ctx: &LeaseQueryCtx<'_>,
+    query: String,
+    params_msgpack: Vec<u8>,
+) -> Result<Response, String> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let read_authority = ctx.read_authority;
+    let caller = ctx.caller;
+    let core = ctx.core;
+    let policy_lease = ctx.policy_lease;
+    let store = ctx.store;
+    bind_sql_text_embedder();
+    // KnowledgeStream's policy-aware SQL surface is READ-ONLY by contract
+    // (§2.1 — the lease only ever binds `AccessLevel::Read`).
+    // `families::execute_sql` already rejects a write statement before this
+    // is reached; reject again here so this function is safe to call on its
+    // own, never a second, wider-scoped SQL entry point.
+    if crate::server::access::sql_is_write(&query) {
+        return Err("KnowledgeStream SQL accepts read-only statements".to_string());
+    }
+    // `params_msgpack` is unused on the read path, exactly like `handle_sql`'s
+    // own read arm (it is only ever consumed by the write-classification arm
+    // this function deliberately does not implement).
+    let _ = params_msgpack;
+    let Some(read_authority) = read_authority else {
+        crate::metrics::access_denied();
+        return Err("ACCESS_DENIED: current signed tenant authority is required".to_string());
+    };
+    let Some(authority) = read_authority.carrier() else {
+        crate::metrics::access_denied();
+        return Err("ACCESS_DENIED: current signed tenant authority is required".to_string());
+    };
+    let persist_dir = state.read().await.persist_dir.clone();
+    let table_store = crate::server::sql_tables::user_table_store(
+        authority,
+        persist_dir.as_deref().map(std::path::Path::new),
+    )
+    .map_err(|e| format!("SQL error: {e}"))?;
+    let (snap, graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
+    let node_epoch = graph_version;
+    let context_cache = crate::server::sql_tables::sql_context_cache(
+        authority,
+        persist_dir.as_deref().map(std::path::Path::new),
+    )
+    .map_err(|e| format!("SQL error: {e}"))?;
+    let tenant_scope = authority.tenant_scope().to_string();
+    let graph_name_owned = graph_name.to_string();
+    let caller_owned = caller.to_string();
+    let cancel = eg_query::CancellationToken::new();
+    let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
+    let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
+    let cancel_for_task = cancel.clone();
+    let resp = match compute_off_lock(req_id, move || {
+        eg_query::exec_sql_typed_with_tables_cached_cancellable(
+            &snap,
+            graph_version,
+            node_epoch,
+            &tenant_scope,
+            &graph_name_owned,
+            &caller_owned,
+            &table_store,
+            &context_cache,
+            &query,
+            &cancel_for_task,
+        )
+    })
+    .await
+    {
+        Ok(Ok(typed)) => {
+            let result = crate::protocol::QueryResult {
+                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                rows: typed
+                    .rows
+                    .iter()
+                    .map(|r| rmp_serde::to_vec_named(r).unwrap_or_default())
+                    .collect(),
+            };
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
+        Err(resp) => resp,
+    };
+    if let Some(t) = timeout_task {
+        t.abort();
+    }
+    Ok(resp)
+}
+
+#[cfg(all(feature = "query", feature = "security"))]
+async fn handle_unified_query_text_with_lease(
+    ctx: &LeaseQueryCtx<'_>,
+    text: String,
+) -> Result<Response, String> {
+    let state = ctx.state;
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let read_authority = ctx.read_authority;
+    let core = ctx.core;
+    let policy_lease = ctx.policy_lease;
+    let store = ctx.store;
+    let plan = match eg_plan::uql::parse(&text) {
+        Ok(plan) => plan,
+        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+    };
+    #[cfg(feature = "tsdb")]
+    let tsdb_scope = served_tsdb_scope(&plan, graph_name, read_authority)?;
+    #[cfg(not(feature = "tsdb"))]
+    let _ = read_authority;
+    let (snap, _version) = lease_filtered_snapshot(core, policy_lease, store)?;
+    let resp = match run_unified_off_lock(
+        state,
+        req_id,
+        core,
+        snap,
+        plan,
+        #[cfg(feature = "tsdb")]
+        tsdb_scope,
+    )
+    .await
+    {
+        Ok(Ok(rows)) => {
+            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
+            Response::ok(req_id, ResultPayload::Raw(bytes))
+        }
+        Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+        Err(resp) => resp,
+    };
+    Ok(resp)
+}
+
 #[cfg(feature = "query")]
 async fn handle_sql(
     ctx: &QueryHandlerCtx<'_>,

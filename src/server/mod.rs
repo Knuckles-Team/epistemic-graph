@@ -737,7 +737,19 @@ mod ca17_feature_stub_contract {
         ("obda-wire", "[\"obda\"]"),
         ("federation-opensearch", "[\"federation-search\"]"),
         ("lineage-transport", "[\"lake\"]"),
-        ("policy_export", "[\"security\"]"),
+        // Declared parent change (this table IS the declaration this test demands).
+        // `23107613 feat(ca-16): export the M1 row-visibility policy bundle (DEC-CA-04)`
+        // propagated the feature to its dependency crates -- `eg-types/policy_export`
+        // (crates/eg-types/Cargo.toml:139) and the optional
+        // `eg-capabilities?/policy_export` (crates/eg-capabilities/Cargo.toml:115) -- but
+        // did not update this table, so the contract test correctly failed on first run.
+        // The safety property is unaffected and separately asserted by
+        // `no_reserved_feature_leaks_into_a_release_bundle`: policy_export appears in none
+        // of default/full/all/full-extras/cluster.
+        (
+            "policy_export",
+            "[\"security\", \"eg-types/policy_export\", \"eg-capabilities?/policy_export\"]",
+        ),
     ];
 
     /// Release/aggregate bundles a reserved feature must not appear in. Each is an

@@ -388,6 +388,18 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # GRAPH-POLICY-LEASE-CONTRACT.md §3 hardening (`MintAuthorization`,
+  # crates/eg-core/src/isolation.rs): keeps `mint_graph_policy_lease` to its one
+  # traced production call site (src/server/dispatch.rs) so a second caller can
+  # never silently appear without an audit. Pure stdlib text scan, no cargo/build,
+  # safe for the commit stage; catch/no-false-positive proof against a planted
+  # second call site is in the W6-MINT lane report.
+  - id: mint-lease-call-sites
+    name: mint_graph_policy_lease has one production call site
+    entry: python3 scripts/check_mint_lease_call_sites.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: scale-documentation
     name: Bounded, source-anchored scaling documentation register
     entry: python3 scripts/check_scale_documentation.py

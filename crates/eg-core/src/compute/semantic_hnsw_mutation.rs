@@ -40,7 +40,7 @@ impl SemanticStore {
 
         let mut idx = self.index.write();
         if idx.hnsw.is_none() {
-            return Ok();
+            return Ok(());
         }
         // The guard above guarantees that the resident HNSW dimension is
         // unchanged; a decline here would indicate an internal invariant break.

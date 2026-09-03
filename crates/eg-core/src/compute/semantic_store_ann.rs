@@ -317,7 +317,10 @@ fn decode_index_manifest(bytes: &[u8]) -> std::io::Result<IndexManifest> {
     let payload = bytes
         .strip_prefix(INDEX_MANIFEST_MAGIC)
         .ok_or_else(|| invalid_index_manifest("ANN store manifest format is unsupported"))?;
-    let mut deserializer = rmp_serde::Deserializer::from_read_ref(payload);
+    // `Deserializer::from_read_ref` (the `ReadRefReader` constructor) has no
+    // `position()` accessor; only the `Cursor`-backed constructor tracks bytes
+    // consumed, which is what the trailing-bytes check below needs.
+    let mut deserializer = rmp_serde::Deserializer::new(std::io::Cursor::new(payload));
     let manifest = IndexManifest::deserialize(&mut deserializer)
         .map_err(|_| invalid_index_manifest("ANN store manifest is invalid"))?;
     if deserializer.position() != payload.len() as u64 {
@@ -349,6 +352,21 @@ fn validate_manifest(manifest: &IndexManifest) -> std::io::Result<()> {
         ));
     }
     Ok(())
+}
+
+/// Atomic write-then-rename, matching `semantic_ann::semantic_ann_backend_persistence`'s
+/// identically-named (but module-private, unreachable from here) helper for the
+/// `AnnIndex`'s own id-map file: write the full payload to a sibling `.tmp` path,
+/// `sync_all`, then rename over the destination so a reader never observes a
+/// partially-written manifest.
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let temporary = path.with_extension("tmp");
+    {
+        let mut file = std::fs::File::create(&temporary)?;
+        std::io::Write::write_all(&mut file, bytes)?;
+        file.sync_all()?;
+    }
+    std::fs::rename(temporary, path)
 }
 
 fn invalid_index_manifest(error: impl std::fmt::Display) -> std::io::Error {

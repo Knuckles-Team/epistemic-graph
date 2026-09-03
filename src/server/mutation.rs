@@ -277,11 +277,11 @@ pub const GATEWAY_ROUTED: &[&str] = &[
 /// Resolve the node and edge CRUD methods owned by the graph core.
 fn node_edge_method_name(m: &Method) -> Option<&'static str> {
     match m {
-        Method::AddNode { .. } => "AddNode",
-        Method::CreateNodeIfAbsent { .. } => "CreateNodeIfAbsent",
-        Method::RemoveNode { .. } => "RemoveNode",
-        Method::AddEdge { .. } => "AddEdge",
-        Method::RemoveEdge { .. } => "RemoveEdge",
+        Method::AddNode { .. } => Some("AddNode"),
+        Method::CreateNodeIfAbsent { .. } => Some("CreateNodeIfAbsent"),
+        Method::RemoveNode { .. } => Some("RemoveNode"),
+        Method::AddEdge { .. } => Some("AddEdge"),
+        Method::RemoveEdge { .. } => Some("RemoveEdge"),
         _ => None,
     }
 }
@@ -290,15 +290,15 @@ fn node_edge_method_name(m: &Method) -> Option<&'static str> {
 /// and decay) owned by the graph core.
 fn memory_method_name(m: &Method) -> Option<&'static str> {
     match m {
-        Method::CreateSummaryNode { .. } => "CreateSummaryNode",
-        Method::Consolidate { .. } => "Consolidate",
-        Method::Reinforce { .. } => "Reinforce",
-        Method::CompareAndSetNodeFields { .. } => "CompareAndSetNodeFields",
-        Method::ClaimNext { .. } => "ClaimNext",
-        Method::DecayNode { .. } => "DecayNode",
-        Method::DecayMemories { .. } => "DecayMemories",
-        Method::EvictBelow { .. } => "EvictBelow",
-        Method::Maintain { .. } => "Maintain",
+        Method::CreateSummaryNode { .. } => Some("CreateSummaryNode"),
+        Method::Consolidate { .. } => Some("Consolidate"),
+        Method::Reinforce { .. } => Some("Reinforce"),
+        Method::CompareAndSetNodeFields { .. } => Some("CompareAndSetNodeFields"),
+        Method::ClaimNext { .. } => Some("ClaimNext"),
+        Method::DecayNode { .. } => Some("DecayNode"),
+        Method::DecayMemories { .. } => Some("DecayMemories"),
+        Method::EvictBelow { .. } => Some("EvictBelow"),
+        Method::Maintain { .. } => Some("Maintain"),
         _ => None,
     }
 }
@@ -306,11 +306,11 @@ fn memory_method_name(m: &Method) -> Option<&'static str> {
 /// Resolve scene and trajectory methods owned by the graph core.
 fn scene_trajectory_method_name(m: &Method) -> Option<&'static str> {
     match m {
-        Method::AddSceneObject { .. } => "AddSceneObject",
-        Method::SetPose { .. } => "SetPose",
-        Method::Reparent { .. } => "Reparent",
-        Method::StartTrajectory { .. } => "StartTrajectory",
-        Method::AppendStep { .. } => "AppendStep",
+        Method::AddSceneObject { .. } => Some("AddSceneObject"),
+        Method::SetPose { .. } => Some("SetPose"),
+        Method::Reparent { .. } => Some("Reparent"),
+        Method::StartTrajectory { .. } => Some("StartTrajectory"),
+        Method::AppendStep { .. } => Some("AppendStep"),
         _ => None,
     }
 }
@@ -318,9 +318,9 @@ fn scene_trajectory_method_name(m: &Method) -> Option<&'static str> {
 /// Resolve embedding and temporal-edge methods owned by the graph core.
 fn embedding_edge_method_name(m: &Method) -> Option<&'static str> {
     match m {
-        Method::AddEmbedding { .. } => "AddEmbedding",
-        Method::InvalidateEdge { .. } => "InvalidateEdge",
-        Method::SupersedeEdge { .. } => "SupersedeEdge",
+        Method::AddEmbedding { .. } => Some("AddEmbedding"),
+        Method::InvalidateEdge { .. } => Some("InvalidateEdge"),
+        Method::SupersedeEdge { .. } => Some("SupersedeEdge"),
         _ => None,
     }
 }
@@ -328,12 +328,12 @@ fn embedding_edge_method_name(m: &Method) -> Option<&'static str> {
 /// Resolve graph-wide maintenance methods owned by the graph core.
 fn graph_maintenance_method_name(m: &Method) -> Option<&'static str> {
     match m {
-        Method::ClearGraph => "ClearGraph",
-        Method::EvictLRU { .. } => "EvictLRU",
-        Method::DecaySweep { .. } => "DecaySweep",
-        Method::TouchNodes { .. } => "TouchNodes",
-        Method::FromMsgpack { .. } => "FromMsgpack",
-        Method::Reconcile { .. } => "Reconcile",
+        Method::ClearGraph => Some("ClearGraph"),
+        Method::EvictLRU { .. } => Some("EvictLRU"),
+        Method::DecaySweep { .. } => Some("DecaySweep"),
+        Method::TouchNodes { .. } => Some("TouchNodes"),
+        Method::FromMsgpack { .. } => Some("FromMsgpack"),
+        Method::Reconcile { .. } => Some("Reconcile"),
         _ => None,
     }
 }
@@ -342,11 +342,11 @@ fn graph_maintenance_method_name(m: &Method) -> Option<&'static str> {
 /// mirror the protocol's ownership of the reasoning and SHACL variants.
 fn graph_control_method_name(m: &Method) -> Option<&'static str> {
     match m {
-        Method::ApplyMutation { .. } => "ApplyMutation",
+        Method::ApplyMutation { .. } => Some("ApplyMutation"),
         #[cfg(feature = "reasoning")]
-        Method::RunDatalogReasoning { .. } => "RunDatalogReasoning",
+        Method::RunDatalogReasoning { .. } => Some("RunDatalogReasoning"),
         #[cfg(feature = "shacl")]
-        Method::IcvConfigure { .. } => "IcvConfigure",
+        Method::IcvConfigure { .. } => Some("IcvConfigure"),
         _ => None,
     }
 }
@@ -354,11 +354,11 @@ fn graph_control_method_name(m: &Method) -> Option<&'static str> {
 /// Resolve lifecycle and ledger methods owned by the graph core.
 fn lifecycle_ledger_method_name(m: &Method) -> Option<&'static str> {
     match m {
-        Method::PruneByLifecycle { .. } => "PruneByLifecycle",
-        Method::BatchUpdate { .. } => "BatchUpdate",
-        Method::ClearLedger => "ClearLedger",
-        Method::ApplyLedger { .. } => "ApplyLedger",
-        Method::CompactNodesByType { .. } => "CompactNodesByType",
+        Method::PruneByLifecycle { .. } => Some("PruneByLifecycle"),
+        Method::BatchUpdate { .. } => Some("BatchUpdate"),
+        Method::ClearLedger => Some("ClearLedger"),
+        Method::ApplyLedger { .. } => Some("ApplyLedger"),
+        Method::CompactNodesByType { .. } => Some("CompactNodesByType"),
         _ => None,
     }
 }
@@ -368,13 +368,13 @@ fn lifecycle_ledger_method_name(m: &Method) -> Option<&'static str> {
 fn broker_control_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "broker")]
-        Method::DeclareExchange { .. } => "DeclareExchange",
+        Method::DeclareExchange { .. } => Some("DeclareExchange"),
         #[cfg(feature = "broker")]
-        Method::DeleteExchange { .. } => "DeleteExchange",
+        Method::DeleteExchange { .. } => Some("DeleteExchange"),
         #[cfg(feature = "broker")]
-        Method::BindQueue { .. } => "BindQueue",
+        Method::BindQueue { .. } => Some("BindQueue"),
         #[cfg(feature = "broker")]
-        Method::UnbindQueue { .. } => "UnbindQueue",
+        Method::UnbindQueue { .. } => Some("UnbindQueue"),
         _ => None,
     }
 }
@@ -383,7 +383,7 @@ fn broker_control_method_name(m: &Method) -> Option<&'static str> {
 fn broker_queue_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "broker")]
-        Method::DeclareQueue { .. } => "DeclareQueue",
+        Method::DeclareQueue { .. } => Some("DeclareQueue"),
         _ => None,
     }
 }
@@ -392,17 +392,17 @@ fn broker_queue_method_name(m: &Method) -> Option<&'static str> {
 fn broker_delivery_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "broker")]
-        Method::Publish { .. } => "Publish",
+        Method::Publish { .. } => Some("Publish"),
         #[cfg(feature = "broker")]
-        Method::PublishEx { .. } => "PublishEx",
+        Method::PublishEx { .. } => Some("PublishEx"),
         #[cfg(feature = "broker")]
-        Method::BrokerConsume { .. } => "BrokerConsume",
+        Method::BrokerConsume { .. } => Some("BrokerConsume"),
         #[cfg(feature = "broker")]
-        Method::BrokerAck { .. } => "BrokerAck",
+        Method::BrokerAck { .. } => Some("BrokerAck"),
         #[cfg(feature = "broker")]
-        Method::BrokerReject { .. } => "BrokerReject",
+        Method::BrokerReject { .. } => Some("BrokerReject"),
         #[cfg(feature = "broker")]
-        Method::SweepExpired { .. } => "SweepExpired",
+        Method::SweepExpired { .. } => Some("SweepExpired"),
         _ => None,
     }
 }
@@ -411,13 +411,13 @@ fn broker_delivery_method_name(m: &Method) -> Option<&'static str> {
 fn broker_stream_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "broker")]
-        Method::StreamDeclare { .. } => "StreamDeclare",
+        Method::StreamDeclare { .. } => Some("StreamDeclare"),
         #[cfg(feature = "broker")]
-        Method::StreamPublish { .. } => "StreamPublish",
+        Method::StreamPublish { .. } => Some("StreamPublish"),
         #[cfg(feature = "broker")]
-        Method::StreamTrim { .. } => "StreamTrim",
+        Method::StreamTrim { .. } => Some("StreamTrim"),
         #[cfg(feature = "broker")]
-        Method::StreamCommitOffset { .. } => "StreamCommitOffset",
+        Method::StreamCommitOffset { .. } => Some("StreamCommitOffset"),
         _ => None,
     }
 }
@@ -426,15 +426,15 @@ fn broker_stream_method_name(m: &Method) -> Option<&'static str> {
 fn broker_confirmation_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "broker")]
-        Method::PublishConfirmed { .. } => "PublishConfirmed",
+        Method::PublishConfirmed { .. } => Some("PublishConfirmed"),
         #[cfg(feature = "broker")]
-        Method::PublishIdempotent { .. } => "PublishIdempotent",
+        Method::PublishIdempotent { .. } => Some("PublishIdempotent"),
         #[cfg(feature = "broker")]
-        Method::BrokerAckTag { .. } => "BrokerAckTag",
+        Method::BrokerAckTag { .. } => Some("BrokerAckTag"),
         #[cfg(feature = "broker")]
-        Method::BrokerNackTag { .. } => "BrokerNackTag",
+        Method::BrokerNackTag { .. } => Some("BrokerNackTag"),
         #[cfg(feature = "broker")]
-        Method::BrokerRenewTag { .. } => "BrokerRenewTag",
+        Method::BrokerRenewTag { .. } => Some("BrokerRenewTag"),
         _ => None,
     }
 }
@@ -443,9 +443,9 @@ fn broker_confirmation_method_name(m: &Method) -> Option<&'static str> {
 fn graph_learning_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "graphlearn")]
-        Method::GraphLearnFit { .. } => "GraphLearnFit",
+        Method::GraphLearnFit { .. } => Some("GraphLearnFit"),
         #[cfg(feature = "graphlearn")]
-        Method::GraphLearnPredict { .. } => "GraphLearnPredict",
+        Method::GraphLearnPredict { .. } => Some("GraphLearnPredict"),
         _ => None,
     }
 }
@@ -454,11 +454,11 @@ fn graph_learning_method_name(m: &Method) -> Option<&'static str> {
 fn ml_pipeline_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "ml-pipeline")]
-        Method::MiningPipelineTrain { .. } => "MiningPipelineTrain",
+        Method::MiningPipelineTrain { .. } => Some("MiningPipelineTrain"),
         #[cfg(feature = "ml-pipeline")]
-        Method::MiningPipelineServe { .. } => "MiningPipelineServe",
+        Method::MiningPipelineServe { .. } => Some("MiningPipelineServe"),
         #[cfg(feature = "ml-pipeline")]
-        Method::MiningPipelinePredict { .. } => "MiningPipelinePredict",
+        Method::MiningPipelinePredict { .. } => Some("MiningPipelinePredict"),
         _ => None,
     }
 }
@@ -467,13 +467,13 @@ fn ml_pipeline_method_name(m: &Method) -> Option<&'static str> {
 fn mining_discovery_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "mining")]
-        Method::MineAssociate { .. } => "MineAssociate",
+        Method::MineAssociate { .. } => Some("MineAssociate"),
         #[cfg(feature = "mining")]
-        Method::MineCluster { .. } => "MineCluster",
+        Method::MineCluster { .. } => Some("MineCluster"),
         #[cfg(feature = "mining")]
-        Method::MineAnomaly { .. } => "MineAnomaly",
+        Method::MineAnomaly { .. } => Some("MineAnomaly"),
         #[cfg(feature = "mining")]
-        Method::MineClassifyPredict { .. } => "MineClassifyPredict",
+        Method::MineClassifyPredict { .. } => Some("MineClassifyPredict"),
         _ => None,
     }
 }
@@ -482,11 +482,11 @@ fn mining_discovery_method_name(m: &Method) -> Option<&'static str> {
 fn mining_sequence_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "mining")]
-        Method::MineReduce { .. } => "MineReduce",
+        Method::MineReduce { .. } => Some("MineReduce"),
         #[cfg(feature = "mining")]
-        Method::MineSequence { .. } => "MineSequence",
+        Method::MineSequence { .. } => Some("MineSequence"),
         #[cfg(feature = "mining")]
-        Method::MineForecast { .. } => "MineForecast",
+        Method::MineForecast { .. } => Some("MineForecast"),
         _ => None,
     }
 }
@@ -495,11 +495,11 @@ fn mining_sequence_method_name(m: &Method) -> Option<&'static str> {
 fn mining_content_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "mining")]
-        Method::MineText { .. } => "MineText",
+        Method::MineText { .. } => Some("MineText"),
         #[cfg(feature = "mining")]
-        Method::MineSubgraph { .. } => "MineSubgraph",
+        Method::MineSubgraph { .. } => Some("MineSubgraph"),
         #[cfg(feature = "mining")]
-        Method::MineEntityResolve { .. } => "MineEntityResolve",
+        Method::MineEntityResolve { .. } => Some("MineEntityResolve"),
         _ => None,
     }
 }
@@ -508,11 +508,11 @@ fn mining_content_method_name(m: &Method) -> Option<&'static str> {
 fn mining_reasoning_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "mining")]
-        Method::MineCausalImpact { .. } => "MineCausalImpact",
+        Method::MineCausalImpact { .. } => Some("MineCausalImpact"),
         #[cfg(feature = "mining")]
-        Method::MineProcess { .. } => "MineProcess",
+        Method::MineProcess { .. } => Some("MineProcess"),
         #[cfg(feature = "mining")]
-        Method::MineRootCause { .. } => "MineRootCause",
+        Method::MineRootCause { .. } => Some("MineRootCause"),
         _ => None,
     }
 }
@@ -521,13 +521,13 @@ fn mining_reasoning_method_name(m: &Method) -> Option<&'static str> {
 fn mining_graph_quality_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "mining")]
-        Method::MineRiskPropagation { .. } => "MineRiskPropagation",
+        Method::MineRiskPropagation { .. } => Some("MineRiskPropagation"),
         #[cfg(feature = "mining")]
-        Method::MineOntologyGap { .. } => "MineOntologyGap",
+        Method::MineOntologyGap { .. } => Some("MineOntologyGap"),
         #[cfg(feature = "mining")]
-        Method::MineRetrievalQuality { .. } => "MineRetrievalQuality",
+        Method::MineRetrievalQuality { .. } => Some("MineRetrievalQuality"),
         #[cfg(feature = "mining")]
-        Method::MineCommunity { .. } => "MineCommunity",
+        Method::MineCommunity { .. } => Some("MineCommunity"),
         _ => None,
     }
 }
@@ -535,10 +535,10 @@ fn mining_graph_quality_method_name(m: &Method) -> Option<&'static str> {
 /// Resolve the runtime-conditional SQL/Cypher query surface.
 fn query_method_name(m: &Method) -> Option<&'static str> {
     match m {
-        Method::Sql { .. } => "Sql",
-        Method::CypherQuery { .. } => "CypherQuery",
+        Method::Sql { .. } => Some("Sql"),
+        Method::CypherQuery { .. } => Some("CypherQuery"),
         #[cfg(feature = "graphql")]
-        Method::GraphQl { .. } => "GraphQl",
+        Method::GraphQl { .. } => Some("GraphQl"),
         _ => None,
     }
 }
@@ -547,11 +547,11 @@ fn query_method_name(m: &Method) -> Option<&'static str> {
 fn rdf_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "rdf")]
-        Method::AddTriples { .. } => "AddTriples",
+        Method::AddTriples { .. } => Some("AddTriples"),
         #[cfg(feature = "rdf")]
-        Method::RemoveTriples { .. } => "RemoveTriples",
+        Method::RemoveTriples { .. } => Some("RemoveTriples"),
         #[cfg(feature = "rdf")]
-        Method::DropNamedGraph => "DropNamedGraph",
+        Method::DropNamedGraph => Some("DropNamedGraph"),
         _ => None,
     }
 }
@@ -560,7 +560,7 @@ fn rdf_method_name(m: &Method) -> Option<&'static str> {
 fn modality_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "modality-serving")]
-        Method::ServedModality { .. } => "ServedModality",
+        Method::ServedModality { .. } => Some("ServedModality"),
         _ => None,
     }
 }
@@ -571,8 +571,8 @@ fn cluster_admin_method_name(m: &Method) -> Option<&'static str> {
         // Self-routed cluster-admin (see `SELF_ROUTED_ADMIN_METHODS`): named here
         // too so `cluster_mutation_route`'s drift self-check is meaningful rather
         // than comparing against the `_ => "other"` catch-all.
-        Method::RaftAddLearner { .. } => "RaftAddLearner",
-        Method::RaftChangeMembership { .. } => "RaftChangeMembership",
+        Method::RaftAddLearner { .. } => Some("RaftAddLearner"),
+        Method::RaftChangeMembership { .. } => Some("RaftChangeMembership"),
         _ => None,
     }
 }

@@ -19,16 +19,6 @@ impl AnnIndex {
         write_atomic(&dir.join("ids.bin"), &map_bytes)
     }
 
-    /// Width of the maintained ANN artifact, used by the store reopen checks.
-    pub(crate) fn dim(&self) -> usize {
-        self.dim
-    }
-
-    /// Integer row ids in persisted order, used for exact member-set checks.
-    pub(crate) fn row_ids(&self) -> &[String] {
-        &self.row_to_id
-    }
-
     /// Reopen a persisted index WITHOUT rebuilding from raw vectors.
     pub fn load(dir: &Path) -> std::io::Result<Self> {
         let index = eg_ann::open(dir)?;

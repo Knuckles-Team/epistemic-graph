@@ -2283,6 +2283,51 @@ impl RedbBackend {
         }
         Ok(count)
     }
+
+    /// Run one typed MVCC read on Tokio's blocking pool. Redb snapshot reads
+    /// are independent of the writer channel, but opening a snapshot and
+    /// decoding rows are still synchronous work; keeping that shell here makes
+    /// every typed adapter off-reactor without hiding its reader-specific
+    /// arguments or return type. When a tenant catalog is attached, retain the
+    /// routing read guard from shard resolution through the snapshot so an
+    /// online reshard cannot flip and purge the selected shard while this read
+    /// is waiting for the blocking pool.
+    ///
+    /// A private helper shared by several `PersistenceBackend` trait method
+    /// implementations below (NOT itself a trait method — `PersistenceBackend`
+    /// declares no generic methods, so this stays in `RedbBackend`'s own
+    /// inherent impl; Rust method resolution finds it from `self.read_snapshot(...)`
+    /// regardless of which impl block it lives in).
+    async fn read_snapshot<T, F>(&self, graph_fname: &str, read: F) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: for<'a> FnOnce(&'a Database, crate::redb_store::DurableCrypto<'a>) -> Result<T, String>
+            + Send
+            + 'static,
+    {
+        let routing_guard = if self.catalog.is_some() {
+            Some(self.routing_epoch.clone().read_owned().await)
+        } else {
+            None
+        };
+        let shard = self.shard_for(graph_fname);
+        let db = shard
+            .db
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let cipher = shard.cipher.clone();
+        tokio::task::spawn_blocking(move || {
+            let _routing_guard = routing_guard;
+            #[cfg(feature = "security")]
+            let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
+            #[cfg(not(feature = "security"))]
+            let crypto = crate::redb_store::DurableCrypto::none();
+            read(db.as_ref(), crypto)
+        })
+        .await
+        .map_err(|error| format!("redb snapshot read join error: {error}"))?
+    }
 }
 
 /// Rebuild a live [`GraphCore`] from a durable [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
@@ -2678,45 +2723,6 @@ impl PersistenceBackend for RedbBackend {
         }
         rx.await
             .map_err(|_| "redb writer dropped cross-modal MutationBatch completion".to_string())?
-    }
-
-    /// Run one typed MVCC read on Tokio's blocking pool. Redb snapshot reads
-    /// are independent of the writer channel, but opening a snapshot and
-    /// decoding rows are still synchronous work; keeping that shell here makes
-    /// every typed adapter off-reactor without hiding its reader-specific
-    /// arguments or return type. When a tenant catalog is attached, retain the
-    /// routing read guard from shard resolution through the snapshot so an
-    /// online reshard cannot flip and purge the selected shard while this read
-    /// is waiting for the blocking pool.
-    async fn read_snapshot<T, F>(&self, graph_fname: &str, read: F) -> Result<T, String>
-    where
-        T: Send + 'static,
-        F: for<'a> FnOnce(&'a Database, crate::redb_store::DurableCrypto<'a>) -> Result<T, String>
-            + Send
-            + 'static,
-    {
-        let routing_guard = if self.catalog.is_some() {
-            Some(self.routing_epoch.clone().read_owned().await)
-        } else {
-            None
-        };
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let cipher = shard.cipher.clone();
-        tokio::task::spawn_blocking(move || {
-            let _routing_guard = routing_guard;
-            #[cfg(feature = "security")]
-            let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
-            #[cfg(not(feature = "security"))]
-            let crypto = crate::redb_store::DurableCrypto::none();
-            read(db.as_ref(), crypto)
-        })
-        .await
-        .map_err(|error| format!("redb snapshot read join error: {error}"))?
     }
 
     async fn read_mutation_batch(

@@ -1104,6 +1104,10 @@ async fn spawn_graphql_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "graphql")]
     let state = _state;
+    #[cfg(feature = "graphql")]
+    let graphql_max_connections = _graphql_max_connections;
+    #[cfg(feature = "graphql")]
+    let graphql_max_session_secs = _graphql_max_session_secs;
     // ── GraphQL subscription SSE carrier (CONCEPT:EG-KG.compute.cdc-event-emit) ────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features graphql`
     // AND --graphql-addr / EPISTEMIC_GRAPH_GRAPHQL_ADDR is set. With the feature off, or

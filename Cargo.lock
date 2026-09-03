@@ -2775,6 +2775,7 @@ dependencies = [
  "eg-types",
  "fs4 0.8.4",
  "hex",
+ "hmac 0.12.1",
  "parking_lot",
  "petgraph 0.6.5",
  "rayon",

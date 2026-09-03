@@ -14,7 +14,10 @@ impl SemanticStore {
         self.ensure_index(label);
     }
 
-    fn ensure_index(&self, label: &str) {
+    /// `pub(super)` — also called directly by `semantic_ann_persistence::save_index`
+    /// (a sibling submodule of the shared `backend` parent) to guarantee a fresh
+    /// index is resident before it is persisted.
+    pub(super) fn ensure_index(&self, label: &str) {
         if self.arena.dim > MAX_MAINTAINED_DIMENSION {
             return;
         }

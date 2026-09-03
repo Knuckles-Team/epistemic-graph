@@ -139,13 +139,22 @@ pub fn policy_labels() -> Vec<String> {
 }
 
 /// Generate the codec, storage, backup, and recovery hooks shared by whole-value
-/// modality contracts. The caller supplies the value type, element count, and
-/// secondary-index expression; the generated methods retain each contract's
-/// concrete storage accounting while keeping the staged round-trip behavior in one
-/// implementation.
+/// modality contracts. The caller supplies the value type and the paths of two
+/// free functions — `fn(&$value) -> u64` for the element count and
+/// `fn(&$value) -> bool` for the secondary-index flag — rather than pre-evaluated
+/// expressions: this macro is invoked at ITEM position inside an `impl` block, so
+/// any `self`-bearing token passed in as an `expr` argument is resolved with
+/// call-site hygiene against that item-level scope, where `self` has no value
+/// binding (it resolves to the `self` module path instead, i.e. E0424). Taking a
+/// function path sidesteps that entirely: the path is just an identifier with no
+/// `self` keyword at the call site, and it is invoked as `$fn(self)` from inside
+/// the generated method bodies below, where `self` **is** bound (that call
+/// expression is written in the macro's own definition, not spliced in from the
+/// caller). The generated methods retain each contract's concrete storage
+/// accounting while keeping the staged round-trip behavior in one implementation.
 #[macro_export]
 macro_rules! modality_contract_runtime_hooks {
-    ($value:ty, $element_count:expr, $has_secondary_index:expr) => {
+    ($value:ty, $element_count_fn:path, $has_secondary_index_fn:path) => {
         /// Batch and bounded-stream ingest use the same deterministic typed codec.
         fn ingest_report(&self, id: &str) -> $crate::IngestReport {
             let staged = self.txn_stage(id);
@@ -173,8 +182,8 @@ macro_rules! modality_contract_runtime_hooks {
             let logical_bytes = $crate::encode_staged(self).len() as u64;
             Some($crate::StorageStats {
                 logical_bytes,
-                element_count: $element_count,
-                has_secondary_index: $has_secondary_index,
+                element_count: $element_count_fn(self),
+                has_secondary_index: $has_secondary_index_fn(self),
             })
         }
 

@@ -30,6 +30,13 @@ pub mod change_envelope;
 // identity every domain's participant registers against. See
 // `plans/graph-os-completion-program/lanes/GOC-03-cross-domain-commit-currency.md`.
 pub mod commit_descriptor;
+// CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
+// identity (`EmbeddingSpaceRef`) + stamped-vector (`StampedVector`) currency shared
+// by BOTH `eg-core::compute::semantic` backends, plus their two dimensionality
+// ceilings. Pure serde, no dep — unconditional like `commit_descriptor`/
+// `row_predicate`, since `eg-core` needs it on both sides of its backend `#[cfg]`
+// split.
+pub mod embedding;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
@@ -120,6 +127,9 @@ pub use change_envelope::{
     LineageRecord, MaterialOperation, PolicyRecord, PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
 };
 pub use distribution::Distribution;
+pub use embedding::{
+    EmbeddingSpaceRef, StampedVector, MAX_EMBEDDING_DIMENSIONS, MAX_MAINTAINED_ANN_DIMENSIONS,
+};
 #[cfg(feature = "knowledge-batch")]
 pub use knowledge_stream::{
     KnowledgeResultFamily, KnowledgeStreamBatchV1, KnowledgeStreamCursorV1,

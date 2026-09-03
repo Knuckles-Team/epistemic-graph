@@ -15,6 +15,18 @@ fn opaque(value: &str) -> bool {
     OpaqueRef::new(value.to_string()).is_ok()
 }
 
+/// Element count for `modality_contract_runtime_hooks!` — passed as a function
+/// path rather than an inline `self`-bearing expression; see that macro's docs
+/// for why (the macro is invoked at item position, where `self` has no binding).
+fn element_count(image: &ImageData) -> u64 {
+    image.regions.len() as u64
+}
+
+/// Secondary-index flag for `modality_contract_runtime_hooks!`.
+fn has_secondary_index(image: &ImageData) -> bool {
+    !image.native_index_keys().is_empty()
+}
+
 impl ModalityContract for ImageData {
     fn storage_kind(&self) -> &'static str {
         "image"
@@ -61,11 +73,7 @@ impl ModalityContract for ImageData {
         eg_modality::policy_labels()
     }
 
-    eg_modality::modality_contract_runtime_hooks!(
-        ImageData,
-        self.regions.len() as u64,
-        !self.native_index_keys().is_empty()
-    );
+    eg_modality::modality_contract_runtime_hooks!(ImageData, element_count, has_secondary_index);
 }
 
 impl GovernedModality for ImageData {

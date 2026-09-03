@@ -225,7 +225,7 @@ pub fn temporary_series(label: &str) -> Arc<eg_tsdb::store::SeriesStore> {
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
-    Arc::new(eg_tsdb::store::SeriesStore::open(path).expect("open temporary series store"))
+    Arc::new(eg_tsdb::store::SeriesStore::open(&path).expect("open temporary series store"))
 }
 
 pub fn request(auth_secret: &str, id: u64, graph: &str, method: Method) -> Request {

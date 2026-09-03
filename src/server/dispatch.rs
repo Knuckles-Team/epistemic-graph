@@ -4922,15 +4922,99 @@ async fn authorize_and_route_knowledge_stream(
 ) -> Response {
     match method {
         Method::KnowledgeStream { request } => {
-            let auth_secret = timed_read(state).await.auth_secret.clone();
-            let authority =
+            let (auth_secret, isolation) = {
+                let s = timed_read(state).await;
+                (s.auth_secret.clone(), s.isolation.clone())
+            };
+            // §3's critical finding: as shipped, this was the ONLY production
+            // constructor site for a `KnowledgeStreamAuthority`, and it called
+            // the lease-less `from_verified` — meaning `authority.policy_lease`
+            // was always `None` and every request was unconditionally denied
+            // by `validate_request_binding` (mod.rs). Mint the durable lease
+            // here and bind it, per GRAPH-POLICY-LEASE-CONTRACT.md §3/§7.
+            #[cfg(feature = "security")]
+            let authority = {
+                // GRAPH-POLICY-LEASE-CONTRACT.md §3 hardening: `mint_graph_policy_lease`
+                // takes a `MintAuthorization`, not raw claims, so minting for the wrong
+                // actor can no longer happen via a copy-pasted or hand-built claims
+                // value — it requires presenting `auth_secret` (already in scope, right
+                // above) together with an HMAC over the exact claims, which `eg-core`
+                // recomputes and compares in constant time. See `MintAuthorization`'s
+                // doc (crates/eg-core/src/isolation.rs) for exactly what this closes and
+                // what it deliberately does not claim to.
+                let mint_auth = match crate::isolation::MintAuthorization::compute_mac(
+                    &auth_secret,
+                    verified_context.claims(),
+                )
+                .and_then(|mac| {
+                    crate::isolation::MintAuthorization::new(
+                        &auth_secret,
+                        verified_context.claims(),
+                        &mac,
+                    )
+                }) {
+                    Ok(auth) => auth,
+                    Err(_) => {
+                        return Response::err(
+                            req_id,
+                            "KnowledgeStream policy authority is unavailable",
+                        );
+                    }
+                };
+                let lease = match isolation.mint_graph_policy_lease(
+                    &mint_auth,
+                    &req_graph,
+                    crate::isolation::AccessLevel::Read,
+                ) {
+                    Ok(lease) => std::sync::Arc::new(lease),
+                    Err(
+                        crate::isolation::MintLeaseError::StoreUnavailable
+                        | crate::isolation::MintLeaseError::StoreUnreadable,
+                    ) => {
+                        // §8 item 13: nothing durable to mint a digest from.
+                        return Response::err(
+                            req_id,
+                            "KnowledgeStream policy authority is unavailable",
+                        );
+                    }
+                    Err(
+                        crate::isolation::MintLeaseError::UnknownActor
+                        | crate::isolation::MintLeaseError::AccessDenied,
+                    ) => {
+                        // §8 item 14: the same generic access-denied response
+                        // every other graph-op entry point uses.
+                        crate::metrics::access_denied();
+                        return Response::err(req_id, "ACCESS_DENIED");
+                    }
+                };
+                let Some(policy_store) = isolation.policy_store() else {
+                    return Response::err(
+                        req_id,
+                        "KnowledgeStream policy authority is unavailable",
+                    );
+                };
+                match handlers::knowledge_stream::KnowledgeStreamAuthority::from_verified_with_lease(
+                    &auth_secret,
+                    verified_context.claims(),
+                    &req_graph,
+                    lease,
+                    policy_store,
+                ) {
+                    Ok(authority) => authority,
+                    Err(error) => return Response::err(req_id, error),
+                }
+            };
+            #[cfg(not(feature = "security"))]
+            let authority = {
+                let _ = &isolation;
                 match handlers::knowledge_stream::KnowledgeStreamAuthority::from_verified(
                     &auth_secret,
                     verified_context.claims(),
                 ) {
                     Ok(authority) => authority,
                     Err(error) => return Response::err(req_id, error),
-                };
+                }
+            };
             dispatch_knowledge_stream(
                 state,
                 &req_graph,
@@ -9316,25 +9400,23 @@ async fn dispatch_op_knowledge_stream(ctx: KnowledgeStreamCtx<'_>, method: Metho
     };
     #[cfg(not(feature = "raft"))]
     let (stream_placement_epoch, stream_fencing_token) = (0, None);
-    return match handlers::knowledge_stream::try_handle(
+    let handler_ctx = handlers::knowledge_stream::KnowledgeStreamHandlerCtx {
         state,
         req_id,
         graph_name,
-        core.clone(),
-        method,
-        verified_actor,
-        &carrier,
+        core: core.clone(),
+        caller: verified_actor,
+        carrier: &carrier,
         authority,
-        stream_placement_epoch,
-        stream_fencing_token,
-        read_authority
+        placement_epoch: stream_placement_epoch,
+        fencing_token: stream_fencing_token,
+        read_authority: read_authority
             .as_ref()
             .expect("KnowledgeStream is classified as a graph read"),
         #[cfg(feature = "security")]
-        &rls,
-    )
-    .await
-    {
+        rls: &rls,
+    };
+    return match handlers::knowledge_stream::try_handle(handler_ctx, method).await {
         Ok(response) => response,
         Err(_) => Response::err(req_id, "KnowledgeStream dispatch routing error"),
     };

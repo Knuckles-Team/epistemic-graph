@@ -16,6 +16,18 @@ fn opaque(value: &str) -> bool {
     OpaqueRef::new(value.to_string()).is_ok()
 }
 
+/// Element count for `modality_contract_runtime_hooks!` — passed as a function
+/// path rather than an inline `self`-bearing expression; see that macro's docs
+/// for why (the macro is invoked at item position, where `self` has no binding).
+fn element_count(audio: &AudioData) -> u64 {
+    audio.feature_windows.len() as u64
+}
+
+/// Secondary-index flag for `modality_contract_runtime_hooks!`.
+fn has_secondary_index(audio: &AudioData) -> bool {
+    !audio.native_index_keys().is_empty()
+}
+
 impl ModalityContract for AudioData {
     fn storage_kind(&self) -> &'static str {
         "audio"
@@ -65,11 +77,7 @@ impl ModalityContract for AudioData {
         eg_modality::policy_labels()
     }
 
-    eg_modality::modality_contract_runtime_hooks!(
-        AudioData,
-        self.feature_windows.len() as u64,
-        !self.native_index_keys().is_empty()
-    );
+    eg_modality::modality_contract_runtime_hooks!(AudioData, element_count, has_secondary_index);
 }
 
 impl GovernedModality for AudioData {

@@ -231,10 +231,10 @@ mod tests {
 
     #[test]
     fn cursor_replay_is_idempotent_but_policy_replacement_is_denied() {
-        let authority = authority(2);
+        let base_authority = authority(2);
         let first = serve_execution(
             "tenant-graph",
-            &authority,
+            &base_authority,
             4,
             Some(9),
             KnowledgeStreamRequestV1 {
@@ -244,7 +244,7 @@ mod tests {
                 cursor: None,
                 projection: KnowledgeStreamProjection::ArrowIpcV1,
             },
-            execution(&authority, KnowledgeResultFamily::Graph, 3),
+            execution(&base_authority, KnowledgeResultFamily::Graph, 3),
         )
         .unwrap();
 
@@ -253,7 +253,7 @@ mod tests {
         // image remains current, and the same continuation page is returned.
         let second = serve_execution(
             "tenant-graph",
-            &authority,
+            &base_authority,
             4,
             Some(9),
             KnowledgeStreamRequestV1 {
@@ -263,12 +263,12 @@ mod tests {
                 cursor: Some(first.cursor.clone()),
                 projection: KnowledgeStreamProjection::ArrowIpcV1,
             },
-            execution(&authority, KnowledgeResultFamily::Graph, 3),
+            execution(&base_authority, KnowledgeResultFamily::Graph, 3),
         )
         .unwrap();
         let replay = serve_execution(
             "tenant-graph",
-            &authority,
+            &base_authority,
             4,
             Some(9),
             KnowledgeStreamRequestV1 {
@@ -278,7 +278,7 @@ mod tests {
                 cursor: Some(first.cursor.clone()),
                 projection: KnowledgeStreamProjection::ArrowIpcV1,
             },
-            execution(&authority, KnowledgeResultFamily::Graph, 3),
+            execution(&base_authority, KnowledgeResultFamily::Graph, 3),
         )
         .unwrap();
         assert_eq!(replay.payload, second.payload);
@@ -331,6 +331,7 @@ mod tests {
         use std::collections::BTreeMap;
         use std::sync::Arc;
 
+        use crate::isolation::IsolationLayer;
         use eg_core::rbac::RbacPolicy;
         use eg_core::rbac_persist::{IdentityBootstrapState, RbacStore};
         use eg_types::acl::{
@@ -345,7 +346,6 @@ mod tests {
                 .expect("system clock")
                 .as_nanos()
         ));
-        let store = Arc::new(RbacStore::open(&directory).expect("open durable policy store"));
         let mut policy = RbacPolicy::new();
         policy.add_role(Role::new("reader"));
         let grant = Grant {
@@ -365,17 +365,25 @@ mod tests {
                 roles: vec!["reader".to_string()],
             },
         );
-        store
-            .save(&policy, &identities, IdentityBootstrapState::Consumed)
-            .expect("save authorized policy");
-        let lease = store
-            .acquire_graph_policy_lease(
-                "alice",
-                "tenant",
-                "tenant-graph",
-                crate::isolation::AccessLevel::Read,
-            )
-            .expect("mint graph policy lease");
+        // Seed the durable image, then drop this handle before reopening via
+        // `IsolationLayer::with_persist_dir` below — `redb::Database` does not
+        // support two concurrently-open handles onto the same file.
+        {
+            let store = RbacStore::open(&directory).expect("open durable policy store");
+            store
+                .save(&policy, &identities, IdentityBootstrapState::Consumed)
+                .expect("save authorized policy");
+        }
+
+        // R1 (GRAPH-POLICY-LEASE-CONTRACT.md §3.1): `RbacStore::
+        // acquire_graph_policy_lease` was struck as ground truth — the
+        // dependency runs `isolation` → `rbac_persist`, never the reverse, so
+        // a store-side mint could not reach `check_access` without
+        // duplicating the authorization decision. Mint through
+        // `IsolationLayer::mint_graph_policy_lease` instead, over an
+        // `IsolationLayer` reopened from the SAME durable directory.
+        let isolation = IsolationLayer::with_persist_dir(&directory)
+            .expect("reopen isolation layer over durable store");
         let claims = RequestContextClaims {
             principal: "alice-principal".to_string(),
             tenant: "tenant".to_string(),
@@ -388,12 +396,31 @@ mod tests {
             node: None,
             priority: None,
         };
+        // GRAPH-POLICY-LEASE-CONTRACT.md §3 hardening: minting now requires a
+        // `MintAuthorization`, obtained only by presenting the server secret plus
+        // an HMAC over the exact claims (same secret `from_verified_with_lease`
+        // below is bound with).
+        let mint_mac = crate::isolation::MintAuthorization::compute_mac("server-secret", &claims)
+            .expect("compute mint authorization mac");
+        let mint_auth =
+            crate::isolation::MintAuthorization::new("server-secret", &claims, &mint_mac)
+                .expect("construct mint authorization");
+        let lease = isolation
+            .mint_graph_policy_lease(
+                &mint_auth,
+                "tenant-graph",
+                crate::isolation::AccessLevel::Read,
+            )
+            .expect("mint graph policy lease");
+        let policy_store = isolation
+            .policy_store()
+            .expect("durable policy store bound");
         let authority = KnowledgeStreamAuthority::from_verified_with_lease(
             "server-secret",
             &claims,
             "tenant-graph",
             Arc::new(lease),
-            store.clone(),
+            policy_store.clone(),
         )
         .expect("bind exact durable lease");
         let first = serve_execution(
@@ -413,7 +440,7 @@ mod tests {
         .expect("serve initial page");
 
         policy.remove_grant(&grant);
-        store
+        policy_store
             .save(&policy, &identities, IdentityBootstrapState::Consumed)
             .expect("persist revocation");
         assert!(authority.validate_before().is_err());
@@ -435,7 +462,8 @@ mod tests {
         assert_eq!(error, "KnowledgeStream graph policy lease is stale");
 
         drop(authority);
-        drop(store);
+        drop(policy_store);
+        drop(isolation);
         let _ = std::fs::remove_dir_all(directory);
     }
 

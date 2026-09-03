@@ -134,6 +134,31 @@ pub trait RbacPolicyStore: Send + Sync {
     fn has_durable_file(&self) -> bool {
         false
     }
+
+    /// Audit/display-facing durable-policy epoch (GRAPH-POLICY-LEASE-CONTRACT.md
+    /// §2.4, R5) — reuses the SAME monotonic counter `eg_mutation_store`
+    /// already bumps atomically with every [`RbacStore::save`] write, rather
+    /// than adding a second, independently-maintained persisted counter.
+    /// **Never the staleness ground truth**: `GraphPolicyLease`'s fail-closed
+    /// comparison is digest-only, always — this is populated onto
+    /// `PolicySnapshot.version` purely for audit/display (e.g. "policy epoch
+    /// 4,812"), and is a spuriously-bumpable approximation, not a strict
+    /// count of logical policy changes (`RbacStore::save`'s `already_current`
+    /// gate compares raw, non-canonical bytes — see that method's doc).
+    ///
+    /// Default body **fails closed** rather than returning a plausible-
+    /// looking `0` — a store that cannot report its own epoch must not be
+    /// usable to mint or revalidate a lease (contract §8 item 13). This
+    /// trait has three implementors today (`RbacStore`, `MemoryRbacStore`,
+    /// and the test-only `FailingPolicyStore` in `isolation.rs`, which
+    /// implements only `load`/`save`); the default keeps the third
+    /// compiling, exactly like the existing `backup_into`/`has_durable_file`
+    /// defaults above.
+    fn current_version(&self) -> Result<u64, RbacPersistError> {
+        Err(RbacPersistError::IncompleteState(
+            "this policy store does not implement a durable policy version counter",
+        ))
+    }
 }
 
 /// Current in-process policy store used by embedded/test isolation layers that do not
@@ -146,6 +171,12 @@ pub struct MemoryRbacStore {
         BTreeMap<String, AgentIdentity>,
         IdentityBootstrapState,
     )>,
+    /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): this store has no
+    /// `eg_mutation_store`/`db` to reuse an existing durable counter from
+    /// (unlike `RbacStore`), so it carries a genuinely new counter,
+    /// incremented once per `save()` call — the in-memory analogue of the
+    /// same "monotonic, bumped once per successful save" property.
+    version: std::sync::atomic::AtomicU64,
 }
 
 impl MemoryRbacStore {
@@ -175,7 +206,13 @@ impl RbacPolicyStore for MemoryRbacStore {
         bootstrap: IdentityBootstrapState,
     ) -> Result<(), RbacPersistError> {
         *self.state.write() = (policy.clone(), identities.clone(), bootstrap);
+        self.version
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
+    }
+
+    fn current_version(&self) -> Result<u64, RbacPersistError> {
+        Ok(self.version.load(std::sync::atomic::Ordering::SeqCst))
     }
 }
 
@@ -484,6 +521,16 @@ impl RbacStore {
         eg_mutation_store::commit(wtx, &batch).map_err(RbacPersistError::Redb)?;
         Ok(())
     }
+
+    /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): the SAME `eg_mutation_store`
+    /// counter [`RbacStore::save`] already bumps atomically (same `redb`
+    /// write transaction, `:407`/`:453-461` above) with the policy/identity/
+    /// bootstrap writes — reused here rather than adding a second,
+    /// independently-maintained persisted counter.
+    pub fn current_version(&self) -> Result<u64, RbacPersistError> {
+        eg_mutation_store::version(&self.db, "native", "security-control")
+            .map_err(RbacPersistError::Redb)
+    }
 }
 
 impl RbacPolicyStore for RbacStore {
@@ -515,6 +562,10 @@ impl RbacPolicyStore for RbacStore {
 
     fn has_durable_file(&self) -> bool {
         true
+    }
+
+    fn current_version(&self) -> Result<u64, RbacPersistError> {
+        RbacStore::current_version(self)
     }
 }
 

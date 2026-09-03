@@ -4,7 +4,9 @@ use super::*;
 
 impl SemanticStore {
     /// Ensure the HNSW index reflects the current embeddings (double-checked).
-    fn ensure_index(&self) {
+    /// `pub(super)` — also called directly by `semantic_hnsw_query` (a sibling
+    /// submodule of the shared `backend` parent).
+    pub(super) fn ensure_index(&self) {
         {
             let idx = self.index.read();
             if idx.hnsw.is_some() && idx.built_len == self.embeddings.len() {
@@ -20,7 +22,9 @@ impl SemanticStore {
 
     /// Build a fresh HNSW index from all embeddings. This is called only after
     /// the query adapter has confirmed the maintained-dimension ceiling.
-    fn rebuild(&self, idx: &mut HnswIndex) {
+    /// `pub(super)` — also called directly by `semantic_hnsw_mutation::force_compact`
+    /// (a sibling submodule of the shared `backend` parent).
+    pub(super) fn rebuild(&self, idx: &mut HnswIndex) {
         let dim = self
             .embeddings
             .values()
@@ -55,8 +59,10 @@ impl SemanticStore {
     }
 
     /// Query the already-current HNSW index. `Metric::Cosine` returns a distance
-    /// of `1 - cosine_similarity`, converted back to similarity here.
-    fn hnsw_query(
+    /// of `1 - cosine_similarity`, converted back to similarity here. `pub(super)`
+    /// — also called directly by `semantic_hnsw_query::semantic_search` (a sibling
+    /// submodule of the shared `backend` parent).
+    pub(super) fn hnsw_query(
         &self,
         query_embedding: &[f32],
         n_results: usize,

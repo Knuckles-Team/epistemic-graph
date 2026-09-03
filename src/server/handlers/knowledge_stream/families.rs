@@ -120,12 +120,12 @@ async fn execute_sql(
             caller,
         },
         core.clone(),
-        Method::Sql {
-            query: query.clone(),
-            params_msgpack: params_msgpack.clone(),
+        super::super::query::PolicyAwareQuery::Sql {
+            query: query.to_string(),
+            params_msgpack: params_msgpack.to_vec(),
         },
         #[cfg(feature = "security")]
-        Some(policy_lease),
+        policy_lease,
         #[cfg(feature = "security")]
         rls,
     )
@@ -159,8 +159,8 @@ async fn execute_sql(
 async fn execute_rdf(
     ctx: &FamilyExecutionCtx<'_>,
     query: &str,
-    base_iri: &Option<String>,
-    type_convention: &Option<String>,
+    base_iri: &str,
+    type_convention: &str,
 ) -> Result<FamilyExecution, String> {
     let state = ctx.state;
     let req_id = ctx.req_id;
@@ -183,9 +183,9 @@ async fn execute_rdf(
             },
             core.clone(),
             Method::Sparql {
-                query: query.clone(),
-                base_iri: base_iri.clone(),
-                type_convention: type_convention.clone(),
+                query: query.to_string(),
+                base_iri: base_iri.to_string(),
+                type_convention: type_convention.to_string(),
             },
             #[cfg(feature = "security")]
             rls,
@@ -219,7 +219,7 @@ async fn execute_rdf(
 async fn execute_vector(
     ctx: &FamilyExecutionCtx<'_>,
     keywords: &[String],
-    query_embedding: &Option<Vec<f32>>,
+    query_embedding: &[f32],
     k: &usize,
 ) -> Result<FamilyExecution, String> {
     let state = ctx.state;
@@ -237,8 +237,8 @@ async fn execute_vector(
         read_authority,
         core.clone(),
         Method::Discover {
-            keywords: keywords.clone(),
-            query_embedding: query_embedding.clone(),
+            keywords: keywords.to_vec(),
+            query_embedding: query_embedding.to_vec(),
             k: *k,
         },
     )
@@ -278,8 +278,8 @@ async fn execute_vector(
 async fn execute_time_series(
     ctx: &FamilyExecutionCtx<'_>,
     series_id: &str,
-    from: &Option<i64>,
-    to: &Option<i64>,
+    from: &i64,
+    to: &i64,
 ) -> Result<FamilyExecution, String> {
     let state = ctx.state;
     let req_id = ctx.req_id;
@@ -298,7 +298,7 @@ async fn execute_time_series(
             placement_epoch,
             fencing_token,
             Method::TsRange {
-                series_id: series_id.clone(),
+                series_id: series_id.to_string(),
                 from: *from,
                 to: *to,
             },
@@ -400,9 +400,11 @@ async fn execute_cross_modal(
             caller,
         },
         core.clone(),
-        Method::UnifiedQueryText { text: text.clone() },
+        super::super::query::PolicyAwareQuery::UnifiedQueryText {
+            text: text.to_string(),
+        },
         #[cfg(feature = "security")]
-        Some(policy_lease),
+        policy_lease,
         #[cfg(feature = "security")]
         rls,
     )

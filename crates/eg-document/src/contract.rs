@@ -27,6 +27,22 @@ fn safe_language(value: &str) -> bool {
         })
 }
 
+/// Element count for `modality_contract_runtime_hooks!` — passed as a function
+/// path rather than an inline `self`-bearing expression; see that macro's docs
+/// for why (the macro is invoked at item position, where `self` has no binding).
+fn element_count(document: &DocumentData) -> u64 {
+    document
+        .pages
+        .iter()
+        .map(|page| page.blocks.len() as u64)
+        .sum()
+}
+
+/// Secondary-index flag for `modality_contract_runtime_hooks!`.
+fn has_secondary_index(document: &DocumentData) -> bool {
+    !document.lexical_postings.is_empty()
+}
+
 impl ModalityContract for DocumentData {
     fn storage_kind(&self) -> &'static str {
         "document"
@@ -76,11 +92,7 @@ impl ModalityContract for DocumentData {
         eg_modality::policy_labels()
     }
 
-    eg_modality::modality_contract_runtime_hooks!(
-        DocumentData,
-        self.pages.iter().map(|page| page.blocks.len() as u64).sum(),
-        !self.lexical_postings.is_empty()
-    );
+    eg_modality::modality_contract_runtime_hooks!(DocumentData, element_count, has_secondary_index);
 }
 
 impl GovernedModality for DocumentData {

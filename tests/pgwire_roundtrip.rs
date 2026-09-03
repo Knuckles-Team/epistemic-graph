@@ -892,7 +892,9 @@ fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> {
 fn command_count(msgs: &[tokio_postgres::SimpleQueryMessage]) -> i64 {
     msgs.iter()
         .find_map(|m| match m {
-            tokio_postgres::SimpleQueryMessage::CommandComplete(n) => Some(*n),
+            // tokio-postgres yields the affected-row count as u64; this helper's
+            // callers compare against signed literals, so narrow once here.
+            tokio_postgres::SimpleQueryMessage::CommandComplete(n) => Some(*n as i64),
             _ => None,
         })
         .expect("INSERT CommandComplete")
