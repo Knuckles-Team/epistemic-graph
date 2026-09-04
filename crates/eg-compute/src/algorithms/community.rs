@@ -1,6 +1,7 @@
 //! Compatibility facade for the canonical graph-algorithm Louvain kernel.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 
@@ -30,10 +31,17 @@ pub fn community_detection(core: &GraphView, resolution: f64) -> Vec<Vec<String>
         }
     }
     let graph = AdjacencyGraph::from_adjacency(node_ids.into_iter().zip(adjacency));
+    // Budget: 15s — the exact wall-clock bound `COMMUNITY_DETECTION_BUDGET`
+    // imposed on this same path before commit `a14b9c28` removed it along with
+    // the duplicate kernel. This facade serves BOTH request-reachable
+    // handlers (`Method::CommunityDetection` and the caller-sized
+    // `Method::CommunityDetectEphemeral`), so it gets the interactive budget:
+    // a request must not be able to occupy a compute thread indefinitely.
     louvain(
         &graph,
         &LouvainConfig {
             resolution,
+            budget: Duration::from_secs(15),
             ..LouvainConfig::default()
         },
     )

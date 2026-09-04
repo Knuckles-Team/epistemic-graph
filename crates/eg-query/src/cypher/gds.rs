@@ -505,6 +505,11 @@ impl CypherProcedure for Harmonic {
 
 // ── community / components (CONCEPT:EG-KG.query.gds-call-procedures) ──────────────────────────────────────
 
+/// Wall-clock budget for the community-detection `CALL gds.*` procedures.
+/// Matches the engine's own `Method::CommunityDetection` budget so the same
+/// graph costs the same worst case whichever surface asks for it.
+const LOUVAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// `gds.louvain(config)` — Louvain community detection (CONCEPT:EG-KG.query.gds-call-procedures).
 /// Config: `resolution` (1.0), `maxLevels` (50), `maxIterations`/`maxSweeps` (100),
 /// `relationshipWeightProperty`. Yields `nodeId` / `node`, `communityId`.
@@ -528,6 +533,14 @@ impl CypherProcedure for Louvain {
             seed: None,
             max_sweeps: cfg.usize("maxIterations", cfg.usize("maxSweeps", 100)),
             max_levels: cfg.usize("maxLevels", 50),
+            // Budget: 15s, and deliberately NOT readable from `cfg`. A Cypher
+            // caller can already raise `maxIterations`/`maxLevels` arbitrarily,
+            // so the wall-clock bound is precisely the one cap that must not be
+            // caller-raisable — otherwise `CALL gds.louvain` stays an unbounded
+            // request path with extra steps. Truncation is reported by the
+            // kernel (`LouvainResult::deadline_hit` + a `warn`), and the rows
+            // returned are still a valid partition.
+            budget: LOUVAIN_BUDGET,
         };
         Ok(partition_rows(louvain(&g, &lc).communities, "communityId"))
     }
@@ -561,6 +574,9 @@ impl CypherProcedure for Leiden {
             seed: None,
             max_sweeps: cfg.usize("maxIterations", cfg.usize("maxSweeps", 100)),
             max_levels: cfg.usize("maxLevels", 50),
+            // Budget: 15s, not caller-overridable — same reasoning as
+            // `gds.louvain` above.
+            budget: LOUVAIN_BUDGET,
         };
         Ok(partition_rows(leiden(&g, &lc).communities, "communityId"))
     }

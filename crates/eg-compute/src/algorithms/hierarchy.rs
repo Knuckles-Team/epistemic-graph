@@ -56,6 +56,15 @@ pub struct ClusterHierarchyResult {
     pub leaf_membership: Vec<(String, u32)>,
     pub base_node_count: usize,
     pub base_edge_count: usize,
+    /// `true` when Leiden's wall-clock budget expired before the hierarchy
+    /// converged: the levels present are real and strictly nested, but coarser
+    /// levels are MISSING. This result is persisted and served to tile clients
+    /// long after the run, so a truncated hierarchy is otherwise
+    /// indistinguishable from a converged one. `#[serde(default)]` so
+    /// already-persisted blobs (written before this field existed) still load,
+    /// reading as `false` — they were produced by an unbounded run.
+    #[serde(default)]
+    pub deadline_hit: bool,
 }
 
 /// Format a VIZ-1 cluster id — the single source of truth for `ClusterMeta::id`'s
@@ -244,9 +253,19 @@ pub fn cluster_hierarchy(
     let base_node_count = ids.len();
 
     // 2) Cluster: the tested, connectivity-guaranteeing hierarchical kernel.
+    // Budget: 60s, not the interactive 15s. `ClusterHierarchyRefresh` is a
+    // PREPARE step — it computes a hierarchy once and persists it for the tile
+    // server to read back many times — and hierarchical Leiden is strictly more
+    // work than a flat run (every intermediate level is kept, plus a refinement
+    // phase per level). Truncating it at 15s would permanently cap how coarse a
+    // zoom level the viz can offer on a large graph, for no latency benefit that
+    // any interactive read observes. It still terminates, so a refresh can never
+    // pin a compute thread indefinitely, and truncation is reported on
+    // `ClusterHierarchyResult::deadline_hit`.
     let cfg = crate::graph_algos::LeidenConfig {
         resolution: if resolution > 0.0 { resolution } else { 1.0 },
         seed: Some(seed),
+        budget: std::time::Duration::from_secs(60),
         ..Default::default()
     };
     let raw = crate::graph_algos::leiden_hierarchy(&graph, &cfg);
@@ -301,5 +320,6 @@ pub fn cluster_hierarchy(
         leaf_membership,
         base_node_count,
         base_edge_count,
+        deadline_hit: raw.deadline_hit,
     }
 }

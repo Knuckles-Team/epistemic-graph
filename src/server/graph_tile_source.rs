@@ -130,6 +130,7 @@ impl RealClusterSource {
                 leaf_membership: Vec::new(),
                 base_node_count: 0,
                 base_edge_count: 0,
+                deadline_hit: false,
             }),
             core: Arc::new(GraphCore::new()),
         }

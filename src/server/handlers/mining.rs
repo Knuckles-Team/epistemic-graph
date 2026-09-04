@@ -4254,6 +4254,11 @@ pub(crate) fn handle_community(
             "modularity": out.modularity,
             "n_nodes": graph.node_count(),
             "written_back": written,
+            // Truncation must not be silent: a budget-expired Louvain run
+            // returns the best partition so far, which is otherwise
+            // indistinguishable from a converged one — and `writeback` will
+            // already have PERSISTED it. See `community::CommunityResult`.
+            "deadline_hit": out.deadline_hit,
         })),
     )
 }

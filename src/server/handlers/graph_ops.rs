@@ -2649,10 +2649,18 @@ async fn handle_community_detection(
     core: &Arc<GraphCore>,
     resolution: f64,
 ) -> Response {
-    // Label propagation has an internal 15s wall-clock budget — that
-    // budget used to burn entirely UNDER the read lock, stalling every
-    // writer on the graph. Snapshot topology, compute off-lock
-    // (KG-2.51).
+    // Louvain — NOT label propagation, as this comment used to claim: the method
+    // routes to `algorithms::community_detection`, which is the Louvain kernel,
+    // and so did the hand-rolled `community_detection` that carried the original
+    // `COMMUNITY_DETECTION_BUDGET`. That 15s wall-clock budget now lives in the
+    // kernel loop itself (`LouvainConfig::budget`), which is the only place that
+    // can actually STOP the work — a handler-side timeout would bound the
+    // response while the compute thread kept burning CPU. Commit `a14b9c28`
+    // deleted the budget along with the duplicate kernel and left this comment
+    // describing a bound that no longer existed.
+    //
+    // That budget used to burn entirely UNDER the read lock, stalling every
+    // writer on the graph. Snapshot topology, compute off-lock (KG-2.51).
     let snap = { core.topology_snapshot() };
     match compute_off_lock(req_id, move || {
         crate::algorithms::community_detection(&snap, resolution)

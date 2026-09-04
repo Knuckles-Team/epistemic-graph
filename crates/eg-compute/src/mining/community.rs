@@ -40,7 +40,35 @@ pub struct CommunityResult {
     /// Louvain's own global modularity; `None` for label-propagation (which has
     /// no modularity-gain objective).
     pub modularity: Option<f64>,
+    /// `true` when the Louvain kernel's wall-clock budget expired before
+    /// convergence, so these communities are the best partition found so far and
+    /// NOT a converged one. Because this family WRITES BACK — `:Community` nodes
+    /// with `COMMUNITY_MEMBER` edges, and optionally epistemic claims — a
+    /// truncated partition that looked complete would persist wrong communities
+    /// into the graph; the caller must surface this rather than treat the result
+    /// as final. Always `false` for label-propagation, which has its own
+    /// iteration cap and no budget.
+    pub deadline_hit: bool,
 }
+
+/// Wall-clock budget for the mining family's Louvain runs.
+///
+/// Deliberately NOT the interactive 15s, and the reason is the WRITEBACK: this
+/// family persists `:Community` nodes and `COMMUNITY_MEMBER` edges (and
+/// optionally epistemic claims) that every later read takes as fact. A read
+/// handler that truncates costs one caller a worse answer once; this one leaves
+/// a half-optimised partition in the graph for everything downstream. The cost
+/// of stopping early is therefore much higher here than on a read path, so the
+/// budget is correspondingly looser — and looser still matters because the other
+/// caller is WAL replay, where no client is waiting on latency at all.
+///
+/// 60s gives a realistically sized tenant graph room to actually converge while
+/// still guaranteeing the run TERMINATES: replay must not be able to hang
+/// recovery, and a `Method::MineCommunity` request must not be able to occupy a
+/// compute thread indefinitely. Truncation is never silent — it is reported on
+/// [`CommunityResult::deadline_hit`] (surfaced in the handler's response) and
+/// warned by the kernel.
+const MINING_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Run community detection over `graph` and score each resulting community's
 /// internal density (CONCEPT:EG-KG.mining.community-writeback).
@@ -52,26 +80,28 @@ pub fn detect(
     seed: u64,
     weighted: bool,
 ) -> CommunityResult {
-    let (raw_communities, modularity): (Vec<Vec<usize>>, Option<f64>) = match algorithm {
-        Algorithm::Louvain => {
-            let cfg = LouvainConfig {
-                resolution: if resolution > 0.0 { resolution } else { 1.0 },
-                seed: Some(seed),
-                max_sweeps: max_iterations.max(1),
-                max_levels: 50,
-            };
-            let res = louvain(graph, &cfg);
-            (res.communities, Some(res.modularity))
-        }
-        Algorithm::LabelPropagation => {
-            let cfg = LabelPropagationConfig {
-                max_iterations: max_iterations.max(1),
-                weighted,
-            };
-            let res = label_propagation(graph, &cfg);
-            (res.communities, None)
-        }
-    };
+    let (raw_communities, modularity, deadline_hit): (Vec<Vec<usize>>, Option<f64>, bool) =
+        match algorithm {
+            Algorithm::Louvain => {
+                let cfg = LouvainConfig {
+                    resolution: if resolution > 0.0 { resolution } else { 1.0 },
+                    seed: Some(seed),
+                    max_sweeps: max_iterations.max(1),
+                    max_levels: 50,
+                    budget: MINING_BUDGET,
+                };
+                let res = louvain(graph, &cfg);
+                (res.communities, Some(res.modularity), res.deadline_hit)
+            }
+            Algorithm::LabelPropagation => {
+                let cfg = LabelPropagationConfig {
+                    max_iterations: max_iterations.max(1),
+                    weighted,
+                };
+                let res = label_propagation(graph, &cfg);
+                (res.communities, None, false)
+            }
+        };
 
     let communities = raw_communities
         .into_iter()
@@ -84,6 +114,7 @@ pub fn detect(
     CommunityResult {
         communities,
         modularity,
+        deadline_hit,
     }
 }
 

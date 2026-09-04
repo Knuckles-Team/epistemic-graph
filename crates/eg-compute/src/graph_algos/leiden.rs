@@ -36,9 +36,13 @@
 // optional visit shuffle, exactly like [`super::louvain::LouvainConfig::seed`].
 
 use super::graph::AdjacencyGraph;
-use super::louvain::{aggregate, local_moving, modularity_of, run_community};
+use super::louvain::{
+    aggregate, local_moving, modularity_of, run_community, DEADLINE_CHECK_STRIDE,
+};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::time::{Duration, Instant};
 
 /// Configuration for [`leiden`]. Mirrors [`super::louvain::LouvainConfig`]'s
 /// shape so the two are drop-in comparable. CONCEPT:EG-KG.compute.leiden-community-detection
@@ -55,6 +59,17 @@ pub struct LeidenConfig {
     pub max_sweeps: usize,
     /// Cap on aggregation levels.
     pub max_levels: usize,
+    /// Wall-clock budget for the WHOLE run — the exact counterpart of
+    /// [`super::louvain::LouvainConfig::budget`], and for the same reason:
+    /// `max_sweeps`/`max_levels` bound ITERATIONS, not TIME. Leiden reuses
+    /// Louvain's `local_moving` verbatim, so it inherited that module's missing
+    /// wall-clock bound too; this closes it for the flat [`leiden`] run AND for
+    /// [`leiden_hierarchy`] (the VIZ-1 cluster path).
+    ///
+    /// On expiry the kernel returns the best partition/hierarchy found so far
+    /// and sets [`LeidenResult::deadline_hit`] / [`LeidenHierarchy::deadline_hit`].
+    /// A plain `Duration`, never an `Option`, so no caller can forget it.
+    pub budget: Duration,
 }
 
 impl Default for LeidenConfig {
@@ -64,6 +79,7 @@ impl Default for LeidenConfig {
             seed: None,
             max_sweeps: 100,
             max_levels: 50,
+            budget: Duration::from_secs(15),
         }
     }
 }
@@ -77,6 +93,11 @@ pub struct LeidenResult<N> {
     /// Final modularity `Q` of the returned partition (same formula as
     /// [`super::louvain::louvain`], so the two are directly comparable).
     pub modularity: f64,
+    /// `true` when [`LeidenConfig::budget`] expired before convergence. The
+    /// partition is still valid and still connectivity-guaranteed, but it is the
+    /// best one found so far, NOT a converged one. Never present a `true` here
+    /// as a completed result.
+    pub deadline_hit: bool,
 }
 
 /// Leiden community detection over the undirected symmetrisation of the graph.
@@ -92,51 +113,76 @@ pub fn leiden<N>(graph: &AdjacencyGraph<N>, config: &LeidenConfig) -> LeidenResu
 where
     N: Clone + Eq + Hash + Ord,
 {
-    run_community(
+    let deadline = Instant::now() + config.budget;
+    let expired = Cell::new(false);
+    let result = run_community(
         graph,
         config.resolution,
-        |base_adj, resolution| leiden_partition(base_adj, resolution, config.seed, config),
+        |base_adj, resolution| {
+            let (membership, hit) =
+                leiden_partition(base_adj, resolution, config.seed, config, deadline);
+            expired.set(hit);
+            membership
+        },
         |communities, modularity| LeidenResult {
             communities,
             modularity,
+            deadline_hit: expired.get(),
         },
-    )
+    );
+    if result.deadline_hit {
+        tracing::warn!(
+            budget_ms = config.budget.as_millis() as u64,
+            communities = result.communities.len(),
+            "leiden: wall-clock budget expired; returning best partition so far (truncated)"
+        );
+    }
+    result
 }
 
 /// Core Leiden over a raw symmetric weighted adjacency, mirroring
 /// `louvain::louvain_partition`'s shape with a refinement step inserted between
-/// local-moving and aggregation.
+/// local-moving and aggregation. Returns `(membership, deadline_hit)`.
 fn leiden_partition(
     base_adj: &[Vec<(usize, f64)>],
     resolution: f64,
     seed: Option<u64>,
     config: &LeidenConfig,
-) -> Vec<usize> {
+    deadline: Instant,
+) -> (Vec<usize>, bool) {
     let n = base_adj.len();
     let m2: f64 = base_adj
         .iter()
         .flat_map(|row| row.iter().map(|(_, w)| *w))
         .sum();
     if m2 <= 0.0 {
-        return (0..n).collect(); // no edges ⇒ every node isolated
+        return ((0..n).collect(), false); // no edges ⇒ every node isolated
     }
 
     let mut node_to_super: Vec<usize> = (0..n).collect();
     let mut current: Vec<Vec<(usize, f64)>> = base_adj.to_vec();
+    let mut deadline_hit = false;
 
     for _level in 0..config.max_levels {
-        let (p, improved, _n_p) = local_moving(&current, resolution, m2, seed, config.max_sweeps);
+        if Instant::now() >= deadline {
+            deadline_hit = true;
+            break;
+        }
+        let (p, improved, _n_p, moving_expired) =
+            local_moving(&current, resolution, m2, seed, config.max_sweeps, deadline);
+        deadline_hit |= moving_expired;
         if !improved {
             break;
         }
-        let refined = refine(&current, &p, resolution, m2);
+        let (refined, refine_expired) = refine(&current, &p, resolution, m2, deadline);
+        deadline_hit |= refine_expired;
         let n_refined = refined.iter().copied().max().map(|x| x + 1).unwrap_or(0);
 
         for slot in node_to_super.iter_mut() {
             *slot = refined[*slot];
         }
-        if n_refined == current.len() {
-            break; // refinement found no merges at all ⇒ stable
+        if moving_expired || refine_expired || n_refined == current.len() {
+            break; // out of time, or refinement found no merges at all ⇒ stable
         }
         current = aggregate(&current, &refined, n_refined);
         if n_refined == 1 {
@@ -152,7 +198,7 @@ fn leiden_partition(
         let dense = *relabel.entry(c).or_insert(next);
         membership[o] = dense;
     }
-    membership
+    (membership, deadline_hit)
 }
 
 /// The refinement phase (CONCEPT:EG-KG.compute.leiden-community-detection). Starting from
@@ -162,18 +208,31 @@ fn leiden_partition(
 /// resulting group's induced subgraph and returns THOSE as the final refined
 /// communities. See the module doc for why this makes connectivity a
 /// structural guarantee rather than a typical outcome.
-fn refine(adj: &[Vec<(usize, f64)>], p: &[usize], resolution: f64, m2: f64) -> Vec<usize> {
-    let comm = refinement_local_moving(adj, p, resolution, m2);
+/// Returns `(refined_partition, deadline_hit)`.
+fn refine(
+    adj: &[Vec<(usize, f64)>],
+    p: &[usize],
+    resolution: f64,
+    m2: f64,
+    deadline: Instant,
+) -> (Vec<usize>, bool) {
+    let (comm, deadline_hit) = refinement_local_moving(adj, p, resolution, m2, deadline);
+    // The component split and densify are single `O(V + E)` passes with no
+    // convergence loop, so they need no deadline of their own — and they are
+    // what makes the returned partition connectivity-guaranteed, so they must
+    // run even on a truncated `comm`.
     let roots = refinement_components(adj, &comm);
-    densify_refined_partition(&comm, &roots)
+    (densify_refined_partition(&comm, &roots), deadline_hit)
 }
 
+/// Returns `(community_of_node, deadline_hit)`.
 fn refinement_local_moving(
     adj: &[Vec<(usize, f64)>],
     parent_comm: &[usize],
     resolution: f64,
     m2: f64,
-) -> Vec<usize> {
+    deadline: Instant,
+) -> (Vec<usize>, bool) {
     let n = adj.len();
     let degree: Vec<f64> = adj
         .iter()
@@ -182,9 +241,18 @@ fn refinement_local_moving(
     let mut comm: Vec<usize> = (0..n).collect();
     let mut sigma_tot = degree.clone();
 
-    for _ in 0..config_sweep_cap(n) {
+    let mut deadline_hit = false;
+
+    'sweeps: for _ in 0..config_sweep_cap(n) {
         let mut moved = false;
         for node in 0..n {
+            // Same stride discipline as `louvain::local_moving`: the refinement
+            // phase runs up to `min(n, 100)` `O(V + E)` sweeps of its own, so a
+            // per-sweep-only check would leave the same hole open here.
+            if node % DEADLINE_CHECK_STRIDE == 0 && Instant::now() >= deadline {
+                deadline_hit = true;
+                break 'sweeps;
+            }
             let inputs = RefinementInputs {
                 adj,
                 parent_comm,
@@ -198,7 +266,7 @@ fn refinement_local_moving(
             break;
         }
     }
-    comm
+    (comm, deadline_hit)
 }
 
 /// The read-only topology one refinement sweep reads: the level's adjacency,
@@ -370,6 +438,13 @@ pub struct HierarchyLevel<N> {
 #[derive(Debug, Clone)]
 pub struct LeidenHierarchy<N> {
     pub levels: Vec<HierarchyLevel<N>>,
+    /// `true` when [`LeidenConfig::budget`] expired before the hierarchy
+    /// converged: the levels present are real and strictly nested, but the
+    /// hierarchy is TRUNCATED — coarser levels the algorithm would have built
+    /// are missing. A truncated dendrogram is indistinguishable from a converged
+    /// one without this flag, so callers that render or persist it must surface
+    /// it rather than presenting a partial hierarchy as the whole graph.
+    pub deadline_hit: bool,
 }
 
 /// Run hierarchical Leiden over `graph`, keeping every intermediate level
@@ -383,15 +458,20 @@ where
 {
     let n = graph.node_count();
     if n == 0 {
-        return LeidenHierarchy { levels: Vec::new() };
+        return LeidenHierarchy {
+            levels: Vec::new(),
+            deadline_hit: false,
+        };
     }
+    let deadline = Instant::now() + config.budget;
     let resolution = if config.resolution > 0.0 {
         config.resolution
     } else {
         1.0
     };
     let base_adj = graph.undirected_weighted_adjacency();
-    let raw = leiden_hierarchy_raw(&base_adj, resolution, config.seed, config);
+    let (raw, deadline_hit) =
+        leiden_hierarchy_raw(&base_adj, resolution, config.seed, config, deadline);
 
     let mut levels = Vec::with_capacity(raw.len());
     for (i, (snapshot, _refined_into_this_level)) in raw.iter().enumerate() {
@@ -422,7 +502,17 @@ where
             modularity,
         });
     }
-    LeidenHierarchy { levels }
+    if deadline_hit {
+        tracing::warn!(
+            budget_ms = config.budget.as_millis() as u64,
+            levels = levels.len(),
+            "leiden_hierarchy: wall-clock budget expired; hierarchy is TRUNCATED (coarser levels missing)"
+        );
+    }
+    LeidenHierarchy {
+        levels,
+        deadline_hit,
+    }
 }
 
 /// The raw per-level bookkeeping [`leiden_hierarchy`] needs, computed by the
@@ -439,31 +529,44 @@ where
 ///   THIS level's community `c` merges into (the same array `aggregate` uses to
 ///   build the next level's supernode graph — reused verbatim, not
 ///   recomputed, so it is guaranteed consistent with the actual aggregation).
+///
+/// Returns `(levels, deadline_hit)`.
+#[allow(clippy::type_complexity)]
 fn leiden_hierarchy_raw(
     base_adj: &[Vec<(usize, f64)>],
     resolution: f64,
     seed: Option<u64>,
     config: &LeidenConfig,
-) -> Vec<(Vec<usize>, Vec<usize>)> {
+    deadline: Instant,
+) -> (Vec<(Vec<usize>, Vec<usize>)>, bool) {
     let n = base_adj.len();
     let m2: f64 = base_adj
         .iter()
         .flat_map(|row| row.iter().map(|(_, w)| *w))
         .sum();
     if m2 <= 0.0 {
-        return Vec::new(); // no edges ⇒ no coarsening ⇒ no levels above the leaves
+        // no edges ⇒ no coarsening ⇒ no levels above the leaves
+        return (Vec::new(), false);
     }
 
     let mut node_to_super: Vec<usize> = (0..n).collect();
     let mut current: Vec<Vec<(usize, f64)>> = base_adj.to_vec();
     let mut out: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
+    let mut deadline_hit = false;
 
     for _level in 0..config.max_levels {
-        let (p, improved, _n_p) = local_moving(&current, resolution, m2, seed, config.max_sweeps);
+        if Instant::now() >= deadline {
+            deadline_hit = true;
+            break;
+        }
+        let (p, improved, _n_p, moving_expired) =
+            local_moving(&current, resolution, m2, seed, config.max_sweeps, deadline);
+        deadline_hit |= moving_expired;
         if !improved {
             break;
         }
-        let refined = refine(&current, &p, resolution, m2);
+        let (refined, refine_expired) = refine(&current, &p, resolution, m2, deadline);
+        deadline_hit |= refine_expired;
         let n_refined = refined.iter().copied().max().map(|x| x + 1).unwrap_or(0);
 
         for slot in node_to_super.iter_mut() {
@@ -471,15 +574,15 @@ fn leiden_hierarchy_raw(
         }
         out.push((node_to_super.clone(), refined.clone()));
 
-        if n_refined == current.len() {
-            break; // refinement found no merges at all ⇒ stable
+        if moving_expired || refine_expired || n_refined == current.len() {
+            break; // out of time, or refinement found no merges at all ⇒ stable
         }
         current = aggregate(&current, &refined, n_refined);
         if n_refined == 1 {
             break;
         }
     }
-    out
+    (out, deadline_hit)
 }
 
 #[cfg(test)]
@@ -776,6 +879,72 @@ mod hierarchy_tests {
         }
     }
 
+    /// The VIZ-1 cluster path (`algorithms::cluster_hierarchy` →
+    /// `ClusterHierarchyRefresh`) runs this kernel, and it had no wall-clock
+    /// bound at all. A TRUNCATED dendrogram is indistinguishable from a
+    /// converged one — coarser levels are simply absent — so the bound and the
+    /// flag matter more here than anywhere else in the family.
+    #[test]
+    fn leiden_hierarchy_wall_clock_budget_truncates_and_flags_it() {
+        const N: usize = 20_000;
+        let (graph, _edges) = synthetic_clustered_graph(N, 40, 8, 42);
+        let budget = std::time::Duration::from_millis(50);
+
+        let started = std::time::Instant::now();
+        let truncated = leiden_hierarchy(
+            &graph,
+            &LeidenConfig {
+                budget,
+                ..Default::default()
+            },
+        );
+        let elapsed = started.elapsed();
+
+        assert!(
+            truncated.deadline_hit,
+            "a {budget:?} budget over {N} nodes must expire"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "budget {budget:?} did not bound the kernel: elapsed={elapsed:?}"
+        );
+        // Whatever levels DID complete must still be a real, strictly nested
+        // hierarchy — truncation drops coarser levels, it never corrupts the
+        // ones already built.
+        if let Some(level1) = truncated.levels.first() {
+            let covered: usize = level1.communities.iter().map(Vec::len).sum();
+            assert_eq!(covered, N);
+        }
+    }
+
+    /// A budget that does not fire must leave the hierarchy byte-identical.
+    #[test]
+    fn leiden_hierarchy_budget_that_does_not_fire_changes_nothing() {
+        const N: usize = 4_000;
+        let (graph, _edges) = synthetic_clustered_graph(N, 40, 8, 42);
+
+        let converged = leiden_hierarchy(&graph, &LeidenConfig::default());
+        assert!(
+            !converged.deadline_hit,
+            "the default 15s budget must not fire on a {N}-node fixture"
+        );
+        let generous = leiden_hierarchy(
+            &graph,
+            &LeidenConfig {
+                budget: std::time::Duration::from_secs(600),
+                ..Default::default()
+            },
+        );
+        assert!(!generous.deadline_hit);
+        assert_eq!(converged.levels.len(), generous.levels.len());
+        for (a, b) in converged.levels.iter().zip(&generous.levels) {
+            assert_eq!(a.communities, b.communities);
+            assert_eq!(a.parent, b.parent);
+            assert_eq!(a.modularity, b.modularity);
+        }
+        assert_strict_nesting(&converged, &(0..N).collect::<Vec<_>>());
+    }
+
     #[test]
     #[ignore = "slow: run explicitly, see module doc"]
     fn bench_hierarchy_synthetic_25k() {
@@ -963,5 +1132,133 @@ mod tests {
         let res = leiden(&g, &LeidenConfig::default());
         assert!(res.communities.is_empty());
         assert_eq!(res.modularity, 0.0);
+    }
+    /// Leiden reuses `louvain::local_moving` verbatim, so it inherited that
+    /// module's MISSING wall-clock bound — Leiden never had one at all (this is
+    /// pre-existing, not caused by commit `a14b9c28`, but the shared kernel is
+    /// why it is fixed here). Same contract as Louvain's: the kernel stops on
+    /// TIME, returns the best partition so far, and says so.
+    #[test]
+    fn leiden_wall_clock_budget_truncates_large_graph_and_flags_it() {
+        const N: usize = 20_000;
+        let graph = budget_test_graph(N);
+        let budget = std::time::Duration::from_millis(50);
+
+        let started = Instant::now();
+        let truncated = leiden(
+            &graph,
+            &LeidenConfig {
+                budget,
+                ..Default::default()
+            },
+        );
+        let elapsed = started.elapsed();
+
+        assert!(
+            truncated.deadline_hit,
+            "a {budget:?} budget over {N} nodes must expire"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "budget {budget:?} did not bound the kernel: elapsed={elapsed:?}"
+        );
+        assert_covers(&truncated.communities, N);
+    }
+
+    /// A budget that does not fire must perturb nothing — Leiden's determinism
+    /// and its connectivity guarantee both have to survive the new field.
+    #[test]
+    fn leiden_budget_that_does_not_fire_changes_nothing() {
+        const N: usize = 4_000;
+        let graph = budget_test_graph(N);
+
+        let converged = leiden(&graph, &LeidenConfig::default());
+        assert!(
+            !converged.deadline_hit,
+            "the default 15s budget must not fire on a {N}-node fixture"
+        );
+        let generous = leiden(
+            &graph,
+            &LeidenConfig {
+                budget: std::time::Duration::from_secs(600),
+                ..Default::default()
+            },
+        );
+        assert!(!generous.deadline_hit);
+        assert_eq!(
+            converged.communities, generous.communities,
+            "a budget that does not fire must return the SAME partition"
+        );
+        assert_eq!(converged.modularity, generous.modularity);
+        assert_covers(&converged.communities, N);
+
+        let truncated = leiden(
+            &graph,
+            &LeidenConfig {
+                budget: std::time::Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
+        assert!(truncated.deadline_hit);
+        assert_covers(&truncated.communities, N);
+        assert!(
+            truncated.communities.len() >= converged.communities.len(),
+            "truncated={} converged={}",
+            truncated.communities.len(),
+            converged.communities.len()
+        );
+    }
+
+    #[test]
+    fn leiden_small_graphs_never_report_a_deadline_hit() {
+        let g = AdjacencyGraph::from_edges([("a", "b", 1.0), ("b", "c", 1.0), ("a", "c", 1.0)]);
+        assert!(!leiden(&g, &LeidenConfig::default()).deadline_hit);
+        let empty: AdjacencyGraph<&str> = AdjacencyGraph::from_edges([]);
+        assert!(!leiden(&empty, &LeidenConfig::default()).deadline_hit);
+    }
+
+    /// Deterministic clustered fixture for the budget tests (blocks of 40 nodes
+    /// with 8 random intra-block edges each, joined in a ring).
+    fn budget_test_graph(n: usize) -> AdjacencyGraph<usize> {
+        let mut rng = crate::SplitMix64::new(7);
+        let mut adjacency: Vec<(usize, Vec<(usize, f64)>)> =
+            (0..n).map(|i| (i, Vec::new())).collect();
+        for (i, row) in adjacency.iter_mut().enumerate() {
+            let start = (i / 40) * 40;
+            let end = (start + 40).min(n);
+            if end <= start + 1 {
+                continue;
+            }
+            for _ in 0..8 {
+                let j = start + rng.below(end - start);
+                if j != i {
+                    row.1.push((j, 1.0));
+                }
+            }
+        }
+        let clusters = n.div_ceil(40);
+        for cluster in 0..clusters {
+            let a = cluster * 40;
+            let b = ((cluster + 1) % clusters) * 40;
+            if a < n && b < n && a != b {
+                adjacency[a].1.push((b, 1.0));
+            }
+        }
+        AdjacencyGraph::from_adjacency(adjacency)
+    }
+
+    /// Every node in exactly one community — a truncated Leiden run must still
+    /// return a COMPLETE partition, not a partial one.
+    fn assert_covers(communities: &[Vec<usize>], n: usize) {
+        let mut seen = vec![false; n];
+        let mut total = 0usize;
+        for community in communities {
+            for &member in community {
+                assert!(!seen[member], "node {member} appeared in two communities");
+                seen[member] = true;
+                total += 1;
+            }
+        }
+        assert_eq!(total, n, "every node must appear in exactly one community");
     }
 }

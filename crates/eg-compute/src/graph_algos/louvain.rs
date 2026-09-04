@@ -3,8 +3,19 @@
 
 use super::graph::AdjacencyGraph;
 use crate::SplitMix64;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::time::{Duration, Instant};
+
+/// How many nodes one local-moving sweep visits between wall-clock checks.
+///
+/// A sweep is `O(V + E)`, so on a large graph a SINGLE sweep can outlast the
+/// whole budget — checking only *between* sweeps would therefore not be a bound
+/// at all. Checking every `DEADLINE_CHECK_STRIDE` nodes keeps the
+/// `Instant::now()` cost immeasurable next to the per-node neighbour-weight
+/// `HashMap` work while capping overshoot at that many node moves.
+pub(crate) const DEADLINE_CHECK_STRIDE: usize = 1024;
 
 /// Configuration for [`louvain`]. CONCEPT:EG-KG.compute.louvain-community-detection
 #[derive(Debug, Clone, Copy)]
@@ -20,6 +31,19 @@ pub struct LouvainConfig {
     pub max_sweeps: usize,
     /// Cap on aggregation levels.
     pub max_levels: usize,
+    /// Wall-clock budget for the WHOLE run (CONCEPT:EG-KG.compute.louvain-community-detection).
+    ///
+    /// `max_sweeps`/`max_levels` bound ITERATIONS, not TIME, and per-iteration
+    /// cost scales with the graph — so on a request path they are not a bound.
+    /// This is. On expiry the kernel stops and returns the BEST PARTITION SO FAR
+    /// (still a valid partition of every node) with
+    /// [`LouvainResult::deadline_hit`] set.
+    ///
+    /// Deliberately a plain `Duration`, **not** an `Option<Duration>`: an
+    /// optional budget invites the next caller to leave it unset, which is
+    /// exactly the hole this field closes. Every struct-literal construction of
+    /// this config is a compile error until it names a budget on purpose.
+    pub budget: Duration,
 }
 
 impl Default for LouvainConfig {
@@ -29,6 +53,7 @@ impl Default for LouvainConfig {
             seed: None,
             max_sweeps: 100,
             max_levels: 50,
+            budget: Duration::from_secs(15),
         }
     }
 }
@@ -40,6 +65,12 @@ pub struct LouvainResult<N> {
     pub communities: Vec<Vec<N>>,
     /// Final modularity `Q` of the returned partition.
     pub modularity: f64,
+    /// `true` when [`LouvainConfig::budget`] expired before the algorithm
+    /// converged. The partition is still VALID (every node is assigned) but it
+    /// is the best one found so far, NOT a converged one — a truncated result
+    /// that looks complete is precisely what this flag exists to prevent.
+    /// Callers that persist or publish the partition must surface this.
+    pub deadline_hit: bool,
 }
 
 /// Louvain community detection over the undirected symmetrisation of the graph.
@@ -56,15 +87,39 @@ pub fn louvain<N>(graph: &AdjacencyGraph<N>, config: &LouvainConfig) -> LouvainR
 where
     N: Clone + Eq + Hash + Ord,
 {
-    run_community(
+    // The deadline is anchored ONCE, at entry, so it bounds the whole call
+    // (projection included) rather than restarting per level.
+    let deadline = Instant::now() + config.budget;
+    // `run_community` calls `partition` exactly once and then `build` exactly
+    // once, so a `Cell` hoists the truncation flag out of the `FnOnce` without
+    // widening `run_community`'s shared signature (Leiden calls it too).
+    let expired = Cell::new(false);
+    let result = run_community(
         graph,
         config.resolution,
-        |base_adj, resolution| louvain_partition(base_adj, resolution, config.seed, config),
+        |base_adj, resolution| {
+            let (membership, hit) =
+                louvain_partition(base_adj, resolution, config.seed, config, deadline);
+            expired.set(hit);
+            membership
+        },
         |communities, modularity| LouvainResult {
             communities,
             modularity,
+            deadline_hit: expired.get(),
         },
-    )
+    );
+    if result.deadline_hit {
+        // Non-silent by construction: every caller of this kernel — including
+        // ones that discard the typed flag — leaves a record that the partition
+        // it published was truncated, not converged.
+        tracing::warn!(
+            budget_ms = config.budget.as_millis() as u64,
+            communities = result.communities.len(),
+            "louvain: wall-clock budget expired; returning best partition so far (truncated)"
+        );
+    }
+    result
 }
 
 pub(crate) fn run_community<N, R, F, B>(
@@ -98,39 +153,52 @@ fn positive_resolution(configured_resolution: f64) -> f64 {
 }
 
 /// Core Louvain over a raw symmetric weighted adjacency. Returns the community of
-/// each of the original `0..n` nodes (dense community ids).
+/// each of the original `0..n` nodes (dense community ids), plus whether
+/// `deadline` expired before the algorithm converged.
 fn louvain_partition(
     base_adj: &[Vec<(usize, f64)>],
     resolution: f64,
     seed: Option<u64>,
     config: &LouvainConfig,
-) -> Vec<usize> {
+    deadline: Instant,
+) -> (Vec<usize>, bool) {
     let n = base_adj.len();
     let m2: f64 = base_adj
         .iter()
         .flat_map(|row| row.iter().map(|(_, w)| *w))
         .sum(); // = 2m
     if m2 <= 0.0 {
-        return (0..n).collect(); // no edges ⇒ every node isolated
+        return ((0..n).collect(), false); // no edges ⇒ every node isolated
     }
 
     // node_to_super[o] tracks which current-level super-node each ORIGINAL node
     // maps to; updated after each level.
     let mut node_to_super: Vec<usize> = (0..n).collect();
     let mut current: Vec<Vec<(usize, f64)>> = base_adj.to_vec();
+    let mut deadline_hit = false;
 
     for _level in 0..config.max_levels {
-        let (comm, improved, n_comms) =
-            local_moving(&current, resolution, m2, seed, config.max_sweeps);
+        // Checked here AND inside the sweep loop: one level on a large graph can
+        // exceed the budget by itself, so a per-level check alone is not a bound.
+        if Instant::now() >= deadline {
+            deadline_hit = true;
+            break;
+        }
+        let (comm, improved, n_comms, level_expired) =
+            local_moving(&current, resolution, m2, seed, config.max_sweeps, deadline);
+        deadline_hit |= level_expired;
         if !improved {
             break;
         }
-        // Fold this level's communities into the original mapping.
+        // Fold this level's communities into the original mapping. A truncated
+        // level's `comm` is still a complete, densified partition of `current`,
+        // so folding it keeps the BEST PARTITION SO FAR rather than discarding
+        // the work already done.
         for slot in node_to_super.iter_mut() {
             *slot = comm[*slot];
         }
-        if n_comms == current.len() {
-            break; // no coarsening possible
+        if level_expired || n_comms == current.len() {
+            break; // out of time, or no coarsening possible
         }
         current = aggregate(&current, &comm, n_comms);
         if n_comms == 1 {
@@ -146,21 +214,28 @@ fn louvain_partition(
         let dense = *relabel.entry(c).or_insert(next);
         membership[o] = dense;
     }
-    membership
+    (membership, deadline_hit)
 }
 
-/// One level of local moving. Returns `(community_of_node, improved, n_comms)`.
+/// One level of local moving. Returns
+/// `(community_of_node, improved, n_comms, deadline_hit)`.
+///
+/// Stops as soon as `deadline` has passed, returning the partition reached so
+/// far (always complete — every node carries a community at every instant) with
+/// `deadline_hit = true`.
 ///
 /// `pub(crate)` (not `pub`) — reused as-is by [`super::leiden`]'s outer per-level
 /// pass (identical unconstrained local-moving), which layers its own restricted
-/// refinement phase on top rather than re-deriving this routine.
+/// refinement phase on top rather than re-deriving this routine. Threading the
+/// deadline HERE is what gives Leiden a wall-clock bound too.
 pub(crate) fn local_moving(
     adj: &[Vec<(usize, f64)>],
     resolution: f64,
     m2: f64,
     seed: Option<u64>,
     max_sweeps: usize,
-) -> (Vec<usize>, bool, usize) {
+    deadline: Instant,
+) -> (Vec<usize>, bool, usize, bool) {
     let n = adj.len();
     let degree: Vec<f64> = adj
         .iter()
@@ -172,10 +247,16 @@ pub(crate) fn local_moving(
 
     let order = visit_order(n, seed);
     let mut improved = false;
+    let mut deadline_hit = false;
 
-    for _ in 0..max_sweeps {
+    'sweeps: for _ in 0..max_sweeps {
         let mut moved = false;
-        for &i in &order {
+        for (visited, &i) in order.iter().enumerate() {
+            // `visited == 0` makes this also the top-of-sweep check.
+            if visited % DEADLINE_CHECK_STRIDE == 0 && Instant::now() >= deadline {
+                deadline_hit = true;
+                break 'sweeps;
+            }
             if move_louvain_node(adj, degree[i], &mut comm, &mut sigma_tot, i, resolution, m2) {
                 moved = true;
                 improved = true;
@@ -192,7 +273,7 @@ pub(crate) fn local_moving(
         let next = relabel.len();
         *slot = *relabel.entry(*slot).or_insert(next);
     }
-    (comm, improved, relabel.len())
+    (comm, improved, relabel.len(), deadline_hit)
 }
 
 fn move_louvain_node(
@@ -324,6 +405,151 @@ fn visit_order(n: usize, seed: Option<u64>) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A synthetic clustered graph: dense-ish blocks of `cluster_size` nodes,
+    /// each node drawing `intra_degree` random intra-block edges, blocks joined
+    /// in a ring so the graph is one component. Deterministic (fixed seed).
+    fn deadline_test_graph(
+        n: usize,
+        cluster_size: usize,
+        intra_degree: usize,
+    ) -> AdjacencyGraph<usize> {
+        let mut rng = SplitMix64::new(7);
+        let mut adjacency: Vec<(usize, Vec<(usize, f64)>)> =
+            (0..n).map(|i| (i, Vec::new())).collect();
+        for (i, row) in adjacency.iter_mut().enumerate() {
+            let start = (i / cluster_size) * cluster_size;
+            let end = (start + cluster_size).min(n);
+            if end <= start + 1 {
+                continue;
+            }
+            for _ in 0..intra_degree {
+                let j = start + rng.below(end - start);
+                if j != i {
+                    row.1.push((j, 1.0));
+                }
+            }
+        }
+        let clusters = n.div_ceil(cluster_size);
+        for cluster in 0..clusters {
+            let a = cluster * cluster_size;
+            let b = ((cluster + 1) % clusters) * cluster_size;
+            if a < n && b < n && a != b {
+                adjacency[a].1.push((b, 1.0));
+            }
+        }
+        AdjacencyGraph::from_adjacency(adjacency)
+    }
+
+    /// Assert `communities` is a COMPLETE partition of `0..n`: every node
+    /// exactly once, none twice. A truncated run must still satisfy this — the
+    /// budget returns the best partition so far, never a partial one.
+    fn assert_partition_covers(communities: &[Vec<usize>], n: usize) {
+        let mut seen = vec![false; n];
+        let mut total = 0usize;
+        for community in communities {
+            for &member in community {
+                assert!(!seen[member], "node {member} appeared in two communities");
+                seen[member] = true;
+                total += 1;
+            }
+        }
+        assert_eq!(total, n, "every node must appear in exactly one community");
+    }
+
+    /// The wall-clock bound. Commit `a14b9c28` deleted a duplicate hand-rolled
+    /// Louvain kernel and, with it, `COMMUNITY_DETECTION_BUDGET` — the only
+    /// wall-clock bound in the whole community-detection family. `max_sweeps`
+    /// and `max_levels` bound ITERATIONS, and per-iteration cost scales with the
+    /// graph, so they never bounded a request path. This pins that the KERNEL
+    /// itself stops on TIME (a handler-side timeout would bound the response
+    /// while the compute thread kept burning CPU), and that the truncation is
+    /// reported rather than passed off as a converged partition.
+    #[test]
+    fn eg144_louvain_wall_clock_budget_truncates_large_graph_and_flags_it() {
+        const N: usize = 60_000;
+        let graph = deadline_test_graph(N, 40, 8);
+        let budget = Duration::from_millis(50);
+
+        let started = Instant::now();
+        let truncated = louvain(
+            &graph,
+            &LouvainConfig {
+                budget,
+                ..Default::default()
+            },
+        );
+        let elapsed = started.elapsed();
+
+        assert!(
+            truncated.deadline_hit,
+            "a {budget:?} budget over {N} nodes must expire — an unflagged \
+             result here means a truncated partition is being presented as \
+             converged"
+        );
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "budget {budget:?} did not bound the kernel: elapsed={elapsed:?}"
+        );
+        assert_partition_covers(&truncated.communities, N);
+    }
+
+    /// The negative direction: determinism is a documented guarantee of this
+    /// kernel, so a budget that never fires must not perturb anything.
+    #[test]
+    fn eg144_louvain_budget_that_does_not_fire_changes_nothing() {
+        const N: usize = 20_000;
+        let graph = deadline_test_graph(N, 40, 8);
+
+        let converged = louvain(&graph, &LouvainConfig::default());
+        assert!(
+            !converged.deadline_hit,
+            "the default 15s budget must not fire on a {N}-node fixture"
+        );
+        let generous = louvain(
+            &graph,
+            &LouvainConfig {
+                budget: Duration::from_secs(600),
+                ..Default::default()
+            },
+        );
+        assert!(!generous.deadline_hit);
+        assert_eq!(
+            converged.communities, generous.communities,
+            "a budget that does not fire must return the SAME partition"
+        );
+        assert_eq!(converged.modularity, generous.modularity);
+        assert_partition_covers(&converged.communities, N);
+
+        // And truncation can only ever leave the graph LESS merged than the
+        // converged run — never more. (A 1ms budget expires during projection,
+        // so this also pins the degenerate "no level completed" case.)
+        let truncated = louvain(
+            &graph,
+            &LouvainConfig {
+                budget: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
+        assert!(truncated.deadline_hit);
+        assert_partition_covers(&truncated.communities, N);
+        assert!(
+            truncated.communities.len() >= converged.communities.len(),
+            "truncated={} converged={}",
+            truncated.communities.len(),
+            converged.communities.len()
+        );
+    }
+
+    /// Every small fixture above runs under the DEFAULT budget; pin explicitly
+    /// that none of them is silently truncated.
+    #[test]
+    fn eg144_louvain_small_graphs_never_report_a_deadline_hit() {
+        let g = AdjacencyGraph::from_edges([("a", "b", 1.0), ("b", "c", 1.0), ("a", "c", 1.0)]);
+        assert!(!louvain(&g, &LouvainConfig::default()).deadline_hit);
+        let empty: AdjacencyGraph<&str> = AdjacencyGraph::from_edges([]);
+        assert!(!louvain(&empty, &LouvainConfig::default()).deadline_hit);
+    }
 
     #[test]
     fn eg144_louvain_finds_two_communities_in_two_cliques() {
