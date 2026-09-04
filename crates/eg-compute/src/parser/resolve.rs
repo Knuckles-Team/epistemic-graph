@@ -28,8 +28,18 @@ use std::collections::{HashMap, HashSet};
 /// `depends_on` edges point at real node ids.
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct IndexResult {
-    /// Every SYMBOL node across all files (deduplicated by node id). The internal
-    /// `call_sites` resolution-input property is stripped before return.
+    /// Every SYMBOL node across all files — ONE row per declaration site, never
+    /// deduplicated. The doc used to claim "deduplicated by node id" and
+    /// `collect_result_nodes` never did it; the DOC was the wrong half. Under the
+    /// old content-addressed id, deduplicating would have been a data-loss bug:
+    /// byte-identical declarations shared an id but not their facts (`file_path`,
+    /// `line`, byte range), so collapsing them would have thrown away every
+    /// occurrence but the first. Ids are now per-occurrence
+    /// (CONCEPT:EG-KG.compute.symbol-occurrence-id), so uniqueness holds by
+    /// construction and there is nothing left to dedupe — provided the batch
+    /// carries each file path once, which is the caller's contract (a path
+    /// repeated in `files` is parsed twice and would repeat its ids). The
+    /// internal `call_sites` resolution-input property is stripped before return.
     pub nodes: Vec<ExtractedNode>,
     /// `IMPLEMENTS` (file→symbol) + resolved `calls` (symbol→symbol) + `inherits`/
     /// `realizes` (class→class) + resolved `depends_on` (file→file). Raw unresolved
@@ -1057,6 +1067,66 @@ mod tests {
             r.edges
         );
         assert!(r.realizes_edges >= 1);
+    }
+
+    #[test]
+    fn duplicate_content_resolves_per_occurrence_not_per_content() {
+        // CONCEPT:EG-KG.compute.symbol-occurrence-id — two files whose helper is
+        // byte-identical. Each caller must bind ITS OWN file's helper, and the two
+        // helpers must be two nodes.
+        let r = index_repository(&files(&[
+            (
+                "a.py",
+                "def helper():\n    return 1\n\ndef go():\n    return helper()\n",
+            ),
+            (
+                "b.py",
+                "def helper():\n    return 1\n\ndef run():\n    return helper()\n",
+            ),
+        ]));
+        let a_helper = node_id(&r, "helper", "a.py");
+        let b_helper = node_id(&r, "helper", "b.py");
+        assert_ne!(a_helper, b_helper, "one id per occurrence");
+        let go = node_id(&r, "go", "a.py");
+        let run = node_id(&r, "run", "b.py");
+        assert!(
+            r.edges
+                .iter()
+                .any(|e| e.edge_type == "calls" && e.source == go && e.target == a_helper),
+            "go must bind a.py's helper; edges={:?}",
+            r.edges
+        );
+        assert!(
+            r.edges
+                .iter()
+                .any(|e| e.edge_type == "calls" && e.source == run && e.target == b_helper),
+            "run must bind b.py's helper; edges={:?}",
+            r.edges
+        );
+    }
+
+    #[test]
+    fn index_result_nodes_carry_no_duplicate_ids() {
+        // The documented shape of `IndexResult.nodes`: one row per declaration
+        // site, and no two rows share an id.
+        let r = index_repository(&files(&[
+            ("a.py", "class C:\n    def m(self):\n        pass\n"),
+            ("b.py", "class C:\n    def m(self):\n        pass\n"),
+        ]));
+        let mut seen = HashSet::new();
+        for n in &r.nodes {
+            assert!(
+                seen.insert(n.node_id.as_str()),
+                "duplicate id {}",
+                n.node_id
+            );
+        }
+        assert_eq!(
+            r.nodes.len(),
+            4,
+            "2 classes + 2 methods: {:?}",
+            r.nodes.len()
+        );
     }
 
     #[test]
