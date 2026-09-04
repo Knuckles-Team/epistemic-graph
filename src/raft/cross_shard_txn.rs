@@ -836,7 +836,17 @@ impl CrossShardCoordinator {
             if !retain_for_parent {
                 continue;
             }
-            let parent = eg_mutation_store::read_record(redb.admin_mutation_store(), &parent_id)?;
+            // The cluster-admin scope identity, exactly as the four
+            // `handlers/admin.rs` call sites resolve it. MutationBatch v1's
+            // `read_record` is scope-addressed, so a batch id alone no longer
+            // identifies a record.
+            let admin_identity =
+                crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
+            let parent = eg_mutation_store::read_record(
+                redb.admin_mutation_store(),
+                &admin_identity,
+                &parent_id,
+            )?;
             if let Some(record) = parent.as_ref().filter(|record| {
                 record.status == crate::mutation_batch::MutationBatchStatus::Committed
             }) {
