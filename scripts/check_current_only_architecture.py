@@ -5,9 +5,18 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from method_policy_inventory import (
+    MethodPolicyInventoryError,
+    load_capability_sources,
+    parse_method_policy_table,
+)
 
 
 def read(relative: str) -> str:
@@ -24,6 +33,37 @@ def delimited_body(source: str, opener: str, closer: str) -> str:
     tail = source.split(opener, 1)[1]
     require(closer in tail, f"unterminated contract block: {opener.strip()}")
     return tail.split(closer, 1)[0]
+
+
+def method_policy_body(source: str, variant: str) -> str:
+    """Return one method's policy fields from the explicit domain inventory.
+
+    The method-policy table used to be a `match` whose arms read
+    `Method::CreateNodeIfAbsent { .. } => MethodPolicy { .. }`, and the checks
+    below sliced an arm out by that literal. The table is now a per-domain
+    const array of `(name, make_policy(..), rationale)` tuples under
+    `crates/eg-capabilities/src/domains/`, so the literal matches nothing and
+    the gate reported the property MISSING when the refactor had merely changed
+    how it is expressed -- the failure mode `rust_callgraph`'s docstring
+    describes, one layer up in the same repo.
+
+    Re-key on the parsed row rather than on source shape: `parse_method_policy_table`
+    is the canonical reader for that layout, so this check now moves with the
+    table instead of pinning a spelling of it. The rendered string carries the
+    two fields these callers assert, in the syntax they already match on.
+    """
+
+    try:
+        rows = parse_method_policy_table(source)
+    except MethodPolicyInventoryError as error:
+        require(False, str(error))
+        return ""  # unreachable; keeps static type checkers total
+    row = next((row for row in rows if row.name == variant), None)
+    require(row is not None, f"missing method-policy row: {variant}")
+    assert row is not None
+    return (
+        f'idempotent: {str(row.idempotent).lower()}, authz_action: "{row.authz_action}"'
+    )
 
 
 def variant_body(source: str, name: str) -> str:
@@ -466,16 +506,8 @@ def _check_broker_fencing(broker: str, graph: str) -> None:
 
 
 def _check_mutation_policy(capabilities: str, cdc: str) -> None:
-    create_policy = delimited_body(
-        capabilities,
-        "Method::CreateNodeIfAbsent { .. } => MethodPolicy {",
-        "\n        },",
-    )
-    tag_policy = delimited_body(
-        capabilities,
-        "Method::BrokerAckTag { .. }",
-        "\n        },",
-    )
+    create_policy = method_policy_body(capabilities, "CreateNodeIfAbsent")
+    tag_policy = method_policy_body(capabilities, "BrokerAckTag")
     require(
         "idempotent: false" in create_policy and "idempotent: false" in tag_policy,
         "state-dependent create/tag results can enter cross-request replay caching",
@@ -536,9 +568,7 @@ def _check_rdf_integrity_policy(icv_policy: str, rdf_handler: str) -> None:
 
 
 def _check_rdf_capability(capabilities: str) -> None:
-    icv_capability = delimited_body(
-        capabilities, "Method::IcvConfigure { .. } => MethodPolicy {", "\n        },"
-    )
+    icv_capability = method_policy_body(capabilities, "IcvConfigure")
     require(
         'authz_action: "security:admin"' in icv_capability,
         "IcvConfigure is not restricted to administrative authority",
@@ -787,7 +817,10 @@ def main() -> None:
     raft = read("src/raft/mod.rs")
     raft_store = read("src/raft/store.rs")
     raw_rows = read("src/server/persistence/online_reshard.rs")
-    capabilities = read("crates/eg-capabilities/src/lib.rs")
+    # The policy ledger lives across the domain-owned `ROWS` modules under
+    # `crates/eg-capabilities/src/domains/`, not in `lib.rs`; `load_capability_sources`
+    # is the canonical reader that `check_universal_read_rls.py` already uses.
+    capabilities = load_capability_sources(ROOT)
     mutation_runtime = read("src/server/mutation.rs")
     mutation_apply = read("src/mutation_apply.rs")
     # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
