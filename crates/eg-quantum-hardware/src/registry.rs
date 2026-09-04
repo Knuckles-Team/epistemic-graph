@@ -582,7 +582,17 @@ macro_rules! impl_hardware_backend {
         pending_message = $pending_message:literal,
         timeout_message = $timeout_message:literal,
         status_mapping = $status_mapping:expr,
+        // Optional trailing comma. Every call site (`ibm.rs`, `braket.rs`,
+        // `azure.rs`) has written one since this macro was introduced
+        // (`fee79043`, 2026-08-30) and the matcher has never accepted it, so
+        // `eg-quantum-hardware` has never compiled under ANY of its `ibm` /
+        // `braket` / `azure` features -- all three are outside its (empty)
+        // `default`, and nothing compiled them: the everyday clippy hook selects
+        // only the root package, and the `--workspace --all-features
+        // --all-targets` leg that would have caught it runs solely at
+        // pre-push/CI.
         result_mapping = $result_mapping:expr
+        $(,)?
     ) => {
         impl<C: $crate::credentials::CredentialSource, T: $crate::transport::HttpTransport>
             eg_quantum_core::backend::QuantumBackend for $backend<C, T>

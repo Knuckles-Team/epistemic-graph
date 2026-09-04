@@ -777,18 +777,41 @@ mod tests {
             MigrationPolicy::default(),
         )
         .unwrap();
+        // Version gap: `target_schema_version` must stay `expected + 1`.
         migration.expected_schema_version = 3;
-        assert!(migration.validate().is_err());
+        let gap = migration.validate().unwrap_err();
+        assert!(gap.contains("versions must advance by one"), "{gap}");
 
-        let mut stale = migration.clone();
-        stale.expected_schema_version = 0;
-        stale.rollback.prior_schema_version = 0;
-        stale.checksum = stale.expected_checksum().unwrap();
-        assert!(stale
+        // Positive control.  Restored to its own CAS precondition, this plan
+        // re-seals cleanly against the schema it was drafted for.  Without this
+        // the stale-digest assertion below could pass for an unrelated reason
+        // (a malformed identity, a bad policy, a table-name mismatch...).
+        let mut restored = migration.clone();
+        restored.expected_schema_version = 0;
+        restored.rollback.prior_schema_version = 0;
+        restored
+            .seal_for(&schema())
+            .expect("the drafted plan seals against its own expected schema");
+
+        // Known-bad input: the table has ALREADY moved on (`source` is present,
+        // i.e. this migration ran), so the plan's `expected_schema_digest` no
+        // longer describes the live schema.  Sealing it again must fail.
+        //
+        // This half previously sealed against a schema BYTE-IDENTICAL to
+        // `schema()` -- the same digest the plan was drafted from -- so nothing
+        // was stale and `seal_for` correctly succeeded.  The assertion had never
+        // run: `tables` is behind eg-query's non-default `sql` feature, which no
+        // verification compiled until 2026-09-04.
+        let mut stale = restored.clone();
+        let error = stale
             .seal_for(&TableSchema::new(
                 "events",
-                vec![Column::new("id", ColumnType::BigInt, false, true)],
+                vec![
+                    Column::new("id", ColumnType::BigInt, false, true),
+                    Column::new("source", ColumnType::Text, true, false),
+                ],
             ))
-            .is_err());
+            .unwrap_err();
+        assert!(error.contains("stale schema digest"), "{error}");
     }
 }

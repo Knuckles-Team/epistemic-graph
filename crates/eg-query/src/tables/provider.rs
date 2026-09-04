@@ -928,22 +928,44 @@ mod user_table_provider_tests {
     }
 
     /// Direct classification check (mirrors `NodesTableProvider`/`EdgesTableProvider`'s
-    /// own `supports_filters_pushdown` tests): ANY `col = literal` equality is
-    /// `Inexact` — including a non-serial column, since `scan`'s fallback still
-    /// resolves it via the generic index delegate — and a non-equality predicate
-    /// is `Unsupported`.
+    /// own `supports_filters_pushdown` tests): every `col <op> literal` shape the
+    /// secondary-index lookup can serve is `Inexact` — ANY equality (including on a
+    /// non-serial column, since `scan`'s fallback still resolves it via the generic
+    /// index delegate) AND any `< <= > >=` range, which `secondary_lookup` lowers to
+    /// `SecondaryIndexLookup::{Lt,Le,Gt,Ge}`. Anything that is not a
+    /// column-versus-literal comparison (`IS NULL`, `col = col`) is `Unsupported`.
+    ///
+    /// Range predicates were classified `Unsupported` when this test was written
+    /// (2026-07-23); `3d4e3ff3` (2026-08-19) added the secondary-index range lookups
+    /// and widened `is_secondary_shape` to match, and the stale assertion went
+    /// unnoticed because `tables` is behind eg-query's non-default `sql` feature,
+    /// which no verification compiled until 2026-09-04. `Inexact` is the correct
+    /// answer for a range: DataFusion still re-applies the predicate, and `scan`
+    /// really does serve it from the index.
     #[test]
-    fn supports_filters_pushdown_is_inexact_for_any_equality() {
+    fn supports_filters_pushdown_is_inexact_for_any_indexable_comparison() {
         use datafusion::logical_expr::{col, lit};
         let p = provider_direct();
         let eq_id = col("id").eq(lit(1i64));
         let eq_symbol = col("symbol").eq(lit("AAPL"));
         let gt = col("id").gt(lit(1i64));
-        let refs: Vec<&Expr> = vec![&eq_id, &eq_symbol, &gt];
+        let is_null = col("id").is_null();
+        let col_vs_col = col("id").eq(col("symbol"));
+        let refs: Vec<&Expr> = vec![&eq_id, &eq_symbol, &gt, &is_null, &col_vs_col];
         let got = p.supports_filters_pushdown(&refs).unwrap();
         assert_eq!(got[0], TableProviderFilterPushDown::Inexact, "serial pk eq");
         assert_eq!(got[1], TableProviderFilterPushDown::Inexact, "non-pk eq");
-        assert_eq!(got[2], TableProviderFilterPushDown::Unsupported, "range");
+        assert_eq!(got[2], TableProviderFilterPushDown::Inexact, "range");
+        assert_eq!(
+            got[3],
+            TableProviderFilterPushDown::Unsupported,
+            "IS NULL is not a column-vs-literal comparison"
+        );
+        assert_eq!(
+            got[4],
+            TableProviderFilterPushDown::Unsupported,
+            "column-vs-column carries no literal to look up"
+        );
     }
 
     /// A table with NO serial column at all (`serial_col` is `None`) never has a
