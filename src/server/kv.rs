@@ -27,13 +27,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use tokio::sync::RwLock;
 
 use super::state::ServerState;
 use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
+use crate::server::mutation_batch::COMPILED_BATCH_INCARNATION;
 
 /// The single KV table: `(namespace, key) -> value bytes`. Composite key so one redb
 /// file holds every namespace, and a prefix scan over a namespace is a contiguous
@@ -66,6 +67,41 @@ fn validate_value(value: &[u8]) -> Result<(), String> {
     }
 }
 
+/// Fixed store-private scope used ONLY to bootstrap the physical `kv.redb` root and
+/// materialize the `KV` table on first open (CONCEPT:EG-KG.storage.namespaced-kv-surface,
+/// MutationBatch v1 store-ownership migration — see `crates/eg-core/src/rbac_persist.rs`
+/// for the worked reference this mirrors). Unlike `RbacStore`, `KvStore` serves
+/// arbitrarily many DYNAMIC namespaces out of one physical file rather than a single
+/// fixed scope, so this bootstrap identity is never used for a real write — every real
+/// namespace gets its own identity, built by `kv_scope_identity` below and bound lazily
+/// on first use via `mutation_version`. The resource name is fixed human-readable text
+/// and can never collide with a real namespace's resource, which is always the opaque
+/// `"kv-scope:<sha256-hex>"` form `opaque_coordinator_key` mints in `compile_kv_batch`.
+const KV_BOOTSTRAP_TENANT: &str = "kv-store";
+const KV_BOOTSTRAP_RESOURCE: &str = "kv-store-bootstrap";
+
+fn kv_bootstrap_identity() -> Result<eg_types::MutationScopeIdentity, String> {
+    kv_scope_identity(KV_BOOTSTRAP_TENANT, KV_BOOTSTRAP_RESOURCE)
+}
+
+/// Build the native KV mutation-scope identity for one (tenant, resource) pair.
+/// `resource` must be EXACTLY the string `compile_kv_batch` passes as
+/// `CompileBatch::graph` for the same write: `crate::server::mutation_batch::
+/// finish_batch` builds the batch's authoritative `identity` from that identical
+/// (tenant, graph) pair, the SAME `MutationDomain::KvStore` domain (the first — and
+/// only — operation `compile_opaque_method` compiles for a KV write), and the SAME
+/// `COMPILED_BATCH_INCARNATION` constant. `eg_mutation_store`'s scope-binding
+/// validator rejects any mismatch (`binding.identity != *identity`), so drifting
+/// from any one of those three fields here would make every KV write on that
+/// namespace fail closed with "mutation scope binding identity mismatch".
+fn kv_scope_identity(tenant: &str, resource: &str) -> Result<eg_types::MutationScopeIdentity, String> {
+    let tenant = eg_types::TenantId::new(tenant)?;
+    let resource = eg_types::LogicalName::new(resource)?;
+    let incarnation_id = eg_types::IncarnationId::new(COMPILED_BATCH_INCARNATION)
+        .map_err(|e| format!("invalid KV scope incarnation id: {e}"))?;
+    eg_types::MutationScopeIdentity::native(tenant, MutationDomain::KvStore, resource, incarnation_id)
+}
+
 /// A namespaced key→bytes store. Durable (redb) when a persist dir is configured,
 /// else an in-memory ordered map.
 pub struct KvStore {
@@ -73,8 +109,13 @@ pub struct KvStore {
 }
 
 enum Backend {
-    /// `{persist_dir}/kv.redb` — durable, commit-before-ack.
-    Redb(Database),
+    /// `{persist_dir}/kv.redb` — durable, commit-before-ack. Owns the
+    /// `eg_mutation_store::MutationStore` for that physical file rather than a bare
+    /// `redb::Database` (MutationBatch v1: `MutationWrite` — and so every durable
+    /// commit — can only be minted off a `MutationStore`, never a raw `Database`).
+    /// Plain (non-`_batch`) reads/writes still reach the same physical file directly
+    /// through `MutationStore::database()`, unchanged from the old `Database` path.
+    Redb(eg_mutation_store::MutationStore),
     /// In-memory ordered map (no persist dir) — ephemeral scratch KV. A single mutex
     /// keeps compare-and-swap genuinely atomic; the non-durable path is not perf-
     /// critical so the coarse lock is fine.
@@ -88,17 +129,20 @@ impl KvStore {
             Some(dir) => {
                 std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
                 let path = Path::new(dir).join("kv.redb");
-                let db = Database::create(&path).map_err(|e| e.to_string())?;
-                // Ensure the table exists so a fresh DB's read path doesn't error on a
-                // missing table (identical bootstrap to the other redb stores).
-                {
-                    let wtx = db.begin_write().map_err(|e| e.to_string())?;
-                    wtx.open_table(KV).map_err(|e| e.to_string())?;
-                    wtx.commit().map_err(|e| e.to_string())?;
-                }
-                eg_mutation_store::initialize(&db)?;
+                let identity = kv_bootstrap_identity()?;
+                // `initialize` creates/opens the physical file, establishes/validates
+                // its `StoreIncarnation` root, and binds the bootstrap scope at
+                // `initial_version: 0`. The bootstrap closure runs only on the FIRST
+                // bind (a fresh file) and just materializes the `KV` table so a later
+                // `get`/`scan` on a fresh DB never sees a "no such table" error —
+                // identical purpose to the old explicit `wtx.open_table(KV)` + commit.
+                let mutation_store =
+                    eg_mutation_store::initialize(&path, &identity, 0, None, |wtx| {
+                        wtx.open_table(KV).map_err(|e| e.to_string())?;
+                        Ok(())
+                    })?;
                 Ok(Self {
-                    backend: Backend::Redb(db),
+                    backend: Backend::Redb(mutation_store),
                 })
             }
             None => Ok(Self {
@@ -116,8 +160,8 @@ impl KvStore {
     pub fn get(&self, namespace: &str, key: &str) -> Result<Option<Vec<u8>>, String> {
         validate_key(namespace, key)?;
         match &self.backend {
-            Backend::Redb(db) => {
-                let rtx = db.begin_read().map_err(|e| e.to_string())?;
+            Backend::Redb(store) => {
+                let rtx = store.database().begin_read().map_err(|e| e.to_string())?;
                 let table = rtx.open_table(KV).map_err(|e| e.to_string())?;
                 let v = table
                     .get((namespace, key))
@@ -145,8 +189,8 @@ impl KvStore {
         validate_key(namespace, key)?;
         validate_value(&value)?;
         match &self.backend {
-            Backend::Redb(db) => {
-                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+            Backend::Redb(store) => {
+                let mut wtx = store.database().begin_write().map_err(|e| e.to_string())?;
                 wtx.set_durability(Durability::Immediate)
                     .map_err(|e| e.to_string())?;
                 {
@@ -170,8 +214,8 @@ impl KvStore {
     pub fn delete(&self, namespace: &str, key: &str) -> Result<bool, String> {
         validate_key(namespace, key)?;
         match &self.backend {
-            Backend::Redb(db) => {
-                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+            Backend::Redb(store) => {
+                let mut wtx = store.database().begin_write().map_err(|e| e.to_string())?;
                 wtx.set_durability(Durability::Immediate)
                     .map_err(|e| e.to_string())?;
                 let existed = {
@@ -210,8 +254,8 @@ impl KvStore {
         let mut out = Vec::new();
         let mut response_bytes = 0usize;
         match &self.backend {
-            Backend::Redb(db) => {
-                let rtx = db.begin_read().map_err(|e| e.to_string())?;
+            Backend::Redb(store) => {
+                let rtx = store.database().begin_read().map_err(|e| e.to_string())?;
                 let table = rtx.open_table(KV).map_err(|e| e.to_string())?;
                 // Range from (namespace, prefix): all prefix matches are a contiguous
                 // sorted block right after this bound, so we stop as soon as the
@@ -280,8 +324,8 @@ impl KvStore {
             validate_value(value)?;
         }
         match &self.backend {
-            Backend::Redb(db) => {
-                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+            Backend::Redb(store) => {
+                let mut wtx = store.database().begin_write().map_err(|e| e.to_string())?;
                 wtx.set_durability(Durability::Immediate)
                     .map_err(|e| e.to_string())?;
                 let swapped = {
@@ -339,15 +383,28 @@ impl KvStore {
         }
     }
 
-    /// Current universal MutationBatch version for one namespace scope.
+    /// Current universal MutationBatch version for one namespace scope. Binds the
+    /// scope's identity on first use — `KvStore` serves arbitrarily many dynamic
+    /// namespaces out of one physical file (unlike `RbacStore`'s single fixed
+    /// scope), so each namespace must be registered with `eg_mutation_store`
+    /// before `version`/`begin` will accept it. `eg_mutation_store::bind_scope` is
+    /// idempotent — re-binding the identical identity on every subsequent call is a
+    /// cheap no-op, not a re-registration.
     pub fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
         match &self.backend {
-            Backend::Redb(db) => eg_mutation_store::version(db, tenant, graph),
+            Backend::Redb(store) => {
+                let identity = kv_scope_identity(tenant, graph)?;
+                eg_mutation_store::bind_scope(store, &identity, 0, |_| Ok(()))?;
+                eg_mutation_store::version(store, &identity)
+            }
             Backend::Memory(_) => Ok(0),
         }
     }
 
     /// Atomically write a KV value and its terminal MutationBatch metadata.
+    /// Precondition (upheld by every caller — `compile_kv_batch`, below): `batch`'s
+    /// identity must already be bound, which happens as a side effect of the prior
+    /// `mutation_version` call every write path uses to compute its OCC expectation.
     pub fn put_batch(
         &self,
         namespace: &str,
@@ -359,32 +416,40 @@ impl KvStore {
         validate_key(namespace, key)?;
         validate_value(&value)?;
         match &self.backend {
-            Backend::Redb(db) => {
-                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-                wtx.set_durability(Durability::Immediate)
-                    .map_err(|e| e.to_string())?;
-                match eg_mutation_store::begin(&wtx, batch)? {
+            Backend::Redb(store) => {
+                // `MutationStore::write()` already opens with `Durability::Immediate`
+                // (the same durability the old code set by hand on the raw
+                // `WriteTransaction`), so nothing further to set here.
+                let write = store.write()?;
+                match eg_mutation_store::begin(&write, batch)? {
                     eg_mutation_store::Begin::Replay(record) => {
                         decode_batch_result::<()>(&record)?;
-                        wtx.abort().map_err(|e| e.to_string())?;
+                        // `MutationWrite::abort` is crate-private to
+                        // `eg_mutation_store`; returning here without calling
+                        // `.commit()` drops `write` un-committed, which redb's own
+                        // `Drop for WriteTransaction` aborts automatically (same
+                        // reasoning as `crates/eg-core/src/rbac_persist.rs::save`).
                         Ok(())
                     }
                     eg_mutation_store::Begin::Apply { source_version } => {
                         {
-                            let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
+                            let mut table = write
+                                .owner_rows()
+                                .open_table(KV)
+                                .map_err(|e| e.to_string())?;
                             table
                                 .insert((namespace, key), value.as_slice())
                                 .map_err(|e| e.to_string())?;
                         }
                         let result = rmp_serde::to_vec_named(&()).map_err(|e| e.to_string())?;
                         eg_mutation_store::finish(
-                            &wtx,
+                            &write,
                             batch,
                             Some(result),
                             committed_at_ms,
                             source_version,
                         )?;
-                        eg_mutation_store::commit(wtx, batch)
+                        eg_mutation_store::commit(write, batch)
                     }
                 }
             }
@@ -397,6 +462,7 @@ impl KvStore {
     }
 
     /// Atomically delete a KV value and its terminal MutationBatch metadata.
+    /// Same binding precondition as [`KvStore::put_batch`].
     pub fn delete_batch(
         &self,
         namespace: &str,
@@ -406,19 +472,20 @@ impl KvStore {
     ) -> Result<bool, String> {
         validate_key(namespace, key)?;
         match &self.backend {
-            Backend::Redb(db) => {
-                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-                wtx.set_durability(Durability::Immediate)
-                    .map_err(|e| e.to_string())?;
-                match eg_mutation_store::begin(&wtx, batch)? {
+            Backend::Redb(store) => {
+                let write = store.write()?;
+                match eg_mutation_store::begin(&write, batch)? {
                     eg_mutation_store::Begin::Replay(record) => {
                         let result = decode_batch_result(&record)?;
-                        wtx.abort().map_err(|e| e.to_string())?;
+                        // See `put_batch`'s Replay arm for why no explicit abort.
                         Ok(result)
                     }
                     eg_mutation_store::Begin::Apply { source_version } => {
                         let existed = {
-                            let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
+                            let mut table = write
+                                .owner_rows()
+                                .open_table(KV)
+                                .map_err(|e| e.to_string())?;
                             let removed =
                                 table.remove((namespace, key)).map_err(|e| e.to_string())?;
                             removed.is_some()
@@ -426,13 +493,13 @@ impl KvStore {
                         let result =
                             rmp_serde::to_vec_named(&existed).map_err(|e| e.to_string())?;
                         eg_mutation_store::finish(
-                            &wtx,
+                            &write,
                             batch,
                             Some(result),
                             committed_at_ms,
                             source_version,
                         )?;
-                        eg_mutation_store::commit(wtx, batch)?;
+                        eg_mutation_store::commit(write, batch)?;
                         Ok(existed)
                     }
                 }
@@ -447,6 +514,7 @@ impl KvStore {
     /// Atomically compare/swap a KV value and persist the exact verdict in the
     /// same MutationBatch transaction. A failed comparison is still a terminal,
     /// replayable request and therefore commits its status/outbox record.
+    /// Same binding precondition as [`KvStore::put_batch`].
     pub fn cas_batch(
         &self,
         namespace: &str,
@@ -464,19 +532,20 @@ impl KvStore {
             validate_value(value)?;
         }
         match &self.backend {
-            Backend::Redb(db) => {
-                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-                wtx.set_durability(Durability::Immediate)
-                    .map_err(|e| e.to_string())?;
-                match eg_mutation_store::begin(&wtx, batch)? {
+            Backend::Redb(store) => {
+                let write = store.write()?;
+                match eg_mutation_store::begin(&write, batch)? {
                     eg_mutation_store::Begin::Replay(record) => {
                         let result = decode_batch_result(&record)?;
-                        wtx.abort().map_err(|e| e.to_string())?;
+                        // See `put_batch`'s Replay arm for why no explicit abort.
                         Ok(result)
                     }
                     eg_mutation_store::Begin::Apply { source_version } => {
                         let swapped = {
-                            let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
+                            let mut table = write
+                                .owner_rows()
+                                .open_table(KV)
+                                .map_err(|e| e.to_string())?;
                             let current = table
                                 .get((namespace, key))
                                 .map_err(|e| e.to_string())?
@@ -506,13 +575,13 @@ impl KvStore {
                         let result =
                             rmp_serde::to_vec_named(&swapped).map_err(|e| e.to_string())?;
                         eg_mutation_store::finish(
-                            &wtx,
+                            &write,
                             batch,
                             Some(result),
                             committed_at_ms,
                             source_version,
                         )?;
-                        eg_mutation_store::commit(wtx, batch)?;
+                        eg_mutation_store::commit(write, batch)?;
                         Ok(swapped)
                     }
                 }
@@ -983,24 +1052,37 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
         let Backend::Redb(source) = &self.backend else {
             return Err("KV store is in-memory; nothing to bundle".to_string());
         };
-        let rtx = source.begin_read().map_err(|e| e.to_string())?;
-        let target = crate::server::persistence::durable_stores::create_bundle_file(destination)?;
+        // The KV domain's own MutationBatch bookkeeping lives in the SAME file, so a
+        // restored store must keep its idempotency/OCC/fence boundary rather than
+        // re-admitting an already-acknowledged write. That half is delegated to
+        // `backup_recovery_store`, which owns the complete table set and re-stamps
+        // `SCOPE_BINDINGS` for the destination's own incarnation.
+        //
+        // Hand-listing those tables here is what produced BUG-PE-054: `VERSIONS` was
+        // copied while `STORE_ROOT`/`SCOPE_BINDINGS` were not, so reopening a restored
+        // bundle failed with "mutation version row exists without a scope binding".
+        // The list cannot be kept correct from outside the crate that defines it.
+        let counts = eg_mutation_store::backup_recovery_store(source, destination)
+            .map_err(|error| error.to_string())?;
+
+        // `KV` is this store's own table, appended with plain redb: it is not part of
+        // the mutation-store contract, and adding a table does not disturb an
+        // incarnation bound to (dev, ino).
+        let rtx = source.database().begin_read().map_err(|e| e.to_string())?;
+        let target = redb::Database::create(destination).map_err(|e| e.to_string())?;
         let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
         wtx.set_durability(Durability::Immediate)
             .map_err(|e| e.to_string())?;
         let mut rows = 0u64;
         crate::copy_bundled_table!(rtx, wtx, rows, KV);
-        // The KV domain's own MutationBatch bookkeeping lives in the SAME file; copy it
-        // so a restored store keeps its idempotency/OCC/fence boundary rather than
-        // re-admitting an already-acknowledged write.
-        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::BATCHES);
-        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::IDEMPOTENCY);
-        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::VERSIONS);
-        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::FENCES);
-        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::OUTBOX);
-        crate::copy_bundled_table!(rtx, wtx, rows, eg_mutation_store::PRIVATE_PAYLOADS);
         wtx.commit().map_err(|e| e.to_string())?;
-        Ok(rows)
+        Ok(rows
+            .saturating_add(counts.batches)
+            .saturating_add(counts.idempotency)
+            .saturating_add(counts.versions)
+            .saturating_add(counts.fences)
+            .saturating_add(counts.outbox)
+            .saturating_add(counts.encrypted_private_payloads))
     }
 
     fn is_durable(&self) -> bool {

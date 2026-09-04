@@ -3275,10 +3275,12 @@ dependencies = [
 name = "eg-types"
 version = "0.27.0"
 dependencies = [
+ "hex",
  "rmp-serde",
  "serde",
  "serde_bytes",
  "serde_json",
+ "sha2 0.10.9",
  "strum",
 ]
 

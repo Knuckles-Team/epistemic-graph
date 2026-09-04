@@ -12,8 +12,9 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 use crate::change_envelope::ChangeEnvelope;
 use crate::graph::GraphCore;
 use crate::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
-    MutationStateDescriptor, MutationSurface, MUTATION_BATCH_VERSION,
+    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
+    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationStateDescriptor,
+    MutationSurface, TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use crate::protocol::ResultPayload;
 use crate::protocol::{CypherMode, Method};
@@ -84,7 +85,16 @@ pub(crate) fn compile_methods(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let batch = finish_batch(ctx, operations)?;
+    // Every `compile_methods` caller (`commit_work_item`, `commit_lifecycle`,
+    // `commit_internal_graph_methods`) commits through `PersistenceBackend::
+    // commit_mutation_batch{,_state}`, which the redb backend routes to
+    // `commit_mutation_batch_inner`'s `mutation_batch_graph_name` -- that
+    // routing fails closed on anything but `MutationScope::Graph`, regardless
+    // of the per-operation `domain` tag (WorkItem/Lifecycle methods are tagged
+    // `ControlPlane`/`Lifecycle`, a NATIVE domain, but still physically commit
+    // into the target graph's own redb file). So this compiler is always
+    // graph-scoped; see `finish_batch`'s `graph_scope` parameter doc.
+    let batch = finish_batch(ctx, operations, true)?;
     #[cfg(feature = "epistemic-tms")]
     let batch = {
         let mut batch = batch;
@@ -116,7 +126,16 @@ pub(crate) fn compile_opaque_method(
             query: format!("sha256:{}", hex::encode(Sha256::digest(encoded))),
         },
     };
-    let batch = finish_batch(ctx, vec![operation])?;
+    // Unlike `compile_methods`, this compiler's callers span both the
+    // graph-routed kernel and genuinely native stores committed independently
+    // of it (for example the blob CAS's `commit_native_batch`, which never
+    // touches `commit_mutation_batch_inner`). The caller-supplied `domain` is
+    // authoritative for which one applies: a graph domain always means the
+    // graph kernel, so mirror `MutationDomain::requires_native_scope` here: an
+    // "either" domain (lifecycle/control-plane/cross-modal/multi-graph) belongs
+    // in the graph scope, since that is the route these callers commit through.
+    let graph_scope = !domain.requires_native_scope();
+    let batch = finish_batch(ctx, vec![operation], graph_scope)?;
     #[cfg(feature = "epistemic-tms")]
     let batch = {
         let mut batch = batch;
@@ -154,7 +173,10 @@ pub(crate) fn compile_opaque_digest(
             query: format!("sha256:{}", digest.to_ascii_lowercase()),
         },
     };
-    let batch = finish_batch(ctx, vec![operation])?;
+    // Same reasoning as `compile_opaque_method`: the caller-supplied `domain`
+    // decides whether this reaches the graph kernel or a native store.
+    let graph_scope = !domain.requires_native_scope();
+    let batch = finish_batch(ctx, vec![operation], graph_scope)?;
     #[cfg(feature = "epistemic-tms")]
     let batch = {
         let mut batch = batch;
@@ -190,7 +212,11 @@ pub(crate) fn compile_crossmodal(
             query: format!("sha256:{digest}"),
         },
     };
-    let mut batch = finish_batch(ctx, vec![operation])?;
+    // Always graph-scoped: `compile_crossmodal` hardcodes `MutationDomain::
+    // CrossModal` and its record is committed via `PersistenceBackend::
+    // commit_mutation_batch_crossmodal`, which routes to the same
+    // graph-routed `commit_mutation_batch_inner` kernel as `compile_methods`.
+    let mut batch = finish_batch(ctx, vec![operation], true)?;
     #[cfg(feature = "epistemic-tms")]
     install_reasoning_wakeup(
         &mut batch,
@@ -239,9 +265,39 @@ fn install_reasoning_wakeup(
     Ok(())
 }
 
+/// Fixed lifecycle-generation placeholder for every `MutationScopeIdentity` this
+/// module compiles. `IncarnationId` is a new v1 concept (v2's `MutationBatch` had
+/// no equivalent field) meant to distinguish a scope's lifecycle "generations" --
+/// e.g. so a write from before a graph was deleted and recreated under the same
+/// name cannot be replayed into the new incarnation. Wiring a REAL per-scope
+/// generation counter (a candidate already exists: `read_mutation_lifecycle_head`,
+/// "Current lifecycle generation for retry fencing") would require threading an
+/// `.await`ed read through every one of `compile_methods`/`compile_opaque_method`/
+/// `compile_opaque_digest`/`compile_crossmodal`'s many callers across the crate
+/// (`kv.rs`, `dispatch.rs`, `raft/store.rs`, every `handlers/*.rs` -- files this
+/// lane does not own and the migration contract does not scope). Using a fixed,
+/// non-resource-derived constant here is a mechanical placeholder that satisfies
+/// the type (`IncarnationId::new` rejects anything resource-shaped by construction
+/// elsewhere, but does not require per-generation freshness), not a security
+/// decision -- flagged in the migration report for follow-up.
+pub(crate) use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
+
+/// Compile the universal `MutationScopeIdentity`/`VersionExpectation` pair shared
+/// by every batch this module builds.
+///
+/// `graph_scope`: true builds `MutationScopeIdentity::graph(..)` with
+/// `VersionExpectation::Graph(_)`; false builds `MutationScopeIdentity::native(..)`
+/// (domain taken from the first compiled operation) with
+/// `VersionExpectation::Native(_)`. v1's `VersionExpectation` has no "unversioned"
+/// arm available to an ordinary tenant (`Unversioned` requires the reserved system
+/// tenant, a ControlPlane/Lifecycle native domain, AND a verified capability --
+/// see `validate_version_expectation`), so every caller of this module must supply
+/// its actual observed version through `CompileBatch::expected_graph_version`
+/// rather than `None`; `finish_batch` fails closed instead of inventing one.
 fn finish_batch(
     ctx: CompileBatch<'_>,
     operations: Vec<MutationOperation>,
+    graph_scope: bool,
 ) -> Result<MutationBatch, String> {
     #[cfg(feature = "raft")]
     let (placement_epoch, fencing_token) =
@@ -279,6 +335,33 @@ fn finish_batch(
         principal_fingerprint(ctx.principal.ok_or_else(|| {
             "durable mutation authority requires a verified principal".to_string()
         })?)?;
+    let tenant_id = TenantId::new(ctx.tenant.to_string())?;
+    let resource_name = LogicalName::new(ctx.graph.to_string())?;
+    let incarnation_id = IncarnationId::new(COMPILED_BATCH_INCARNATION)
+        .expect("COMPILED_BATCH_INCARNATION is a valid static incarnation id");
+    let expected_version = ctx.expected_graph_version.ok_or_else(|| {
+        "mutation batch requires its actual observed version under v1: VersionExpectation has \
+         no unversioned arm available to an ordinary tenant (see validate_version_expectation); \
+         pass the real current version instead of None"
+            .to_string()
+    })?;
+    let (identity, version_expectation) = if graph_scope {
+        (
+            MutationScopeIdentity::graph(tenant_id, resource_name, incarnation_id),
+            VersionExpectation::Graph(expected_version),
+        )
+    } else {
+        let domain = operations
+            .first()
+            .map(|operation| operation.domain)
+            .ok_or_else(|| {
+                "mutation batch has no operations to derive its native domain from".to_string()
+            })?;
+        (
+            MutationScopeIdentity::native(tenant_id, domain, resource_name, incarnation_id)?,
+            VersionExpectation::Native(expected_version),
+        )
+    };
     let batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: ctx.batch_id.to_string(),
@@ -288,12 +371,16 @@ fn finish_batch(
             purpose: None,
             policy_fingerprint: None,
             trace_id: None,
+            // No batch built by this module ever needs `Unversioned`
+            // (see `expected_version` above), so no code path here needs
+            // `MutationCapability::UnversionedSystemMutation` or any other
+            // verified capability -- empty is correct, not a placeholder.
+            verified_capabilities: Default::default(),
         },
-        tenant: ctx.tenant.to_string(),
-        graph: ctx.graph.to_string(),
+        identity,
         placement_epoch,
         idempotency_key: ctx.idempotency_key.to_string(),
-        expected_graph_version: ctx.expected_graph_version,
+        version_expectation,
         fencing_token,
         authoritative_state: ctx.authoritative_state,
         operations,
@@ -810,8 +897,14 @@ pub(crate) async fn commit_internal_graph_methods(
                 });
         if record.status != crate::mutation_batch::MutationBatchStatus::Committed
             || record.batch.batch_id != batch_id
-            || record.batch.graph != graph
-            || record.batch.tenant != graph
+            || record
+                .batch
+                .identity
+                .scope()
+                .graph_name()
+                .map(LogicalName::as_str)
+                != Some(graph)
+            || record.batch.identity.tenant().as_str() != graph
             || record.batch.context.principal != expected_principal
             || !operations_match
         {
@@ -826,7 +919,11 @@ pub(crate) async fn commit_internal_graph_methods(
             .await?
             .ok_or_else(|| "committed internal graph image is missing".to_string())?;
         core.install_committed_snapshot(snapshot, version)?;
+        // `MutationBatchCommit.identity` is a new v1 field: a self-checking
+        // envelope copy that must equal `record.identity` (see its doc comment
+        // in `crates/eg-types/src/mutation_batch/model/records.rs`).
         return Ok(crate::mutation_batch::MutationBatchCommit {
+            identity: record.identity.clone(),
             record,
             replayed: true,
         });
@@ -1029,15 +1126,19 @@ pub(crate) async fn commit_work_item(
     let publishes_work_item_rows = !matches!(&method, Method::UpdateResourceHost { .. });
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
     let fname = crate::persist::sanitize(graph);
-    // Terminal WorkItem methods carry their own lease epoch/fencing CAS and are
-    // applied inside the same redb transaction as their result/status. A graph-wide
-    // OCC version would make an otherwise identical retry differ after the first
-    // commit. Claim/renew still use graph OCC and their transport request identity.
-    let expected_graph_version = if identity.uses_native_row_cas {
-        None
-    } else {
-        Some(authoritative_graph_version(persistence, &fname, core).await?)
-    };
+    // Terminal WorkItem methods carry their own lease epoch/fencing CAS -- the
+    // WorkItem lease/fencing token is their real CAS guard, not this graph
+    // version -- and `compute_native_terminal_work_item_cas`
+    // (`src/redb_store.rs`) makes `check_occ_version_and_fence` skip comparing
+    // it for them. v1's `VersionExpectation` has no "unversioned" arm available
+    // to an ordinary tenant (`validate_version_expectation`), so unlike v2 this
+    // can no longer be `None` for ANY WorkItem method, terminal or not: it must
+    // always carry a well-formed, real version. Claim/renew retries recompute a
+    // fresh one safely too, since neither the idempotency/replay identity
+    // (`mutation_batch_replay_identity_keys`) nor a genuine idempotent replay
+    // (short-circuited by `check_idempotency_replay` before OCC is even
+    // evaluated) depend on this value matching the original commit's.
+    let expected_graph_version = authoritative_graph_version(persistence, &fname, core).await?;
     let batch = compile_methods(
         CompileBatch {
             batch_id: &identity.batch_id,
@@ -1047,7 +1148,7 @@ pub(crate) async fn commit_work_item(
             graph,
             placement_epoch,
             idempotency_key: &identity.idempotency_key,
-            expected_graph_version,
+            expected_graph_version: Some(expected_graph_version),
             fencing_token: placement_fencing_token,
             created_at_ms,
             default_surface: MutationSurface::Job,
@@ -1337,6 +1438,17 @@ pub(crate) async fn commit_lifecycle(
 ) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
     let batch_id = lifecycle_batch_id(action, graph, request_id);
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
+    let fname = crate::persist::sanitize(graph);
+    // v1's `VersionExpectation` has no "unversioned" arm available to an ordinary
+    // tenant, so this can no longer pass `None` for "don't care". A not-yet-created
+    // graph has no MUTATION_GRAPH_VERSION row -- `read_current_mutation_graph_version`
+    // (`src/redb_store.rs`) treats that as `INITIAL_GRAPH_VERSION` (0), which is
+    // exactly the correct expectation for CreateGraph; DeleteGraph reads the
+    // graph's real current version.
+    let expected_graph_version = persistence
+        .read_mutation_graph_version(&fname)
+        .await?
+        .unwrap_or(0);
     let batch = compile_methods(
         CompileBatch {
             batch_id: &batch_id,
@@ -1346,7 +1458,7 @@ pub(crate) async fn commit_lifecycle(
             graph,
             placement_epoch: 0,
             idempotency_key: &batch_id,
-            expected_graph_version: None,
+            expected_graph_version: Some(expected_graph_version),
             fencing_token: None,
             created_at_ms,
             default_surface: MutationSurface::Lifecycle,
@@ -1355,7 +1467,6 @@ pub(crate) async fn commit_lifecycle(
         vec![method],
     )?;
     let encoded_result = rmp_serde::to_vec_named(result).map_err(|e| e.to_string())?;
-    let fname = crate::persist::sanitize(graph);
     persistence
         .commit_mutation_batch(&fname, &batch, Some(&encoded_result), created_at_ms)
         .await
@@ -1600,7 +1711,7 @@ mod tests {
         .unwrap();
         assert_eq!(batch.operations[0].ordinal, 0);
         assert_eq!(batch.operations[1].ordinal, 1);
-        assert_eq!(batch.expected_graph_version, Some(4));
+        assert_eq!(batch.version_expectation, VersionExpectation::Graph(4));
         assert_eq!(batch.fencing_token, Some(11));
         assert_eq!(batch.outbox.len(), 1);
     }

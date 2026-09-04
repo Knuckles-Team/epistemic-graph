@@ -5,7 +5,9 @@
 //! integration suites can layer on top without duplicating policy logic.
 
 use super::*;
-use crate::mutation_batch::MutationRequestContext;
+use crate::mutation_batch::{
+    IncarnationId, MutationRequestContext, MutationScopeIdentity, TenantId,
+};
 
 fn host() -> DurableResourceHost {
     DurableResourceHost {
@@ -364,6 +366,7 @@ fn resource_batch(
     method: Method,
     batch_id: &str,
     idempotency_key: &str,
+    expected_version: u64,
 ) -> MutationBatch {
     MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
@@ -374,12 +377,36 @@ fn resource_batch(
             purpose: Some("resource-transaction-test".to_string()),
             policy_fingerprint: None,
             trace_id: None,
+            verified_capabilities: Default::default(),
         },
-        tenant: tenant.to_string(),
-        graph: "graph-a".to_string(),
+        // Graph scope, not native: `commit_mutation_batch_inner` (via
+        // `mutation_batch_graph_name`) fails closed on any batch that is not
+        // graph-scoped, so this is the only route these fixtures actually
+        // commit through. `MutationDomain::ControlPlane` is one of the
+        // "either" domains (`may_own_native_scope` AND legal in a graph
+        // scope per the graph arm of `validate_operations`), so it is free to
+        // take the graph route here. `"graph-a"` is reused verbatim as the
+        // graph name -- the exact literal the old flat `graph` field carried
+        // -- rather than inventing a new sentinel.
+        identity: MutationScopeIdentity::graph(
+            TenantId::new(tenant).expect("valid resource-reservation tenant id"),
+            LogicalName::new("graph-a").expect("valid resource-reservation graph name"),
+            IncarnationId::new("incarnation:test:resource-reservation")
+                .expect("valid resource-reservation incarnation id"),
+        ),
         placement_epoch: 0,
         idempotency_key: idempotency_key.to_string(),
-        expected_graph_version: None,
+        // A graph-scoped batch is OCC-checked for real:
+        // `check_occ_version_and_fence` (in `commit_mutation_batch_inner`)
+        // requires `expected_version` to equal the live
+        // `MUTATION_GRAPH_VERSION["graph-a"]` row at commit time, or the
+        // commit fails closed with `STALE_VERSION`. `expected_version` is
+        // supplied by the caller, traced from that test's own seed/commit
+        // chain (a fresh `seed_resource_database` starts the counter at
+        // `INITIAL_GRAPH_VERSION` = 0; every prior non-replayed commit against
+        // the same database advances it by exactly one, replays and raw
+        // out-of-band table writes do not).
+        version_expectation: VersionExpectation::Graph(expected_version),
         fencing_token: None,
         authoritative_state: None,
         operations: vec![MutationOperation {
@@ -422,6 +449,59 @@ fn commit_resource_batch(
     batch: &MutationBatch,
 ) -> Result<MutationBatchCommit, String> {
     commit_resource_batch_at(db, batch, None)
+}
+
+/// The live `MUTATION_GRAPH_VERSION["graph-a"]` row, read fresh -- the same
+/// value `check_occ_version_and_fence` will compare a batch's
+/// `version_expectation` against. Used by [`commit_racing_resource_batch`]
+/// so a genuine multi-thread race can re-derive the real current version on
+/// each retry instead of a caller having to guess which thread's commit
+/// lands first.
+fn current_resource_graph_version(db: &Database) -> u64 {
+    let rtx = db.begin_read().expect("read resource graph version");
+    let versions = rtx
+        .open_table(MUTATION_GRAPH_VERSION)
+        .expect("open resource graph version table");
+    versions
+        .get("graph-a")
+        .expect("read resource graph version row")
+        .map(|value| value.value())
+        .unwrap_or(INITIAL_GRAPH_VERSION)
+}
+
+/// Commit a resource batch that genuinely races another thread for the same
+/// `MUTATION_GRAPH_VERSION["graph-a"]` slot.
+///
+/// Two threads racing to commit pre-built, statically-versioned batches can
+/// no longer both succeed once the fixture is graph-scoped: only one commit
+/// per live version can land, and the loser now fails closed with a real
+/// `STALE_VERSION` (previously native scope carried no OCC counter at all,
+/// so both commits landed unconditionally). That STALE_VERSION is exactly
+/// the signal a real production retrying caller would act on, so this
+/// helper mirrors that: read the live version, build the batch against it,
+/// and on `STALE_VERSION` re-read and retry. The eventual business decision
+/// (Accepted vs. Idempotent/Capacity/Exclusivity/...) is unaffected -- it is
+/// still resolved by whichever attempt's redb write transaction lands
+/// first, exactly as before this migration; only the batch-level version
+/// bookkeeping is now real. Returns the exact `MutationBatch` that
+/// succeeded, since a caller may need it again (e.g. to prove a subsequent
+/// commit of the identical batch replays).
+fn commit_racing_resource_batch(
+    db: &Database,
+    tenant: &str,
+    method: Method,
+    batch_id: &str,
+    idempotency_key: &str,
+) -> (MutationBatch, MutationBatchCommit) {
+    loop {
+        let expected_version = current_resource_graph_version(db);
+        let batch = resource_batch(tenant, method.clone(), batch_id, idempotency_key, expected_version);
+        match commit_resource_batch(db, &batch) {
+            Ok(commit) => return (batch, commit),
+            Err(message) if message.starts_with("STALE_VERSION") => continue,
+            Err(message) => panic!("resource batch race commit failed: {message}"),
+        }
+    }
 }
 
 fn batch_resource_result(commit: &MutationBatchCommit) -> ResourceReservationResult {
@@ -510,6 +590,10 @@ fn single_reserve_decision(
         Method::ReserveWorkItemResources { request },
         &format!("batch-policy-{suffix}"),
         &format!("reserve-policy-{suffix}"),
+        // Fresh, single-use database seeded by `seed_resource_database` just
+        // above: the graph counter starts at `INITIAL_GRAPH_VERSION` and this
+        // is the only commit ever made against it.
+        0,
     );
     let result = batch_resource_result(&commit_resource_batch(&db, &batch).expect("policy result"));
     drop(db);
@@ -696,46 +780,40 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
         vec![host()],
     ));
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let batch_a = resource_batch(
-        &request.tenant_ref,
-        Method::ReserveWorkItemResources {
-            request: request.clone(),
-        },
-        "batch-same-attempt-a",
-        "reserve-same-attempt-a",
-    );
+    let tenant_a = request.tenant_ref.clone();
+    let method_a = Method::ReserveWorkItemResources {
+        request: request.clone(),
+    };
     let mut invocation_b = request.clone();
     invocation_b.idempotency_key = "reserve-same-attempt-b".to_string();
-    let batch_b = resource_batch(
-        &invocation_b.tenant_ref.clone(),
-        Method::ReserveWorkItemResources {
-            request: invocation_b,
-        },
-        "batch-same-attempt-b",
-        "reserve-same-attempt-b",
-    );
+    let tenant_b = invocation_b.tenant_ref.clone();
+    let method_b = Method::ReserveWorkItemResources {
+        request: invocation_b,
+    };
+    // Each thread races the other for the same live `MUTATION_GRAPH_VERSION`
+    // slot, so neither can carry a version_expectation fixed up front --
+    // `commit_racing_resource_batch` reads the live version and retries on
+    // `STALE_VERSION` exactly as a real caller would. See its doc comment.
     let mut handles = Vec::new();
-    for batch in [batch_a.clone(), batch_b] {
+    for (tenant, method, batch_id, idempotency_key) in [
+        (tenant_a, method_a, "batch-same-attempt-a", "reserve-same-attempt-a"),
+        (tenant_b, method_b, "batch-same-attempt-b", "reserve-same-attempt-b"),
+    ] {
         let db = db.clone();
         let barrier = barrier.clone();
         handles.push(std::thread::spawn(move || {
             barrier.wait();
-            commit_resource_batch(&db, &batch)
+            commit_racing_resource_batch(&db, &tenant, method, batch_id, idempotency_key)
         }));
     }
-    let commits: Vec<_> = handles
+    let results: Vec<(MutationBatch, MutationBatchCommit)> = handles
         .into_iter()
-        .map(|handle| {
-            handle
-                .join()
-                .expect("resource race worker")
-                .expect("same-attempt race commit")
-        })
+        .map(|handle| handle.join().expect("resource race worker"))
         .collect();
-    assert!(commits.iter().all(|commit| !commit.replayed));
-    let decisions: Vec<_> = commits
+    assert!(results.iter().all(|(_, commit)| !commit.replayed));
+    let decisions: Vec<_> = results
         .iter()
-        .map(|commit| batch_resource_result(commit).decision)
+        .map(|(_, commit)| batch_resource_result(commit).decision)
         .collect();
     assert_eq!(
         decisions
@@ -751,12 +829,12 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
             .count(),
         1
     );
-    let batch_a_decision = commits
+    let (batch_a, commit_a) = results
         .iter()
-        .find(|commit| commit.record.batch.batch_id == "batch-same-attempt-a")
-        .map(batch_resource_result)
+        .find(|(batch, _)| batch.batch_id == "batch-same-attempt-a")
         .expect("batch A result");
-    let replay = commit_resource_batch(&db, &batch_a).expect("transport replay after race");
+    let batch_a_decision = batch_resource_result(commit_a);
+    let replay = commit_resource_batch(&db, batch_a).expect("transport replay after race");
     assert!(replay.replayed);
     assert_eq!(
         batch_resource_result(&replay).decision,
@@ -805,6 +883,8 @@ fn mutation_batch_distinct_reservation_id_same_attempt_refuses_without_recharge(
         },
         "batch-distinct-reservation-first",
         "reserve-distinct-reservation-first",
+        // Fresh database: `MUTATION_GRAPH_VERSION["graph-a"]` starts at 0.
+        0,
     );
     let accepted = commit_resource_batch(&db, &first).expect("first same-attempt reserve");
     assert_eq!(
@@ -829,6 +909,9 @@ fn mutation_batch_distinct_reservation_id_same_attempt_refuses_without_recharge(
         },
         "batch-distinct-reservation-other",
         "reserve-distinct-reservation-other",
+        // `first` above committed one prior batch against this database,
+        // advancing the counter from 0 to 1.
+        1,
     );
     let refused = commit_resource_batch(&db, &conflicting).expect("distinct reservation result");
     assert_eq!(
@@ -891,34 +974,33 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
         vec![constrained_host.clone()],
     ));
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let batch_a = resource_batch(
-        &request_a.tenant_ref,
-        Method::ReserveWorkItemResources {
-            request: request_a.clone(),
-        },
-        "batch-last-slot-a",
-        "reserve-last-slot-a",
-    );
-    let batch_b = resource_batch(
-        &request_b.tenant_ref,
-        Method::ReserveWorkItemResources {
-            request: request_b.clone(),
-        },
-        "batch-last-slot-b",
-        "reserve-last-slot-b",
-    );
-    let handles = [batch_a, batch_b]
-        .into_iter()
-        .map(|batch| {
-            let db = db.clone();
-            let barrier = barrier.clone();
-            std::thread::spawn(move || {
-                barrier.wait();
-                let commit = commit_resource_batch(&db, &batch).expect("last-slot commit");
-                batch_resource_result(&commit).decision
-            })
+    let tenant_a = request_a.tenant_ref.clone();
+    let method_a = Method::ReserveWorkItemResources {
+        request: request_a.clone(),
+    };
+    let tenant_b = request_b.tenant_ref.clone();
+    let method_b = Method::ReserveWorkItemResources {
+        request: request_b.clone(),
+    };
+    // Both threads race for the same last capacity slot on the same live
+    // `MUTATION_GRAPH_VERSION` counter, so the version_expectation cannot be
+    // fixed up front -- see `commit_racing_resource_batch`'s doc comment.
+    let handles = [
+        (tenant_a, method_a, "batch-last-slot-a", "reserve-last-slot-a"),
+        (tenant_b, method_b, "batch-last-slot-b", "reserve-last-slot-b"),
+    ]
+    .into_iter()
+    .map(|(tenant, method, batch_id, idempotency_key)| {
+        let db = db.clone();
+        let barrier = barrier.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            let (_, commit) =
+                commit_racing_resource_batch(&db, &tenant, method, batch_id, idempotency_key);
+            batch_resource_result(&commit).decision
         })
-        .collect::<Vec<_>>();
+    })
+    .collect::<Vec<_>>();
     let decisions: Vec<_> = handles
         .into_iter()
         .map(|handle| handle.join().expect("last-slot worker"))
@@ -978,6 +1060,8 @@ fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replay
         },
         "batch-transient-refusal",
         "reserve-transient-refusal",
+        // Fresh database.
+        0,
     );
     let refused = commit_resource_batch(&db, &refused_batch).expect("persist transient refusal");
     assert!(!refused.replayed);
@@ -1030,6 +1114,10 @@ fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replay
         },
         "batch-clear-drain",
         "host-clear-drain",
+        // `refused_batch` above is the one prior commit against this
+        // database (its decision was a refusal, but the batch itself still
+        // committed and still advanced the counter): 0 -> 1.
+        1,
     );
     let update = commit_resource_batch(&db, &update_batch).expect("clear host drain");
     assert!(!update.replayed);
@@ -1055,6 +1143,10 @@ fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replay
         },
         "batch-fresh-after-drain",
         "reserve-fresh-after-drain",
+        // `refused_batch` (0 -> 1) then `update_batch` (1 -> 2) each
+        // committed once; the intervening `refused_replay` above is a
+        // replay of `refused_batch` and does not advance the counter.
+        2,
     );
     let accepted = commit_resource_batch(&db, &fresh_batch).expect("fresh reserve invocation");
     assert!(!accepted.replayed);
@@ -1114,34 +1206,33 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
         ],
         vec![host(), host_two.clone()],
     );
-    let batch_a = resource_batch(
-        &request_a.tenant_ref,
-        Method::ReserveWorkItemResources {
-            request: request_a.clone(),
-        },
-        "batch-exclusive-a",
-        "reserve-exclusive-a",
-    );
-    let batch_b = resource_batch(
-        &request_b.tenant_ref.clone(),
-        Method::ReserveWorkItemResources { request: request_b },
-        "batch-exclusive-b",
-        "reserve-exclusive-b",
-    );
+    let tenant_a = request_a.tenant_ref.clone();
+    let method_a = Method::ReserveWorkItemResources {
+        request: request_a.clone(),
+    };
+    let tenant_b = request_b.tenant_ref.clone();
+    let method_b = Method::ReserveWorkItemResources { request: request_b };
     let db = std::sync::Arc::new(db);
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let handles = [batch_a, batch_b]
-        .into_iter()
-        .map(|batch| {
-            let db = db.clone();
-            let barrier = barrier.clone();
-            std::thread::spawn(move || {
-                barrier.wait();
-                let commit = commit_resource_batch(&db, &batch).expect("exclusive race commit");
-                batch_resource_result(&commit).decision
-            })
+    // Both threads race for the same exclusivity slot on the same live
+    // `MUTATION_GRAPH_VERSION` counter -- see
+    // `commit_racing_resource_batch`'s doc comment.
+    let handles = [
+        (tenant_a, method_a, "batch-exclusive-a", "reserve-exclusive-a"),
+        (tenant_b, method_b, "batch-exclusive-b", "reserve-exclusive-b"),
+    ]
+    .into_iter()
+    .map(|(tenant, method, batch_id, idempotency_key)| {
+        let db = db.clone();
+        let barrier = barrier.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            let (_, commit) =
+                commit_racing_resource_batch(&db, &tenant, method, batch_id, idempotency_key);
+            batch_resource_result(&commit).decision
         })
-        .collect::<Vec<_>>();
+    })
+    .collect::<Vec<_>>();
     let decisions: Vec<_> = handles
         .into_iter()
         .map(|handle| handle.join().expect("exclusive race worker"))
@@ -1212,6 +1303,8 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         },
         "batch-lifecycle-reserve",
         "reserve-lifecycle",
+        // Fresh database.
+        0,
     );
     let reserved = commit_resource_batch(&db, &reserve_batch).expect("reserve lifecycle hold");
     assert_eq!(
@@ -1230,6 +1323,8 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         },
         "batch-lifecycle-release",
         "release-lifecycle",
+        // `reserve_batch` above committed once: 0 -> 1.
+        1,
     );
     let released = commit_resource_batch(&db, &release_batch).expect("release lifecycle hold");
     let released_result = batch_resource_result(&released);
@@ -1260,6 +1355,10 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         },
         "batch-lifecycle-release-stale",
         "release-lifecycle-stale",
+        // `reserve_batch` (0 -> 1) then `release_batch` (1 -> 2) each
+        // committed once; the intervening `replay_release` above is a
+        // replay of `release_batch` and does not advance the counter.
+        2,
     );
     let stale = commit_resource_batch(&db, &stale_release_batch).expect("stale release result");
     assert_eq!(
@@ -1286,6 +1385,10 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         },
         "batch-reclaim-reserve",
         "reserve-reclaim",
+        // `reserve_batch` (0 -> 1), `release_batch` (1 -> 2), and
+        // `stale_release_batch` (2 -> 3, still a genuine commit despite its
+        // InputConflict decision) each committed once.
+        3,
     );
     let reserve_two = {
         let props = work_item_props_for_request(&reclaim_request);
@@ -1348,6 +1451,11 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         Method::ReclaimWorkItemResources { request: reclaim },
         "batch-lifecycle-reclaim",
         "reclaim-lifecycle",
+        // `reclaim_reserve` above (via `reserve_two`) committed once more:
+        // 3 -> 4. The two raw `NODES` table writes bracketing it are direct
+        // table edits, not `MutationBatch` commits, so they never touch
+        // `MUTATION_GRAPH_VERSION`.
+        4,
     );
     let reclaimed = commit_resource_batch(&db, &reclaim_batch).expect("reclaim superseded hold");
     let reclaimed_result = batch_resource_result(&reclaimed);
@@ -1444,6 +1552,8 @@ fn mutation_batch_resource_crashpoints_reopen_all_or_nothing_and_replay() {
             },
             &format!("batch-resource-crash-{index}"),
             &format!("reserve-resource-crash-{index}"),
+            // Fresh database each loop iteration.
+            0,
         );
         assert!(commit_resource_batch_at(&db, &batch, Some(point)).is_err());
         drop(db);
@@ -1512,6 +1622,8 @@ fn mutation_batch_resource_crashpoints_reopen_all_or_nothing_and_replay() {
         },
         "batch-resource-postcommit",
         "reserve-resource-postcommit",
+        // Fresh database.
+        0,
     );
     assert!(commit_resource_batch_at(
         &db,
@@ -2422,12 +2534,30 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
             purpose: None,
             policy_fingerprint: None,
             trace_id: None,
+            verified_capabilities: Default::default(),
         },
-        tenant: "tenant-a".to_string(),
-        graph: "graph-a".to_string(),
+        // This batch is never committed through `commit_mutation_batch_inner`
+        // (there is no `Database` anywhere in this test) -- it only feeds
+        // `native_resource_placement_replay_match`, which reads only
+        // `placement_epoch`/`fencing_token`/`operations`, never `identity` or
+        // `version_expectation`. Both are therefore inert to this test's
+        // assertions. Built as graph-scoped (like `resource_batch` above) for
+        // consistency with the rest of this file's fixtures now that
+        // `commit_mutation_batch_inner` requires a graph scope; `"graph-a"`
+        // is reused verbatim as the graph name, matching every other fixture
+        // here.
+        identity: MutationScopeIdentity::graph(
+            TenantId::new("tenant-a").expect("valid tenant id"),
+            LogicalName::new("graph-a").expect("valid graph name"),
+            IncarnationId::new("incarnation:test:resource-reservation")
+                .expect("valid incarnation id"),
+        ),
         placement_epoch: 1,
         idempotency_key: "idem-1".to_string(),
-        expected_graph_version: None,
+        // Inert (see above): no commit path ever reads this. `Graph(0)` is
+        // the simplest value that satisfies `batch.validate()`'s structural
+        // requirement that a graph-scoped batch carry a `Graph` expectation.
+        version_expectation: VersionExpectation::Graph(0),
         fencing_token: Some(1),
         authoritative_state: None,
         operations: stored,
@@ -3220,6 +3350,8 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
         },
         "batch-delete-active-reserve",
         "delete-active-reserve",
+        // Fresh database.
+        0,
     );
     let reserved = commit_resource_batch(&db, &reserve).expect("reserve active hold");
     let reserved_result = batch_resource_result(&reserved);
@@ -3229,22 +3361,32 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
     );
     assert!(reserved_result.held_cpu_weight > 0);
 
-    let lifecycle_batch = |method: Method, batch_id: &str, idempotency_key: &str| {
-        let mut batch = resource_batch(&request.tenant_ref, method, batch_id, idempotency_key);
-        batch.operations[0].surface = MutationSurface::Lifecycle;
-        batch.operations[0].domain = MutationDomain::Lifecycle;
-        batch
-    };
+    let lifecycle_batch =
+        |method: Method, batch_id: &str, idempotency_key: &str, expected_version: u64| {
+            let mut batch = resource_batch(
+                &request.tenant_ref,
+                method,
+                batch_id,
+                idempotency_key,
+                expected_version,
+            );
+            batch.operations[0].surface = MutationSurface::Lifecycle;
+            batch.operations[0].domain = MutationDomain::Lifecycle;
+            batch
+        };
 
     // DeleteGraph must fail before its graph/resource row changes become
     // durable while a native hold is still active.  No lifecycle status or
     // projection outbox row may survive the failed transaction either.
+    //
+    // `reserve` above committed once against this fresh database: 0 -> 1.
     let delete_while_held = lifecycle_batch(
         Method::DeleteGraph {
             graph_name: "graph-a".to_string(),
         },
         "batch-delete-active-held",
         "delete-active-held",
+        1,
     );
     let error = commit_resource_batch(&db, &delete_while_held)
         .expect_err("active native hold blocks DeleteGraph atomically");
@@ -3308,6 +3450,10 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
         },
         "batch-delete-active-release",
         "delete-active-release",
+        // `delete_while_held` above FAILED (a business/route error returned
+        // before `wtx.commit()`), so its whole transaction rolled back and
+        // the counter never advanced past `reserve`'s commit: still 1.
+        1,
     );
     let released = commit_resource_batch(&db, &release).expect("release active hold");
     assert_eq!(
@@ -3315,12 +3461,14 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
         ResourceReservationResultDecision::Accepted
     );
 
+    // `release` above committed successfully: 1 -> 2.
     let delete_after_release = lifecycle_batch(
         Method::DeleteGraph {
             graph_name: "graph-a".to_string(),
         },
         "batch-delete-after-release",
         "delete-after-release",
+        2,
     );
     commit_resource_batch(&db, &delete_after_release)
         .expect("DeleteGraph succeeds after explicit hold drain");
@@ -3355,6 +3503,10 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
 
     // Recreate the same graph name.  The fresh lifecycle must not recover the
     // old WorkItem, reservation, or terminal tombstone from the deleted image.
+    // `delete_after_release` above committed successfully: 2 -> 3. Deleting
+    // the graph does not reset `MUTATION_GRAPH_VERSION["graph-a"]` -- the
+    // version row is not touched by graph deletion, only the graph/resource
+    // content rows are -- so the counter keeps counting through the delete.
     let recreate = lifecycle_batch(
         Method::CreateGraph {
             graph_name: "graph-a".to_string(),
@@ -3362,6 +3514,7 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
         },
         "batch-recreate-after-delete",
         "recreate-after-delete",
+        3,
     );
     commit_resource_batch(&db, &recreate).expect("recreate graph after drained delete");
     assert!(

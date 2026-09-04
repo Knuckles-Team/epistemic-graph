@@ -91,7 +91,7 @@ use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 use std::path::Path;
 
-use redb::{Database, Durability, ReadOnlyDatabase, ReadableDatabase, ReadableTable};
+use redb::{Database, Durability, ReadableDatabase, ReadableTable};
 use sha2::{Digest, Sha256};
 
 #[cfg(feature = "compute-dist")]
@@ -894,14 +894,20 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     if admin_metadata.file_type().is_symlink() || !admin_metadata.is_file() {
         return Err("backup bundle omits the admin mutation coordinator store".to_string());
     }
-    // Opened READ-ONLY (not `Database::open`) deliberately: this is a pure
-    // validation read, and `Database`'s `Drop` unconditionally commits its own
-    // allocator-state quick-repair, which would advance the file's transaction id
-    // and change its on-disk bytes on every validation pass — permanently
-    // breaking the digest check just below (see `validate_recovery_store`'s
-    // doc comment).
-    let admin = ReadOnlyDatabase::open(&admin_path).map_err(|error| error.to_string())?;
-    let counts = eg_mutation_store::validate_recovery_store(&admin)?;
+    // SEC-FINDING-V1-INCARNATION-BREAKS-RESTORE-20260903, resolved: this bundle
+    // may have been renamed here from a different private staging path than the
+    // one it was written at, and it must be validated WITHOUT mutating it —
+    // its bytes are exactly what the `portable_file_digests` check below
+    // re-hashes and compares against the manifest. `open_read_only` derives
+    // the store's physical identity from `(dev, ino)` only (never the path, so
+    // a rename doesn't change it) and never opens a write transaction against
+    // the file, so validating it here cannot perturb the digest check that
+    // follows.
+    let admin = eg_mutation_store::open_read_only(
+        &admin_path,
+        crate::server::persistence::redb_backend::admin_mutations_private_integrity(),
+    )?;
+    let counts = eg_mutation_store::validate_recovery_store_read_only(&admin)?;
     if counts != manifest.admin_mutations {
         return Err("admin mutation coordinator totals do not match the manifest".to_string());
     }
@@ -1016,12 +1022,21 @@ pub fn restore_bundle(
         return Err("restore target already contains an admin mutation store".to_string());
     }
     std::fs::copy(&admin_source, &admin_target).map_err(|error| error.to_string())?;
-    // Read-only for the same reason as `read_manifest`'s admin validation above:
-    // pure validation, and a read-write `Database::open` would leave an
-    // unnecessary extra transaction committed into the freshly-restored store
-    // before the persistence backend ever takes ownership of it.
-    let restored_admin =
-        ReadOnlyDatabase::open(&admin_target).map_err(|error| error.to_string())?;
+    // SEC-FINDING-V1-INCARNATION-BREAKS-RESTORE-20260903, resolved: `std::fs::copy`
+    // just above always allocates a NEW inode, so `admin_target`'s physical
+    // identity can never equal the one `backup_recovery_store` stamped into it
+    // at backup time — that mismatch is real and `initialize`/`open_read_only`
+    // correctly keep failing closed on it, because ordinarily it means a live
+    // store file was substituted. A restore is an INTENDED substitution, so
+    // `adopt_restored_store` is the one named, explicit operation that proves
+    // every OTHER recovery invariant holds for the copied bytes (under the
+    // incarnation they were stamped with) before re-stamping STORE_ROOT and
+    // every SCOPE_BINDINGS row to this file's actual, freshly-derived physical
+    // identity. From this point on `restored_admin` is an ordinary live store.
+    let restored_admin = eg_mutation_store::adopt_restored_store(
+        &admin_target,
+        crate::server::persistence::redb_backend::admin_mutations_private_integrity(),
+    )?;
     let admin_mutations = eg_mutation_store::validate_recovery_store(&restored_admin)?;
     if admin_mutations != manifest.admin_mutations {
         return Err("restored admin mutation coordinator totals changed".to_string());
@@ -1036,6 +1051,19 @@ pub fn restore_bundle(
             return Err("restore target already contains a bundled durable store".to_string());
         }
         std::fs::copy(bundle_dir.join(name), &target).map_err(|error| error.to_string())?;
+        // A copied file is a NEW inode, so any mutation-store-backed bundled
+        // store (`rbac.redb`, `kv.redb`) carries an incarnation that no longer
+        // describes it, and version rows whose scope bindings still point at the
+        // old identity. Reopening one through its owner's ordinary `open` then
+        // fails closed with "mutation version row exists without a scope
+        // binding" -- which is what BUG-PE-054's reopen assertion caught.
+        //
+        // Adopt it here, at the restore boundary, so every owner's normal
+        // fail-closed open path stays exactly as strict as it is for a live
+        // store. Plain redb stores in the bundle are not mutation stores and are
+        // returned as `None` rather than being mistaken for a corrupt one.
+        eg_mutation_store::adopt_restored_store_if_mutation_store(&target, None)
+            .map_err(|error| format!("restore adopt {name}: {error}"))?;
         restored_stores.push(name.clone());
     }
     Ok(RestoreReport {

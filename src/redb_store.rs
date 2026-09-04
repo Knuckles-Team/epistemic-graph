@@ -52,9 +52,10 @@ use crate::epistemic_operations::{
     ResourceTargetSnapshotKind,
 };
 use crate::mutation_batch::{
-    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus, MutationDomain,
-    MutationOperation, MutationOutboxIntent, MutationOutboxLease, MutationOutboxRecord,
-    MutationProjectionCursor, MutationSurface, MutationVersionScope, MUTATION_BATCH_VERSION,
+    CommittedVersion, LogicalName, MutationBatch, MutationBatchCommit, MutationBatchRecord,
+    MutationBatchStatus, MutationDomain, MutationOperation, MutationOutboxIntent,
+    MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationSurface,
+    VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use crate::protocol::{GraphType, Method};
 
@@ -378,7 +379,7 @@ fn decode_mutation_batch_record(bytes: &[u8]) -> Result<MutationBatchRecord, Str
 fn decode_mutation_outbox_record(bytes: &[u8]) -> Result<MutationOutboxRecord, String> {
     let record: MutationOutboxRecord = decode_durable(bytes)?;
     record.validate()?;
-    if record.version_scope != MutationVersionScope::Graph || record.source_graph_version == 0 {
+    if !matches!(record.committed_version, CommittedVersion::Graph { source, .. } if source != 0) {
         return Err("graph mutation store contains a non-graph outbox record".to_string());
     }
     Ok(record)
@@ -387,7 +388,7 @@ fn decode_mutation_outbox_record(bytes: &[u8]) -> Result<MutationOutboxRecord, S
 fn decode_mutation_projection_cursor(bytes: &[u8]) -> Result<MutationProjectionCursor, String> {
     let cursor: MutationProjectionCursor = decode_durable(bytes)?;
     cursor.validate()?;
-    if cursor.version_scope != MutationVersionScope::Graph || cursor.source_graph_version == 0 {
+    if !matches!(cursor.committed_version, CommittedVersion::Graph { source, .. } if source != 0) {
         return Err("graph mutation store contains a non-graph projection cursor".to_string());
     }
     Ok(cursor)
@@ -1836,6 +1837,7 @@ fn apply_mutation_batch_in_wtx(
     // with ONE fsync. This function only stages rows into `wtx`.
     Ok(MutationBatchCommit {
         record,
+        identity: batch.identity.clone(),
         replayed: false,
     })
 }
@@ -1937,17 +1939,34 @@ fn resolve_integrity_policy_update(
     }
 }
 
+/// The graph name of a graph-scoped `MutationBatch`. Every commit path in this
+/// module is indexed by `graph_fname` and only ever handles
+/// `MutationScope::Graph` batches -- `batch.validate()` (run before any of
+/// these call this) structurally requires `MutationScope::Graph` to pair with
+/// `VersionExpectation::Graph(_)`, so a native scope can never reach here in
+/// practice. A native scope reports no graph name at all; fail closed instead
+/// of ever substituting "" for it.
+fn mutation_batch_graph_name(batch: &MutationBatch) -> Result<&str, String> {
+    batch
+        .identity
+        .scope()
+        .graph_name()
+        .map(LogicalName::as_str)
+        .ok_or_else(|| "mutation batch is not graph-scoped".to_string())
+}
+
 fn validate_mutation_batch_route_and_lowering(
     batch: &MutationBatch,
     graph_fname: &str,
     crossmodal: Option<&CrossModalBatchRows<'_>>,
     staged_state_is_none: bool,
 ) -> Result<(), String> {
-    if graph_fname != sanitize(&batch.graph) {
+    let batch_graph_name = mutation_batch_graph_name(batch)?;
+    if graph_fname != sanitize(batch_graph_name) {
         return Err(format!(
             "mutation batch graph route mismatch: batch '{}' resolved to '{}' not '{}'",
-            batch.graph,
-            sanitize(&batch.graph),
+            batch_graph_name,
+            sanitize(batch_graph_name),
             graph_fname
         ));
     }
@@ -1995,7 +2014,8 @@ fn detect_and_validate_lifecycle(
             _ => None,
         });
     if let Some((_, ref graph_name, _)) = lifecycle {
-        if batch.operations.len() != 1 || graph_name != &batch.graph {
+        if batch.operations.len() != 1 || graph_name.as_str() != mutation_batch_graph_name(batch)?
+        {
             return Err(
                 "lifecycle MutationBatch must contain exactly one operation for its target graph"
                     .to_string(),
@@ -2022,8 +2042,8 @@ fn read_current_mutation_graph_version(
 fn mutation_batch_replay_identity_keys(stored: &MutationBatch, proposed: &MutationBatch) -> bool {
     stored.batch_id == proposed.batch_id
         && stored.context == proposed.context
-        && stored.tenant == proposed.tenant
-        && stored.graph == proposed.graph
+        && stored.identity.tenant() == proposed.identity.tenant()
+        && stored.identity.scope().graph_name() == proposed.identity.scope().graph_name()
         && stored.idempotency_key == proposed.idempotency_key
 }
 
@@ -2039,8 +2059,9 @@ fn mutation_batch_replay_expected_version_matches(
     crossmodal_present: bool,
     current_graph_version: u64,
 ) -> bool {
-    stored.expected_graph_version == proposed.expected_graph_version
-        || (crossmodal_present && proposed.expected_graph_version == Some(current_graph_version))
+    stored.version_expectation == proposed.version_expectation
+        || (crossmodal_present
+            && proposed.version_expectation == VersionExpectation::Graph(current_graph_version))
 }
 
 /// Whether `proposed` is a faithful replay of the durably committed `stored`
@@ -2158,7 +2179,7 @@ fn check_idempotency_replay(
         .map_err(|e| e.to_string())?;
     let existing_id = idem
         .get((
-            batch.tenant.as_str(),
+            batch.identity.tenant().as_str(),
             graph_fname,
             batch.idempotency_key.as_str(),
         ))
@@ -2197,14 +2218,15 @@ fn check_idempotency_replay(
             wtx,
             graph_fname,
             record.batch.batch_id.as_str(),
-            batch.graph.as_str(),
+            mutation_batch_graph_name(batch)?,
         )?;
     }
     if let Some(change) = change {
-        check_replay_envelope_matches(wtx, graph_fname, change, batch.graph.as_str(), crypto)?;
+        check_replay_envelope_matches(wtx, graph_fname, change, mutation_batch_graph_name(batch)?, crypto)?;
     }
     Ok(Some(MutationBatchCommit {
         record,
+        identity: batch.identity.clone(),
         replayed: true,
     }))
 }
@@ -2375,21 +2397,37 @@ fn check_occ_version_and_fence(
     graph_fname: &str,
     batch: &MutationBatch,
     current_graph_version: u64,
-    lifecycle_is_none: bool,
-    native_terminal_work_item_cas: bool,
     crypto: DurableCrypto<'_>,
 ) -> Result<DurableMutationFence, String> {
-    if let Some(expected) = batch.expected_graph_version {
-        if expected != current_graph_version {
-            return Err(format!(
-                "STALE_VERSION: graph '{}' expected version {} but authoritative version is {}",
-                batch.graph, expected, current_graph_version
-            ));
-        }
-    } else if lifecycle_is_none && !native_terminal_work_item_cas {
-        return Err(
-            "authoritative non-lifecycle MutationBatch requires expected_graph_version".to_string(),
-        );
+    // `batch.validate()` (run before this, in `prepare_and_validate_mutation_batch`)
+    // structurally requires a graph-scoped batch to carry
+    // `VersionExpectation::Graph(_)` -- there is no longer an "absent
+    // expectation" state to bypass this check for, for lifecycle or native
+    // terminal WorkItem-CAS batches included. This is a deliberate v1
+    // simplification, not an oversight: `resource_reservation_tests.rs`'s
+    // fixtures were migrated in lockstep to always supply a real, tracked
+    // `expected_version` for exactly this same batch shape family
+    // (`ReserveWorkItemResources`/`ReleaseWorkItemResources`/
+    // `UpdateResourceHost`/...), specifically so the graph-row OCC counter
+    // now genuinely serializes racing native-terminal-WorkItem-CAS commits
+    // (see `commit_racing_resource_batch`'s doc comment: "previously native
+    // scope carried no OCC counter at all, so both commits landed
+    // unconditionally" -- that gap is what this uniform check closes).
+    // Every graph-scoped batch, CAS-shaped or not, must now carry the
+    // version it actually expects; the producer's job if it commits more
+    // than once (e.g. an unrelated second CancelWorkItem after another
+    // batch already advanced the graph) is to re-read the live version
+    // between commits, exactly like `commit_racing_resource_batch` does.
+    let VersionExpectation::Graph(expected) = batch.version_expectation else {
+        return Err("graph MutationBatch requires a graph version expectation".to_string());
+    };
+    if expected != current_graph_version {
+        return Err(format!(
+            "STALE_VERSION: graph '{}' expected version {} but authoritative version is {}",
+            mutation_batch_graph_name(batch)?,
+            expected,
+            current_graph_version
+        ));
     }
 
     let current_fence = {
@@ -2418,7 +2456,7 @@ fn check_occ_version_and_fence(
     {
         return Err(format!(
             "STALE_FENCE: graph '{}' route ({},{}) is older than ({},{})",
-            batch.graph,
+            mutation_batch_graph_name(batch)?,
             proposed_fence.placement_epoch,
             proposed_fence.fencing_token,
             current_fence.placement_epoch,
@@ -3487,19 +3525,12 @@ fn prepare_and_validate_mutation_batch(
     validate_change_envelope_preconditions(
         wtx,
         graph_fname,
-        batch.tenant.as_str(),
+        batch.identity.tenant().as_str(),
         change,
         crypto,
     )?;
-    let proposed_fence = check_occ_version_and_fence(
-        wtx,
-        graph_fname,
-        batch,
-        current_graph_version,
-        lifecycle.is_none(),
-        native_terminal_work_item_cas,
-        crypto,
-    )?;
+    let proposed_fence =
+        check_occ_version_and_fence(wtx, graph_fname, batch, current_graph_version, crypto)?;
     Ok(MutationBatchPrepareOutcome::Fresh(MutationBatchPlan {
         native_terminal_work_item_cas,
         staged_state,
@@ -3744,7 +3775,7 @@ fn write_mutation_batch_identity_rows(
         .map_err(|e| e.to_string())?;
     idem.insert(
         (
-            batch.tenant.as_str(),
+            batch.identity.tenant().as_str(),
             graph_fname,
             batch.idempotency_key.as_str(),
         ),
@@ -3851,16 +3882,24 @@ fn write_mutation_outbox_operation_rows(
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+    // `next_graph_version` is the graph's version AFTER this commit (see
+    // `mutation_batch_next_graph_version`); it is exactly what the old flat
+    // `source_graph_version` field held here (`source_graph_version:
+    // next_graph_version`, unconditionally). The new closed
+    // `CommittedVersion::Graph { source, target }` shape requires a paired
+    // `target = source + 1` the old field never carried; `source` keeps the
+    // old field's own value (the ack path -- `derive_ack_source_graph_version`
+    // et al -- reads this same `source` back and compares it to
+    // `next_graph_version`-equivalent values derived the same way, so this
+    // must stay the value the old field held, not a shifted one).
     for operation in &batch.operations {
         let payload = rmp_serde::to_vec_named(operation).map_err(|e| e.to_string())?;
         let out = MutationOutboxRecord {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: batch.batch_id.clone(),
             ordinal: *next_ordinal,
-            tenant: batch.tenant.clone(),
-            graph: batch.graph.clone(),
-            version_scope: MutationVersionScope::Graph,
-            source_graph_version: next_graph_version,
+            identity: batch.identity.clone(),
+            committed_version: CommittedVersion::checked_graph(next_graph_version)?,
             intent: MutationOutboxIntent {
                 topic: "engine.mutation.committed".to_string(),
                 key: batch.batch_id.clone(),
@@ -3891,14 +3930,14 @@ fn write_mutation_outbox_intent_rows(
 ) -> Result<(), String> {
     let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
     for intent in &batch.outbox {
+        // See `write_mutation_outbox_operation_rows`'s comment on
+        // `next_graph_version` vs `source`/`target`.
         let out = MutationOutboxRecord {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: batch.batch_id.clone(),
             ordinal: *next_ordinal,
-            tenant: batch.tenant.clone(),
-            graph: batch.graph.clone(),
-            version_scope: MutationVersionScope::Graph,
-            source_graph_version: next_graph_version,
+            identity: batch.identity.clone(),
+            committed_version: CommittedVersion::checked_graph(next_graph_version)?,
             intent: intent.clone(),
             created_at_ms: batch.created_at_ms,
         };
@@ -3929,20 +3968,20 @@ fn write_change_committed_outbox_row(
         "schema": "epistemic.change.committed.v1",
         "envelope_id": change.envelope_id.as_str(),
         "batch_id": batch.batch_id.as_str(),
-        "tenant": batch.tenant.as_str(),
-        "graph": batch.graph.as_str(),
+        "tenant": batch.identity.tenant().as_str(),
+        "graph": mutation_batch_graph_name(batch)?,
         "object_id": change.content_version.object_id.as_str(),
         "content_digest": change.content_version.digest.as_str(),
     });
     let event_payload = rmp_serde::to_vec_named(&event).map_err(|e| e.to_string())?;
+    // See `write_mutation_outbox_operation_rows`'s comment on
+    // `next_graph_version` vs `source`/`target`.
     let out = MutationOutboxRecord {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch.batch_id.clone(),
         ordinal: *next_ordinal,
-        tenant: batch.tenant.clone(),
-        graph: batch.graph.clone(),
-        version_scope: MutationVersionScope::Graph,
-        source_graph_version: next_graph_version,
+        identity: batch.identity.clone(),
+        committed_version: CommittedVersion::checked_graph(next_graph_version)?,
         intent: MutationOutboxIntent {
             topic: "engine.change.committed".to_string(),
             key: change.envelope_id.clone(),
@@ -3994,7 +4033,7 @@ fn write_change_envelope_and_content_version_rows(
         .insert(
             (
                 graph_fname,
-                batch.tenant.as_str(),
+                batch.identity.tenant().as_str(),
                 change.content_version.object_id.as_str(),
             ),
             sealed.as_ref(),
@@ -4050,7 +4089,7 @@ fn write_change_cursor_row(
         .insert(
             (
                 graph_fname,
-                batch.tenant.as_str(),
+                batch.identity.tenant().as_str(),
                 cursor.source.as_str(),
                 cursor.partition.as_str(),
             ),
@@ -4069,7 +4108,7 @@ fn write_change_material_blobs(
 ) -> Result<(), String> {
     let mut blobs = wtx.open_table(CHANGE_BLOBS).map_err(|e| e.to_string())?;
     for blob in &change.blobs {
-        let key = (graph_fname, batch.tenant.as_str(), blob.blob_id.as_str());
+        let key = (graph_fname, batch.identity.tenant().as_str(), blob.blob_id.as_str());
         match blob.operation {
             MaterialOperation::Upsert => {
                 let bytes = rmp_serde::to_vec_named(blob).map_err(|e| e.to_string())?;
@@ -4097,7 +4136,7 @@ fn write_change_material_features(
     for feature in &change.features {
         let key = (
             graph_fname,
-            batch.tenant.as_str(),
+            batch.identity.tenant().as_str(),
             feature.feature_id.as_str(),
         );
         match feature.operation {
@@ -4127,7 +4166,7 @@ fn write_change_material_evidence(
     for item in &change.evidence {
         let key = (
             graph_fname,
-            batch.tenant.as_str(),
+            batch.identity.tenant().as_str(),
             item.evidence_id.as_str(),
         );
         match item.operation {
@@ -4157,7 +4196,7 @@ fn write_change_material_policies(
     for policy in &change.policies {
         let key = (
             graph_fname,
-            batch.tenant.as_str(),
+            batch.identity.tenant().as_str(),
             policy.policy_id.as_str(),
         );
         match policy.operation {
@@ -4185,7 +4224,7 @@ fn write_change_material_lineage(
 ) -> Result<(), String> {
     let mut lineage = wtx.open_table(CHANGE_LINEAGE).map_err(|e| e.to_string())?;
     for item in &change.lineage {
-        let key = (graph_fname, batch.tenant.as_str(), item.lineage_id.as_str());
+        let key = (graph_fname, batch.identity.tenant().as_str(), item.lineage_id.as_str());
         match item.operation {
             MaterialOperation::Upsert => {
                 let bytes = rmp_serde::to_vec_named(item).map_err(|e| e.to_string())?;
@@ -4262,7 +4301,7 @@ fn resolve_default_graph_meta_update(
         }
         (Some(_), None) => None,
         (None, policy) => Some(encode_meta_record(
-            &batch.graph,
+            mutation_batch_graph_name(batch)?,
             GraphType::Global,
             &batch.batch_id,
             policy.and_then(Option::as_ref),
@@ -4332,9 +4371,19 @@ fn write_mutation_batch_commit_rows(
         lifecycle,
         integrity_policy_update,
     } = versioning;
+    // `check_occ_version_and_fence` (run earlier in this commit) already
+    // required `batch.version_expectation` to be `Graph(expected)` with
+    // `expected == current_graph_version`, so the committed record's version
+    // transition is exactly `expected -> expected + 1` -- the same value
+    // `mutation_batch_next_graph_version` below derives independently.
+    let VersionExpectation::Graph(expected_graph_version) = batch.version_expectation else {
+        return Err("graph MutationBatch requires a graph version expectation".to_string());
+    };
     let record = MutationBatchRecord {
         batch: batch.clone(),
+        identity: batch.identity.clone(),
         status: MutationBatchStatus::Committed,
+        committed_version: CommittedVersion::checked_graph(expected_graph_version)?,
         result_msgpack: generated_result.or_else(|| result_msgpack.map(ToOwned::to_owned)),
         committed_at_ms,
     };
@@ -10712,28 +10761,45 @@ pub(crate) fn claim_mutation_outbox(
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
 
-    let mut candidates = {
+    let mut candidates: Vec<(u64, MutationOutboxRecord)> = {
         let outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
         let mut rows = Vec::new();
         for row in outbox.iter().map_err(|e| e.to_string())? {
             let (_, value) = row.map_err(|e| e.to_string())?;
             let bytes = crypto.unseal(value.value())?;
             let record = decode_mutation_outbox_record(&bytes)?;
-            if sanitize(&record.graph) == graph_fname {
-                rows.push(record);
+            // A native (non-graph) scope has no graph name at all;
+            // `is_some_and` fails closed on `None` instead of ever matching a
+            // sentinel against `graph_fname`.
+            if record
+                .identity
+                .scope()
+                .graph_name()
+                .is_some_and(|name| sanitize(name.as_str()) == graph_fname)
+            {
+                // `decode_mutation_outbox_record` already requires
+                // `committed_version` to be `Graph { source, .. }` with a
+                // non-zero source, so this extraction cannot fail in
+                // practice; fail closed rather than panicking if it ever did.
+                let CommittedVersion::Graph { source, .. } = record.committed_version else {
+                    return Err(
+                        "graph mutation store contains a non-graph outbox record".to_string()
+                    );
+                };
+                rows.push((source, record));
             }
         }
         rows
     };
-    candidates.sort_by(|left, right| {
+    candidates.sort_by(|(left_source, left), (right_source, right)| {
         (
-            left.source_graph_version,
+            left_source,
             left.created_at_ms,
             left.batch_id.as_str(),
             left.ordinal,
         )
             .cmp(&(
-                right.source_graph_version,
+                right_source,
                 right.created_at_ms,
                 right.batch_id.as_str(),
                 right.ordinal,
@@ -10745,7 +10811,7 @@ pub(crate) fn claim_mutation_outbox(
         let mut deliveries = wtx
             .open_table(MUTATION_OUTBOX_DELIVERY)
             .map_err(|e| e.to_string())?;
-        for record in candidates {
+        for (_, record) in candidates {
             if claimed.len() >= limit {
                 break;
             }
@@ -10800,7 +10866,15 @@ fn validate_ack_outbox_request(
         return Err("outbox ack requires projection and consumer".to_string());
     }
     lease.record.validate()?;
-    if sanitize(&lease.record.graph) != graph_fname {
+    // A native (non-graph) scope has no graph name at all; `is_some_and`
+    // fails closed on `None` instead of ever matching a sentinel.
+    if !lease
+        .record
+        .identity
+        .scope()
+        .graph_name()
+        .is_some_and(|name| sanitize(name.as_str()) == graph_fname)
+    {
         return Err("outbox ack graph route does not match the leased record".to_string());
     }
     Ok(())
@@ -10828,21 +10902,26 @@ fn verify_outbox_lease_matches_durable_event(
 
 fn ack_outbox_derived_graph_version(batch: &MutationBatch) -> Result<Option<u64>, String> {
     if let Some(state) = batch.authoritative_state.as_ref() {
-        Ok(Some(state.target_graph_version))
-    } else if let Some(version) = batch.expected_graph_version {
-        Ok(Some(version.checked_add(1).ok_or_else(|| {
-            "mutation graph version overflow".to_string()
-        })?))
-    } else {
-        Ok(None)
+        return Ok(Some(state.target_graph_version));
     }
+    // `batch.validate()` structurally requires a graph-scoped batch to carry
+    // `VersionExpectation::Graph(_)` -- there is no longer an "absent
+    // expectation" state, but the `None` arm is kept (rather than an
+    // unreachable!()/unwrap) so a batch that somehow is not graph-scoped
+    // fails closed here instead of panicking.
+    let VersionExpectation::Graph(version) = batch.version_expectation else {
+        return Ok(None);
+    };
+    Ok(Some(version.checked_add(1).ok_or_else(|| {
+        "mutation graph version overflow".to_string()
+    })?))
 }
 
 fn ack_source_batch_is_bound(batch: &MutationBatchRecord, lease: &MutationOutboxLease) -> bool {
     batch.status == MutationBatchStatus::Committed
         && batch.batch.batch_id == lease.record.batch_id
-        && batch.batch.tenant == lease.record.tenant
-        && batch.batch.graph == lease.record.graph
+        && batch.batch.identity.tenant() == lease.record.identity.tenant()
+        && batch.batch.identity.scope().graph_name() == lease.record.identity.scope().graph_name()
 }
 
 fn load_ack_source_batch(
@@ -10869,12 +10948,12 @@ fn derive_ack_source_graph_version(
     batch: &MutationBatchRecord,
     lease: &MutationOutboxLease,
 ) -> Result<u64, String> {
-    if lease.record.version_scope != MutationVersionScope::Graph {
+    let CommittedVersion::Graph { source, .. } = lease.record.committed_version else {
         return Err("graph projection cannot acknowledge a non-graph outbox event".to_string());
-    }
+    };
     let derived = ack_outbox_derived_graph_version(&batch.batch)?;
     if let Some(derived) = derived {
-        if lease.record.source_graph_version != derived {
+        if source != derived {
             return Err("outbox event graph version does not match its batch".to_string());
         }
     } else if !batch.batch.operations.iter().all(|operation| {
@@ -10885,7 +10964,7 @@ fn derive_ack_source_graph_version(
     }) {
         return Err("committed graph outbox event has no authoritative version source".to_string());
     }
-    Ok(lease.record.source_graph_version)
+    Ok(source)
 }
 
 fn resolve_ack_source_graph_version(
@@ -10908,7 +10987,11 @@ fn read_ack_current_cursor(
         .open_table(MUTATION_PROJECTION_CURSOR)
         .map_err(|e| e.to_string())?;
     let value = cursors
-        .get((projection, lease.record.tenant.as_str(), graph_fname))
+        .get((
+            projection,
+            lease.record.identity.tenant().as_str(),
+            graph_fname,
+        ))
         .map_err(|e| e.to_string())?
         .map(|value| {
             let bytes = crypto.unseal(value.value())?;
@@ -10944,8 +11027,15 @@ fn find_earlier_outbox_keys(
     lease: &MutationOutboxLease,
     crypto: DurableCrypto<'_>,
 ) -> Result<Vec<(String, u32)>, String> {
+    let CommittedVersion::Graph {
+        source: proposed_source,
+        ..
+    } = lease.record.committed_version
+    else {
+        return Err("graph projection cannot acknowledge a non-graph outbox event".to_string());
+    };
     let proposed_order = (
-        lease.record.source_graph_version,
+        proposed_source,
         lease.record.created_at_ms,
         lease.record.batch_id.as_str(),
         lease.record.ordinal,
@@ -10956,13 +11046,26 @@ fn find_earlier_outbox_keys(
         let (_, value) = row.map_err(|e| e.to_string())?;
         let bytes = crypto.unseal(value.value())?;
         let record = decode_mutation_outbox_record(&bytes)?;
+        // `decode_mutation_outbox_record` already requires `committed_version`
+        // to be `Graph { source, .. }`, so this cannot fail in practice; fail
+        // closed rather than panicking if it ever did.
+        let CommittedVersion::Graph { source, .. } = record.committed_version else {
+            return Err("graph mutation store contains a non-graph outbox record".to_string());
+        };
         let order = (
-            record.source_graph_version,
+            source,
             record.created_at_ms,
             record.batch_id.as_str(),
             record.ordinal,
         );
-        if sanitize(&record.graph) == graph_fname && order < proposed_order {
+        // A native (non-graph) scope has no graph name at all; `is_some_and`
+        // fails closed on `None` instead of ever matching a sentinel.
+        let matches_graph = record
+            .identity
+            .scope()
+            .graph_name()
+            .is_some_and(|name| sanitize(name.as_str()) == graph_fname);
+        if matches_graph && order < proposed_order {
             keys.push((record.batch_id, record.ordinal));
         }
     }
@@ -11003,10 +11106,19 @@ fn already_delivered_cursor(
     source_graph_version: u64,
 ) -> Option<MutationProjectionCursor> {
     let cursor = current_cursor.as_ref()?;
+    // A cursor whose committed version is not `Graph { .. }` cannot match this
+    // (always graph-scoped) ack path -- mirrors the old "version_scope kinds
+    // differ" arm of this comparison.
+    let CommittedVersion::Graph {
+        source: cursor_source,
+        ..
+    } = cursor.committed_version
+    else {
+        return None;
+    };
     if cursor.batch_id == lease.record.batch_id
         && cursor.outbox_ordinal == lease.record.ordinal
-        && cursor.version_scope == lease.record.version_scope
-        && cursor.source_graph_version == source_graph_version
+        && cursor_source == source_graph_version
     {
         Some(cursor.clone())
     } else {
@@ -11042,9 +11154,18 @@ fn check_ack_cursor_watermark(
     source_graph_version: u64,
 ) -> Result<(), String> {
     if let Some(current) = current_cursor {
-        if current.version_scope != lease.record.version_scope
-            || source_graph_version < current.source_graph_version
-            || (source_graph_version == current.source_graph_version
+        // A cursor whose committed version is not `Graph { .. }` cannot be
+        // watermarked against this (always graph-scoped) ack path -- mirrors
+        // the old "version_scope kinds differ" arm of this comparison.
+        let CommittedVersion::Graph {
+            source: current_source,
+            ..
+        } = current.committed_version
+        else {
+            return Err("STALE_PROJECTION_CURSOR: event does not advance watermark".to_string());
+        };
+        if source_graph_version < current_source
+            || (source_graph_version == current_source
                 && (current.batch_id != lease.record.batch_id
                     || current.outbox_ordinal >= lease.record.ordinal))
         {
@@ -11083,12 +11204,10 @@ fn build_mutation_projection_cursor(
     let cursor = MutationProjectionCursor {
         schema_version: MUTATION_BATCH_VERSION,
         projection: projection.to_string(),
-        tenant: lease.record.tenant.clone(),
-        graph: lease.record.graph.clone(),
+        identity: lease.record.identity.clone(),
         batch_id: lease.record.batch_id.clone(),
         outbox_ordinal: lease.record.ordinal,
-        version_scope: lease.record.version_scope,
-        source_graph_version,
+        committed_version: CommittedVersion::checked_graph(source_graph_version)?,
         advanced_at_ms: now_ms,
     };
     cursor.validate()?;
@@ -11184,7 +11303,11 @@ pub(crate) fn ack_mutation_outbox(
         lease.record.ordinal,
         lease.consumer.as_str(),
     );
-    let cursor_key = (projection, lease.record.tenant.as_str(), graph_fname);
+    let cursor_key = (
+        projection,
+        lease.record.identity.tenant().as_str(),
+        graph_fname,
+    );
     commit_ack_outbox_rows(&wtx, delivery_key, &delivery, cursor_key, &cursor, crypto)?;
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(cursor)
@@ -16773,8 +16896,9 @@ mod mutation_batch_tests {
         PolicyRecord, PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
     };
     use crate::mutation_batch::{
-        MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
-        MutationSurface, MUTATION_BATCH_VERSION,
+        IncarnationId, MutationDomain, MutationOperation, MutationOutboxIntent,
+        MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
+        MUTATION_BATCH_VERSION,
     };
 
     fn temp_path(tag: &str) -> std::path::PathBuf {
@@ -16837,12 +16961,16 @@ mod mutation_batch_tests {
                 purpose: Some("crash-test".to_string()),
                 policy_fingerprint: Some("policy-v1".to_string()),
                 trace_id: Some("trace-1".to_string()),
+                verified_capabilities: Default::default(),
             },
-            tenant: "tenant-a".to_string(),
-            graph: "graph-a".to_string(),
+            identity: MutationScopeIdentity::graph(
+                TenantId::new("tenant-a").unwrap(),
+                LogicalName::new("graph-a").unwrap(),
+                IncarnationId::new("incarnation:test:redb-store").unwrap(),
+            ),
             placement_epoch: 7,
             idempotency_key: key.to_string(),
-            expected_graph_version: Some(3),
+            version_expectation: VersionExpectation::Graph(3),
             fencing_token: Some(9),
             authoritative_state: None,
             operations: vec![
@@ -16896,7 +17024,7 @@ mod mutation_batch_tests {
         max_tenant_in_flight: u64,
     ) -> MutationBatch {
         let mut claim = batch(batch_id, idempotency_key);
-        claim.expected_graph_version = Some(expected_graph_version);
+        claim.version_expectation = VersionExpectation::Graph(expected_graph_version);
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
@@ -17179,7 +17307,7 @@ mod mutation_batch_tests {
         }
 
         let mut removal = batch("batch-remove-a", "idem-remove-a");
-        removal.expected_graph_version = Some(4);
+        removal.version_expectation = VersionExpectation::Graph(4);
         removal.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
@@ -17572,7 +17700,7 @@ mod mutation_batch_tests {
             }])),
         }];
         let mut upsert = batch("batch-upsert-merge", "idem-upsert-merge");
-        upsert.expected_graph_version = Some(4);
+        upsert.version_expectation = VersionExpectation::Graph(4);
         upsert.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
@@ -17716,7 +17844,14 @@ mod mutation_batch_tests {
         terminal.context.purpose = None;
         terminal.context.policy_fingerprint = None;
         terminal.context.trace_id = None;
-        terminal.expected_graph_version = None;
+        // `CommitWorkItemResult` is a `native_terminal_work_item_cas` batch:
+        // `check_occ_version_and_fence` never checks its expectation against
+        // the authoritative version (the WorkItem lease/fencing token is its
+        // real CAS guard), but `VersionExpectation` no longer has a "none"
+        // arm to encode that -- 5 is simply the actual current graph version
+        // at this point (seed 3->4, claim 4->5), matching real state rather
+        // than an invented placeholder.
+        terminal.version_expectation = VersionExpectation::Graph(5);
         terminal.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
@@ -17817,7 +17952,12 @@ mod mutation_batch_tests {
             now_ms: 1_000,
         };
         let mut terminal = batch("work:bundle-batch", "work-idem:bundle-key");
-        terminal.expected_graph_version = None;
+        // See the identical comment in
+        // `terminal_work_item_retry_replays_and_conflicting_payload_fails_closed`:
+        // this is a `native_terminal_work_item_cas` batch whose expectation is
+        // never checked; 5 is the real current graph version here too (seed
+        // 3->4, claim 4->5).
+        terminal.version_expectation = VersionExpectation::Graph(5);
         terminal.operations = vec![
             MutationOperation {
                 ordinal: 0,
@@ -17918,7 +18058,7 @@ mod mutation_batch_tests {
         // current version (seed 3->4, claim 4->5) so the batch reaches the
         // per-operation shape guard this test targets, instead of failing
         // earlier on a mismatched/missing `expected_graph_version`.
-        terminal.expected_graph_version = Some(5);
+        terminal.version_expectation = VersionExpectation::Graph(5);
         terminal.operations = vec![
             MutationOperation {
                 ordinal: 0,
@@ -18011,7 +18151,7 @@ mod mutation_batch_tests {
         // first), so -- same reasoning as the disallowed-method test above --
         // supply the real current version (6) to reach the per-operation shape
         // guard rather than failing earlier on OCC.
-        terminal.expected_graph_version = Some(6);
+        terminal.version_expectation = VersionExpectation::Graph(6);
         terminal.operations = vec![
             MutationOperation {
                 ordinal: 0,
@@ -18104,7 +18244,7 @@ mod mutation_batch_tests {
         assert!(claimed.claimed);
 
         let mut claim = batch("work-item-claim", "work-item-claim-key");
-        claim.expected_graph_version = Some(5);
+        claim.version_expectation = VersionExpectation::Graph(5);
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
@@ -18198,7 +18338,7 @@ mod mutation_batch_tests {
             "work-item-exact-quota-claim",
             "work-item-exact-quota-claim-key",
         );
-        claim.expected_graph_version = Some(5);
+        claim.version_expectation = VersionExpectation::Graph(5);
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
@@ -18525,7 +18665,7 @@ mod mutation_batch_tests {
         // Same work item, but the caller's fencing token is stale (2 vs the
         // durable row's 1) — this must be rejected as "fenced", not applied.
         let mut renew = batch("work-item-renew-fenced", "work-item-renew-fenced-key");
-        renew.expected_graph_version = Some(5);
+        renew.version_expectation = VersionExpectation::Graph(5);
         renew.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
@@ -18702,7 +18842,7 @@ mod mutation_batch_tests {
                 &format!("cas-metadata-{set_checkpoint_id}"),
                 &format!("cas-metadata-{set_checkpoint_id}-key"),
             );
-            op.expected_graph_version = Some(expected_graph_version);
+            op.version_expectation = VersionExpectation::Graph(expected_graph_version);
             op.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
@@ -18844,7 +18984,7 @@ mod mutation_batch_tests {
             // would carry. Only the transaction that actually lands first
             // can have this match; the other's `expected_graph_version`
             // is stale by construction, not by chance.
-            op.expected_graph_version = Some(5);
+            op.version_expectation = VersionExpectation::Graph(5);
             op.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
@@ -19054,7 +19194,7 @@ mod mutation_batch_tests {
                 "cas-metadata-restart-apply",
                 "cas-metadata-restart-apply-key",
             );
-            apply.expected_graph_version = Some(5);
+            apply.version_expectation = VersionExpectation::Graph(5);
             apply.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
@@ -19131,7 +19271,7 @@ mod mutation_batch_tests {
 
         let claim_batch = || {
             let mut claim = batch("wi-claim", "wi-claim-key");
-            claim.expected_graph_version = Some(4);
+            claim.version_expectation = VersionExpectation::Graph(4);
             claim.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
@@ -19334,8 +19474,8 @@ mod mutation_batch_tests {
             let replay = commit_crossmodal_at(&db, &mutation, &methods, &vectors, None).unwrap();
             assert!(replay.replayed);
             assert_eq!(
-                replay.record.batch.expected_graph_version,
-                Some(3),
+                replay.record.batch.version_expectation,
+                VersionExpectation::Graph(3),
                 "replay must retain the original OCC observation in the durable identity"
             );
 
@@ -19343,12 +19483,12 @@ mod mutation_batch_tests {
             // carry the now-current graph version.  It is still the same
             // cross-modal request and must replay without applying rows again.
             let mut rederived = mutation.clone();
-            rederived.expected_graph_version = Some(4);
+            rederived.version_expectation = VersionExpectation::Graph(4);
             let replay = commit_crossmodal_at(&db, &rederived, &methods, &vectors, None).unwrap();
             assert!(replay.replayed);
             assert_eq!(
-                replay.record.batch.expected_graph_version,
-                Some(3),
+                replay.record.batch.version_expectation,
+                VersionExpectation::Graph(3),
                 "a derived retry version must never overwrite the original durable version"
             );
 
@@ -19430,11 +19570,16 @@ mod mutation_batch_tests {
         assert_eq!(cursor.batch_id, "batch-outbox");
         assert_eq!(cursor.outbox_ordinal, 2);
         assert_eq!(cursor.schema_version, MUTATION_BATCH_VERSION);
-        assert_eq!(cursor.version_scope, MutationVersionScope::Graph);
-        assert_eq!(cursor.source_graph_version, 4);
+        assert_eq!(
+            cursor.committed_version,
+            CommittedVersion::Graph {
+                source: 4,
+                target: 5
+            }
+        );
 
         let mut next = batch("batch-outbox-next", "idem-outbox-next");
-        next.expected_graph_version = Some(4);
+        next.version_expectation = VersionExpectation::Graph(4);
         commit_at(&db, &next, None).unwrap();
         let next_lease = claim_mutation_outbox(
             &db,
@@ -19456,7 +19601,13 @@ mod mutation_batch_tests {
             DurableCrypto::none(),
         )
         .unwrap();
-        assert_eq!(advanced.source_graph_version, 5);
+        assert_eq!(
+            advanced.committed_version,
+            CommittedVersion::Graph {
+                source: 5,
+                target: 6
+            }
+        );
         assert!(ack_mutation_outbox(
             &db,
             "graph-a",
@@ -19628,7 +19779,7 @@ mod mutation_batch_tests {
         let state = delta.to_msgpack().unwrap();
 
         let mut mutation = batch("batch-row-delta", "idem-row-delta");
-        mutation.expected_graph_version = Some(4);
+        mutation.version_expectation = VersionExpectation::Graph(4);
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Query,
@@ -19711,7 +19862,7 @@ mod mutation_batch_tests {
             .unwrap();
         let state = delta.to_msgpack().unwrap();
         let mut mutation = batch("batch-policy-fail", "idem-policy-fail");
-        mutation.expected_graph_version = Some(4);
+        mutation.version_expectation = VersionExpectation::Graph(4);
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
@@ -19827,7 +19978,7 @@ mod mutation_batch_tests {
             }));
 
         let mut delete = batch("delete-graph-a", "delete-key");
-        delete.expected_graph_version = Some(4);
+        delete.version_expectation = VersionExpectation::Graph(4);
         delete.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
@@ -19914,7 +20065,7 @@ mod mutation_batch_tests {
         // this is what stamps MUTATION_IDEMPOTENCY/MUTATION_BATCHES/MUTATION_OUTBOX
         // for the incarnation being deleted below.
         let mut content = batch("content-batch-1", "content-key-1");
-        content.expected_graph_version = Some(4);
+        content.version_expectation = VersionExpectation::Graph(4);
         commit_at(&db, &content, None).unwrap();
 
         // Prove the prior incarnation's mutation authority is actually there
@@ -19937,7 +20088,7 @@ mod mutation_batch_tests {
         }
 
         let mut delete = batch("delete-graph-a", "delete-key");
-        delete.expected_graph_version = Some(5);
+        delete.version_expectation = VersionExpectation::Graph(5);
         delete.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
@@ -19984,7 +20135,7 @@ mod mutation_batch_tests {
         // version fence, which guards a different invariant (monotonic replay
         // ordering for whichever incarnation currently owns the name).
         let mut recreate = batch("create-graph-a-v2", "create-key-v2");
-        recreate.expected_graph_version = Some(6);
+        recreate.version_expectation = VersionExpectation::Graph(6);
         recreate.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
@@ -19996,7 +20147,7 @@ mod mutation_batch_tests {
         }];
         commit_at(&db, &recreate, None).unwrap();
         let mut content_v2 = batch("content-batch-1-v2", "content-key-1");
-        content_v2.expected_graph_version = Some(7);
+        content_v2.version_expectation = VersionExpectation::Graph(7);
         commit_at(&db, &content_v2, None).unwrap();
         {
             let rtx = db.begin_read().unwrap();
@@ -20042,7 +20193,7 @@ mod mutation_batch_tests {
         // row for the incarnation being purged. The lifecycle batch above also
         // seeds the graph version, fence, and lifecycle-head rows.
         let mut content = batch("content-batch-1", "content-key-1");
-        content.expected_graph_version = Some(4);
+        content.version_expectation = VersionExpectation::Graph(4);
         commit_at(&db, &content, None).unwrap();
 
         // Delivery and projection cursor rows are not written by commit_at;
@@ -20148,7 +20299,7 @@ mod mutation_batch_tests {
 
     fn governed_envelope(batch_id: &str, key: &str, sequence: u64) -> ChangeEnvelope {
         let mut mutation = batch(batch_id, key);
-        mutation.expected_graph_version = Some(2 + sequence);
+        mutation.version_expectation = VersionExpectation::Graph(2 + sequence);
         mutation.operations.truncate(1);
         mutation.outbox[0].payload = rmp_serde::to_vec_named(&serde_json::json!({
             "event": "projection.test"
@@ -20291,7 +20442,7 @@ mod mutation_batch_tests {
     fn governed_envelope_seq(index: u64) -> ChangeEnvelope {
         let object = format!("object-{index}");
         let mut mutation = batch(&format!("batch-{index}"), &format!("key-{index}"));
-        mutation.expected_graph_version = Some(3 + index);
+        mutation.version_expectation = VersionExpectation::Graph(3 + index);
         mutation.operations.truncate(1);
         mutation.operations[0].method = node(&format!("n{index}"), index as i64);
         mutation.outbox[0].payload =
@@ -20519,7 +20670,12 @@ mod mutation_batch_tests {
         assert_eq!(claimed.fencing_token, Some(1));
 
         let mut defer = batch("work-item-defer-op", "work-item-defer-op-key");
-        defer.expected_graph_version = None;
+        // `DeferWorkItem` is a `native_terminal_work_item_cas` batch (its own
+        // lease/fencing token is the real CAS guard), but `version_expectation`
+        // is still checked like any other graph-scoped batch by
+        // `check_occ_version_and_fence` -- 5 is the actual current graph
+        // version here (seed 3->4, claim 4->5) and must match exactly.
+        defer.version_expectation = VersionExpectation::Graph(5);
         defer.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
@@ -20582,7 +20738,16 @@ mod mutation_batch_tests {
         commit_at(&db, &seed, None).unwrap();
 
         let mut cancel = batch("work-item-cancel-op", "work-item-cancel-op-key");
-        cancel.expected_graph_version = None;
+        // `CancelWorkItem` is a `native_terminal_work_item_cas` batch, but
+        // v1 removed the "supply no expectation to skip the OCC check"
+        // escape hatch structurally (a graph-scoped batch must always carry
+        // `VersionExpectation::Graph(_)`; see `check_occ_version_and_fence`'s
+        // doc). `check_occ_version_and_fence` DOES check this value now, for
+        // every graph-scoped batch uniformly -- the same real-OCC upgrade
+        // `resource_reservation_tests.rs` deliberately opted into. 4 is the
+        // actual current graph version here (only `seed` has committed:
+        // 3->4).
+        cancel.version_expectation = VersionExpectation::Graph(4);
         cancel.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
@@ -20621,11 +20786,17 @@ mod mutation_batch_tests {
         // ALREADY-cancelled item exercises the handler's own internal
         // `matches!(status, "succeeded"|"failed"|"cancelled"|"dead_letter") ->
         // noop` guard -- distinct from MutationBatch-level idempotency replay,
-        // which a different idempotency_key deliberately bypasses.
+        // which a different idempotency_key deliberately bypasses. Because it
+        // is a genuinely NEW batch (not a replay), it is subject to
+        // `check_occ_version_and_fence` like any other graph-scoped commit --
+        // `cancel`'s own commit above already advanced `graph-a` 4->5, so this
+        // second, independent commit must expect the CURRENT version (5), not
+        // a stale clone of `cancel`'s now-superseded `Graph(4)`.
         let mut cancel_again = cancel.clone();
         cancel_again.batch_id = "work-item-cancel-op-2".into();
         cancel_again.idempotency_key = "work-item-cancel-op-2-key".into();
         cancel_again.outbox[0].key = cancel_again.batch_id.clone();
+        cancel_again.version_expectation = VersionExpectation::Graph(5);
         let replay = commit_at(&db, &cancel_again, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
             replay

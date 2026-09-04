@@ -908,7 +908,15 @@ impl EgStore {
         let Some(envelope) = change_envelope else {
             return Ok(None);
         };
-        if envelope.mutation.graph != req.graph_name {
+        // `identity.scope().graph_name()` is `None` for a native (non-graph)
+        // scope; fail closed instead of letting a native-scope envelope
+        // silently compare equal to a graph name (no sentinel/empty-string
+        // substitution — see MIGRATION-CONTRACT.md).
+        let envelope_graph_matches = match envelope.mutation.identity.scope().graph_name() {
+            Some(graph_name) => graph_name.as_str() == req.graph_name.as_str(),
+            None => false,
+        };
+        if !envelope_graph_matches {
             return Err(
                 "replicated ChangeEnvelope graph does not match request authority".to_string(),
             );
@@ -916,7 +924,7 @@ impl EgStore {
         let expected_tenant_scope = crate::server::mutation_batch::opaque_coordinator_key(
             "carrier-tenant",
             "verified",
-            &envelope.mutation.tenant,
+            envelope.mutation.identity.tenant().as_str(),
         );
         if Self::change_envelope_mismatches_authority(req, envelope, &expected_tenant_scope) {
             return Err(
@@ -1078,10 +1086,18 @@ impl EgStore {
         operation_matches: bool,
         expected_result: &[u8],
     ) -> bool {
+        // `identity.scope().graph_name()` is `None` for a native (non-graph)
+        // scope; fail closed instead of letting a native-scope record silently
+        // compare equal to a graph name (no sentinel/empty-string substitution
+        // — see MIGRATION-CONTRACT.md).
+        let graph_matches = match record.batch.identity.scope().graph_name() {
+            Some(graph_name) => graph_name.as_str() == req.graph_name.as_str(),
+            None => false,
+        };
         record.status != crate::mutation_batch::MutationBatchStatus::Committed
             || record.batch.batch_id != batch_id
-            || record.batch.tenant != req.mutation.tenant_scope
-            || record.batch.graph != req.graph_name
+            || record.batch.identity.tenant().as_str() != req.mutation.tenant_scope.as_str()
+            || !graph_matches
             || record.batch.context.principal != expected_principal
             || !operation_matches
             || record.result_msgpack.as_deref() != Some(expected_result)

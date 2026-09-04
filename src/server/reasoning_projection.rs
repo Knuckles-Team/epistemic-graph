@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use eg_epistemic::{
     IncrementalDelta, IncrementalReasoningIndex, ProjectionPosition, ReasoningProjectionWakeup,
 };
-use eg_types::mutation_batch::{MutationBatchStatus, MutationOutboxLease, MutationVersionScope};
+use eg_types::mutation_batch::{CommittedVersion, MutationBatchStatus, MutationOutboxLease};
 use sha2::{Digest, Sha256};
 use tokio::sync::RwLock;
 
@@ -235,7 +235,11 @@ async fn process_lease(
     // sidecar may be one event AHEAD after a crash between snapshot and ack;
     // exact-position apply is idempotent.
     if persistence
-        .read_mutation_projection_cursor(graph_fname, PROJECTION, &lease.record.tenant)
+        .read_mutation_projection_cursor(
+            graph_fname,
+            PROJECTION,
+            lease.record.identity.tenant().as_str(),
+        )
         .await
         .is_err()
     {
@@ -328,13 +332,16 @@ fn apply_lease(
     lease: &MutationOutboxLease,
     wakeup: Option<&ReasoningProjectionWakeup>,
 ) -> Result<IncrementalDelta, String> {
-    if lease.record.version_scope != MutationVersionScope::Graph {
+    // Fails closed on any non-`Graph` committed version (`Native` or `None`),
+    // matching the original `version_scope != Graph` guard exactly while also
+    // extracting the source version it authorizes below.
+    let CommittedVersion::Graph { source, .. } = lease.record.committed_version else {
         return Err("reasoning projection requires a graph-authoritative event".to_string());
-    }
+    };
     let position = ProjectionPosition {
         batch_id: lease.record.batch_id.clone(),
         ordinal: lease.record.ordinal,
-        source_graph_version: lease.record.source_graph_version,
+        source_graph_version: source,
     };
     if let Some(wakeup) = wakeup {
         index.apply_wakeup(position, wakeup, &core.analysis_snapshot())

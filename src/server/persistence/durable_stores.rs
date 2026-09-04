@@ -262,6 +262,21 @@ mod tests {
             "native.redb",
             "eg-mutation-store unit-test fixture (tempdir)",
         ),
+        (
+            "prototype.redb",
+            "eg-mutation-store unit-test fixture (tempdir): a deliberately hand-built \
+             legacy-named table used to prove reject_prototype_names quarantines it",
+        ),
+        (
+            "source.redb",
+            "eg-mutation-store unit-test fixture (tempdir): the pre-backup store in the \
+             backup_derives_a_distinct_physical_root_and_rebinds_scopes round-trip test",
+        ),
+        (
+            "backup.redb",
+            "eg-mutation-store unit-test fixture (tempdir): the backup destination in the \
+             backup_derives_a_distinct_physical_root_and_rebinds_scopes round-trip test",
+        ),
         ("coordinator.redb", "dispatch unit-test fixture (tempdir)"),
         ("compensation.redb", "dispatch unit-test fixture (tempdir)"),
         ("ts.redb", "eg-tsdb unit-test fixture (tempdir)"),

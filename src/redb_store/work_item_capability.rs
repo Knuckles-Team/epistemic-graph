@@ -1115,8 +1115,9 @@ fn verification_refusal_result() -> WorkItemClaimCapabilityResult {
 mod tests {
     use super::*;
     use crate::mutation_batch::{
-        MutationBatch, MutationDomain, MutationOperation, MutationRequestContext, MutationSurface,
-        MUTATION_BATCH_VERSION,
+        IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
+        MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
+        VersionExpectation, MUTATION_BATCH_VERSION,
     };
     use crate::protocol::Method;
     use redb::{Database, Durability, ReadableDatabase, ReadableTableMetadata};
@@ -1174,12 +1175,17 @@ mod tests {
                 purpose: None,
                 policy_fingerprint: None,
                 trace_id: None,
+                verified_capabilities: Default::default(),
             },
-            tenant: "tenant-a".to_string(),
-            graph: "graph-a".to_string(),
+            identity: MutationScopeIdentity::graph(
+                TenantId::new("tenant-a").expect("static tenant id is valid"),
+                LogicalName::new("graph-a").expect("static graph name is valid"),
+                IncarnationId::new("incarnation:test:work-item-capability")
+                    .expect("static incarnation id is valid"),
+            ),
             placement_epoch: 0,
             idempotency_key: format!("claim-key-{key}"),
-            expected_graph_version: Some(expected_graph_version),
+            version_expectation: VersionExpectation::Graph(expected_graph_version),
             fencing_token: None,
             authoritative_state: None,
             operations: vec![MutationOperation {
@@ -1328,12 +1334,17 @@ mod tests {
                 purpose: None,
                 policy_fingerprint: None,
                 trace_id: None,
+                verified_capabilities: Default::default(),
             },
-            tenant: "tenant-a".to_string(),
-            graph: "graph-a".to_string(),
+            identity: MutationScopeIdentity::graph(
+                TenantId::new("tenant-a").expect("static tenant id is valid"),
+                LogicalName::new("graph-a").expect("static graph name is valid"),
+                IncarnationId::new("incarnation:test:work-item-capability")
+                    .expect("static incarnation id is valid"),
+            ),
             placement_epoch: 0,
             idempotency_key: format!("result-key-{key}"),
-            expected_graph_version: Some(expected_graph_version),
+            version_expectation: VersionExpectation::Graph(expected_graph_version),
             fencing_token: None,
             authoritative_state: None,
             operations: vec![MutationOperation {

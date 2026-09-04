@@ -43,9 +43,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus, MutationDomain,
-    MutationOutboxIntent, MutationOutboxRecord, MutationVersionScope, MUTATION_BATCH_VERSION,
-    NON_GRAPH_SOURCE_VERSION,
+    CommittedVersion, MutationBatch, MutationBatchCommit, MutationBatchRecord,
+    MutationBatchStatus, MutationDomain, MutationOutboxIntent, MutationOutboxRecord,
+    MutationScope, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use redb::{
     Database, Durability, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition,
@@ -199,12 +199,29 @@ fn decode_mutation_record(bytes: &[u8]) -> Result<MutationBatchRecord, String> {
 fn decode_mutation_outbox(bytes: &[u8]) -> Result<MutationOutboxRecord, String> {
     let record: MutationOutboxRecord = decode_stored(bytes, "mutation outbox record")?;
     record.validate()?;
-    if record.version_scope != MutationVersionScope::NonGraph
-        || record.source_graph_version != NON_GRAPH_SOURCE_VERSION
-    {
+    if !matches!(record.committed_version, CommittedVersion::Native { .. }) {
         return Err("SQL mutation store contains a graph-scoped outbox record".to_string());
     }
     Ok(record)
+}
+
+/// The `(tenant, resource)` version-key pair every SQL-domain mutation batch is
+/// scoped by. `commit_txn_batch`/`commit_txn_batch_result` are SQL-catalog-only
+/// (`verify_batch_is_sql_catalog_only`), and `MutationBatch::validate` (via
+/// `validate_operations`) already rejects a `Graph`-scoped batch carrying a
+/// `SqlCatalog` operation, so a batch reaching this store is always
+/// `MutationScope::Native`. Matched explicitly (never assumed) so a batch that
+/// somehow reached here with a graph scope fails closed instead of silently
+/// borrowing a graph name as a native resource name.
+fn sql_scope_key(batch: &MutationBatch) -> Result<(&str, &str), String> {
+    match batch.identity.scope() {
+        MutationScope::Native { resource, .. } => {
+            Ok((batch.identity.tenant().as_str(), resource.as_str()))
+        }
+        MutationScope::Graph { .. } => {
+            Err("SQL MutationBatch requires a native (non-graph) scope".to_string())
+        }
+    }
 }
 
 fn account_collection(count: &mut usize, bytes: &mut usize, added: usize) -> Result<(), String> {
@@ -1851,7 +1868,7 @@ impl TableStore {
         // in its durable batch record; the record itself remains authoritative.
         // Idempotency check and insertion share this write transaction, closing the
         // concurrent double-execution race.
-        let version_key = (batch.tenant.as_str(), batch.graph.as_str());
+        let version_key = sql_scope_key(batch)?;
         let (current_version, proposed_fence) =
             match prepare_mutation_commit_in(&wtx, version_key, batch)? {
                 MutationCommitPrelude::Replay(replay) => return Ok(*replay),
@@ -1868,25 +1885,29 @@ impl TableStore {
             batch,
             crashpoint,
         )?;
-        let (record, record_bytes, next_version) = finalize_mutation_commit_metadata(
-            batch,
-            committed_at_ms,
-            result_override,
-            affected,
-            current_version,
-        )?;
+        let (record, record_bytes, next_version, committed_version) =
+            finalize_mutation_commit_metadata(
+                batch,
+                committed_at_ms,
+                result_override,
+                affected,
+                current_version,
+            )?;
         write_mutation_commit_tables_in(
             &wtx,
             batch,
             version_key,
             next_version,
+            committed_version,
             &proposed_fence,
             &record_bytes,
         )?;
 
         commit_mutation_txn_with_crashpoints(wtx, batch, crashpoint)?;
+        let identity = record.identity.clone();
         Ok(MutationBatchCommit {
             record,
+            identity,
             replayed: false,
         })
     }
@@ -2046,11 +2067,13 @@ fn prepare_mutation_commit_in(
     batch: &MutationBatch,
 ) -> Result<MutationCommitPrelude, String> {
     let current_version = read_current_mutation_version_in(wtx, version_key)?;
-    if let Some(replay) = check_mutation_idempotency_replay_in(wtx, batch, current_version)? {
+    if let Some(replay) =
+        check_mutation_idempotency_replay_in(wtx, version_key, batch, current_version)?
+    {
         return Ok(MutationCommitPrelude::Replay(Box::new(replay)));
     }
     check_mutation_batch_id_not_exists_in(wtx, batch)?;
-    verify_mutation_occ_version(batch, current_version)?;
+    verify_mutation_occ_version(version_key, batch, current_version)?;
     let proposed_fence = resolve_and_verify_mutation_fence_in(wtx, version_key, batch)?;
     Ok(MutationCommitPrelude::Fresh {
         current_version,
@@ -2068,13 +2091,24 @@ fn finalize_mutation_commit_metadata(
     result_override: Option<Vec<u8>>,
     affected: usize,
     current_version: u64,
-) -> Result<(MutationBatchRecord, Vec<u8>, u64), String> {
-    let record = build_mutation_batch_record(batch, committed_at_ms, result_override, affected)?;
+) -> Result<(MutationBatchRecord, Vec<u8>, u64, CommittedVersion), String> {
+    // SQL-domain batches are always `MutationScope::Native` (see `sql_scope_key`);
+    // the committed transition is the real advancing SQL OCC counter, not a
+    // sentinel -- `checked_native` also closes the overflow case the OCC gate's
+    // `next_version` derivation below independently guards.
+    let committed_version = CommittedVersion::checked_native(current_version)?;
+    let record = build_mutation_batch_record(
+        batch,
+        committed_at_ms,
+        result_override,
+        affected,
+        committed_version,
+    )?;
     let record_bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
     let next_version = current_version
         .checked_add(1)
         .ok_or_else(|| "SQL mutation domain version overflow".to_string())?;
-    Ok((record, record_bytes, next_version))
+    Ok((record, record_bytes, next_version, committed_version))
 }
 
 fn verify_batch_is_sql_catalog_only(batch: &MutationBatch) -> Result<(), String> {
@@ -2108,16 +2142,13 @@ fn read_current_mutation_version_in(
 /// different identity).
 fn check_mutation_idempotency_replay_in(
     wtx: &WriteTransaction,
+    version_key: (&str, &str),
     batch: &MutationBatch,
     current_version: u64,
 ) -> Result<Option<MutationBatchCommit>, String> {
     let idem = wtx.open_table(MUTATION_IDEMPOTENCY).map_err(map_err)?;
     let existing = idem
-        .get((
-            batch.tenant.as_str(),
-            batch.graph.as_str(),
-            batch.idempotency_key.as_str(),
-        ))
+        .get((version_key.0, version_key.1, batch.idempotency_key.as_str()))
         .map_err(map_err)?
         .map(|value| value.value().to_string());
     let Some(existing) = existing else {
@@ -2139,8 +2170,10 @@ fn check_mutation_idempotency_replay_in(
             batch.idempotency_key, record.batch.batch_id
         ));
     }
+    let identity = record.identity.clone();
     Ok(Some(MutationBatchCommit {
         record,
+        identity,
         replayed: true,
     }))
 }
@@ -2163,14 +2196,24 @@ fn check_mutation_batch_id_not_exists_in(
     Ok(())
 }
 
-fn verify_mutation_occ_version(batch: &MutationBatch, current_version: u64) -> Result<(), String> {
-    let expected = batch.expected_graph_version.ok_or_else(|| {
-        "authoritative SQL MutationBatch requires expected_graph_version".to_string()
-    })?;
+fn verify_mutation_occ_version(
+    version_key: (&str, &str),
+    batch: &MutationBatch,
+    current_version: u64,
+) -> Result<(), String> {
+    let expected = match batch.version_expectation {
+        VersionExpectation::Native(expected) => expected,
+        _ => {
+            return Err(
+                "authoritative SQL MutationBatch requires a native version expectation"
+                    .to_string(),
+            )
+        }
+    };
     if expected != current_version {
         return Err(format!(
             "STALE_VERSION: SQL scope '{}/{}' expected {} but authoritative version is {}",
-            batch.tenant, batch.graph, expected, current_version
+            version_key.0, version_key.1, expected, current_version
         ));
     }
     Ok(())
@@ -2244,6 +2287,7 @@ fn build_mutation_batch_record(
     committed_at_ms: u64,
     result_override: Option<Vec<u8>>,
     affected: usize,
+    committed_version: CommittedVersion,
 ) -> Result<MutationBatchRecord, String> {
     let result_msgpack = match result_override {
         Some(result) => result,
@@ -2251,7 +2295,9 @@ fn build_mutation_batch_record(
     };
     Ok(MutationBatchRecord {
         batch: batch.clone(),
+        identity: batch.identity.clone(),
         status: MutationBatchStatus::Committed,
+        committed_version,
         result_msgpack: Some(result_msgpack),
         committed_at_ms,
     })
@@ -2266,6 +2312,7 @@ fn write_mutation_commit_tables_in(
     batch: &MutationBatch,
     version_key: (&str, &str),
     next_version: u64,
+    committed_version: CommittedVersion,
     proposed_fence: &SqlMutationFence,
     record_bytes: &[u8],
 ) -> Result<(), String> {
@@ -2275,11 +2322,7 @@ fn write_mutation_commit_tables_in(
         .map_err(map_err)?;
     let mut idem = wtx.open_table(MUTATION_IDEMPOTENCY).map_err(map_err)?;
     idem.insert(
-        (
-            batch.tenant.as_str(),
-            batch.graph.as_str(),
-            batch.idempotency_key.as_str(),
-        ),
+        (version_key.0, version_key.1, batch.idempotency_key.as_str()),
         batch.batch_id.as_str(),
     )
     .map_err(map_err)?;
@@ -2292,22 +2335,25 @@ fn write_mutation_commit_tables_in(
     fences
         .insert(version_key, fence_bytes.as_slice())
         .map_err(map_err)?;
-    append_mutation_outbox_intents_in(wtx, batch)
+    append_mutation_outbox_intents_in(wtx, batch, committed_version)
 }
 
 fn append_mutation_outbox_intents_in(
     wtx: &WriteTransaction,
     batch: &MutationBatch,
+    committed_version: CommittedVersion,
 ) -> Result<(), String> {
     let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(map_err)?;
-    let ordinal = append_operation_outbox_intents_in(&mut outbox, batch, 0)?;
-    append_explicit_outbox_intents_in(&mut outbox, batch, ordinal)
+    let ordinal =
+        append_operation_outbox_intents_in(&mut outbox, batch, 0, committed_version)?;
+    append_explicit_outbox_intents_in(&mut outbox, batch, ordinal, committed_version)
 }
 
 fn append_operation_outbox_intents_in(
     outbox: &mut redb::Table<(&str, u32), &[u8]>,
     batch: &MutationBatch,
     mut ordinal: u32,
+    committed_version: CommittedVersion,
 ) -> Result<u32, String> {
     for operation in &batch.operations {
         let intent = MutationOutboxIntent {
@@ -2316,7 +2362,7 @@ fn append_operation_outbox_intents_in(
             payload: rmp_serde::to_vec_named(operation).map_err(|e| e.to_string())?,
             headers: Default::default(),
         };
-        insert_sql_outbox(outbox, batch, ordinal, intent)?;
+        insert_sql_outbox(outbox, batch, ordinal, intent, committed_version)?;
         ordinal = ordinal
             .checked_add(1)
             .ok_or_else(|| "SQL mutation outbox ordinal overflow".to_string())?;
@@ -2328,9 +2374,10 @@ fn append_explicit_outbox_intents_in(
     outbox: &mut redb::Table<(&str, u32), &[u8]>,
     batch: &MutationBatch,
     mut ordinal: u32,
+    committed_version: CommittedVersion,
 ) -> Result<(), String> {
     for intent in &batch.outbox {
-        insert_sql_outbox(outbox, batch, ordinal, intent.clone())?;
+        insert_sql_outbox(outbox, batch, ordinal, intent.clone(), committed_version)?;
         ordinal = ordinal
             .checked_add(1)
             .ok_or_else(|| "SQL mutation outbox ordinal overflow".to_string())?;
@@ -2637,8 +2684,8 @@ fn same_batch_identity(
     // and observe the incremented domain version.  Preserve the original value
     // in the durable record, but accept the current observation only when every
     // other request-identity field remains exact.
-    let expected_version_matches = stored.expected_graph_version == proposed.expected_graph_version
-        || proposed.expected_graph_version == Some(current_version);
+    let expected_version_matches = stored.version_expectation == proposed.version_expectation
+        || proposed.version_expectation == VersionExpectation::Native(current_version);
     Ok(same_batch_request_identity(stored, proposed)
         && expected_version_matches
         && same_batch_commit_identity(stored, proposed)
@@ -2650,8 +2697,7 @@ fn same_batch_identity(
 fn same_batch_request_identity(stored: &MutationBatch, proposed: &MutationBatch) -> bool {
     stored.batch_id == proposed.batch_id
         && stored.context == proposed.context
-        && stored.tenant == proposed.tenant
-        && stored.graph == proposed.graph
+        && stored.identity == proposed.identity
         && stored.placement_epoch == proposed.placement_epoch
         && stored.idempotency_key == proposed.idempotency_key
 }
@@ -2669,15 +2715,14 @@ fn insert_sql_outbox(
     batch: &MutationBatch,
     ordinal: u32,
     intent: MutationOutboxIntent,
+    committed_version: CommittedVersion,
 ) -> Result<(), String> {
     let record = MutationOutboxRecord {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch.batch_id.clone(),
         ordinal,
-        tenant: batch.tenant.clone(),
-        graph: batch.graph.clone(),
-        version_scope: MutationVersionScope::NonGraph,
-        source_graph_version: NON_GRAPH_SOURCE_VERSION,
+        identity: batch.identity.clone(),
+        committed_version,
         intent,
         created_at_ms: batch.created_at_ms,
     };
@@ -7534,7 +7579,8 @@ mod tests {
 
     fn sql_batch(batch_id: &str) -> MutationBatch {
         use eg_types::mutation_batch::{
-            MutationOperation, MutationRequestContext, MutationSurface, MUTATION_BATCH_VERSION,
+            IncarnationId, LogicalName, MutationOperation, MutationRequestContext,
+            MutationScopeIdentity, MutationSurface, TenantId, MUTATION_BATCH_VERSION,
         };
         MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
@@ -7546,11 +7592,16 @@ mod tests {
                 policy_fingerprint: None,
                 trace_id: None,
             },
-            tenant: "tenant-a".to_string(),
-            graph: "graph-a".to_string(),
+            identity: MutationScopeIdentity::native(
+                TenantId::new("tenant-a").unwrap(),
+                MutationDomain::SqlCatalog,
+                LogicalName::new("graph-a").unwrap(),
+                IncarnationId::new("incarnation-1").unwrap(),
+            )
+            .unwrap(),
             placement_epoch: 0,
             idempotency_key: format!("idem-{batch_id}"),
-            expected_graph_version: Some(0),
+            version_expectation: VersionExpectation::Native(0),
             fencing_token: None,
             authoritative_state: None,
             operations: vec![MutationOperation {
@@ -7641,12 +7692,15 @@ mod tests {
         // The durable record must retain the original observation while returning
         // the stored result instead of executing CREATE TABLE a second time.
         let mut rederived = batch.clone();
-        rederived.expected_graph_version = Some(1);
+        rederived.version_expectation = VersionExpectation::Native(1);
         let replay = reopened
             .commit_txn_batch(&create_metrics_txn(), &rederived, 103)
             .unwrap();
         assert!(replay.replayed);
-        assert_eq!(replay.record.batch.expected_graph_version, Some(0));
+        assert_eq!(
+            replay.record.batch.version_expectation,
+            VersionExpectation::Native(0)
+        );
 
         // Same key plus a changed operation is not a retry, even though its
         // expected version is the current derived value.
@@ -7698,7 +7752,13 @@ mod tests {
         // literal calling graph) must ALSO change the fingerprint: this is the
         // property `mutation_version(tenant, ONE_graph)` cannot offer on its own.
         let mut batch_b = sql_batch("fp-b");
-        batch_b.graph = "graph-b".to_string();
+        batch_b.identity = eg_types::mutation_batch::MutationScopeIdentity::native(
+            eg_types::mutation_batch::TenantId::new("tenant-a").unwrap(),
+            MutationDomain::SqlCatalog,
+            eg_types::mutation_batch::LogicalName::new("graph-b").unwrap(),
+            eg_types::mutation_batch::IncarnationId::new("incarnation-1").unwrap(),
+        )
+        .unwrap();
         batch_b.idempotency_key = "idem-fp-b".to_string();
         let mut txn_b = TableTxn::new();
         txn_b.push(TxnOp::CreateTable {

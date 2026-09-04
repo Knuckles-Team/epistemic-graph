@@ -36,7 +36,6 @@ use crate::mutation_batch::MutationBatch;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::sync::Arc;
 
 /// Default chunk size: 2 MiB (in the 1–4 MB band the streaming protocol targets;
 /// matches the spike). The pre-EG-071 FIXED stride; content-defined chunking
@@ -338,9 +337,7 @@ pub struct SweepStats {
 
 // ── native redb CAS ─────────────────────────────────────────────────────────
 
-use redb::{
-    Database, Durability, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition,
-};
+use redb::{Durability, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 
 // Three tables, all in `blob.redb`, all OFF the inline node/edge KV:
 //   cas_chunks   : chunk_digest(hex) -> chunk bytes        (DEDUP happens here)
@@ -427,45 +424,121 @@ struct ChunkBatch {
 /// sweep/read operations flush the open chunk batch first (redb permits one writer
 /// at a time), then run their own durable transaction.
 pub struct RedbChunkStore {
-    db: Arc<Database>,
+    mutation_store: eg_mutation_store::MutationStore,
     batch: parking_lot::Mutex<ChunkBatch>,
 }
 
 impl RedbChunkStore {
-    /// Open (or create) `{persist_dir}/blob.redb` and ensure the CAS tables exist.
+    /// Fixed bootstrap identity used ONLY to stand up the physical `blob.redb`
+    /// mutation ledger at `open()` time. `eg_mutation_store::initialize` requires
+    /// binding one scope as part of creating a `MutationStore`, but a
+    /// `RedbChunkStore` serves MANY tenant/graph scopes discovered later, one per
+    /// call (`commit_native_batch`'s `batch.identity`) -- not one fixed scope
+    /// known at `open()` time. Real per-call scopes (`scope_identity`) are
+    /// separately (and idempotently) bound via `bind_scope` in
+    /// `ensure_scope_bound` the first time each is used; this bootstrap identity
+    /// is never a real caller's scope, hence its own reserved resource name.
+    ///
+    /// Its `IncarnationId` deliberately reuses `mutation_batch::
+    /// COMPILED_BATCH_INCARNATION` rather than a store-local constant: real
+    /// per-call blob batches also reach this store already built by
+    /// `compile_opaque_method`/`compile_opaque_digest`
+    /// (`src/server/mutation_batch.rs`, e.g. this file's own `coordinator_batch`
+    /// test), which stamp that SAME constant into their identity. `bind_scope_in`
+    /// compares the full stored `MutationScopeIdentity` (incarnation included) on
+    /// re-bind and fails closed on any mismatch ("mutation scope rebinding
+    /// mismatch") -- so a second, differently-valued local constant here would
+    /// make every such batch's `commit_native_batch` call fail the very first
+    /// time it raced `scope_identity`'s own bind (e.g. via `mutation_version`)
+    /// for the same (tenant, graph).
+    fn ledger_bootstrap_identity() -> Result<crate::mutation_batch::MutationScopeIdentity, String> {
+        crate::mutation_batch::MutationScopeIdentity::native(
+            crate::mutation_batch::TenantId::system(),
+            crate::mutation_batch::MutationDomain::BlobStore,
+            crate::mutation_batch::LogicalName::new("blob-ledger-root")?,
+            crate::mutation_batch::IncarnationId::new(
+                crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
+            )?,
+        )
+    }
+
+    /// Idempotently bind `identity`'s scope to this store's ledger so
+    /// `eg_mutation_store::version`/`begin`/`finish` accept it -- both fail closed
+    /// on an unbound scope (`binding_for_read`/`binding_for_write`). Safe to call
+    /// on every use: `bind_scope`/`bind_scope_in` re-entry with the SAME identity
+    /// and `initial_version` is a verified no-op (`ScopeBinding` equality check),
+    /// which is why `initial_version` is always 0 here -- a scope's actual current
+    /// version afterward lives in `VERSIONS`, not in this bootstrap constant.
+    fn ensure_scope_bound(
+        &self,
+        identity: &crate::mutation_batch::MutationScopeIdentity,
+    ) -> Result<(), String> {
+        eg_mutation_store::bind_scope(&self.mutation_store, identity, 0, |_wtx| Ok(()))
+    }
+
+    /// The native scope identity for one (tenant, graph) pair's blob-ledger rows.
+    /// `graph` is the `resource` name, matching `commit_native_batch`'s callers,
+    /// which route by `(tenant, graph)` (e.g. `mutation_version`). Uses the same
+    /// shared `COMPILED_BATCH_INCARNATION` as `ledger_bootstrap_identity` and as
+    /// `compile_opaque_method`/`compile_opaque_digest` -- see that function's doc
+    /// comment for why a mismatched incarnation here would break re-binding.
+    fn scope_identity(
+        &self,
+        tenant: &str,
+        graph: &str,
+    ) -> Result<crate::mutation_batch::MutationScopeIdentity, String> {
+        crate::mutation_batch::MutationScopeIdentity::native(
+            crate::mutation_batch::TenantId::new(tenant.to_string())?,
+            crate::mutation_batch::MutationDomain::BlobStore,
+            crate::mutation_batch::LogicalName::new(graph.to_string())?,
+            crate::mutation_batch::IncarnationId::new(
+                crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
+            )?,
+        )
+    }
+
+    /// Open (or create) `{persist_dir}/blob.redb` and ensure the CAS + mutation-
+    /// ledger tables exist. Both live in ONE physical database now: `commit_native_batch`
+    /// needs the CAS row writes and the ledger's idempotency/OCC/outbox rows to land
+    /// in the SAME `WriteTransaction` for atomicity, and redb permits only one
+    /// `Database` handle per file per process (see the file's own top-of-file
+    /// doc comment on why the CAS is a separate file from the graph shards) -- so
+    /// the CAS tables are created via `eg_mutation_store::initialize`'s bootstrap
+    /// closure against the ledger's own `Database`, not a second handle on the
+    /// same path.
+    ///
+    /// NOTE (flagged, not resolved here): the previous `Database::builder()
+    /// .set_cache_size(EPISTEMIC_GRAPH_BLOB_CACHE_BYTES)` tuning is DROPPED by
+    /// this migration. `eg_mutation_store::initialize`/`MutationStore::
+    /// empty_physical` call plain `Database::create(path)` internally with no way
+    /// to inject a cache size, and `RedbChunkStore` has no other path to the
+    /// `Database` it wraps. This file's own doc comments explain that cap exists
+    /// specifically to bound RSS against this store's multi-MB chunk values; see
+    /// the migration report for the follow-up this needs in `eg-mutation-store`
+    /// (a `Database`/cache-size injection point on `initialize`).
     pub fn open(persist_dir: &str) -> Result<Self, String> {
         std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
         let db_path = std::path::Path::new(persist_dir).join("blob.redb");
-        // CAP redb's page cache (default 1 GiB!) — the CAS stores multi-MB chunk
-        // VALUES, so the default cache lets RSS track the whole blob size even WITH
-        // group-commit (the page cache, not the open txn, is what balloons). A small
-        // cap is the real bound: redb evicts cached pages past it, so peak RSS stays
-        // near the cap regardless of blob size. 128 MiB default (≈ 2× the 64 MiB
-        // group window); tunable via `EPISTEMIC_GRAPH_BLOB_CACHE_BYTES`.
-        let cache_bytes = std::env::var("EPISTEMIC_GRAPH_BLOB_CACHE_BYTES")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(128 * 1024 * 1024usize);
-        let db = Database::builder()
-            .set_cache_size(cache_bytes)
-            .create(&db_path)
-            .map_err(|e| e.to_string())?;
-        // Create all tables so a read txn against a fresh DB doesn't error.
-        let wtx = db.begin_write().map_err(|e| e.to_string())?;
-        wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-        wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-        wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-        wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
-        wtx.commit().map_err(|e| e.to_string())?;
-        eg_mutation_store::initialize(&db)?;
+        let mutation_store = eg_mutation_store::initialize(
+            &db_path,
+            &Self::ledger_bootstrap_identity()?,
+            0,
+            None,
+            |wtx| {
+                wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+                wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+                wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+                wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+                Ok(())
+            },
+        )?;
         let group = std::env::var("EPISTEMIC_GRAPH_BLOB_GROUP_CHUNKS")
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|&n| n > 0)
             .unwrap_or(DEFAULT_GROUP_CHUNKS);
         Ok(Self {
-            db: Arc::new(db),
+            mutation_store,
             batch: parking_lot::Mutex::new(ChunkBatch {
                 txn: None,
                 pending: 0,
@@ -492,7 +565,11 @@ impl ChunkStore for RedbChunkStore {
         let mut batch = self.batch.lock();
         // Open the group's write txn lazily; reuse it across chunks in the window.
         if batch.txn.is_none() {
-            let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
+            let mut wtx = self
+                .mutation_store
+                .database()
+                .begin_write()
+                .map_err(|e| e.to_string())?;
             wtx.set_durability(Durability::Immediate)
                 .map_err(|e| e.to_string())?;
             batch.txn = Some(wtx);
@@ -530,7 +607,11 @@ impl ChunkStore for RedbChunkStore {
         // uncommitted write txn).
         self.flush_chunks()?;
         validate_digest(digest)?;
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let t = rtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
         t.get(digest)
             .map_err(|e| e.to_string())?
@@ -557,7 +638,11 @@ impl ChunkStore for RedbChunkStore {
         if blob_digest != hex_digest(&bytes) {
             return Err("blob manifest digest does not match its content".to_string());
         }
-        let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
+        let mut wtx = self
+            .mutation_store
+            .database()
+            .begin_write()
+            .map_err(|e| e.to_string())?;
         wtx.set_durability(Durability::Immediate)
             .map_err(|e| e.to_string())?;
         {
@@ -572,7 +657,11 @@ impl ChunkStore for RedbChunkStore {
     fn get_manifest(&self, blob_digest: &str) -> Result<Option<BlobManifest>, String> {
         self.flush_chunks()?;
         validate_digest(blob_digest)?;
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let t = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
         match t.get(blob_digest).map_err(|e| e.to_string())? {
             Some(g) => Ok(Some(decode_manifest(g.value())?)),
@@ -591,7 +680,11 @@ impl ChunkStore for RedbChunkStore {
     fn refcount(&self, blob_digest: &str) -> Result<u64, String> {
         self.flush_chunks()?;
         validate_digest(blob_digest)?;
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let t = rtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
         Ok(t.get(blob_digest)
             .map_err(|e| e.to_string())?
@@ -601,7 +694,11 @@ impl ChunkStore for RedbChunkStore {
 
     fn sweep(&self) -> Result<SweepStats, String> {
         self.flush_chunks()?;
-        let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
+        let mut wtx = self
+            .mutation_store
+            .database()
+            .begin_write()
+            .map_err(|e| e.to_string())?;
         wtx.set_durability(Durability::Immediate)
             .map_err(|e| e.to_string())?;
         let stats = sweep_rows(&wtx)?;
@@ -611,20 +708,30 @@ impl ChunkStore for RedbChunkStore {
 
     fn chunk_count(&self) -> Result<u64, String> {
         self.flush_chunks()?;
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let t = rtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
         t.len().map_err(|e| e.to_string())
     }
 
     fn blob_count(&self) -> Result<u64, String> {
         self.flush_chunks()?;
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let t = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
         t.len().map_err(|e| e.to_string())
     }
 
     fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
-        eg_mutation_store::version(&self.db, tenant, graph)
+        let identity = self.scope_identity(tenant, graph)?;
+        self.ensure_scope_bound(&identity)?;
+        eg_mutation_store::version(&self.mutation_store, &identity)
     }
 
     fn commit_cursor_batch(
@@ -856,7 +963,11 @@ impl ChunkStore for RedbChunkStore {
 
     fn load_upload(&self, cursor: u64) -> Result<Option<BlobManifest>, String> {
         self.flush_chunks()?;
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let uploads = rtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
         let manifest = uploads
             .get(cursor)
@@ -1053,30 +1164,40 @@ impl RedbChunkStore {
         T: serde::Serialize + serde::de::DeserializeOwned,
         F: FnOnce(&redb::WriteTransaction) -> Result<T, String>,
     {
-        let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        match eg_mutation_store::begin(&wtx, batch)? {
+        // `batch.identity` is this specific call's real (tenant, graph) scope
+        // (built by the caller via `CompileBatch`/`compile_opaque_method`, e.g.
+        // `coordinator_batch` in this file's tests) -- bind it before touching the
+        // ledger; `MutationStore::write()` already sets `Durability::Immediate`
+        // (see `identity.rs`), so that no longer needs setting here.
+        self.ensure_scope_bound(&batch.identity)?;
+        let write = self.mutation_store.write()?;
+        match eg_mutation_store::begin(&write, batch)? {
             eg_mutation_store::Begin::Replay(record) => {
                 let bytes = record
                     .result_msgpack
                     .as_deref()
                     .ok_or_else(|| "committed blob MutationBatch has no result".to_string())?;
                 let result = decode_blob_value(bytes)?;
-                wtx.abort().map_err(|e| e.to_string())?;
+                // `MutationWrite::abort` is crate-private to `eg_mutation_store`
+                // (unlike a raw `redb::WriteTransaction::abort`, which v2 called
+                // here). Dropping the write without calling `commit` rolls back
+                // the underlying transaction exactly the same way -- redb aborts
+                // an uncommitted `WriteTransaction` on drop, and `MutationWrite`
+                // has no `Drop` impl of its own that changes that.
+                drop(write);
                 Ok(result)
             }
             eg_mutation_store::Begin::Apply { source_version } => {
-                let result = apply(&wtx)?;
+                let result = apply(write.owner_rows())?;
                 let encoded = rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?;
                 eg_mutation_store::finish(
-                    &wtx,
+                    &write,
                     batch,
                     Some(encoded),
                     committed_at_ms,
                     source_version,
                 )?;
-                eg_mutation_store::commit(wtx, batch)?;
+                eg_mutation_store::commit(write, batch)?;
                 Ok(result)
             }
         }
@@ -1117,7 +1238,11 @@ impl RedbChunkStore {
     #[cfg(feature = "blob-s3")]
     pub(crate) fn orphan_chunks_preview(&self) -> Result<HashSet<String>, String> {
         self.flush_chunks()?;
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let blobs = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
         let refs = rtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
         let mut to_delete: HashSet<String> = HashSet::new();
@@ -1164,7 +1289,11 @@ impl RedbChunkStore {
     #[cfg(feature = "blob-s3")]
     pub(crate) fn distinct_referenced_chunks(&self) -> Result<u64, String> {
         self.flush_chunks()?;
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let blobs = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
         let mut seen: HashSet<String> = HashSet::new();
         for row in blobs.iter().map_err(|e| e.to_string())? {
@@ -1181,7 +1310,11 @@ impl RedbChunkStore {
     fn adjust_ref(&self, blob_digest: &str, delta: i64) -> Result<u64, String> {
         self.flush_chunks()?;
         validate_digest(blob_digest)?;
-        let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
+        let mut wtx = self
+            .mutation_store
+            .database()
+            .begin_write()
+            .map_err(|e| e.to_string())?;
         wtx.set_durability(Durability::Immediate)
             .map_err(|e| e.to_string())?;
         let new = {

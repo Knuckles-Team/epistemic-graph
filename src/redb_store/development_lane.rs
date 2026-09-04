@@ -6157,8 +6157,9 @@ mod tests {
         ResourceReservationRecordTargetKind, ResourceTargetSnapshot, ResourceTargetSnapshotKind,
     };
     use crate::mutation_batch::{
-        MutationBatch, MutationBatchCommit, MutationDomain, MutationOperation,
-        MutationOutboxIntent, MutationRequestContext, MutationSurface, MUTATION_BATCH_VERSION,
+        IncarnationId, LogicalName, MutationBatch, MutationBatchCommit, MutationDomain,
+        MutationOperation, MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity,
+        MutationSurface, TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
     };
     use std::path::PathBuf;
     use std::sync::{Arc, Barrier};
@@ -6538,21 +6539,65 @@ mod tests {
             committed_at_ms: u64,
             crashpoint: Option<super::super::MutationBatchCrashpoint>,
         ) -> Result<MutationBatchCommit, String> {
+            // Graph-scoped: this batch is committed via `commit_mutation_batch_inner`
+            // below, which every path in this module routes by `graph_fname` and
+            // requires `MutationScope::Graph` for (`mutation_batch_graph_name` fails
+            // closed on a native scope) -- `MutationDomain::ControlPlane` here is
+            // just the operation's own domain tag (WorkItem rows physically live in
+            // the same graph redb file), matching `compute_native_terminal_work_item_cas`
+            // in the parent module. v1's `VersionExpectation` has no "unversioned" arm
+            // for an ordinary tenant, so unlike v2 this can no longer pass `None` for
+            // "don't care": read the real current version instead (this fixture is the
+            // sole writer at this point, so it observes the exact same state a `None`
+            // OCC skip effectively would have).
+            let batch_id = format!("native-work-item:{batch_suffix}");
+            // A REPLAY must recompile to the byte-identical batch that was
+            // stored, because `verify_replay_identity` compares the whole
+            // struct. Re-reading the live version here would observe the value
+            // the FIRST attempt already advanced, so the recompiled batch would
+            // differ on request metadata alone and the replay would fail closed
+            // with IDEMPOTENCY_CONFLICT instead of replaying. Reuse the stored
+            // expectation when a record for this batch already exists; only a
+            // genuinely first attempt reads live state.
+            //
+            // This mirrors the production fix in `handlers/admin.rs`. That the
+            // same correction is needed independently here is the evidence that
+            // the underlying validator is comparing more than identity.
+            let expected_graph_version = match super::super::read_mutation_batch(
+                &self.db,
+                &batch_id,
+                DurableCrypto::none(),
+            )? {
+                Some(stored) => match stored.batch.version_expectation {
+                    VersionExpectation::Graph(version) => version,
+                    other => {
+                        return Err(format!(
+                            "stored development-lane batch has a non-graph expectation: {other:?}"
+                        ))
+                    }
+                },
+                None => super::super::read_mutation_graph_version(&self.db, TEST_GRAPH)?
+                    .unwrap_or(0),
+            };
             let batch = MutationBatch {
                 schema_version: MUTATION_BATCH_VERSION,
-                batch_id: format!("native-work-item:{batch_suffix}"),
+                batch_id: batch_id.clone(),
                 context: MutationRequestContext {
                     request_id: committed_at_ms,
                     principal: format!("principal:sha256:{}", "a".repeat(64)),
                     purpose: Some("native-lane-test".into()),
                     policy_fingerprint: None,
                     trace_id: None,
+                    verified_capabilities: Default::default(),
                 },
-                tenant: self.reserve.tenant_ref.clone(),
-                graph: TEST_GRAPH.into(),
+                identity: MutationScopeIdentity::graph(
+                    TenantId::new(self.reserve.tenant_ref.clone())?,
+                    LogicalName::new(TEST_GRAPH)?,
+                    IncarnationId::new("incarnation:test:development-lane")?,
+                ),
                 placement_epoch: 0,
                 idempotency_key: format!("native-work-item-idem:{batch_suffix}"),
-                expected_graph_version: None,
+                version_expectation: VersionExpectation::Graph(expected_graph_version),
                 fencing_token: None,
                 authoritative_state: None,
                 operations: vec![MutationOperation {
@@ -6612,12 +6657,16 @@ mod tests {
                     purpose: Some("native-lane-owner-test".into()),
                     policy_fingerprint: None,
                     trace_id: None,
+                    verified_capabilities: Default::default(),
                 },
-                tenant: self.reserve.tenant_ref.clone(),
-                graph: TEST_GRAPH.into(),
+                identity: MutationScopeIdentity::graph(
+                    TenantId::new(self.reserve.tenant_ref.clone())?,
+                    LogicalName::new(TEST_GRAPH)?,
+                    IncarnationId::new("incarnation:test:development-lane")?,
+                ),
                 placement_epoch: 0,
                 idempotency_key: format!("native-owner-cas-idem:{batch_suffix}"),
-                expected_graph_version: Some(expected_graph_version),
+                version_expectation: VersionExpectation::Graph(expected_graph_version),
                 fencing_token: None,
                 authoritative_state: None,
                 operations: vec![MutationOperation {
@@ -7496,8 +7545,9 @@ mod tests {
     #[test]
     fn authoritative_snapshot_and_row_delta_paths_refuse_orphaning_lane_work_item() {
         use crate::mutation_batch::{
-            MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
-            MutationStateDescriptor, MutationSurface, MUTATION_BATCH_VERSION,
+            IncarnationId, LogicalName, MutationDomain, MutationOperation, MutationOutboxIntent,
+            MutationRequestContext, MutationScopeIdentity, MutationStateDescriptor,
+            MutationSurface, TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
         };
         use sha2::{Digest, Sha256};
 
@@ -7531,12 +7581,17 @@ mod tests {
                         purpose: None,
                         policy_fingerprint: None,
                         trace_id: None,
+                        verified_capabilities: Default::default(),
                     },
-                    tenant: "tenant:a".into(),
-                    graph: TEST_GRAPH.into(),
+                    identity: MutationScopeIdentity::graph(
+                        TenantId::new("tenant:a").expect("static tenant id is valid"),
+                        LogicalName::new(TEST_GRAPH).expect("static graph name is valid"),
+                        IncarnationId::new("incarnation:test:development-lane")
+                            .expect("static incarnation id is valid"),
+                    ),
                     placement_epoch: 1,
                     idempotency_key: key.into(),
-                    expected_graph_version: Some(source_version),
+                    version_expectation: VersionExpectation::Graph(source_version),
                     fencing_token: Some(1),
                     authoritative_state: Some(MutationStateDescriptor {
                         algorithm: algorithm.into(),

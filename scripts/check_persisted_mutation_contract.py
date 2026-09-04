@@ -4,14 +4,108 @@
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from method_policy_inventory import (
+    EXPECTED_METHOD_POLICY_ROWS,
+    MethodPolicyInventoryError,
+    load_capability_sources,
+    parse_method_policy_table,
+)
+
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def _resolve_module_child(path: Path, declaration: re.Match) -> Path:
+    attrs = declaration.group("attrs")
+    explicit = re.search(r'#\[path\s*=\s*"([^"]+)"\]', attrs)
+    if explicit:
+        return path.parent / explicit.group(1)
+    container = (
+        path.parent
+        if path.name in {"mod.rs", "lib.rs", "main.rs"}
+        else path.with_suffix("")
+    )
+    candidates = (
+        container / f"{declaration.group('name')}.rs",
+        container / declaration.group("name") / "mod.rs",
+    )
+    existing = tuple(candidate for candidate in candidates if candidate.is_file())
+    require(
+        len(existing) == 1,
+        "declared Rust module must resolve to exactly one file: "
+        f"{path}::{declaration.group('name')}",
+    )
+    return existing[0]
+
+
+def _visit_module_tree(
+    path: Path,
+    include_tests: bool,
+    loaded: set[Path],
+    visiting: set[Path],
+    sources: list[str],
+) -> None:
+    require(path.is_file(), f"missing declared Rust module: {path}")
+    require(path not in visiting, f"cyclic Rust module declaration: {path}")
+    if path in loaded:
+        return
+    visiting.add(path)
+    loaded.add(path)
+    source = path.read_text(encoding="utf-8")
+    sources.append(source)
+    for declaration in _MODULE_TREE_DECL.finditer(source):
+        attrs = declaration.group("attrs")
+        if not include_tests and re.search(r"#\[cfg\([^]]*\btest\b", attrs):
+            continue
+        _visit_module_tree(
+            _resolve_module_child(path, declaration),
+            include_tests,
+            loaded,
+            visiting,
+            sources,
+        )
+    visiting.remove(path)
+
+
+def read_module_tree(relative: str, *, include_tests: bool = False) -> str:
+    """Read a Rust facade and every declared production child recursively.
+
+    Rust supports both conventional ``foo/bar.rs`` children and ``#[path]``
+    files beside a facade (the latter is how the flat query and mutation-store
+    APIs retain their historical module names). Walking declarations instead of
+    globbing a directory makes the scanner follow the compiler's module tree and
+    fail closed when a declared implementation disappears.
+    """
+
+    root = ROOT / relative
+    require(root.is_file(), f"missing Rust facade or module tree: {relative}")
+    loaded: set[Path] = set()
+    visiting: set[Path] = set()
+    sources: list[str] = []
+    _visit_module_tree(root, include_tests, loaded, visiting, sources)
+    return "\n".join(sources)
+
+
+def read_module_set(directory: str, names: tuple[str, ...]) -> str:
+    """Read an explicitly named production module family in declaration order."""
+
+    module_dir = ROOT / directory
+    require(module_dir.is_dir(), f"missing Rust module directory: {directory}")
+    paths = [module_dir / name for name in names]
+    require(
+        all(path.is_file() for path in paths),
+        f"missing Rust module in {directory}: {names}",
+    )
+    return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
 def require(condition: bool, message: str) -> None:
@@ -224,39 +318,89 @@ def _method_set(block: str, inventory: str) -> set[str]:
     return set(values)
 
 
-def _policy_inventory(source: str) -> dict[str, tuple[bool, str]]:
-    block = _const_slice(source, "ALL_METHODS")
-    row_start = re.compile(r'^\s*\("[A-Z][A-Za-z0-9_]*",\s*MethodPolicy\s*\{', re.M)
-    row = re.compile(
-        r'^\s*\("(?P<name>[A-Z][A-Za-z0-9_]*)",\s*MethodPolicy\s*\{'
-        r'(?P<fields>.*?)\},\s*"(?:[^"\\]|\\.)*"\),\s*$',
-        re.M,
-    )
-    rows = list(row.finditer(block))
-    require(
-        len(rows) == len(row_start.findall(block)), "unparsed ALL_METHODS policy row"
-    )
-    require(rows, "ALL_METHODS policy inventory is empty")
-    inventory: dict[str, tuple[bool, str]] = {}
-    for match in rows:
-        fields = match.group("fields")
-        mutates = re.search(r"\bmutates:\s*(true|false)\b", fields)
-        domain = re.search(
-            r"\bdurability_domain:\s*DurabilityDomain::([A-Za-z0-9_]+)", fields
-        )
-        require(
-            mutates is not None and domain is not None,
-            "incomplete ALL_METHODS policy row",
-        )
-        name = match.group("name")
-        require(name not in inventory, f"duplicate ALL_METHODS policy row: {name}")
-        inventory[name] = (mutates.group(1) == "true", domain.group(1))
-    return inventory
+def _policy_inventory(
+    source: str,
+    *,
+    expected_count: int = EXPECTED_METHOD_POLICY_ROWS,
+    expected_order: tuple[str, ...] | None = None,
+) -> dict[str, tuple[bool, str]]:
+    try:
+        return {
+            row.name: (row.mutates, row.durability_domain)
+            for row in parse_method_policy_table(
+                source,
+                expected_count=expected_count,
+                expected_order=expected_order,
+            )
+        }
+    except MethodPolicyInventoryError as error:
+        require(False, str(error))
+        return {}  # unreachable; keeps static type checkers total
 
 
 _FN_DEF = re.compile(
     r"\b(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("
 )
+
+_MODULE_DECL = re.compile(
+    r"(?m)^[ \t]*(?:#\[path\s*=\s*\"(?P<path>[^\"]+)\"\][ \t]*\n[ \t]*)?"
+    r"(?:#\[cfg\(test\)\][ \t]*\n[ \t]*)?mod\s+(?P<name>[a-z_][A-Za-z0-9_]*)\s*;"
+)
+_MODULE_TREE_DECL = re.compile(
+    r"(?m)^[ \t]*(?P<attrs>(?:#\[[^\n]*\][ \t]*\n[ \t]*)*)"
+    r"(?:pub(?:\([^)]*\))?[ \t]+)?mod\s+(?P<name>[a-z_][A-Za-z0-9_]*)\s*;"
+)
+
+_MUTATION_BATCH_MODULES = (
+    "src/server/mutation_batch/canonical.rs",
+    "src/server/mutation_batch/commit.rs",
+    "src/server/mutation_batch/compile.rs",
+    "src/server/mutation_batch/digest.rs",
+    "src/server/mutation_batch/tests.rs",
+)
+_MUTATION_BATCH_PRODUCTION_MODULES = _MUTATION_BATCH_MODULES[:-1]
+
+
+def _module_manifest(root_path: str, root_source: str) -> tuple[str, ...]:
+    """Resolve one facade's external modules in declared source order.
+
+    The manifest is deliberately exact rather than discovering arbitrary files
+    beside a facade. A missing declaration, duplicate declaration, or reorder
+    must fail closed; otherwise a new child can silently fall out of the static
+    proof while the facade still parses and the gate reports a false green.
+    """
+    root = Path(root_path)
+    declared: list[str] = []
+    for match in _MODULE_DECL.finditer(root_source):
+        if match.group("path"):
+            module_path = root.parent / match.group("path")
+        else:
+            module_path = root.with_suffix("") / f"{match.group('name')}.rs"
+        declared.append(module_path.as_posix())
+    require(
+        len(declared) == len(set(declared)),
+        f"duplicate module declaration in {root_path}: {declared}",
+    )
+    expected = _MUTATION_BATCH_MODULES
+    require(
+        tuple(declared) == expected,
+        f"mutation-batch module manifest drift: expected {expected}, observed {tuple(declared)}",
+    )
+    return tuple(declared)
+
+
+def _read_module_union(root_path: str, root_source: str) -> str:
+    """Read production facade modules after validating the complete manifest.
+
+    The test module is read as part of manifest validation, but remains out of
+    the production source bundle so a test-only string cannot satisfy a
+    durability invariant that belongs to the live implementation.
+    """
+    modules = _module_manifest(root_path, root_source)
+    loaded = {path: read(path) for path in modules}
+    return "\n".join(
+        (root_source, *(loaded[path] for path in _MUTATION_BATCH_PRODUCTION_MODULES))
+    )
 
 
 def _first_present(source: str, candidates: tuple[str, ...], start: int = 0) -> int:
@@ -357,7 +501,8 @@ def _check_mutation_authority_inventory(
     # (see the "durable_apply" source comment above) — union both bodies' Method
     # sets to see the classifier's real, post-hoist coverage.
     live_classifier = _method_set(
-        _function(mutation_apply, "is_durable_mutation"), "is_durable_mutation"
+        _function_with_callees(mutation_apply, "is_durable_mutation", max_depth=4),
+        "is_durable_mutation",
     ) | _method_set(
         _function(durable_apply, "is_durable_mutation"),
         "eg_core::durable_apply::is_durable_mutation",
@@ -396,11 +541,23 @@ def _check_mutation_applier_inventory(
 
     live_applier = _method_set(
         _function(mutation_apply, "apply"), "mutation_apply::apply"
-    ) | _method_set(_function(durable_apply, "apply"), "eg_core::durable_apply::apply")
-    work_items = _method_set(
-        _function(sources["mutation_batch"], "is_work_item_method"),
-        "is_work_item_method",
+    ) | _method_set(
+        _function_with_callees(durable_apply, "apply"),
+        "eg_core::durable_apply::apply",
     )
+    work_item_classifier = _function_with_callees(
+        sources["mutation_batch"], "is_work_item_method"
+    )
+    require(
+        "=> MethodFamily::WorkItem" in work_item_classifier,
+        "is_work_item_method no longer exposes its WorkItem family arm",
+    )
+    # `is_work_item_method` delegates to the shared `method_family` match. The
+    # latter also contains Capacity/ResourceReservation/DevelopmentLane arms;
+    # keep this inventory limited to the WorkItem arm instead of treating every
+    # family as an applier-owned WorkItem method.
+    work_item_classifier = work_item_classifier.split("=> MethodFamily::WorkItem", 1)[0]
+    work_items = _method_set(work_item_classifier, "is_work_item_method")
     # SubmitWorkItem/SubmitWorkItems are `is_work_item_method` but admitted through
     # a dedicated engine-native atomic WorkItem command-log path (mutation_batch.rs/
     # redb_store.rs; see `src/server/mutation.rs`'s "dedicated engine-native atomic
@@ -459,8 +616,8 @@ def _check_mutation_runtime_inventory(
 def _check_mutation_gateway_inventory(
     sources: Mapping[str, str], mutation_runtime: str, routed: set[str]
 ) -> str:
-    gateway_body = _function(sources["graph_ops"], "try_handle_gateway")
-    gateway_methods = _method_set(gateway_body, "try_handle_gateway")
+    gateway_methods = _method_set(sources["graph_gateway"], "try_handle_gateway")
+    gateway_body = sources["graph_gateway"]
     query_routes = _string_set(
         _function(mutation_runtime, "is_query_gateway_method"),
         "is_query_gateway_method",
@@ -468,7 +625,7 @@ def _check_mutation_gateway_inventory(
     rdf_routes = _string_set(
         _function(mutation_runtime, "is_rdf_gateway_method"), "is_rdf_gateway_method"
     )
-    dispatch = sources["dispatch"]
+    dispatch = sources["modality_dispatch"]
     dispatch_owned = set()
     if (
         "Method::ServedModality" in dispatch
@@ -554,13 +711,35 @@ def _check_mutation_cluster_inventory(
     )
 
 
-def _check_mutation_dispatch_order(dispatch: str) -> None:
-    gateway_at = dispatch.find("handlers::graph_ops::try_handle_gateway(")
-    query_at = _routing_call_offset(dispatch, "is_query_gateway_method(&method)")
-    rdf_at = _routing_call_offset(dispatch, "is_rdf_gateway_method(&method)")
-    terminal_at = dispatch.find("handlers::graph_ops::try_handle(", gateway_at + 1)
+def _check_mutation_dispatch_order(sources: Mapping[str, str]) -> None:
+    pipeline = sources["graph_pipeline"]
+    # The mutation gateway has a small lease-binding wrapper of its own so the
+    # replicated-apply actor can be substituted without duplicating the route.
+    # Follow that local call when checking stage order; the effective call still
+    # must precede the query/RDF stages and terminal handler.
+    gateway = _function_with_callees(
+        pipeline, "route_gateway_and_stateless_domains", max_depth=2
+    )
+    surfaces = _function(pipeline, "route_query_and_rdf_surfaces")
+    terminal = _function(pipeline, "run_dispatch_pipeline")
+    gateway_at = gateway.find("handlers::graph_ops::try_handle_gateway(")
+    query_at = surfaces.find("route_query_gateway(")
+    rdf_at = surfaces.find("route_rdf_gateway(")
+    terminal_at = terminal.find("handlers::graph_ops::try_handle(")
     require(
-        -1 < gateway_at < query_at < rdf_at < terminal_at,
+        gateway_at >= 0,
+        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+    )
+    require(
+        query_at >= 0,
+        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+    )
+    require(
+        query_at < rdf_at,
+        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+    )
+    require(
+        terminal_at >= 0,
         "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
     )
 
@@ -578,8 +757,8 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
     )
     _check_mutation_applier_inventory(sources, live_classifier, native_graph)
     mutation_runtime, routed = _check_mutation_runtime_inventory(sources, mutating)
-    dispatch = _check_mutation_gateway_inventory(sources, mutation_runtime, routed)
-    _check_mutation_dispatch_order(dispatch)
+    _check_mutation_gateway_inventory(sources, mutation_runtime, routed)
+    _check_mutation_dispatch_order(sources)
     _check_mutation_cluster_inventory(sources, mutation_runtime, mutating, routed)
 
 
@@ -712,33 +891,32 @@ def _check_ros2_carrier(source: str) -> None:
         )
 
 
-def _check_dispatch_order(dispatch: str) -> None:
-    fanout_at = dispatch.find("ClusterMutationRoute::ConsensusFanout")
-    sparql_fanout_at = dispatch.find("coordinated_sparql_http_update(", fanout_at)
-    # The 59-arm `match req.method` this once was got extracted into
-    # `dispatch_request_method` (dispatch.rs's own doc comment on that function
-    # says so); its call site `let response = dispatch_request_method(` is the
-    # current form of the same "terminal per-method routing is reached" marker.
-    response_match_at = _first_present(
-        dispatch,
-        (
-            "let response = match req.method",
-            "let response = dispatch_request_method(",
-        ),
-        sparql_fanout_at,
+def _check_dispatch_order(sources: Mapping[str, str]) -> None:
+    mutation_runtime = sources["mutation_runtime"]
+    request_router = sources["request_router"]
+    authenticated = sources["authenticated_dispatch"]
+    preflight = sources["request_preflight"]
+    require(
+        "ClusterMutationRoute::ConsensusFanout" in mutation_runtime,
+        "served coordinator routing or canonical graph-gateway termination is missing",
     )
     require(
-        -1 < fanout_at < sparql_fanout_at < response_match_at,
+        "coordinated_sparql_http_update(" in request_router,
+        "served coordinator routing or canonical graph-gateway termination is missing",
+    )
+    require(
+        "let response = dispatch_request_method(" in authenticated,
         "served coordinator routing or canonical graph-gateway termination is missing",
     )
     for required in ("Method::FromMsgpack", "Method::AddNode"):
         require(
-            required in dispatch,
+            required in preflight,
             "served coordinator routing or canonical graph-gateway termination is missing",
         )
 
 
-def _check_dispatch_recovery_proof(dispatch: str) -> None:
+def _check_dispatch_recovery_proof(sources: Mapping[str, str]) -> None:
+    recovery = sources["sparql_plan"] + sources["sparql_execution"]
     for required in (
         "seal_private_coordinator_plan",
         "open_private_coordinator_plan",
@@ -751,7 +929,7 @@ def _check_dispatch_recovery_proof(dispatch: str) -> None:
         "durable_compensation_marker_fixes_restart_direction_and_erases_its_plan",
     ):
         require(
-            required in dispatch,
+            required in recovery,
             f"recoverable served coordinator proof is missing: {required}",
         )
 
@@ -786,9 +964,8 @@ def _check_blob_result_contract(blob_store: str) -> None:
 
 
 def _check_dispatch_carrier(sources: Mapping[str, str]) -> None:
-    dispatch = sources["dispatch"]
-    _check_dispatch_order(dispatch)
-    _check_dispatch_recovery_proof(dispatch)
+    _check_dispatch_order(sources)
+    _check_dispatch_recovery_proof(sources)
     _check_coordinator_limits(sources)
     _check_blob_result_contract(sources["blob_store"])
 
@@ -809,9 +986,11 @@ def mutation_inventory_sources() -> dict[str, str]:
 
     return {
         "cargo": read("Cargo.toml"),
-        "capabilities": read("crates/eg-capabilities/src/lib.rs"),
-        "consistency": read("crates/eg-capabilities/tests/consistency.rs"),
-        "mutation_apply": read("src/mutation_apply.rs"),
+        "capabilities": load_capability_sources(ROOT),
+        "consistency": read_module_tree(
+            "crates/eg-capabilities/tests/consistency.rs", include_tests=True
+        ),
+        "mutation_apply": read_module_tree("src/mutation_apply.rs"),
         # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
         # single-writer guard into eg-core"): the base graph-mutation set and the
         # `broker` family moved out of src/mutation_apply.rs into
@@ -820,13 +999,38 @@ def mutation_inventory_sources() -> dict[str, str]:
         # module's `is_durable_mutation`/`apply` via its `_` arm — so the
         # classifier/applier inventory below must read BOTH sources and union
         # them, or it silently measures only the facade remainder (BUG-CX-112).
-        "durable_apply": read("crates/eg-core/src/durable_apply.rs"),
-        "mutation_runtime": read("src/server/mutation.rs"),
-        "mutation_batch": read("src/server/mutation_batch.rs"),
-        "graph_ops": read("src/server/handlers/graph_ops.rs"),
+        "durable_apply": read_module_tree("crates/eg-core/src/durable_apply.rs"),
+        "mutation_runtime": read_module_tree("src/server/mutation.rs"),
+        "mutation_batch": _read_module_union(
+            "src/server/mutation_batch.rs", read("src/server/mutation_batch.rs")
+        ),
+        "graph_ops": read_module_tree("src/server/handlers/graph_ops.rs"),
+        "graph_gateway": read_module_set(
+            "src/server/handlers/graph_ops",
+            (
+                "gateway.rs",
+                "gateway_graph.rs",
+                "gateway_broker.rs",
+                "gateway_mining.rs",
+                "gateway_mining_derived.rs",
+                "gateway_mining_ml.rs",
+            ),
+        ),
         "dispatch": read("src/server/dispatch.rs"),
-        "raft": read("src/raft/mod.rs"),
-        "sparql_http": read("src/server/sparql_http.rs"),
+        "modality_dispatch": read("src/server/dispatch/modality_replication.rs"),
+        "graph_pipeline": read("src/server/dispatch/graph_pipeline.rs"),
+        "request_router": read("src/server/dispatch/request_router_data.rs"),
+        "authenticated_dispatch": read("src/server/dispatch/authenticated_dispatch.rs"),
+        "request_preflight": read("src/server/dispatch/request_preflight.rs"),
+        "sparql_plan": read("src/server/dispatch/sparql_plan.rs"),
+        "sparql_execution": read("src/server/dispatch/sparql_execution.rs"),
+        # NativeMutationCommand lives below the raft facade after the command
+        # extraction. Keep the facade (where consensus inventories remain) and
+        # the exact native-command subtree in one scanner input.
+        "raft": read("src/raft/mod.rs")
+        + "\n"
+        + read_module_tree("src/raft/command/native/mod.rs"),
+        "sparql_http": read_module_tree("src/server/sparql_http.rs"),
         "ros2_bridge": read("src/server/ros2_bridge.rs"),
         "blob_store": read("src/server/blob/store.rs"),
         "main": read("src/main.rs"),
@@ -871,53 +1075,11 @@ def check_work_item_projection_contract(graph_store: str, compiler: str) -> None
     )
 
 
-def main() -> None:
-    contract = read("crates/eg-types/src/mutation_batch.rs")
-    graph_store = read("src/redb_store.rs")
-    native_store = read("crates/eg-mutation-store/src/lib.rs")
-    sql_store = read("crates/eg-query/src/tables/store.rs")
-    reasoning = read("src/server/reasoning_projection.rs")
-    reasoning_index = read("crates/eg-epistemic/src/incremental.rs")
-    compiler = read("src/server/mutation_batch.rs")
-    mutation_runtime = read("src/server/mutation.rs")
-    protocol = read("crates/eg-types/src/protocol.rs")
-    client = read("epistemic_graph/client.py")
+def _check_version_fallbacks(
+    persisted_sources: str, authoritative_writers: str
+) -> None:
+    """Reject permissive version fallbacks in every persistence writer surface."""
 
-    require(
-        "pub const MUTATION_BATCH_VERSION: u16 = 2;" in contract,
-        "MutationBatch must remain on the explicit-domain v2 schema",
-    )
-    require(
-        "impl Default for MutationDomain" not in contract,
-        "MutationDomain must not acquire an implicit default",
-    )
-    operation = contract.split("pub struct MutationOperation", 1)[1].split("}", 1)[0]
-    require("#[serde(default)]" not in operation, "operation domain must be required")
-    require(
-        "pub domain: MutationDomain" in operation, "operation domain field is missing"
-    )
-    require(
-        contract.count("pub source_graph_version: u64") == 3,
-        "state, outbox, and cursor graph versions must be required u64 fields",
-    )
-    require(
-        "pub source_graph_version: Option" not in contract,
-        "persisted graph versions must not be optional",
-    )
-    require(
-        "pub version_scope: MutationVersionScope" in contract,
-        "projection records require explicit graph/non-graph semantics",
-    )
-    require(
-        "authoritative state target version must be exactly source version plus one"
-        in contract
-        and ".checked_add(1)" in contract,
-        "state descriptors must advance exactly one checked graph-version step",
-    )
-
-    persisted_sources = "\n".join(
-        (contract, graph_store, native_store, sql_store, reasoning, reasoning_index)
-    )
     for forbidden in (
         "source_graph_version.unwrap_or",
         "source_graph_version.is_some",
@@ -932,7 +1094,6 @@ def main() -> None:
             f"forbidden fallback remains: {forbidden}",
         )
 
-    authoritative_writers = "\n".join((compiler, mutation_runtime))
     for forbidden in (
         "unwrap_or_else(|| core.version())",
         "unwrap_or_else(|| ctx.core.version())",
@@ -942,29 +1103,358 @@ def main() -> None:
             forbidden not in authoritative_writers,
             f"authoritative mutation writer retains a permissive version fallback: {forbidden}",
         )
+
+
+def _check_m1_identity_contract(contract: str) -> None:
+    """Check the typed product-v1 mutation identity and batch shape."""
+
+    require(
+        "pub const MUTATION_BATCH_VERSION: u16 = 1;" in contract,
+        "MutationBatch must use the first product typed-identity schema",
+    )
+    identity = _balanced_block(
+        contract, "pub struct MutationScopeIdentity", "{", "}"
+    )
+    for field in ("tenant: TenantId", "scope: MutationScope", "incarnation_id: IncarnationId"):
+        require(field in identity, f"typed mutation identity is missing {field}")
+    require(
+        "identity_digest: MutationScopeDigest" in identity,
+        "typed mutation identity must persist its recomputable digest",
+    )
+    require(
+        all(
+            marker in contract
+            for marker in (
+                'b"eg/mutation-scope-identity/v1\\0"',
+                'b"eg/mutation-scope-binding/v1\\0"',
+                "update_lp32",
+                "u32::try_from",
+            )
+        ),
+        "mutation identity digest must use the versioned LP32 SHA-256 contract",
+    )
+    require(
+        all(
+            check
+            for check in (
+                '"sha256-row-delta-v1"' in contract,
+                "sha256-row-delta-v2" not in contract,
+                "sha256-row-delta-v3" not in contract,
+            )
+        ),
+        "authoritative row-delta identity must expose only the product-v1 algorithm",
+    )
+    scope = _enum(contract, "MutationScope")
+    require(
+        all(
+            check
+            for check in (
+                re.search(r"Graph\s*\{\s*graph:\s*LogicalName,?\s*\}", scope)
+                is not None,
+                "Native" in scope,
+                "domain: MutationDomain" in scope,
+                "resource: LogicalName" in scope,
+            )
+        ),
+        "mutation scope must be tagged Graph or typed Native(domain, resource)",
+    )
+    require(
+        all(
+            marker in contract
+            for marker in (
+                "pub enum VersionExpectation",
+                "pub enum CommittedVersion",
+                "Unversioned",
+                "UnversionedSystemMutation",
+                "RESERVED_SYSTEM_TENANT",
+            )
+        ),
+        "version semantics must be typed and Unversioned capability-gated",
+    )
+    batch = _balanced_block(contract, "pub struct MutationBatch", "{", "}")
+    require("pub identity: MutationScopeIdentity" in batch, "batch identity is missing")
+    require(
+        "pub version_expectation: VersionExpectation" in batch,
+        "batch version expectation must be typed",
+    )
+    for retired in (
+        "pub tenant:",
+        "pub graph:",
+        "pub graph_incarnation_id:",
+        "pub expected_graph_version:",
+    ):
+        require(retired not in batch, f"product batch retains duplicate flat field {retired}")
+    require(
+        all(
+            check
+            for check in (
+                "#[serde(default" not in identity,
+                "#[serde(default" not in batch,
+                "#[serde(alias" not in contract,
+            )
+        ),
+        "product identity must quarantine incompatible shapes without serde defaults or aliases",
+    )
+    require(
+        all(
+            marker not in contract
+            for marker in ("MutationVersionScope", "NON_GRAPH_SOURCE_VERSION")
+        ),
+        "product contract retains implicit graph/non-graph sentinel semantics",
+    )
+
+
+def _check_m1_store_contract(native_store: str) -> None:
+    """Check physical-root, table, binding, and quarantine invariants."""
+
+    require(
+        all(
+            marker in native_store
+            for marker in (
+                "pub const MUTATION_STORE_SCHEMA_VERSION: u16 = 1;",
+                'b"eg/mutation-store-root/v1\\0"',
+                "pub struct StoreIncarnation",
+                "pub struct MutationStore",
+                "pub struct MutationWrite",
+            )
+        ),
+        "native mutation store must separate physical root identity from logical bindings",
+    )
+    table_stems = (
+        "mutation_store_root",
+        "mutation_scope_bindings",
+        "mutation_batches",
+        "mutation_idempotency",
+        "mutation_versions",
+        "mutation_fences",
+        "mutation_outbox",
+        "mutation_private_payloads",
+    )
+    for stem in table_stems:
+        require(
+            f'TableDefinition::new("{stem}_v1")' in native_store,
+            f"product mutation table is missing or not schema-one: {stem}",
+        )
+        require(
+            f'"{stem}_v3"' in native_store,
+            f"candidate prototype table is not quarantined: {stem}",
+        )
+    require(
+        all(
+            marker in native_store
+            for marker in (
+                "pub fn initialize<F>(",
+                "pub fn bind_scope<F>(",
+                "mutation scope rebinding mismatch",
+                "binding_for_write(write",
+            )
+        ),
+        "store initialization/binding and mutation entrypoints must fail closed through an owner-minted write",
+    )
+    require(
+        all(
+            check
+            for check in (
+                "RETIRED_PROTOTYPE_TABLES" in native_store,
+                '"mutation_batches"' in native_store,
+                "reject_prototype_names" in native_store,
+                native_store.count(".list_tables()") >= 3,
+                "quarantine before serving" in native_store,
+            )
+        ),
+        "incompatible prototype tables must fail closed before initialization or serving",
+    )
+
+
+_M1_UNMIGRATED_SEMANTIC_MARKERS = (
+    (
+        "crates/eg-query/src/tables/semantic_authority/build.rs",
+        "into_activation_parts(",
+    ),
+    (
+        "crates/eg-query/src/tables/semantic_vectors.rs",
+        "SemanticArtifactPurgeIdentity",
+    ),
+    (
+        "crates/eg-query/src/tables/store_embedding_tables.rs",
+        "pub struct EmbeddingBinding",
+    ),
+    (
+        "crates/eg-query/src/tables/store_semantic_records.rs",
+        "pub struct SemanticWorkRecord",
+    ),
+    ("src/server/semantic_index/coordinator.rs", "activate_generation_pair("),
+    ("src/server/semantic_index/coordinator.rs", "purge_generation_pair("),
+    ("src/server/semantic_index/cas_purge.rs", "purge_ann_cas_binding("),
+)
+
+
+def _check_m1_unmigrated_semantic_inventory() -> None:
+    """Freeze the six-path W-semantic ship blocker without claiming migration."""
+
+    for path, marker in _M1_UNMIGRATED_SEMANTIC_MARKERS:
+        source = read(path)
+        require(marker in source, f"unmigrated semantic bypass inventory drifted: {path}")
+        require(
+            "eg_mutation_store" not in source,
+            f"partial semantic mutation-ledger migration is forbidden: {path}",
+        )
+
+
+def _check_m1_write_safety(contract: str, native_store: str) -> None:
+    """Check physical derivation, authenticity, budgets, and unserved seams."""
+
+    require(
+        all(
+            check
+            for check in (
+                "std::fs::canonicalize(path)" in native_store,
+                "metadata.dev()" in native_store,
+                "metadata.ino()" in native_store,
+                "StoreIncarnation::new" not in native_store,
+            )
+        ),
+        "physical store incarnation must be derived from the canonical database root",
+    )
+    require(
+        all(
+            check
+            for check in (
+                "pub trait PrivatePayloadIntegrity" in native_store,
+                ".authenticate(sealed, digest)" in native_store,
+                "private recovery payload failed canonical authentication" in native_store,
+                "bytes[0]" not in native_store,
+                "0xE6" not in native_store,
+            )
+        ),
+        "private recovery authenticity must use the injected canonical integrity authority",
+    )
+    require(
+        all(
+            check
+            for check in (
+                "pub fn validate_write_budget" in contract,
+                "fn encode_bounded" in native_store,
+                "rmp_serde::encode::write_named(&mut counter" in native_store,
+                native_store.count("rmp_serde::to_vec_named") == 1,
+            )
+        ),
+        "every mutation write must preflight size/count budgets before allocating serialization",
+    )
+    require(
+        all(
+            check
+            for check in (
+                len(read("crates/eg-mutation-store/src/store/apply.rs").splitlines())
+                < 427,
+                len(read("crates/eg-mutation-store/src/store/persist.rs").splitlines())
+                < 427,
+                '#[path = "store/ledger.rs"]' in native_store,
+                '#[path = "store/recovery.rs"]' in native_store,
+            )
+        ),
+        "mutation apply/persistence must remain below the configured KISS limit via direct peer modules",
+    )
+    require(
+        all(
+            marker in contract
+            for marker in (
+                "semantic index mutations remain unserved",
+                "semantic_index_remains_unserved_until_consumer_migration",
+            )
+        ),
+        "semantic/vector/text/ANN mutation serving must remain gated until Native(SemanticIndex) consumer migration",
+    )
+    _check_m1_unmigrated_semantic_inventory()
+
+
+def _check_m1_negative_tests(contract: str, native_store: str) -> None:
+    """Require executable regressions for each fail-closed boundary."""
+
+    for negative_test in (
+        "malformed_names_are_rejected_without_normalization",
+        "digest_separates_tenant_scope_kind_and_native_domain",
+        "persisted_digest_tampering_is_rejected",
+        "graph_domains_cannot_be_smuggled_into_native_scope",
+        "semantic_domain_serde_rejects_component_aliases",
+        "unauthorized_unversioned_is_rejected",
+        "prototype_wire_shape_is_quarantined_without_defaults_or_aliases",
+        "mismatched_rebinding_is_fail_closed",
+        "partial_initialization_rolls_back_as_one_transaction",
+        "incompatible_prototype_tables_are_quarantined_without_translation",
+        "one_physical_root_serves_multiple_scopes_without_cross_tenant_aliasing",
+        "persisted_root_digest_tampering_is_rejected_on_read",
+        "backup_derives_a_distinct_physical_root_and_rebinds_scopes",
+        "private_recovery_authenticity_uses_injected_canonical_authority",
+        "forged_private_recovery_payload_fails_closed",
+        "missing_private_integrity_authority_fails_closed",
+    ):
+        require(
+            negative_test in contract or negative_test in native_store,
+            f"missing M1 negative test: {negative_test}",
+        )
+
+
+def check_m1_mutation_identity(contract: str, native_store: str) -> None:
+    """Freeze the universal product-v1 identity/store-root foundation."""
+
+    _check_m1_identity_contract(contract)
+    _check_m1_store_contract(native_store)
+    _check_m1_write_safety(contract, native_store)
+    _check_m1_negative_tests(contract, native_store)
+
+
+def main() -> None:
+    inventory_sources = mutation_inventory_sources()
+    # `mutation_batch.rs` is a facade; the persisted structs live in its
+    # declared production children.  Reading only the facade makes the gate
+    # crash before it can report a contract violation whenever the module is
+    # decomposed (the compiler follows the same tree).  Keep this structural
+    # source union in lock-step with the live Rust module tree.
+    contract = read_module_tree("crates/eg-types/src/mutation_batch.rs")
+    graph_store = read_module_tree("src/redb_store.rs")
+    native_store = read_module_tree("crates/eg-mutation-store/src/lib.rs")
+    native_store_with_tests = read_module_tree(
+        "crates/eg-mutation-store/src/lib.rs", include_tests=True
+    )
+    sql_store = read_module_tree("crates/eg-query/src/tables/store.rs")
+    reasoning = read("src/server/reasoning_projection.rs")
+    reasoning_index = read_module_tree("crates/eg-epistemic/src/incremental.rs")
+    compiler = inventory_sources["mutation_batch"]
+    mutation_runtime = read("src/server/mutation.rs")
+    protocol = read("crates/eg-types/src/protocol.rs")
+    check_m1_mutation_identity(contract, native_store_with_tests)
+    require(
+        "impl Default for MutationDomain" not in contract,
+        "MutationDomain must not acquire an implicit default",
+    )
+    require(
+        "SemanticIndex = 8" in contract
+        and '"analytics_job",\n    "semantic_index",\n    "broker"' in contract,
+        "semantic activation and purge require one closed native mutation domain",
+    )
+    operation = contract.split("pub struct MutationOperation", 1)[1].split("}", 1)[0]
+    require("#[serde(default)]" not in operation, "operation domain must be required")
+    require(
+        "pub domain: MutationDomain" in operation, "operation domain field is missing"
+    )
+    require(
+        "authoritative state target version must be exactly source version plus one"
+        in contract
+        and ".checked_add(1)" in contract,
+        "state descriptors must advance exactly one checked graph-version step",
+    )
+
+    persisted_sources = "\n".join(
+        (contract, graph_store, native_store, sql_store, reasoning, reasoning_index)
+    )
+    authoritative_writers = "\n".join((compiler, mutation_runtime))
+    _check_version_fallbacks(persisted_sources, authoritative_writers)
     require(
         "authoritative_graph_version" in compiler
         and "projected_version == 0" in compiler
         and "does not match the serving projection" in compiler,
         "authoritative mutation writers must allow only explicit zero bootstrap and exact durable/RAM agreement",
-    )
-
-    require(
-        "version_scope: MutationVersionScope::Graph" in graph_store,
-        "graph outbox rows must declare graph version scope",
-    )
-    require(
-        "version_scope: MutationVersionScope::NonGraph" in native_store,
-        "native subordinate outbox rows must declare non-graph scope",
-    )
-    require(
-        "version_scope: MutationVersionScope::NonGraph" in sql_store,
-        "SQL outbox rows must declare non-graph scope",
-    )
-    require(
-        "NON_GRAPH_SOURCE_VERSION" in native_store
-        and "NON_GRAPH_SOURCE_VERSION" in sql_store,
-        "non-graph stores must use the explicit non-graph source version",
     )
     require(
         "checked_add(1)" in graph_store
@@ -980,22 +1470,14 @@ def main() -> None:
     check_work_item_projection_contract(graph_store, compiler)
     require(
         "lower_atomic_alias" not in compiler,
-        "mutation compiler must not retain compatibility alias lowering",
+        "mutation compiler must not retain retired alias lowering",
     )
     require(
         "#[serde(alias" not in protocol,
         "wire enums must accept only their canonical current names",
     )
-    require(
-        'if _integer("mutation.schema_version", mutation_in["schema_version"]) != 2:'
-        in client
-        and "mutation_in = _closed_mapping(" in client
-        and 'frozenset({"topic", "key", "payload", "headers"})' in client,
-        "Python ChangeEnvelope serialization must require the closed MutationBatch v2 schema",
-    )
-
-    check_mutation_inventory(mutation_inventory_sources())
-    check_served_carrier_mutations(mutation_inventory_sources())
+    check_mutation_inventory(inventory_sources)
+    check_served_carrier_mutations(inventory_sources)
 
     print("persisted mutation contract gate passed")
 

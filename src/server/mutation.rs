@@ -3797,7 +3797,10 @@ mod tests {
             .await
             .expect("read mutation batch")
             .expect("TouchNodes batch is durable");
-        assert_eq!(record.batch.tenant, "opaque-test-tenant");
+        assert_eq!(
+            record.batch.identity.tenant().as_str(),
+            "opaque-test-tenant"
+        );
         let (snapshot, version) = persistence
             .read_authoritative_graph_snapshot(&fname)
             .await

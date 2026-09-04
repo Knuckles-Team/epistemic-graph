@@ -165,8 +165,10 @@ async fn cleanup_cross_shard_decision(
         let decision = redb
             .xshard_decision_get(&parent_id)?
             .ok_or_else(|| "retained cross-shard transaction is still undecided".to_string())?;
-        let parent = eg_mutation_store::read_record(redb.admin_mutation_store(), &parent_id)?
-            .ok_or_else(|| "retained cross-shard decision has no parent receipt".to_string())?;
+        let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
+        let parent =
+            eg_mutation_store::read_record(redb.admin_mutation_store(), &identity, &parent_id)?
+                .ok_or_else(|| "retained cross-shard decision has no parent receipt".to_string())?;
         if parent.status != crate::mutation_batch::MutationBatchStatus::Committed {
             return Err("cross-shard decision cannot be collected before its parent".to_string());
         }
@@ -289,7 +291,9 @@ fn resume_txn_receipt(
     else {
         return Ok(None);
     };
-    if saga.batch.tenant != "native" || saga.batch.graph != "cluster-admin" {
+    if saga.batch.identity
+        != crate::server::persistence::redb_backend::cluster_admin_scope_identity()?
+    {
         return Err("transaction parent receipt has the wrong coordinator scope".to_string());
     }
     let _ = transaction_plan_digest(&saga.batch)?;
@@ -302,8 +306,10 @@ fn resume_txn_receipt(
         return Err("transaction parent receipt has the wrong result type".to_string());
     }
     let txn = if replayed.is_none() {
+        let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
         let encrypted = eg_mutation_store::read_private_payload(
             redb.admin_mutation_store(),
+            &identity,
             &saga.batch.batch_id,
         )?
         .ok_or_else(|| "prepared transaction has no encrypted recovery plan".to_string())?;
@@ -679,8 +685,23 @@ fn record_matches_reconcile_candidate(
 ) -> bool {
     record.status == crate::mutation_batch::MutationBatchStatus::Committed
         && record.batch.batch_id == batch_id
-        && record.batch.graph == graph
-        && record.batch.tenant == graph
+        && record
+            .batch
+            .identity
+            .scope()
+            .graph_name()
+            .map(|name| name.as_str())
+            == Some(graph)
+        // PRE-EXISTING BUG, ported unchanged (see MIGRATION-CONTRACT.md / this
+        // lane's report): this compares the batch's TENANT against the GRAPH
+        // name, not against any expected tenant — there is no tenant parameter
+        // on this function to compare against. `commit_graphql_cross_modal_replay`
+        // below is the analogous reconcile check and shows the INTENDED shape:
+        // `record.batch.tenant != authority.tenant_scope()`. A real fix needs a
+        // tenant scope threaded through `reconcile_committed_txn` /
+        // `ReconcileTxnCandidate`, which is a behavior change out of scope for a
+        // mechanical v1 port — flagged, not silently corrected or dropped.
+        && record.batch.identity.tenant().as_str() == graph
         && record.batch.context.principal == expected_principal
 }
 
@@ -3189,8 +3210,8 @@ async fn commit_graphql_cross_modal_replay(
     };
     let expected_principal =
         crate::server::mutation_batch::principal_fingerprint(authority.agent_id())?;
-    if record.batch.graph != graph_name
-        || record.batch.tenant != authority.tenant_scope()
+    if record.batch.identity.scope().graph_name().map(|name| name.as_str()) != Some(graph_name)
+        || record.batch.identity.tenant().as_str() != authority.tenant_scope()
         || record.batch.context.principal != expected_principal
     {
         return Err("committed GraphQL cross-modal batch does not match caller scope".to_string());

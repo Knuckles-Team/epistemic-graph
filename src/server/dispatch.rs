@@ -4828,8 +4828,18 @@ async fn dispatch_apply_change_envelope(
         Method::ApplyChangeEnvelope { envelope } => {
             let claims = verified_context.claims();
             let batch_context = &envelope.mutation.context;
-            if envelope.mutation.graph != req_graph
-                || envelope.mutation.tenant != claims.tenant
+            // A native (non-graph) mutation scope reports no graph name at all.
+            // Comparing `Option<&str>` against `Some(req_graph)` fails closed on
+            // `None` instead of ever coercing it into an empty-string/sentinel
+            // match against the requested graph.
+            if envelope
+                .mutation
+                .identity
+                .scope()
+                .graph_name()
+                .map(crate::mutation_batch::LogicalName::as_str)
+                != Some(req_graph.as_str())
+                || envelope.mutation.identity.tenant().as_str() != claims.tenant
                 || batch_context.request_id != req_id
                 || batch_context.principal != verified_context.principal_persistence_id()
                 || envelope.mutation.idempotency_key != verified_context.idempotency_key()
@@ -7149,6 +7159,7 @@ async fn resume_sparql_update_plan(
     }
     let encrypted = match eg_mutation_store::read_private_payload(
         coord.redb.admin_mutation_store(),
+        &saga.batch.identity,
         coord.parent_id,
     ) {
         Ok(Some(value)) => value,
@@ -7695,6 +7706,42 @@ mod coordinator_restart_tests {
     use super::*;
     use crate::mutation_batch::{MutationBatchStatus, MutationDomain, MutationSurface};
 
+    /// Test-local [`eg_mutation_store::PrivatePayloadIntegrity`], mirroring
+    /// `persistence::redb_backend::TxnRecoveryPrivateIntegrity` exactly (same
+    /// unseal-then-compare-SHA-256 check) but keyed off the test's own in-memory
+    /// cipher instead of `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY`. These tests genuinely
+    /// seal and read real private (encrypted) coordinator-recovery payloads via
+    /// `prepare_saga_with_private_payload`/`read_private_payload`, so — exactly like
+    /// production — the store needs a real authority; passing `None` here would not
+    /// be a stub, it would be silently disabling the authentication these tests
+    /// exist to exercise.
+    struct TestPrivateIntegrity(crate::crypto::ValueCipher);
+
+    impl eg_mutation_store::PrivatePayloadIntegrity for TestPrivateIntegrity {
+        fn authenticate(
+            &self,
+            sealed: &[u8],
+            expected_plaintext_digest: &str,
+        ) -> Result<(), String> {
+            use sha2::{Digest, Sha256};
+            let plaintext = self.0.unseal(sealed)?;
+            let actual = hex::encode(Sha256::digest(&plaintext));
+            if actual != expected_plaintext_digest {
+                return Err(
+                    "private recovery payload digest does not match its parent receipt"
+                        .to_string(),
+                );
+            }
+            Ok(())
+        }
+    }
+
+    fn private_integrity(
+        cipher: &crate::crypto::ValueCipher,
+    ) -> Option<Arc<dyn eg_mutation_store::PrivatePayloadIntegrity>> {
+        Some(Arc::new(TestPrivateIntegrity(cipher.clone())))
+    }
+
     fn parent_batch(
         id: &str,
         digest: &str,
@@ -7741,12 +7788,13 @@ mod coordinator_restart_tests {
         let (digest, encrypted) =
             seal_private_coordinator_plan_with_cipher(&cipher, &plan).unwrap();
         let batch = parent_batch("sparql-parent", &digest, SPARQL_RECOVERY_EVENT);
+        let identity = batch.identity.clone();
         {
-            let db = redb::Database::create(&path).unwrap();
-            eg_mutation_store::initialize(&db).unwrap();
+            let store =
+                eg_mutation_store::initialize(&path, &identity, 0, private_integrity(&cipher), |_wtx| Ok(())).unwrap();
             assert!(matches!(
                 eg_mutation_store::prepare_saga_with_private_payload(
-                    &db,
+                    &store,
                     &batch,
                     1,
                     Some(&encrypted),
@@ -7755,12 +7803,13 @@ mod coordinator_restart_tests {
                 eg_mutation_store::SagaBegin::Execute
             ));
         }
-        let db = redb::Database::open(&path).unwrap();
-        let record = eg_mutation_store::read_record(&db, &batch.batch_id)
+        let store =
+            eg_mutation_store::initialize(&path, &identity, 0, private_integrity(&cipher), |_wtx| Ok(())).unwrap();
+        let record = eg_mutation_store::read_record(&store, &identity, &batch.batch_id)
             .unwrap()
             .unwrap();
         assert_eq!(record.status, MutationBatchStatus::Prepared);
-        let recovered = eg_mutation_store::read_private_payload(&db, &batch.batch_id)
+        let recovered = eg_mutation_store::read_private_payload(&store, &identity, &batch.batch_id)
             .unwrap()
             .unwrap();
         let opened: SparqlRecoveryPlanV1 = open_private_coordinator_plan_with_cipher(
@@ -7804,48 +7853,50 @@ mod coordinator_restart_tests {
             &marker_digest,
             SPARQL_COMPENSATION_EVENT,
         );
+        let identity = parent.identity.clone();
         {
-            let db = redb::Database::create(&path).unwrap();
-            eg_mutation_store::initialize(&db).unwrap();
+            let store =
+                eg_mutation_store::initialize(&path, &identity, 0, private_integrity(&cipher), |_wtx| Ok(())).unwrap();
             eg_mutation_store::prepare_saga_with_private_payload(
-                &db,
+                &store,
                 &parent,
                 1,
                 Some(&parent_encrypted),
             )
             .unwrap();
             eg_mutation_store::prepare_saga_with_private_payload(
-                &db,
+                &store,
                 &marker,
                 2,
                 Some(&marker_encrypted),
             )
             .unwrap();
             let result = rmp_serde::to_vec_named(&ResultPayload::Bool(true)).unwrap();
-            eg_mutation_store::commit_saga(&db, &marker, result, 3).unwrap();
+            eg_mutation_store::commit_saga(&store, &marker, result, 3).unwrap();
         }
-        let db = redb::Database::open(&path).unwrap();
+        let store =
+            eg_mutation_store::initialize(&path, &identity, 0, private_integrity(&cipher), |_wtx| Ok(())).unwrap();
         assert_eq!(
-            eg_mutation_store::read_record(&db, &parent.batch_id)
+            eg_mutation_store::read_record(&store, &identity, &parent.batch_id)
                 .unwrap()
                 .unwrap()
                 .status,
             MutationBatchStatus::Prepared
         );
         assert_eq!(
-            eg_mutation_store::read_record(&db, &marker.batch_id)
+            eg_mutation_store::read_record(&store, &identity, &marker.batch_id)
                 .unwrap()
                 .unwrap()
                 .status,
             MutationBatchStatus::Committed
         );
         assert!(
-            eg_mutation_store::read_private_payload(&db, &parent.batch_id)
+            eg_mutation_store::read_private_payload(&store, &identity, &parent.batch_id)
                 .unwrap()
                 .is_some()
         );
         assert!(
-            eg_mutation_store::read_private_payload(&db, &marker.batch_id)
+            eg_mutation_store::read_private_payload(&store, &identity, &marker.batch_id)
                 .unwrap()
                 .is_none()
         );
@@ -7905,7 +7956,18 @@ async fn dispatch_change_envelopes(
     }
 
     let mut per_index: Vec<serde_json::Value> = vec![serde_json::Value::Null; total];
-    for (graph, group) in group_change_envelopes_by_graph(envelopes) {
+    let (groups, ungrouped) = group_change_envelopes_by_graph(envelopes);
+    for index in ungrouped {
+        // Unreachable in practice: `change_envelope_batch_authority_error` above
+        // already rejects the whole request if any envelope's mutation scope has
+        // no graph name. Kept as an explicit conflict entry, not a silent Null,
+        // in case that invariant ever changes.
+        per_index[index] = serde_json::json!({
+            "status": "conflict",
+            "error": "ApplyChangeEnvelopes requires a graph-scoped mutation",
+        });
+    }
+    for (graph, group) in groups {
         let indices: Vec<usize> = group.iter().map(|(index, _)| *index).collect();
         let group_envelopes: Vec<crate::change_envelope::ChangeEnvelope> =
             group.into_iter().map(|(_, envelope)| envelope).collect();
@@ -7943,7 +8005,13 @@ fn change_envelope_batch_authority_error(
     let principal = verified_context.principal_persistence_id();
     for envelope in envelopes {
         let ctx = &envelope.mutation.context;
-        if envelope.mutation.tenant != claims.tenant
+        // `ApplyChangeEnvelopes` groups and routes every envelope by graph name
+        // (`group_change_envelopes_by_graph` below, then `dispatch_graph_op`), so
+        // a native (non-graph) mutation scope — which reports no graph name at
+        // all — can never be routed and must fail closed here rather than being
+        // silently dropped or grouped under a sentinel.
+        if envelope.mutation.identity.scope().graph_name().is_none()
+            || envelope.mutation.identity.tenant().as_str() != claims.tenant
             || ctx.request_id != req_id
             || ctx.principal != principal
             || ctx.policy_fingerprint.as_deref() != Some(claims.policy_version.as_str())
@@ -7960,17 +8028,38 @@ fn change_envelope_batch_authority_error(
 /// Group envelopes by graph, preserving first-seen graph order and the
 /// per-graph envelope order, and carrying each envelope's REQUEST index so the
 /// per-graph results can be scattered back into request order.
+///
+/// Every envelope reaching this function already passed
+/// `change_envelope_batch_authority_error`, which rejects the whole batch if
+/// any envelope's mutation scope has no graph name — so in practice a native
+/// (non-graph) scope never appears here. It is still handled explicitly
+/// (returned as `ungrouped`, never silently coerced into a "" / sentinel
+/// group) so a future change to the authority check cannot turn this into a
+/// silent misroute.
 #[cfg(feature = "redb")]
 fn group_change_envelopes_by_graph(
     envelopes: Vec<crate::change_envelope::ChangeEnvelope>,
-) -> Vec<(String, Vec<(usize, crate::change_envelope::ChangeEnvelope)>)> {
+) -> (
+    Vec<(String, Vec<(usize, crate::change_envelope::ChangeEnvelope)>)>,
+    Vec<usize>,
+) {
     let mut graph_order: Vec<String> = Vec::new();
     let mut groups: std::collections::HashMap<
         String,
         Vec<(usize, crate::change_envelope::ChangeEnvelope)>,
     > = std::collections::HashMap::new();
+    let mut ungrouped: Vec<usize> = Vec::new();
     for (index, envelope) in envelopes.into_iter().enumerate() {
-        let graph = envelope.mutation.graph.clone();
+        let Some(graph) = envelope
+            .mutation
+            .identity
+            .scope()
+            .graph_name()
+            .map(|name| name.as_str().to_string())
+        else {
+            ungrouped.push(index);
+            continue;
+        };
         groups
             .entry(graph.clone())
             .or_insert_with(|| {
@@ -7979,13 +8068,14 @@ fn group_change_envelopes_by_graph(
             })
             .push((index, envelope));
     }
-    graph_order
+    let grouped = graph_order
         .into_iter()
         .map(|graph| {
             let group = groups.remove(&graph).expect("grouped graph is present");
             (graph, group)
         })
-        .collect()
+        .collect();
+    (grouped, ungrouped)
 }
 
 /// Scatter one graph group's response back into request-ordered slots.
@@ -8493,8 +8583,16 @@ fn modality_receipt_binding_matches(
 ) -> bool {
     record.status == crate::mutation_batch::MutationBatchStatus::Committed
         && record.batch.batch_id == batch_id
-        && record.batch.tenant == ctx.tenant_scope
-        && record.batch.graph == ctx.graph_name
+        && record.batch.identity.tenant().as_str() == ctx.tenant_scope
+        // A native (non-graph) scope reports no graph name; `map(...) == Some(_)`
+        // fails closed instead of matching `ctx.graph_name` against a sentinel.
+        && record
+            .batch
+            .identity
+            .scope()
+            .graph_name()
+            .map(crate::mutation_batch::LogicalName::as_str)
+            == Some(ctx.graph_name)
         && record.batch.placement_epoch == ctx.placement_epoch
         && record.batch.fencing_token == ctx.fencing_token
         && record.batch.context.principal == ctx.principal_fingerprint
@@ -9898,14 +9996,27 @@ async fn dispatch_change_env_apply_change_envelope(
             }
 
             let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-            if let Some(expected) = envelope.mutation.expected_graph_version {
-                if expected != core.version() {
+            // `ApplyChangeEnvelope` is a graph-scoped commit path (it targets
+            // `graph_name` and checks against `core.version()`), so its version
+            // expectation must be `Graph(_)`; any other variant (Native/
+            // Unversioned) is invalid input here and rejected rather than
+            // silently skipping the version check the old `Option::None` arm did.
+            match envelope.mutation.version_expectation {
+                crate::mutation_batch::VersionExpectation::Graph(expected) => {
+                    if expected != core.version() {
+                        return Response::err(
+                            req_id,
+                            format!(
+                                "STALE_GRAPH_VERSION: expected {expected}, current {}",
+                                core.version()
+                            ),
+                        );
+                    }
+                }
+                _ => {
                     return Response::err(
                         req_id,
-                        format!(
-                            "STALE_GRAPH_VERSION: expected {expected}, current {}",
-                            core.version()
-                        ),
+                        "ApplyChangeEnvelope requires a graph version expectation",
                     );
                 }
             }
@@ -10124,8 +10235,18 @@ async fn dispatch_change_env_get_change_envelope(
             let fname = crate::persist::sanitize(graph_name);
             return match backend.read_change_envelope(&fname, &envelope_id).await {
                 Ok(Some(record))
-                    if record.envelope.mutation.tenant == tenant
-                        && record.envelope.mutation.graph == graph_name =>
+                    if record.envelope.mutation.identity.tenant().as_str() == tenant
+                        // A native (non-graph) scope reports no graph name;
+                        // `map(...) == Some(_)` fails closed on `None` instead of
+                        // matching `graph_name` against a coerced sentinel.
+                        && record
+                            .envelope
+                            .mutation
+                            .identity
+                            .scope()
+                            .graph_name()
+                            .map(crate::mutation_batch::LogicalName::as_str)
+                            == Some(graph_name) =>
                 {
                     Response::ok(req_id, ResultPayload::raw(&record))
                 }

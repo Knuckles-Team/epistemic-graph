@@ -22,7 +22,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
-use std::sync::Arc;
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use sha2::{Digest, Sha256};
@@ -37,6 +36,39 @@ const RBAC_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1")
 const POLICY_KEY: &str = "policy";
 const IDENTITIES_KEY: &str = "identities";
 const BOOTSTRAP_KEY: &str = "bootstrap";
+
+/// Native mutation-scope identity for this store's RBAC/security-control
+/// bookkeeping: tenant `"native"`, domain `ControlPlane` (mirrored below onto
+/// every `MutationOperation::domain` this store writes — the native-scope
+/// validator in `eg_types::mutation_batch::validation` requires the two to be
+/// exactly equal), resource `"security-control"`.
+const RBAC_SCOPE_TENANT: &str = "native";
+const RBAC_SCOPE_RESOURCE: &str = "security-control";
+/// Fixed logical-generation id for the RBAC/security-control scope. NOT
+/// derived from the resource name above: unlike a graph, this scope is never
+/// deleted and recreated with a new generation for the life of one
+/// `rbac.redb` file, so every `RbacStore::open` of the same physical file
+/// must bind (and re-validate against) the exact same identity or fail
+/// closed (`eg_mutation_store::bind_scope_in`'s idempotent-rebind check).
+const RBAC_SCOPE_INCARNATION: &str = "rbac-security-control:v1";
+
+/// Build the fixed [`eg_types::MutationScopeIdentity`] for this store's
+/// native RBAC/security-control mutation scope (see the `RBAC_SCOPE_*`
+/// constants above). A plain function rather than a `once_cell`/`const`:
+/// `MutationScopeIdentity::native` computes a SHA-256 identity digest, which
+/// is not `const`-evaluable, and every constructor here is fallible by
+/// construction (`TenantId`/`LogicalName`/`IncarnationId` validate their
+/// input), so failures are propagated rather than `.unwrap()`/`.expect()`'d
+/// away even though the fixed literals above are known-valid by inspection.
+fn native_security_control_identity() -> Result<eg_types::MutationScopeIdentity, RbacPersistError> {
+    eg_types::MutationScopeIdentity::fixed_native(
+        RBAC_SCOPE_TENANT,
+        eg_types::mutation_batch::MutationDomain::ControlPlane,
+        RBAC_SCOPE_RESOURCE,
+        RBAC_SCOPE_INCARNATION,
+    )
+    .map_err(RbacPersistError::Redb)
+}
 
 /// Durable lifecycle for the only request admitted before an identity exists.
 /// `Consumed` is never inferred from an empty identity map: removing every
@@ -92,10 +124,17 @@ impl From<serde_json::Error> for RbacPersistError {
 }
 
 /// A durable, redb-backed snapshot of the RBAC policy + registered identities
-/// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Cheap to `clone` (shares one `Arc<Database>`), so an
-/// `IsolationLayer` can hold it behind the [`RbacPolicyStore`] adapter.
+/// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Holds the
+/// [`eg_mutation_store::MutationStore`] that owns the underlying physical
+/// `rbac.redb` file (`RbacStore::db` before the MutationBatch v1 migration);
+/// the RBAC_TABLE itself is opened directly off `mutation_store.database()`,
+/// while every write-through also goes through the SAME store's mutation
+/// ledger for `security-control`'s version bookkeeping. `identity` is the
+/// fixed native scope identity (see `native_security_control_identity`)
+/// re-used on every load/save so it is validated exactly once per open.
 pub struct RbacStore {
-    db: Arc<Database>,
+    mutation_store: eg_mutation_store::MutationStore,
+    identity: eg_types::MutationScopeIdentity,
 }
 
 /// Adapter seam for durable identity/RBAC policy state.  Production uses
@@ -230,16 +269,27 @@ impl RbacStore {
     pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, RbacPersistError> {
         std::fs::create_dir_all(dir.as_ref())?;
         let path = dir.as_ref().join("rbac.redb");
-        let db = Database::create(&path).map_err(|e| RbacPersistError::Redb(e.to_string()))?;
-        let wtx = db
-            .begin_write()
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
-        wtx.open_table(RBAC_TABLE)
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
-        wtx.commit()
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
-        eg_mutation_store::initialize(&db).map_err(RbacPersistError::Redb)?;
-        let store = Self { db: Arc::new(db) };
+        let identity = native_security_control_identity()?;
+        // `initialize` opens (or creates) the physical `rbac.redb`, establishes/
+        // validates its `StoreIncarnation` root, and binds the fixed
+        // `security-control` scope at `initial_version: 0` -- the SAME "brand
+        // new store starts at version 0" semantics `save`/`current_version`
+        // relied on via the old `eg_mutation_store::version(&db, "native",
+        // "security-control")` call. The bootstrap closure runs only on the
+        // FIRST-ever bind (a fresh file), and its only job is to make sure
+        // RBAC_TABLE exists so a later `begin_read()` + `open_table` in
+        // `load`/`bootstrap_current_state` never sees a "no such table" error;
+        // opening a redb table for write auto-creates it, and once created it
+        // persists across every later re-open of the same file.
+        let mutation_store = eg_mutation_store::initialize(&path, &identity, 0, None, |wtx| {
+            wtx.open_table(RBAC_TABLE).map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .map_err(RbacPersistError::Redb)?;
+        let store = Self {
+            mutation_store,
+            identity,
+        };
         store.bootstrap_current_state()?;
         Ok(store)
     }
@@ -256,40 +306,61 @@ impl RbacStore {
     /// both copied — `RegisterIdentity`/`RbacAdmin` commit their MutationBatch
     /// metadata in the same write txn as the identity snapshot, so restoring one
     /// without the other would reopen an already-acknowledged admission.
+    /// Bundle this store into `destination`.
+    ///
+    /// The mutation-store half is delegated to
+    /// `eg_mutation_store::backup_recovery_store`, which owns the complete table
+    /// set and, crucially, re-stamps `SCOPE_BINDINGS` for the destination's own
+    /// incarnation via `copy_bindings`. Hand-copying the table list here is what
+    /// produced BUG-PE-054: `VERSIONS` was copied and `STORE_ROOT`/`SCOPE_BINDINGS`
+    /// were not, so a restored bundle reopened with "mutation version row exists
+    /// without a scope binding" the moment any version above zero existed. That
+    /// list could not be kept correct from outside the crate that defines it --
+    /// every table added to the mutation store would have had to be mirrored
+    /// here, and silently was not.
+    ///
+    /// Only `RBAC_TABLE`, which this store genuinely owns, is copied locally.
     pub fn backup_into(&self, destination: &Path) -> Result<u64, String> {
         if destination.exists() {
             return Err("bundled store file already exists (refusing to overwrite)".to_string());
         }
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let counts = eg_mutation_store::backup_recovery_store(&self.mutation_store, destination)
+            .map_err(|error| error.to_string())?;
+
+        // `RBAC_TABLE` is this store's own table, not part of the mutation
+        // store's contract, so it is appended with plain redb rather than
+        // requiring a second `MutationStore` handle. Adding a table does not
+        // disturb the incarnation, which binds (dev, ino).
         let target = Database::create(destination).map_err(|e| e.to_string())?;
+        let rtx = self
+            .mutation_store
+            .database()
+            .begin_read()
+            .map_err(|e| e.to_string())?;
         let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
         wtx.set_durability(redb::Durability::Immediate)
             .map_err(|e| e.to_string())?;
         let mut rows = 0u64;
-        macro_rules! copy_table {
-            ($definition:expr) => {{
-                let mut destination_table =
-                    wtx.open_table($definition).map_err(|e| e.to_string())?;
-                if let Ok(source_table) = rtx.open_table($definition) {
-                    for row in source_table.iter().map_err(|e| e.to_string())? {
-                        let (key, value) = row.map_err(|e| e.to_string())?;
-                        destination_table
-                            .insert(key.value(), value.value())
-                            .map_err(|e| e.to_string())?;
-                        rows += 1;
-                    }
+        {
+            let mut destination_table = wtx.open_table(RBAC_TABLE).map_err(|e| e.to_string())?;
+            if let Ok(source_table) = rtx.open_table(RBAC_TABLE) {
+                for row in source_table.iter().map_err(|e| e.to_string())? {
+                    let (key, value) = row.map_err(|e| e.to_string())?;
+                    destination_table
+                        .insert(key.value(), value.value())
+                        .map_err(|e| e.to_string())?;
+                    rows += 1;
                 }
-            }};
+            }
         }
-        copy_table!(RBAC_TABLE);
-        copy_table!(eg_mutation_store::BATCHES);
-        copy_table!(eg_mutation_store::IDEMPOTENCY);
-        copy_table!(eg_mutation_store::VERSIONS);
-        copy_table!(eg_mutation_store::FENCES);
-        copy_table!(eg_mutation_store::OUTBOX);
-        copy_table!(eg_mutation_store::PRIVATE_PAYLOADS);
         wtx.commit().map_err(|e| e.to_string())?;
-        Ok(rows)
+        Ok(rows
+            .saturating_add(counts.batches)
+            .saturating_add(counts.idempotency)
+            .saturating_add(counts.versions)
+            .saturating_add(counts.fences)
+            .saturating_add(counts.outbox)
+            .saturating_add(counts.encrypted_private_payloads))
     }
 
     /// Atomically create the explicit current bootstrap image for a brand-new store.
@@ -297,7 +368,8 @@ impl RbacStore {
     /// of an authorization state transition.
     fn bootstrap_current_state(&self) -> Result<(), RbacPersistError> {
         let rtx = self
-            .db
+            .mutation_store
+            .database()
             .begin_read()
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
         let table = rtx
@@ -344,7 +416,8 @@ impl RbacStore {
         RbacPersistError,
     > {
         let rtx = self
-            .db
+            .mutation_store
+            .database()
             .begin_read()
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
         let t = rtx
@@ -414,7 +487,8 @@ impl RbacStore {
         // first historical occurrence and leave the newer on-disk image unchanged.
         let already_current = {
             let rtx = self
-                .db
+                .mutation_store
+                .database()
                 .begin_read()
                 .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
             let table = rtx
@@ -441,7 +515,7 @@ impl RbacStore {
             return Ok(());
         }
 
-        let expected = eg_mutation_store::version(&self.db, "native", "security-control")
+        let expected = eg_mutation_store::version(&self.mutation_store, &self.identity)
             .map_err(RbacPersistError::Redb)?;
         let target = expected.checked_add(1).ok_or_else(|| {
             RbacPersistError::Redb("identity/RBAC state version overflow".to_string())
@@ -456,12 +530,21 @@ impl RbacStore {
                 purpose: None,
                 policy_fingerprint: None,
                 trace_id: None,
+                // This write always supplies an OCC-checked expected version
+                // (`VersionExpectation::Native(expected)` below, never
+                // `Unversioned`), so `MutationCapability::UnversionedSystemMutation`
+                // is never consulted for it -- `validate_version_expectation`
+                // (crates/eg-types/src/mutation_batch/validation.rs) only reads
+                // `verified_capabilities` on the `Unversioned` arm. An empty set
+                // is therefore the accurate statement of what is verified at
+                // this admission point, not a placeholder default: no capability
+                // is claimed, and none is needed for a normally-versioned write.
+                verified_capabilities: std::collections::BTreeSet::new(),
             },
-            tenant: "native".to_string(),
-            graph: "security-control".to_string(),
+            identity: self.identity.clone(),
             placement_epoch: 0,
             idempotency_key: batch_id.clone(),
-            expected_graph_version: Some(expected),
+            version_expectation: eg_types::VersionExpectation::Native(expected),
             fencing_token: None,
             authoritative_state: None,
             operations: vec![eg_types::MutationOperation {
@@ -481,23 +564,29 @@ impl RbacStore {
             }],
             created_at_ms: 0,
         };
-        let mut wtx = self
-            .db
-            .begin_write()
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
+        // `MutationStore::write()` already opens the transaction with
+        // `Durability::Immediate` (the same durability the old code set by
+        // hand on the raw `WriteTransaction`), so nothing further to set here.
+        let write = self
+            .mutation_store
+            .write()
+            .map_err(RbacPersistError::Redb)?;
         let source_version =
-            match eg_mutation_store::begin(&wtx, &batch).map_err(RbacPersistError::Redb)? {
+            match eg_mutation_store::begin(&write, &batch).map_err(RbacPersistError::Redb)? {
                 eg_mutation_store::Begin::Replay(_) => {
-                    wtx.abort()
-                        .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
+                    // `MutationWrite::abort` is crate-private to `eg_mutation_store`
+                    // (only its own `commit`/`begin`/`finish`/`purge_scope` free
+                    // functions are re-exported); returning here without calling
+                    // `.commit()` drops `write` (and its inner `WriteTransaction`)
+                    // un-committed, which redb's own `Drop for WriteTransaction`
+                    // aborts automatically.
                     return Ok(());
                 }
                 eg_mutation_store::Begin::Apply { source_version } => source_version,
             };
         {
-            let mut t = wtx
+            let mut t = write
+                .owner_rows()
                 .open_table(RBAC_TABLE)
                 .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
             t.insert(POLICY_KEY, policy_bytes.as_slice())
@@ -508,7 +597,7 @@ impl RbacStore {
                 .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
         }
         eg_mutation_store::finish(
-            &wtx,
+            &write,
             &batch,
             Some(
                 rmp_serde::to_vec_named(&true)
@@ -518,17 +607,17 @@ impl RbacStore {
             source_version,
         )
         .map_err(RbacPersistError::Redb)?;
-        eg_mutation_store::commit(wtx, &batch).map_err(RbacPersistError::Redb)?;
+        eg_mutation_store::commit(write, &batch).map_err(RbacPersistError::Redb)?;
         Ok(())
     }
 
     /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): the SAME `eg_mutation_store`
     /// counter [`RbacStore::save`] already bumps atomically (same `redb`
-    /// write transaction, `:407`/`:453-461` above) with the policy/identity/
-    /// bootstrap writes — reused here rather than adding a second,
-    /// independently-maintained persisted counter.
+    /// write transaction, above) with the policy/identity/bootstrap writes --
+    /// reused here rather than adding a second, independently-maintained
+    /// persisted counter.
     pub fn current_version(&self) -> Result<u64, RbacPersistError> {
-        eg_mutation_store::version(&self.db, "native", "security-control")
+        eg_mutation_store::version(&self.mutation_store, &self.identity)
             .map_err(RbacPersistError::Redb)
     }
 }
@@ -671,7 +760,7 @@ mod tests {
     fn eg303_partial_current_state_fails_closed() {
         let dir = tmp_dir("partial");
         let store = RbacStore::open(&dir).unwrap();
-        let wtx = store.db.begin_write().unwrap();
+        let wtx = store.mutation_store.database().begin_write().unwrap();
         {
             let mut table = wtx.open_table(RBAC_TABLE).unwrap();
             table.remove(IDENTITIES_KEY).unwrap();

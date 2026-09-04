@@ -5418,10 +5418,14 @@ async fn commit_sql_catalog_txn(
         // identity byte (including principal + operation digest) before returning
         // the result without applying `txn` again.
         let expected_version = match store.mutation_batch(&batch_id)? {
-            Some(record) => record
-                .batch
-                .expected_graph_version
-                .ok_or_else(|| "committed SQL MutationBatch has no OCC version".to_string())?,
+            Some(record) => {
+                let crate::mutation_batch::VersionExpectation::Graph(version) =
+                    record.batch.version_expectation
+                else {
+                    return Err("committed SQL MutationBatch has no OCC version".to_string());
+                };
+                version
+            }
             None => store.mutation_version(&tenant_scope, &graph_name)?,
         };
         let batch = crate::server::mutation_batch::compile_opaque_method(

@@ -25,8 +25,9 @@ use eg_jobs::{
     ReproducibilityManifest, ResultColumn, SubmitSpec, TenantJobQuota, TypedJobResult,
 };
 use eg_types::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
-    MutationSurface, MUTATION_BATCH_VERSION,
+    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
+    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
+    TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use proptest::prelude::*;
@@ -67,10 +68,32 @@ fn spec() -> SubmitSpec {
     }
 }
 
+/// The fixed native scope every `JOBS` row transition binds to.
+///
+/// Taken from the crate itself rather than re-declared here. An earlier copy
+/// duplicated all three scope constants verbatim because they were private, and
+/// noted that the values "MUST match exactly" -- a correctness requirement kept
+/// only by a comment. `internal_job_batch`'s executor-driven transitions
+/// (claim/checkpoint/stage/complete) bind to the same identity for the same
+/// `jobs.redb`, so a drifted tenant/resource/incarnation would silently split
+/// this test's submissions onto a different logical scope than its transitions,
+/// while everything still compiled. Importing the identity makes that
+/// unrepresentable instead of merely forbidden.
+fn analytics_job_scope_identity() -> MutationScopeIdentity {
+    eg_jobs::store::analytics_job_scope_identity()
+        .expect("analytics-job native scope identity is valid")
+}
+
 /// A deterministic, content-addressed-by-`batch_id` `MutationBatch` for job
 /// creation — the replay-safe sibling of the private `internal_job_batch`/
 /// `request_batch` helpers `store.rs`'s own unit tests use for transitions.
-fn submit_batch(batch_id: &str, committed_at_ms: u64) -> MutationBatch {
+///
+/// `native_version` is the caller-supplied, zero-indexed count of prior commits
+/// to the shared `analytics-jobs` native scope for THIS `jobs.redb` (submissions
+/// only -- see the call site: every submission in this script happens before any
+/// executor-driven transition, so the loop index alone is the correct derivation,
+/// with no live read needed).
+fn submit_batch(batch_id: &str, committed_at_ms: u64, native_version: u64) -> MutationBatch {
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Job,
@@ -89,12 +112,12 @@ fn submit_batch(batch_id: &str, committed_at_ms: u64) -> MutationBatch {
             purpose: None,
             policy_fingerprint: None,
             trace_id: None,
+            verified_capabilities: Default::default(),
         },
-        tenant: "crash-replay".to_string(),
-        graph: "jobs".to_string(),
+        identity: analytics_job_scope_identity(),
         placement_epoch: 0,
         idempotency_key: batch_id.to_string(),
-        expected_graph_version: None,
+        version_expectation: VersionExpectation::Native(native_version),
         fencing_token: None,
         authoritative_state: None,
         operations: vec![operation.clone()],
@@ -175,7 +198,15 @@ fn run_steps(
     for step in range {
         if step < n {
             let i = step;
-            let batch = submit_batch(&format!("crash-replay-submit:{i}"), 1_000 + i as u64 * 100);
+            // `submit_batch` calls (steps `0..n`) are the ONLY commits against the
+            // shared `analytics-jobs` native scope so far -- every executor-driven
+            // transition (`internal_job_batch`) is confined to steps `n..5n` below
+            // -- so the loop index IS the scope's current version count.
+            let batch = submit_batch(
+                &format!("crash-replay-submit:{i}"),
+                1_000 + i as u64 * 100,
+                i as u64,
+            );
             store
                 .submit_batch(spec(), &batch, 1_000 + i as u64 * 100)
                 .expect("submit_batch");

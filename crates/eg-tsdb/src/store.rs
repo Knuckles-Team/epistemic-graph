@@ -45,10 +45,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
 use eg_types::MutationBatch;
 use redb::{
-    Database, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition, TableError,
-    WriteTransaction,
+    ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition, TableError, WriteTransaction,
 };
 use serde::de::DeserializeOwned;
 
@@ -93,6 +93,61 @@ fn redb_err<E: std::fmt::Display>(e: E) -> TsError {
 }
 fn codec_err<E: std::fmt::Display>(e: E) -> TsError {
     TsError::Codec(e.to_string())
+}
+
+
+/// Fixed store-private scope used ONLY to bootstrap the physical `series.redb` root
+/// and materialize the `SERIES_CHUNKS`/`SERIES_META`/`PROJECTION_STATE` tables on
+/// first open (MutationBatch v1 store-ownership migration — see
+/// `crates/eg-core/src/rbac_persist.rs` for the worked reference this mirrors).
+/// Unlike `RbacStore`, `SeriesStore` serves arbitrarily many DYNAMIC scoped series
+/// out of one physical file rather than a single fixed scope, so this bootstrap
+/// identity is never used for a real append — every real series gets its own
+/// identity, built by `series_scope_identity` below and bound lazily on first use
+/// via [`SeriesStore::mutation_version`]. The resource name is fixed human-readable
+/// text and can never collide with a real series' resource, which is always the
+/// opaque `"ts-scope:<sha256-hex>"` form `opaque_coordinator_key` mints for the
+/// `graph` a caller passes to `compile_opaque_method` (see
+/// `src/server/handlers/timeseries.rs`).
+const SERIES_BOOTSTRAP_TENANT: &str = "series-store";
+const SERIES_BOOTSTRAP_RESOURCE: &str = "series-store-bootstrap";
+
+fn series_bootstrap_identity() -> Result<eg_types::MutationScopeIdentity> {
+    series_scope_identity(SERIES_BOOTSTRAP_TENANT, SERIES_BOOTSTRAP_RESOURCE)
+}
+
+/// Build the native time-series mutation-scope identity for one (tenant, resource)
+/// pair. `resource` must be EXACTLY the string a caller passes as
+/// `CompileBatch::graph` for the same append: `crate::server::mutation_batch::
+/// finish_batch` (top-level crate) builds the batch's authoritative `identity` from
+/// that identical (tenant, graph) pair, the SAME `MutationDomain::TimeSeries`
+/// domain (the one operation `compile_opaque_method` compiles for a `TsAppend`),
+/// and the SAME `COMPILED_BATCH_INCARNATION` constant. See that constant's doc for
+/// why a mismatch on any of the three fails every append on that scope closed.
+fn series_scope_identity(tenant: &str, resource: &str) -> Result<eg_types::MutationScopeIdentity> {
+    let tenant = eg_types::TenantId::new(tenant).map_err(codec_err)?;
+    let resource = eg_types::LogicalName::new(resource).map_err(codec_err)?;
+    let incarnation_id =
+        eg_types::IncarnationId::new(COMPILED_BATCH_INCARNATION).map_err(codec_err)?;
+    eg_types::MutationScopeIdentity::native(
+        tenant,
+        eg_types::mutation_batch::MutationDomain::TimeSeries,
+        resource,
+        incarnation_id,
+    )
+    .map_err(codec_err)
+}
+
+/// Ensure `identity` is bound in `store`, idempotently (`eg_mutation_store::
+/// bind_scope` no-ops on an exact re-bind of the same identity). Needed because
+/// `SeriesStore` serves arbitrarily many dynamic scoped series in one physical
+/// file, unlike `RbacStore`'s single fixed scope: each new series' identity must be
+/// registered before `eg_mutation_store::version`/`begin` will accept it.
+fn ensure_series_scope_bound(
+    store: &eg_mutation_store::MutationStore,
+    identity: &eg_types::MutationScopeIdentity,
+) -> Result<()> {
+    eg_mutation_store::bind_scope(store, identity, 0, |_| Ok(())).map_err(redb_err)
 }
 
 fn decode_stored<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
@@ -431,9 +486,15 @@ impl Chunk {
     }
 }
 
-/// A time-partitioned series store over a redb database.
+/// A time-partitioned series store over a redb database. Owns the
+/// `eg_mutation_store::MutationStore` for the physical file rather than a bare
+/// `redb::Database` (MutationBatch v1: `MutationWrite` — and so every durable
+/// commit through [`SeriesStore::append_scoped_batch`] — can only be minted off a
+/// `MutationStore`, never a raw `Database`). Every other (non-`_batch`) method
+/// still reaches the same physical file directly through
+/// `MutationStore::database()`, unchanged from the old `Database` path.
 pub struct SeriesStore {
-    db: Database,
+    mutation_store: eg_mutation_store::MutationStore,
 }
 
 /// The scoped-append request for [`SeriesStore::append_scoped_batch`], bundled into
@@ -452,16 +513,20 @@ impl SeriesStore {
     /// Open (or create) the series store at `path`, materializing the schema so an
     /// empty DB is queryable.
     pub fn open(path: &Path) -> Result<Self> {
-        let db = Database::create(path).map_err(redb_err)?;
-        let wtx = db.begin_write().map_err(redb_err)?;
-        {
-            wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
-            wtx.open_table(SERIES_META).map_err(redb_err)?;
-            wtx.open_table(PROJECTION_STATE).map_err(redb_err)?;
-        }
-        wtx.commit().map_err(redb_err)?;
-        eg_mutation_store::initialize(&db).map_err(redb_err)?;
-        Ok(Self { db })
+        let identity = series_bootstrap_identity()?;
+        // `initialize` creates/opens the physical file, establishes/validates its
+        // `StoreIncarnation` root, and binds the bootstrap scope at
+        // `initial_version: 0`. The bootstrap closure runs only on the FIRST bind
+        // (a fresh file) and materializes the three tables — identical purpose to
+        // the old explicit `wtx.open_table(...)` triple + commit.
+        let mutation_store = eg_mutation_store::initialize(path, &identity, 0, None, |wtx| {
+            wtx.open_table(SERIES_CHUNKS).map_err(|e| e.to_string())?;
+            wtx.open_table(SERIES_META).map_err(|e| e.to_string())?;
+            wtx.open_table(PROJECTION_STATE).map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .map_err(redb_err)?;
+        Ok(Self { mutation_store })
     }
 
     /// Open `{persist_dir}/series.redb` — the durable location beside the graph shards.
@@ -494,7 +559,7 @@ impl SeriesStore {
         if points.is_empty() {
             return Ok(());
         }
-        let wtx = self.db.begin_write().map_err(redb_err)?;
+        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
         append_batch_in_wtx(&wtx, series_id, n_fields, bucket_ns, field_names, points)?;
         wtx.commit().map_err(redb_err)?;
         Ok(())
@@ -514,7 +579,7 @@ impl SeriesStore {
             return Ok(());
         }
         let storage_key = key.encode();
-        let wtx = self.db.begin_write().map_err(redb_err)?;
+        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
         append_batch_in_wtx(&wtx, &storage_key, n_fields, bucket_ns, field_names, points)?;
         let meta = meta_in_wtx(&wtx, &storage_key)?
             .ok_or_else(|| codec_err("scoped append produced no series metadata"))?;
@@ -533,8 +598,16 @@ impl SeriesStore {
     }
 
     /// Current universal MutationBatch version for a native time-series scope.
+    /// Binds the scope's identity on first use — `SeriesStore` serves arbitrarily
+    /// many dynamic scoped series out of one physical file (unlike `RbacStore`'s
+    /// single fixed scope), so each series must be registered with
+    /// `eg_mutation_store` before `version`/`begin` will accept it.
+    /// `eg_mutation_store::bind_scope` is idempotent — re-binding the identical
+    /// identity on every subsequent call is a cheap no-op, not a re-registration.
     pub fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64> {
-        eg_mutation_store::version(&self.db, tenant, graph).map_err(redb_err)
+        let identity = series_scope_identity(tenant, graph)?;
+        ensure_series_scope_bound(&self.mutation_store, &identity)?;
+        eg_mutation_store::version(&self.mutation_store, &identity).map_err(redb_err)
     }
 
     /// Append points and commit terminal MutationBatch status/fence/idempotency/
@@ -554,31 +627,43 @@ impl SeriesStore {
             committed_at_ms,
         } = request;
         let storage_key = key.encode();
-        let wtx = self.db.begin_write().map_err(redb_err)?;
-        match eg_mutation_store::begin(&wtx, batch).map_err(redb_err)? {
+        // Precondition (upheld by every caller — `src/server/handlers/
+        // timeseries.rs`): `batch`'s identity must already be bound, which happens
+        // as a side effect of the prior `mutation_version` call every append path
+        // uses to compute its OCC expectation.
+        //
+        // `MutationStore::write()` already opens with `Durability::Immediate` (the
+        // same durability the old code set implicitly via redb's own default), so
+        // nothing further to set here.
+        let write = self.mutation_store.write().map_err(redb_err)?;
+        match eg_mutation_store::begin(&write, batch).map_err(redb_err)? {
             eg_mutation_store::Begin::Replay(record) => {
                 let bytes = record
                     .result_msgpack
                     .as_deref()
                     .ok_or_else(|| codec_err("committed time-series batch has no result"))?;
                 let count = decode_stored(bytes)?;
-                wtx.abort().map_err(redb_err)?;
+                // `MutationWrite::abort` is crate-private to `eg_mutation_store`;
+                // returning here without calling `.commit()` drops `write`
+                // un-committed, which redb's own `Drop for WriteTransaction` aborts
+                // automatically (same reasoning as
+                // `crates/eg-core/src/rbac_persist.rs::save`).
                 Ok(count)
             }
             eg_mutation_store::Begin::Apply { source_version } => {
                 if !points.is_empty() {
                     append_batch_in_wtx(
-                        &wtx,
+                        write.owner_rows(),
                         &storage_key,
                         n_fields,
                         bucket_ns,
                         field_names,
                         points,
                     )?;
-                    let meta = meta_in_wtx(&wtx, &storage_key)?
+                    let meta = meta_in_wtx(write.owner_rows(), &storage_key)?
                         .ok_or_else(|| codec_err("scoped append produced no series metadata"))?;
                     put_projection_in_wtx(
-                        &wtx,
+                        write.owner_rows(),
                         &storage_key,
                         &ProjectionHealth {
                             status: ProjectionStatus::Ready,
@@ -591,14 +676,14 @@ impl SeriesStore {
                 let count = points.len() as u64;
                 let result = rmp_serde::to_vec_named(&count).map_err(codec_err)?;
                 eg_mutation_store::finish(
-                    &wtx,
+                    &write,
                     batch,
                     Some(result),
                     committed_at_ms,
                     source_version,
                 )
                 .map_err(redb_err)?;
-                eg_mutation_store::commit(wtx, batch).map_err(redb_err)?;
+                eg_mutation_store::commit(write, batch).map_err(redb_err)?;
                 Ok(count)
             }
         }
@@ -606,7 +691,7 @@ impl SeriesStore {
 
     /// Fetch a series' metadata (`None` if the series doesn't exist).
     pub fn meta(&self, series_id: &str) -> Result<Option<SeriesMeta>> {
-        let rtx = self.db.begin_read().map_err(redb_err)?;
+        let rtx = self.mutation_store.database().begin_read().map_err(redb_err)?;
         meta_in_rtx(&rtx, series_id)
     }
 
@@ -618,7 +703,7 @@ impl SeriesStore {
     /// Implemented as a redb RANGE over the covering bucket keys, decoding each
     /// chunk and trimming to the exact window. Empty for an unknown series.
     pub fn range(&self, series_id: &str, from: Ts, to: Ts) -> Result<Vec<Point>> {
-        let rtx = self.db.begin_read().map_err(redb_err)?;
+        let rtx = self.mutation_store.database().begin_read().map_err(redb_err)?;
         range_in_rtx(&rtx, series_id, from, to)
     }
 
@@ -643,7 +728,7 @@ impl SeriesStore {
 
     pub fn projection_health_by_storage_key(&self, storage_key: &str) -> Result<ProjectionHealth> {
         validate_storage_key(storage_key)?;
-        let rtx = self.db.begin_read().map_err(redb_err)?;
+        let rtx = self.mutation_store.database().begin_read().map_err(redb_err)?;
         let tab = rtx.open_table(PROJECTION_STATE).map_err(redb_err)?;
         match tab.get(storage_key).map_err(redb_err)? {
             Some(g) => decode_projection(g.value()),
@@ -686,7 +771,7 @@ impl SeriesStore {
     }
 
     fn put_projection(&self, storage_key: &str, health: ProjectionHealth) -> Result<()> {
-        let wtx = self.db.begin_write().map_err(redb_err)?;
+        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
         put_projection_in_wtx(&wtx, storage_key, &health)?;
         wtx.commit().map_err(redb_err)?;
         Ok(())
@@ -697,7 +782,7 @@ impl SeriesStore {
     /// — the store keys series by opaque id, so the PromQL layer encodes a metric's
     /// labels INTO the id and enumerates them here.
     pub fn list_series(&self) -> Result<Vec<String>> {
-        let rtx = self.db.begin_read().map_err(redb_err)?;
+        let rtx = self.mutation_store.database().begin_read().map_err(redb_err)?;
         list_series_in_rtx(&rtx)
     }
 
@@ -724,7 +809,7 @@ impl SeriesStore {
         if meta.legal_hold {
             return Ok(0);
         }
-        let wtx = self.db.begin_write().map_err(redb_err)?;
+        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
         let mut dropped = 0usize;
         {
             let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
@@ -846,7 +931,7 @@ impl SeriesStore {
                 return Ok(0);
             }
         }
-        let wtx = self.db.begin_write().map_err(redb_err)?;
+        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
         let mut dropped = 0usize;
         {
             let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
@@ -889,7 +974,7 @@ impl SeriesStore {
     /// is a deliberate admin action, not a best-effort default like `evict_before`'s "unknown
     /// series → 0 dropped".
     pub fn set_legal_hold(&self, series_id: &str, hold: bool) -> Result<()> {
-        let wtx = self.db.begin_write().map_err(redb_err)?;
+        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
         {
             let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
             let mut meta = match meta_tab.get(series_id).map_err(redb_err)? {
@@ -1302,7 +1387,7 @@ mod ordered_chunk_tests {
 
         // Make the future bucket undecodable. A correctly upper-bounded redb range
         // for [0, 10) never reads it; the old series-max bound did and errored.
-        let wtx = store.db.begin_write().unwrap();
+        let wtx = store.mutation_store.database().begin_write().unwrap();
         {
             let mut chunks = wtx.open_table(SERIES_CHUNKS).unwrap();
             chunks.insert(("series", 100), &[0u8][..]).unwrap();

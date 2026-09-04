@@ -54,6 +54,7 @@ tests = "the Rust integration test suite (adopt_*, characterization_*, advanced_
 "LICENSE" = "license text"
 "README.md" = "project readme"
 "build_backend.py" = "PEP 517 composition build backend: folds the separately-built eg-numeric PyO3 module into the one maturin-built server wheel, so workspace/editable installs also get epistemic_graph.numeric"
+"arch-lint.toml" = "arch-lint policy: the AL001/require-thiserror/error-erasure rule set read by the rust-arch-lint hook; arch-lint resolves it from the repository root"
 "build.rs" = "cargo build script -- currently a documented no-op (records that no external BLAS link is needed since nalgebra's serde feature is pure-Rust); kept as the standard maturin/cargo extension point"
 "Cargo.lock" = "workspace-wide dependency lockfile"
 "Cargo.toml" = "workspace manifest: the 48 [workspace].members plus the root package's own dependencies/features"

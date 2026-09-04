@@ -141,8 +141,15 @@ pub use modality::{
     ServedModalityIngestItem, ServedModalityKind, ServedModalityOp, ServedNativePredicate,
     ServedSegmentKind,
 };
+// MutationBatch v1 replaces the (version_scope, source_graph_version) pair with the
+// closed `CommittedVersion` enum, so a scope without its matching version is no longer
+// representable. `MutationVersionScope` and `NON_GRAPH_SOURCE_VERSION` are therefore
+// not re-exported: they have no v1 meaning, and keeping an alias would be exactly the
+// compatibility seam RF-ADR-001 forbids.
 pub use mutation_batch::{
-    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus,
-    MutationOperation, MutationOutboxIntent, MutationOutboxRecord, MutationRequestContext,
-    MutationSurface, MutationVersionScope, MUTATION_BATCH_VERSION, NON_GRAPH_SOURCE_VERSION,
+    CommittedVersion, IncarnationId, LogicalName, MutationBatch, MutationBatchCommit,
+    MutationBatchRecord, MutationBatchStatus, MutationOperation, MutationOutboxIntent,
+    MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationRequestContext,
+    MutationScope, MutationScopeIdentity, MutationStateDescriptor, MutationSurface, TenantId,
+    VersionExpectation, MUTATION_BATCH_VERSION,
 };

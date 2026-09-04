@@ -35,8 +35,9 @@ use eg_query::{
     TxnOp, TypedQueryResult,
 };
 use eg_types::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
-    MutationSurface, MUTATION_BATCH_VERSION,
+    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
+    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
+    TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use serde_json::json;
 
@@ -72,6 +73,8 @@ fn graph() -> GraphCore {
 fn commit(store: &TableStore, tenant: &str, graph: &str, seq: &mut u64, txn: TableTxn) {
     *seq += 1;
     let batch_id = format!("ctx-cache-{tenant}-{graph}-{seq}");
+    // Live read, taken fresh for every call so a sequence of commits (including
+    // the cross-scope one in property 5) never trips STALE_VERSION.
     let expected = store.mutation_version(tenant, graph).unwrap();
     let batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
@@ -82,12 +85,29 @@ fn commit(store: &TableStore, tenant: &str, graph: &str, seq: &mut u64, txn: Tab
             purpose: None,
             policy_fingerprint: None,
             trace_id: None,
+            verified_capabilities: Default::default(),
         },
-        tenant: tenant.to_string(),
-        graph: graph.to_string(),
+        // `MutationDomain::SqlCatalog` is a non-graph domain -> native scope
+        // (mirrors `commit_txn_batch_inner.rs`'s `batch()` fixture, the SAME
+        // crate's identical shape). `graph` here is the native `resource` name,
+        // not a graph name -- property 5 deliberately passes
+        // `"sqlite-import:global-user-tables"`, a non-graph string, through this
+        // exact parameter to prove a commit under a DIFFERENT scope than the
+        // literal `(TENANT, GRAPH)` pair still invalidates the cache. A fixed,
+        // deterministic incarnation id keyed by (tenant, graph) keeps repeat
+        // commits to the SAME scope within one test binding to the SAME identity
+        // while still giving each distinct scope its own.
+        identity: MutationScopeIdentity::native(
+            TenantId::new(tenant).expect("valid tenant id"),
+            MutationDomain::SqlCatalog,
+            LogicalName::new(graph).expect("valid resource name"),
+            IncarnationId::new(format!("incarnation:test:sql-context-cache:{tenant}:{graph}"))
+                .expect("valid incarnation id"),
+        )
+        .expect("sql-catalog native scope identity is valid"),
         placement_epoch: 0,
         idempotency_key: format!("idem-{batch_id}"),
-        expected_graph_version: Some(expected),
+        version_expectation: VersionExpectation::Native(expected),
         fencing_token: None,
         authoritative_state: None,
         operations: vec![MutationOperation {

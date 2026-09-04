@@ -604,6 +604,53 @@ pub(crate) fn begin_admin_saga(
     begin_named_admin_saga(backend, req_id, caller, method, domain, &batch_id)
 }
 
+/// If a mutation-batch record already exists for `batch_id`, this call is a
+/// REPLAY (or a resume of a still-Prepared saga): `eg_mutation_store::
+/// prepare_saga`/`prepare_saga_with_private_payload` require the caller to
+/// hand them a freshly-built `MutationBatch` describing "what I intend to do
+/// right now", and compare it WHOLE-STRUCT against the STORED batch
+/// (`verify_replay_identity`) to reject a genuinely different mutation that
+/// happens to reuse the same idempotency key.
+///
+/// `expected_graph_version`/`request_id`/`created_at_ms` are request
+/// METADATA, not part of the caller's intended operation -- but a retry
+/// naturally observes a DIFFERENT live cluster-admin OCC version (the
+/// ORIGINAL attempt already advanced it), a different dispatch `req_id`, and
+/// a later wall-clock `now`. Re-deriving them live on every call makes a
+/// legitimate replay's freshly-compiled batch byte-diverge from the one
+/// already on record purely on this incidental metadata, spuriously failing
+/// closed with IDEMPOTENCY_CONFLICT even though the intended operation
+/// (domain/event/payload) is identical. Reusing the ORIGINAL attempt's exact
+/// stamp makes the re-compiled batch match byte-for-byte; only a genuine
+/// first attempt (no existing record) observes the live version/clock.
+#[cfg(feature = "redb")]
+fn admin_saga_request_stamp(
+    db: &eg_mutation_store::MutationStore,
+    identity: &eg_types::MutationScopeIdentity,
+    batch_id: &str,
+    req_id: u64,
+    now: u64,
+) -> Result<(u64, u64, u64), String> {
+    let Some(existing) = eg_mutation_store::read_record(db, identity, batch_id)? else {
+        return Ok((eg_mutation_store::version(db, identity)?, req_id, now));
+    };
+    let expected = match existing.batch.version_expectation {
+        eg_types::VersionExpectation::Graph(version)
+        | eg_types::VersionExpectation::Native(version) => version,
+        eg_types::VersionExpectation::Unversioned => {
+            return Err(
+                "admin saga record carries an unversioned expectation, which this coordinator never writes"
+                    .to_string(),
+            );
+        }
+    };
+    Ok((
+        expected,
+        existing.batch.context.request_id,
+        existing.batch.created_at_ms,
+    ))
+}
+
 /// Begin or resume a coordinator whose identity spans request retries. Callers
 /// supply only an already-opaque key; transaction/session ids and payloads are
 /// never copied into the admin ledger.
@@ -617,12 +664,14 @@ pub(crate) fn begin_named_admin_saga(
     batch_id: &str,
 ) -> Result<AdminSaga, String> {
     let db = backend.admin_mutation_store();
-    let expected = eg_mutation_store::version(db, "native", "cluster-admin")?;
+    let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
     let now = crate::server::dispatch::authoritative_now_ms();
+    let (expected, stamped_request_id, stamped_created_at_ms) =
+        admin_saga_request_stamp(db, &identity, batch_id, req_id, now)?;
     let batch = crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
-            request_id: req_id,
+            request_id: stamped_request_id,
             principal: caller,
             tenant: "native",
             graph: "cluster-admin",
@@ -630,7 +679,7 @@ pub(crate) fn begin_named_admin_saga(
             idempotency_key: batch_id,
             expected_graph_version: Some(expected),
             fencing_token: None,
-            created_at_ms: now,
+            created_at_ms: stamped_created_at_ms,
             default_surface: MutationSurface::Other,
             authoritative_state: None,
         },
@@ -686,12 +735,14 @@ pub(crate) fn begin_named_admin_saga_with_private_payload(
         encrypted_payload,
     } = payload;
     let db = backend.admin_mutation_store();
-    let expected = eg_mutation_store::version(db, "native", "cluster-admin")?;
+    let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
     let now = crate::server::dispatch::authoritative_now_ms();
+    let (expected, stamped_request_id, stamped_created_at_ms) =
+        admin_saga_request_stamp(db, &identity, batch_id, req_id, now)?;
     let batch = crate::server::mutation_batch::compile_opaque_digest(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
-            request_id: req_id,
+            request_id: stamped_request_id,
             principal: caller,
             tenant: "native",
             graph: "cluster-admin",
@@ -699,7 +750,7 @@ pub(crate) fn begin_named_admin_saga_with_private_payload(
             idempotency_key: batch_id,
             expected_graph_version: Some(expected),
             fencing_token: None,
-            created_at_ms: now,
+            created_at_ms: stamped_created_at_ms,
             default_surface: MutationSurface::Other,
             authoritative_state: None,
         },
@@ -742,7 +793,9 @@ pub(crate) fn resume_named_admin_saga(
     let expected_principal = crate::server::mutation_batch::principal_fingerprint(
         caller.ok_or_else(|| "coordinator recovery requires a verified principal".to_string())?,
     )?;
-    let Some(record) = eg_mutation_store::read_record(backend.admin_mutation_store(), batch_id)?
+    let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
+    let Some(record) =
+        eg_mutation_store::read_record(backend.admin_mutation_store(), &identity, batch_id)?
     else {
         return Ok(None);
     };
@@ -784,7 +837,9 @@ pub(crate) fn read_named_admin_saga_result(
     let expected_principal = crate::server::mutation_batch::principal_fingerprint(
         caller.ok_or_else(|| "coordinator recovery requires a verified principal".to_string())?,
     )?;
-    let Some(record) = eg_mutation_store::read_record(backend.admin_mutation_store(), batch_id)?
+    let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
+    let Some(record) =
+        eg_mutation_store::read_record(backend.admin_mutation_store(), &identity, batch_id)?
     else {
         return Ok(None);
     };

@@ -141,8 +141,10 @@ pub struct CommitDescriptorV1 {
     /// unauthenticated for its purposes (stale-epoch rejection, invariant 7).
     pub authority_epoch: u64,
     /// Graph version this commit read against. `0` denotes an authority whose
-    /// state does not live in the graph store, mirroring
-    /// `mutation_batch::NON_GRAPH_SOURCE_VERSION`.
+    /// state does not live in the graph store — the cross-domain analogue of
+    /// [`crate::mutation_batch::CommittedVersion::Native`], which likewise
+    /// carries its own `{ source, target }` pair independent of the graph
+    /// store rather than a shared sentinel constant.
     pub source_graph_version: u64,
     /// Graph version this commit publishes. For a graph-backed commit this is
     /// `source_graph_version + 1`; a non-graph-authoritative commit repeats
@@ -272,8 +274,10 @@ impl CommitDescriptorV1 {
 
 /// Durable per-projection watermark and fence (lane doc "Commit descriptor").
 /// Distinct from [`crate::mutation_batch::MutationProjectionCursor`], which is
-/// keyed by `(projection, tenant, graph, batch_id, outbox_ordinal)` for the
-/// existing per-surface outbox delivery loop; `ProjectionCursorV1` is keyed by
+/// keyed by `(projection, identity, batch_id, outbox_ordinal)` — where
+/// `identity` is the typed `MutationScopeIdentity` (tenant, typed logical
+/// owner, lifecycle generation) — for the existing per-surface outbox
+/// delivery loop; `ProjectionCursorV1` is keyed by
 /// `(domain, authority_ref)` and advances by `commit_seq`, the cross-domain
 /// currency this module defines. A domain-specific projection (GOC-04/09/10/11)
 /// is expected to maintain both where it already participates in outbox delivery

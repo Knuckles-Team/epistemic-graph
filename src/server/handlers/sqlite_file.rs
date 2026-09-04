@@ -351,8 +351,7 @@ fn compile_import_batch(
 fn same_import_identity(proposed: &MutationBatch, stored: &MutationBatch) -> bool {
     proposed.batch_id == stored.batch_id
         && proposed.context.principal == stored.context.principal
-        && proposed.tenant == stored.tenant
-        && proposed.graph == stored.graph
+        && proposed.identity == stored.identity
         && rmp_serde::to_vec_named(&proposed.operations).ok()
             == rmp_serde::to_vec_named(&stored.operations).ok()
 }

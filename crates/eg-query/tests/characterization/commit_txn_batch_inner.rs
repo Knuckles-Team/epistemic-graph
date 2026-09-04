@@ -9,7 +9,7 @@
 //! explicit `batch.outbox` entry), an idempotent replay of the identical
 //! batch (same result, `replayed: true`), an IDEMPOTENCY_CONFLICT (same
 //! idempotency_key, different batch_id/content), and a STALE_VERSION
-//! rejection (stale `expected_graph_version`).
+//! rejection (stale `version_expectation`).
 //!
 //! `commit_txn_batch`/`commit_txn_batch_result` always pass `crashpoint:
 //! None` (per commit_txn_batch_inner's own doc: "production always
@@ -24,8 +24,9 @@
 
 use eg_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
 use eg_types::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
-    MutationSurface, MUTATION_BATCH_VERSION,
+    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
+    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
+    TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 
 const TENANT: &str = "tenant-commit-txn-batch";
@@ -50,6 +51,9 @@ fn insert_txn() -> TableTxn {
 
 /// Mirrors `sql_context_cache_invalidation.rs`'s `commit()` fixture shape.
 fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationBatch {
+    // Live read, taken fresh for every call so a sequence of commits within one
+    // test never trips STALE_VERSION -- same discipline as the old
+    // `expected_graph_version: Some(expected)` this replaces.
     let expected = store.mutation_version(TENANT, GRAPH).unwrap();
     MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
@@ -60,12 +64,26 @@ fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationB
             purpose: None,
             policy_fingerprint: None,
             trace_id: None,
+            verified_capabilities: Default::default(),
         },
-        tenant: TENANT.to_string(),
-        graph: GRAPH.to_string(),
+        // `MutationDomain::SqlCatalog` is one of the migration contract's
+        // non-graph domains -> native scope. `sql_scope_key` (`eg-query`'s
+        // `tables/store.rs`) reads this batch's `(tenant, resource)` back out via
+        // `identity.scope()`'s `Native { resource, .. }` arm and rejects a
+        // `Graph`-scoped batch outright, so TENANT/GRAPH map onto
+        // tenant/resource here exactly as they did onto the old flat
+        // tenant/graph fields.
+        identity: MutationScopeIdentity::native(
+            TenantId::new(TENANT).expect("valid tenant id"),
+            MutationDomain::SqlCatalog,
+            LogicalName::new(GRAPH).expect("valid resource name"),
+            IncarnationId::new("incarnation:test:commit-txn-batch-inner")
+                .expect("valid incarnation id"),
+        )
+        .expect("sql-catalog native scope identity is valid"),
         placement_epoch: 0,
         idempotency_key: idempotency_key.to_string(),
-        expected_graph_version: Some(expected),
+        version_expectation: VersionExpectation::Native(expected),
         fencing_token: None,
         authoritative_state: None,
         operations: vec![MutationOperation {
@@ -132,15 +150,18 @@ fn same_idempotency_key_different_batch_is_a_conflict() {
 }
 
 #[test]
-fn stale_expected_graph_version_is_rejected() {
+fn stale_version_expectation_is_rejected() {
     let (store, _path) = TableStore::open_temp().expect("temporary table store");
     store.create_table(&schema(), false).expect("create table");
 
     let mut stale = batch(&store, "batch-stale", "idem-stale");
-    stale.expected_graph_version = Some(stale.expected_graph_version.unwrap() + 1);
+    let VersionExpectation::Native(expected) = stale.version_expectation else {
+        panic!("fixture batch must carry a native version expectation");
+    };
+    stale.version_expectation = VersionExpectation::Native(expected + 1);
     let err = store
         .commit_txn_batch(&insert_txn(), &stale, 100)
-        .expect_err("stale expected_graph_version must be rejected");
+        .expect_err("stale version_expectation must be rejected");
     assert!(err.contains("STALE_VERSION"), "unexpected error: {err}");
     assert_eq!(store.mutation_version(TENANT, GRAPH).unwrap(), 0);
 }

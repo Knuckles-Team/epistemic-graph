@@ -786,8 +786,22 @@ fn committed_sql_replay_receipt(
         && record.batch.idempotency_key == batch_id
         && record.batch.context.request_id == request_id
         && record.batch.context.principal == principal
-        && record.batch.tenant == authority.tenant_scope()
-        && record.batch.graph == graph
+        && record.batch.identity.tenant().as_str() == authority.tenant_scope()
+        // A SQL-catalog batch is NATIVE-scoped by producer default
+        // (`MutationDomain::SqlCatalog` is in `requires_native_scope`), so it
+        // carries a `resource`, not a `graph_name`. Checking only `graph_name()`
+        // made this receipt unmatchable for the very batches it governs. Both
+        // scope kinds are matched explicitly and the logical name compared;
+        // there is no `_ =>` arm, so a future scope variant fails to compile
+        // rather than silently returning "not an exact match".
+        && match record.batch.identity.scope() {
+            eg_types::mutation_batch::MutationScope::Native { resource, .. } => {
+                resource.as_str() == graph
+            }
+            eg_types::mutation_batch::MutationScope::Graph { graph: scoped } => {
+                scoped.as_str() == graph
+            }
+        }
         && exact_operation;
     if !exact {
         return Err("committed SQL replay receipt does not match owner-scoped intent".to_string());
