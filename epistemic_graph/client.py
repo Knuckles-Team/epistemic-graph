@@ -6017,6 +6017,16 @@ class GraphOperationsClient:
         feature clustering / impact analysis run over. Use this to ingest a
         repository's symbol graph; use :meth:`parse_files` only when per-file raw
         results are wanted.
+
+        **Identity.** A SYMBOL's ``node_id`` is an OCCURRENCE id: one id per
+        declaration site, derived from (file path, symbol type, qualified symbol,
+        per-file ordinal), so the same declaration in two files — or twice in one
+        file — is two nodes and every edge endpoint is unambiguous. It is stable
+        and deterministic across runs. CONTENT identity is a separate axis and
+        lives in the properties: ``ast_hash`` (sha256 of the declaration bytes)
+        is shared by byte-identical declarations, which is what clone detection
+        and ``similar_to`` are built on. ``occurrence_index`` carries the
+        ordinal. ``nodes`` is one row per occurrence and is never deduplicated.
         """
         blob = msgpack.packb(
             [[_logical_source_name(fp), src] for fp, src in files],

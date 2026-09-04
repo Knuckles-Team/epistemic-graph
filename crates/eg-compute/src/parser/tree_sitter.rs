@@ -103,11 +103,7 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
 
     let tree = parser.parse(source, None).ok_or("Failed to parse source")?;
 
-    let mut result = ParseResult {
-        nodes: Vec::new(),
-        edges: Vec::new(),
-        symbols_extracted: 0,
-    };
+    let mut state = WalkState::new();
 
     let file_node_id = format!("file:{}", file_path);
 
@@ -115,8 +111,8 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
     // database-ontology entities (tables/columns/views + FK edges), NOT :Code
     // symbols, so it does not flow through the call-graph walker.
     if lang_label == "sql" {
-        extract_sql(tree.root_node(), source, file_path, &mut result);
-        return Ok(result);
+        extract_sql(tree.root_node(), source, file_path, &mut state.result);
+        return Ok(state.result);
     }
 
     walk_node(
@@ -127,10 +123,10 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
         &file_node_id,
         "",
         &[],
-        &mut result,
+        &mut state,
     );
 
-    Ok(result)
+    Ok(state.result)
 }
 
 // ── SQL DDL extraction (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) ───────────────────────────────────
@@ -1009,10 +1005,78 @@ fn join_qualified(qual: &[String], name: &str, language: &str) -> String {
     format!("{}{}{}", qual.join(sep), sep, name)
 }
 
-/// Build a SYMBOL node (id = content hash) + an IMPLEMENTS edge from its file,
+/// Per-file walk state: the growing [`ParseResult`] plus the occurrence counters
+/// that give each declaration a unique id.
+///
+/// CONCEPT:EG-KG.compute.symbol-occurrence-id — OCCURRENCE identity, separate
+/// from CONTENT identity. A SYMBOL's `node_id` used to be
+/// `symbol:<sha256 of the declaration bytes>`, which is a content address:
+/// byte-identical declarations in different files (or twice in one file)
+/// collapsed onto ONE id, so every edge touching such an id was ambiguous about
+/// which declaration it meant. Content identity is still wanted — it is exactly
+/// what clone detection and `similar_to` are built on — so it stays unchanged as
+/// the `ast_hash` property (with `minhash` for near-duplicates). The id now
+/// answers a different question: WHICH declaration site is this.
+///
+/// The id is `symbol:<sha256 of (file_path, symbol_type, qualified_symbol,
+/// ordinal)>`, where `ordinal` counts the declarations of that
+/// (symbol_type, qualified_symbol) pair already emitted in the SAME file.
+/// Chosen over the obvious `file_path + start_byte` because a byte offset
+/// changes whenever anything ABOVE the declaration changes — inserting one line
+/// at the top of a file would rewrite every id below it, and this corpus is
+/// diffed run over run. The (path, qualified name, ordinal) key only moves when
+/// a same-named sibling is added or removed before it in the same file, which is
+/// rare (overloads, `#[cfg]`-duplicated items). Fields are length-prefixed
+/// before hashing, so the encoding is injective.
+struct WalkState {
+    result: ParseResult,
+    /// (symbol_type, qualified_symbol) -> declarations already emitted in this file.
+    occurrences: HashMap<(String, String), u64>,
+}
+
+impl WalkState {
+    fn new() -> Self {
+        Self {
+            result: ParseResult {
+                nodes: Vec::new(),
+                edges: Vec::new(),
+                symbols_extracted: 0,
+            },
+            occurrences: HashMap::new(),
+        }
+    }
+
+    /// The 0-based ordinal for the NEXT declaration of this
+    /// (symbol_type, qualified_symbol) in this file.
+    fn next_ordinal(&mut self, symbol_type: &str, qualified_symbol: &str) -> u64 {
+        let slot = self
+            .occurrences
+            .entry((symbol_type.to_string(), qualified_symbol.to_string()))
+            .or_insert(0);
+        let ordinal = *slot;
+        *slot += 1;
+        ordinal
+    }
+}
+
+/// sha256 over LENGTH-PREFIXED fields. Prefixing makes the encoding injective —
+/// plain concatenation would let two different field tuples collide (`("ab","c")`
+/// vs `("a","bc")`). Lengths are little-endian u64 so the digest is byte-identical
+/// on every platform and every run.
+fn hash_fields(fields: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    for field in fields {
+        hasher.update((field.len() as u64).to_le_bytes());
+        hasher.update(field.as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// Build a SYMBOL node (id = per-occurrence identity, see [`WalkState`]) + an
+/// IMPLEMENTS edge from its file,
 /// stamping the common facts (name, symbol_type, kind_detail, language, line,
 /// qualified_symbol, end_line/start_col/end_col/start_byte/end_byte, ast_hash,
-/// file_path) plus any language-specific ``extra`` properties.
+/// occurrence_index, file_path) plus any language-specific ``extra`` properties.
 #[allow(clippy::too_many_arguments)]
 fn emit_symbol(
     node: Node,
@@ -1025,13 +1089,25 @@ fn emit_symbol(
     qualified_symbol: String,
     file_node_id: &str,
     extra: HashMap<String, String>,
-    result: &mut ParseResult,
+    state: &mut WalkState,
 ) {
+    // CONTENT identity: the sha256 of the declaration bytes. Two byte-identical
+    // declarations SHOULD share it — that is what clone detection reads.
     let content_bytes = &source[node.start_byte()..node.end_byte()];
     let mut hasher = Sha256::new();
     hasher.update(content_bytes);
     let content_hash = format!("{:x}", hasher.finalize());
-    let symbol_id = format!("symbol:{}", content_hash);
+    // OCCURRENCE identity: unique per declaration site (see `WalkState`).
+    let ordinal = state.next_ordinal(symbol_type, &qualified_symbol);
+    let symbol_id = format!(
+        "symbol:{}",
+        hash_fields(&[
+            file_path,
+            symbol_type,
+            &qualified_symbol,
+            &ordinal.to_string(),
+        ])
+    );
 
     let mut properties = HashMap::new();
     properties.insert("name".to_string(), name);
@@ -1064,6 +1140,10 @@ fn emit_symbol(
     properties.insert("start_byte".to_string(), node.start_byte().to_string());
     properties.insert("end_byte".to_string(), node.end_byte().to_string());
     properties.insert("ast_hash".to_string(), content_hash);
+    // Which declaration of this qualified name in this file (0-based) — the
+    // ordinal the occurrence id was derived from, kept readable for consumers
+    // that want to reconstruct or explain the id.
+    properties.insert("occurrence_index".to_string(), ordinal.to_string());
     properties.insert("file_path".to_string(), file_path.to_string());
     // CONCEPT:EG-KG.compute.model-free-similar-code — model-free similarity signature (MinHash over normalized
     // AST leaf trigrams). The cross-file resolver LSH-bands these into `similar_to`
@@ -1076,18 +1156,18 @@ fn emit_symbol(
         properties.insert(k, v);
     }
 
-    result.nodes.push(ExtractedNode {
+    state.result.nodes.push(ExtractedNode {
         node_id: symbol_id.clone(),
         node_type: "SYMBOL".to_string(),
         properties,
     });
-    result.edges.push(ExtractedEdge {
+    state.result.edges.push(ExtractedEdge {
         source: file_node_id.to_string(),
         target: symbol_id,
         edge_type: "IMPLEMENTS".to_string(),
         properties: HashMap::new(),
     });
-    result.symbols_extracted += 1;
+    state.result.symbols_extracted += 1;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1099,7 +1179,7 @@ fn walk_node(
     file_node_id: &str,
     scope: &str,
     qual: &[String],
-    result: &mut ParseResult,
+    state: &mut WalkState,
 ) {
     let kind = node.kind();
     // CONCEPT:EG-KG.compute.qualified-symbol — the lexical ancestor chain children
@@ -1152,7 +1232,7 @@ fn walk_node(
                 qualified,
                 file_node_id,
                 extra,
-                result,
+                state,
             );
         }
     } else if let Some(detail) = function_like_kind(kind) {
@@ -1233,7 +1313,7 @@ fn walk_node(
                 qualified,
                 file_node_id,
                 extra,
-                result,
+                state,
             );
         }
     } else if kind == "call" || kind == "call_expression" {
@@ -1241,7 +1321,7 @@ fn walk_node(
             let callee = get_node_text(function_node, source);
             let mut properties = HashMap::new();
             properties.insert("raw".to_string(), callee.clone());
-            result.edges.push(ExtractedEdge {
+            state.result.edges.push(ExtractedEdge {
                 source: file_node_id.to_string(),
                 target: callee,
                 edge_type: "calls_raw".to_string(),
@@ -1254,7 +1334,7 @@ fn walk_node(
             let callee = get_node_text(name_node, source);
             let mut properties = HashMap::new();
             properties.insert("raw".to_string(), callee.clone());
-            result.edges.push(ExtractedEdge {
+            state.result.edges.push(ExtractedEdge {
                 source: file_node_id.to_string(),
                 target: callee,
                 edge_type: "calls_raw".to_string(),
@@ -1276,7 +1356,7 @@ fn walk_node(
         if let Some(module) = import_module(node, source) {
             let mut properties = HashMap::new();
             properties.insert("raw".to_string(), module.clone());
-            result.edges.push(ExtractedEdge {
+            state.result.edges.push(ExtractedEdge {
                 source: file_node_id.to_string(),
                 target: module,
                 edge_type: "depends_on_raw".to_string(),
@@ -1295,7 +1375,7 @@ fn walk_node(
             file_node_id,
             &descend_scope,
             descend_qual,
-            result,
+            state,
         );
     }
 }
@@ -1944,6 +2024,146 @@ pub fn free() {}
             }
         }
         assert!(seen >= 6, "expected symbols across the batch, got {seen}");
+    }
+
+    // ── CONCEPT:EG-KG.compute.symbol-occurrence-id — occurrence vs content identity ──
+
+    /// Every `node_id` in a parse result, in emission order.
+    fn ids(r: &ParseResult) -> Vec<String> {
+        r.nodes.iter().map(|n| n.node_id.clone()).collect()
+    }
+
+    #[test]
+    fn identical_declarations_in_two_files_get_distinct_ids_but_one_ast_hash() {
+        // The defect: `fn new()` bodies are byte-identical across files, so a
+        // content-addressed id collapsed them onto ONE node and every edge that
+        // touched it was ambiguous.
+        let body = b"impl A {\n    fn new() -> Self {\n        Self\n    }\n}\n";
+        let a = parse_file("a.rs", body).unwrap();
+        let b = parse_file("b.rs", body).unwrap();
+        let (a_new, b_new) = (&a.nodes[0], &b.nodes[0]);
+        assert_eq!(a_new.properties["name"], "new");
+        assert_ne!(
+            a_new.node_id, b_new.node_id,
+            "same declaration in two files must be two occurrences"
+        );
+        // Content identity is unchanged — clone detection still sees them as one.
+        assert_eq!(a_new.properties["ast_hash"], b_new.properties["ast_hash"]);
+        assert_eq!(a_new.properties["minhash"], b_new.properties["minhash"]);
+    }
+
+    #[test]
+    fn identical_declarations_in_one_file_get_distinct_ids() {
+        // Two `Foo::new` in one file (two `impl` blocks) — same path, same
+        // qualified name, so only the ordinal separates them.
+        let src = b"impl Foo {\n    fn new() -> Self { Foo }\n}\nimpl Foo {\n    fn new() -> Self { Foo }\n}\n";
+        let r = parse_file("dup.rs", src).unwrap();
+        let news: Vec<&ExtractedNode> = r
+            .nodes
+            .iter()
+            .filter(|n| n.properties["qualified_symbol"] == "Foo::new")
+            .collect();
+        assert_eq!(news.len(), 2, "two occurrences expected: {:?}", ids(&r));
+        assert_ne!(news[0].node_id, news[1].node_id);
+        assert_eq!(news[0].properties["occurrence_index"], "0");
+        assert_eq!(news[1].properties["occurrence_index"], "1");
+    }
+
+    #[test]
+    fn ids_are_unique_across_a_repo_shaped_batch() {
+        // The property `IndexResult.nodes` documents: one row per occurrence.
+        let files: Vec<(String, Vec<u8>)> = vec![
+            (
+                "a.py".into(),
+                b"class C:\n    def m(self):\n        pass\n".to_vec(),
+            ),
+            (
+                "b.py".into(),
+                b"class C:\n    def m(self):\n        pass\n".to_vec(),
+            ),
+            ("c.rs".into(), b"impl S { fn new() -> S { S } }\n".to_vec()),
+            ("d.rs".into(), b"impl S { fn new() -> S { S } }\n".to_vec()),
+        ];
+        let out = super::super::resolve::index_repository(&files);
+        let mut seen = std::collections::HashSet::new();
+        for n in &out.nodes {
+            assert!(
+                seen.insert(n.node_id.clone()),
+                "duplicate node id {} ({:?})",
+                n.node_id,
+                n.properties
+            );
+        }
+        assert!(out.nodes.len() >= 6, "got {} nodes", out.nodes.len());
+    }
+
+    #[test]
+    fn ids_are_byte_identical_across_runs() {
+        // Determinism: the corpus is publication evidence, so two runs over the
+        // same bytes must produce the same ids.
+        let src = b"class A:\n    def run(self):\n        return helper()\n\ndef helper():\n    return 1\n";
+        assert_eq!(
+            ids(&parse_file("x.py", src).unwrap()),
+            ids(&parse_file("x.py", src).unwrap())
+        );
+    }
+
+    #[test]
+    fn id_survives_an_unrelated_edit_above_the_declaration() {
+        // Why (path, qualified name, ordinal) and NOT (path, start_byte): an
+        // insertion above a declaration must not renumber it.
+        let before = b"def keep():\n    return 1\n";
+        let after = b"def added():\n    return 0\n\ndef keep():\n    return 1\n";
+        let id_of = |src: &[u8]| -> String {
+            parse_file("m.py", src)
+                .unwrap()
+                .nodes
+                .iter()
+                .find(|n| n.properties["name"] == "keep")
+                .expect("keep")
+                .node_id
+                .clone()
+        };
+        let (a, b) = (id_of(before), id_of(after));
+        assert_eq!(a, id_of(before));
+        assert_eq!(
+            a, b,
+            "`keep` moved down the file but is the same occurrence"
+        );
+        // Its byte offset DID move — the fact a byte-keyed id would have tripped on.
+        let moved = parse_file("m.py", after).unwrap();
+        let keep = moved
+            .nodes
+            .iter()
+            .find(|n| n.properties["name"] == "keep")
+            .unwrap();
+        assert_ne!(keep.properties["start_byte"], "0");
+    }
+
+    #[test]
+    fn id_depends_on_the_file_path_and_the_qualified_name() {
+        // Both components are load-bearing; neither alone would separate these.
+        let src =
+            b"class A:\n    def m(self):\n        pass\nclass B:\n    def m(self):\n        pass\n";
+        let one = parse_file("p/one.py", src).unwrap();
+        let two = parse_file("p/two.py", src).unwrap();
+        let id = |r: &ParseResult, qual: &str| {
+            r.nodes
+                .iter()
+                .find(|n| n.properties["qualified_symbol"] == qual)
+                .unwrap_or_else(|| panic!("no {qual}"))
+                .node_id
+                .clone()
+        };
+        assert_ne!(id(&one, "A.m"), id(&one, "B.m"), "qualified name separates");
+        assert_ne!(id(&one, "A.m"), id(&two, "A.m"), "file path separates");
+    }
+
+    #[test]
+    fn hash_fields_is_injective_across_field_boundaries() {
+        // Length prefixes: plain concatenation would make these two equal.
+        assert_ne!(hash_fields(&["ab", "c"]), hash_fields(&["a", "bc"]));
+        assert_eq!(hash_fields(&["ab", "c"]), hash_fields(&["ab", "c"]));
     }
 
     #[test]
