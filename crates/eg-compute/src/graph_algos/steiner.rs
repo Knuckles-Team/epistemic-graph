@@ -38,6 +38,7 @@
 
 use super::components::UnionFind;
 use super::graph::AdjacencyGraph;
+use super::shortest_path::MinHeapItem;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap, HashMap, VecDeque};
 use std::hash::Hash;
@@ -62,27 +63,6 @@ pub struct SteinerTreeResult<N> {
     pub unreached_terminals: Vec<N>,
 }
 
-#[derive(PartialEq)]
-struct SteinerHeapItem {
-    dist: f64,
-    node: usize,
-}
-impl Eq for SteinerHeapItem {}
-impl Ord for SteinerHeapItem {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .dist
-            .partial_cmp(&self.dist)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| other.node.cmp(&self.node))
-    }
-}
-impl PartialOrd for SteinerHeapItem {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 /// Dijkstra over a raw symmetric weighted adjacency (the undirected
 /// symmetrisation), returning `(distance, predecessor)` arrays.
 fn dijkstra_raw(
@@ -94,11 +74,11 @@ fn dijkstra_raw(
     let mut prev: Vec<Option<usize>> = vec![None; n];
     dist[source] = Some(0.0);
     let mut heap = BinaryHeap::new();
-    heap.push(SteinerHeapItem {
+    heap.push(MinHeapItem {
         dist: 0.0,
         node: source,
     });
-    while let Some(SteinerHeapItem { dist: d, node: u }) = heap.pop() {
+    while let Some(MinHeapItem { dist: d, node: u }) = heap.pop() {
         if matches!(dist[u], Some(best) if d > best) {
             continue;
         }
@@ -111,7 +91,7 @@ fn dijkstra_raw(
             if better {
                 dist[v] = Some(nd);
                 prev[v] = Some(u);
-                heap.push(SteinerHeapItem { dist: nd, node: v });
+                heap.push(MinHeapItem { dist: nd, node: v });
             }
         }
     }
@@ -228,24 +208,8 @@ where
     }
 
     let adj = graph.undirected_weighted_adjacency();
-    let mut dist_from: HashMap<usize, Vec<Option<f64>>> = HashMap::new();
-    let mut prev_from: HashMap<usize, Vec<Option<usize>>> = HashMap::new();
-    for &t in &wanted {
-        let (d, p) = dijkstra_raw(&adj, t);
-        dist_from.insert(t, d);
-        prev_from.insert(t, p);
-    }
-
-    let root_dist = &dist_from[&root];
-    let mut reachable: Vec<usize> = Vec::new();
-    let mut unreached: Vec<usize> = Vec::new();
-    for &t in &wanted {
-        if t == root || root_dist[t].is_some() {
-            reachable.push(t);
-        } else {
-            unreached.push(t);
-        }
-    }
+    let (dist_from, prev_from) = terminal_shortest_paths(&adj, &wanted);
+    let (reachable, unreached) = reachable_terminals(root, &wanted, &dist_from);
 
     if reachable.len() <= 1 {
         return SteinerTreeResult {
@@ -258,66 +222,9 @@ where
         };
     }
 
-    // Metric closure over `reachable`, MST via Kruskal.
-    let mut closure_edges: Vec<(f64, usize, usize)> = Vec::new();
-    for i in 0..reachable.len() {
-        for j in (i + 1)..reachable.len() {
-            let (a, b) = (reachable[i], reachable[j]);
-            if let Some(d) = dist_from[&a][b] {
-                closure_edges.push((d, a, b));
-            }
-        }
-    }
-    closure_edges.sort_by(|x, y| {
-        x.0.partial_cmp(&y.0)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| x.1.cmp(&y.1))
-            .then_with(|| x.2.cmp(&y.2))
-    });
-
-    let mut uf = UnionFind::new(n);
-    let mut closure_mst: Vec<(usize, usize)> = Vec::new();
-    for (_, a, b) in closure_edges {
-        if uf.find(a) != uf.find(b) {
-            uf.union(a, b);
-            closure_mst.push((a, b));
-        }
-    }
-
-    // Expand each closure MST edge into its real shortest path; union the
-    // real edges (deduped by unordered pair, weight looked up once).
-    let mut union_edges: HashMap<(usize, usize), f64> = HashMap::new();
-    for (a, b) in closure_mst {
-        let prev = &prev_from[&a];
-        let mut cur = b;
-        while cur != a {
-            let p = prev[cur].expect("connected within the same component by construction");
-            let key = if p < cur { (p, cur) } else { (cur, p) };
-            union_edges.insert(key, edge_weight_undirected(&adj, p, cur));
-            cur = p;
-        }
-    }
-
-    // Second MST pass over the union subgraph — strips any cycle from
-    // overlapping expanded paths, yielding a genuine tree.
-    let mut union_list: Vec<(f64, usize, usize)> = union_edges
-        .into_iter()
-        .map(|((a, b), w)| (w, a, b))
-        .collect();
-    union_list.sort_by(|x, y| {
-        x.0.partial_cmp(&y.0)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| x.1.cmp(&y.1))
-            .then_with(|| x.2.cmp(&y.2))
-    });
-    let mut uf2 = UnionFind::new(n);
-    let mut tree_edges: Vec<(usize, usize, f64)> = Vec::new();
-    for (w, a, b) in union_list {
-        if uf2.find(a) != uf2.find(b) {
-            uf2.union(a, b);
-            tree_edges.push((a, b, w));
-        }
-    }
+    let closure_mst = metric_closure_mst(n, &reachable, &dist_from);
+    let union_edges = expand_closure_paths(&adj, &prev_from, &closure_mst);
+    let mut tree_edges = union_mst(n, union_edges);
 
     let terminal_set: BTreeSet<usize> = reachable.iter().copied().collect();
     prune_non_terminal_leaves(&mut tree_edges, &terminal_set, root);
@@ -331,6 +238,129 @@ where
             .map(|i| graph.node_at(i).clone())
             .collect(),
     }
+}
+
+/// Per-terminal Dijkstra output: distance rows and predecessor rows, each keyed
+/// by the terminal they were computed from.
+type TerminalPaths = (
+    HashMap<usize, Vec<Option<f64>>>,
+    HashMap<usize, Vec<Option<usize>>>,
+);
+
+fn terminal_shortest_paths(
+    adj: &[Vec<(usize, f64)>],
+    terminals: &BTreeSet<usize>,
+) -> TerminalPaths {
+    let mut distances = HashMap::new();
+    let mut predecessors = HashMap::new();
+    for &terminal in terminals {
+        let (distance, predecessor) = dijkstra_raw(adj, terminal);
+        distances.insert(terminal, distance);
+        predecessors.insert(terminal, predecessor);
+    }
+    (distances, predecessors)
+}
+
+fn reachable_terminals(
+    root: usize,
+    wanted: &BTreeSet<usize>,
+    distances: &HashMap<usize, Vec<Option<f64>>>,
+) -> (Vec<usize>, Vec<usize>) {
+    let root_distances = &distances[&root];
+    let mut reachable = Vec::new();
+    let mut unreached = Vec::new();
+    for &terminal in wanted {
+        if terminal == root || root_distances[terminal].is_some() {
+            reachable.push(terminal);
+        } else {
+            unreached.push(terminal);
+        }
+    }
+    (reachable, unreached)
+}
+
+fn metric_closure_mst(
+    node_count: usize,
+    terminals: &[usize],
+    distances: &HashMap<usize, Vec<Option<f64>>>,
+) -> Vec<(usize, usize)> {
+    let mut closure_edges = Vec::new();
+    for i in 0..terminals.len() {
+        for j in (i + 1)..terminals.len() {
+            let (a, b) = (terminals[i], terminals[j]);
+            if let Some(distance) = distances[&a][b] {
+                closure_edges.push((distance, a, b));
+            }
+        }
+    }
+    sort_weighted_edges(&mut closure_edges);
+    kruskal_pairs(node_count, closure_edges)
+}
+
+fn sort_weighted_edges(edges: &mut [(f64, usize, usize)]) {
+    edges.sort_by(|left, right| {
+        left.0
+            .partial_cmp(&right.0)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+    });
+}
+
+fn kruskal_pairs(node_count: usize, edges: Vec<(f64, usize, usize)>) -> Vec<(usize, usize)> {
+    let mut union_find = UnionFind::new(node_count);
+    let mut tree = Vec::new();
+    for (_weight, left, right) in edges {
+        if union_find.find(left) != union_find.find(right) {
+            union_find.union(left, right);
+            tree.push((left, right));
+        }
+    }
+    tree
+}
+
+fn expand_closure_paths(
+    adj: &[Vec<(usize, f64)>],
+    predecessors: &HashMap<usize, Vec<Option<usize>>>,
+    closure_mst: &[(usize, usize)],
+) -> HashMap<(usize, usize), f64> {
+    let mut union_edges = HashMap::new();
+    for &(source, target) in closure_mst {
+        let previous = &predecessors[&source];
+        let mut current = target;
+        while current != source {
+            let predecessor =
+                previous[current].expect("connected within the same component by construction");
+            let edge = if predecessor < current {
+                (predecessor, current)
+            } else {
+                (current, predecessor)
+            };
+            union_edges.insert(edge, edge_weight_undirected(adj, predecessor, current));
+            current = predecessor;
+        }
+    }
+    union_edges
+}
+
+fn union_mst(
+    node_count: usize,
+    union_edges: HashMap<(usize, usize), f64>,
+) -> Vec<(usize, usize, f64)> {
+    let mut edges: Vec<(f64, usize, usize)> = union_edges
+        .into_iter()
+        .map(|((left, right), weight)| (weight, left, right))
+        .collect();
+    sort_weighted_edges(&mut edges);
+    let mut union_find = UnionFind::new(node_count);
+    let mut tree = Vec::new();
+    for (weight, left, right) in edges {
+        if union_find.find(left) != union_find.find(right) {
+            union_find.union(left, right);
+            tree.push((left, right, weight));
+        }
+    }
+    tree
 }
 
 #[cfg(test)]

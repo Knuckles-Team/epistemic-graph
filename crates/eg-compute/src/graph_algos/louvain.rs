@@ -2,6 +2,7 @@
 // (Neo4j GDS `gds.louvain` parity).
 
 use super::graph::AdjacencyGraph;
+use crate::SplitMix64;
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -55,26 +56,44 @@ pub fn louvain<N>(graph: &AdjacencyGraph<N>, config: &LouvainConfig) -> LouvainR
 where
     N: Clone + Eq + Hash + Ord,
 {
+    run_community(
+        graph,
+        config.resolution,
+        |base_adj, resolution| louvain_partition(base_adj, resolution, config.seed, config),
+        |communities, modularity| LouvainResult {
+            communities,
+            modularity,
+        },
+    )
+}
+
+pub(crate) fn run_community<N, R, F, B>(
+    graph: &AdjacencyGraph<N>,
+    configured_resolution: f64,
+    partition: F,
+    build: B,
+) -> R
+where
+    N: Clone + Eq + Hash + Ord,
+    F: FnOnce(&[Vec<(usize, f64)>], f64) -> Vec<usize>,
+    B: FnOnce(Vec<Vec<N>>, f64) -> R,
+{
     let n = graph.node_count();
     if n == 0 {
-        return LouvainResult {
-            communities: Vec::new(),
-            modularity: 0.0,
-        };
+        return build(Vec::new(), 0.0);
     }
-    let resolution = if config.resolution > 0.0 {
-        config.resolution
+    let resolution = positive_resolution(configured_resolution);
+    let base_adj = graph.undirected_weighted_adjacency();
+    let membership = partition(&base_adj, resolution);
+    let modularity = modularity_of(&base_adj, &membership, resolution);
+    build(graph.label_partition(&membership), modularity)
+}
+
+fn positive_resolution(configured_resolution: f64) -> f64 {
+    if configured_resolution > 0.0 {
+        configured_resolution
     } else {
         1.0
-    };
-
-    let base_adj = graph.undirected_weighted_adjacency();
-    let membership = louvain_partition(&base_adj, resolution, config.seed, config);
-    let modularity = modularity_of(&base_adj, &membership, resolution);
-
-    LouvainResult {
-        communities: graph.label_partition(&membership),
-        modularity,
     }
 }
 
@@ -157,42 +176,7 @@ pub(crate) fn local_moving(
     for _ in 0..max_sweeps {
         let mut moved = false;
         for &i in &order {
-            let ci = comm[i];
-            let ki = degree[i];
-
-            // Weight from i to each neighbouring community (self-loop excluded).
-            let mut to_comm: HashMap<usize, f64> = HashMap::new();
-            for &(j, w) in &adj[i] {
-                if j != i {
-                    *to_comm.entry(comm[j]).or_insert(0.0) += w;
-                }
-            }
-
-            // Detach i from its community.
-            sigma_tot[ci] -= ki;
-
-            // Baseline: rejoin ci. gain(c) = w_{i→c} − γ·Σtot(c)·k_i / 2m.
-            let w_ci = *to_comm.get(&ci).unwrap_or(&0.0);
-            let mut best_comm = ci;
-            let mut best_gain = w_ci - resolution * sigma_tot[ci] * ki / m2;
-
-            for (&c, &w_ic) in &to_comm {
-                if c == ci {
-                    continue;
-                }
-                let gain = w_ic - resolution * sigma_tot[c] * ki / m2;
-                // Strictly-greater keeps ties with the current community (stable,
-                // non-oscillating); deterministic smallest-id tie-break among
-                // equally-better candidates.
-                if gain > best_gain + 1e-12 || (gain > best_gain - 1e-12 && c < best_comm) {
-                    best_gain = gain;
-                    best_comm = c;
-                }
-            }
-
-            sigma_tot[best_comm] += ki;
-            comm[i] = best_comm;
-            if best_comm != ci {
+            if move_louvain_node(adj, degree[i], &mut comm, &mut sigma_tot, i, resolution, m2) {
                 moved = true;
                 improved = true;
             }
@@ -209,6 +193,62 @@ pub(crate) fn local_moving(
         *slot = *relabel.entry(*slot).or_insert(next);
     }
     (comm, improved, relabel.len())
+}
+
+fn move_louvain_node(
+    adj: &[Vec<(usize, f64)>],
+    degree: f64,
+    comm: &mut [usize],
+    sigma_tot: &mut [f64],
+    node: usize,
+    resolution: f64,
+    m2: f64,
+) -> bool {
+    let current = comm[node];
+    let weights = neighboring_communities(adj, comm, node);
+    sigma_tot[current] -= degree;
+    let best = best_louvain_community(&weights, current, sigma_tot, degree, resolution, m2);
+    sigma_tot[best] += degree;
+    comm[node] = best;
+    best != current
+}
+
+fn neighboring_communities(
+    adj: &[Vec<(usize, f64)>],
+    comm: &[usize],
+    node: usize,
+) -> HashMap<usize, f64> {
+    let mut weights = HashMap::new();
+    for &(neighbor, weight) in &adj[node] {
+        if neighbor != node {
+            *weights.entry(comm[neighbor]).or_insert(0.0) += weight;
+        }
+    }
+    weights
+}
+
+fn best_louvain_community(
+    weights: &HashMap<usize, f64>,
+    current: usize,
+    sigma_tot: &[f64],
+    degree: f64,
+    resolution: f64,
+    m2: f64,
+) -> usize {
+    let own_weight = *weights.get(&current).unwrap_or(&0.0);
+    let mut best = current;
+    let mut best_gain = own_weight - resolution * sigma_tot[current] * degree / m2;
+    for (&candidate, &weight) in weights {
+        if candidate == current {
+            continue;
+        }
+        let gain = weight - resolution * sigma_tot[candidate] * degree / m2;
+        if gain > best_gain + 1e-12 || (gain > best_gain - 1e-12 && candidate < best) {
+            best_gain = gain;
+            best = candidate;
+        }
+    }
+    best
 }
 
 /// Aggregate communities into super-nodes; edge weights between communities sum.
@@ -272,16 +312,9 @@ pub(crate) fn modularity_of(
 fn visit_order(n: usize, seed: Option<u64>) -> Vec<usize> {
     let mut order: Vec<usize> = (0..n).collect();
     if let Some(seed) = seed {
-        let mut state = seed;
-        let mut next = || {
-            state = state.wrapping_add(0x9E3779B97F4A7C15);
-            let mut z = state;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-            z ^ (z >> 31)
-        };
+        let mut rng = SplitMix64::new(seed);
         for i in (1..n).rev() {
-            let j = (next() % (i as u64 + 1)) as usize;
+            let j = rng.below(i + 1);
             order.swap(i, j);
         }
     }

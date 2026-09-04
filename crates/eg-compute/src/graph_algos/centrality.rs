@@ -60,46 +60,12 @@ where
     let n = graph.node_count();
     let mut bc = vec![0.0f64; n];
 
-    // Neighbour list closure (directed out-edges, or undirected union).
-    let neighbors = |v: usize| -> Vec<usize> {
-        if directed {
-            graph.out_edges(v).iter().map(|(t, _)| *t).collect()
-        } else {
-            graph.undirected_neighbors(v)
-        }
-    };
-
     for s in 0..n {
-        let mut stack: Vec<usize> = Vec::new();
-        let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
-        let mut sigma = vec![0.0f64; n];
-        let mut dist = vec![-1i64; n];
-        sigma[s] = 1.0;
-        dist[s] = 0;
-
-        let mut queue: VecDeque<usize> = VecDeque::new();
-        queue.push_back(s);
-        while let Some(v) = queue.pop_front() {
-            stack.push(v);
-            for w in neighbors(v) {
-                if dist[w] < 0 {
-                    dist[w] = dist[v] + 1;
-                    queue.push_back(w);
-                }
-                if dist[w] == dist[v] + 1 {
-                    sigma[w] += sigma[v];
-                    pred[w].push(v);
-                }
-            }
-        }
-
-        let mut delta = vec![0.0f64; n];
-        while let Some(w) = stack.pop() {
-            for &v in &pred[w] {
-                delta[v] += (sigma[v] / sigma[w]) * (1.0 + delta[w]);
-            }
-            if w != s {
-                bc[w] += delta[w];
+        let (mut stack, predecessors, sigma) = brandes_bfs(graph, s, directed);
+        let delta = brandes_dependencies(&mut stack, &predecessors, &sigma);
+        for (node, value) in delta.into_iter().enumerate() {
+            if node != s {
+                bc[node] += value;
             }
         }
     }
@@ -110,6 +76,87 @@ where
         }
     }
     graph.label_scores(&bc)
+}
+
+fn brandes_neighbors<N>(graph: &AdjacencyGraph<N>, node: usize, directed: bool) -> Vec<usize>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    if directed {
+        graph
+            .out_edges(node)
+            .iter()
+            .map(|(target, _)| *target)
+            .collect()
+    } else {
+        graph.undirected_neighbors(node)
+    }
+}
+
+fn brandes_bfs<N>(
+    graph: &AdjacencyGraph<N>,
+    source: usize,
+    directed: bool,
+) -> (Vec<usize>, Vec<Vec<usize>>, Vec<f64>)
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    let n = graph.node_count();
+    let mut stack = Vec::new();
+    let mut predecessors = vec![Vec::new(); n];
+    let mut sigma = vec![0.0f64; n];
+    let mut distance = vec![-1i64; n];
+    sigma[source] = 1.0;
+    distance[source] = 0;
+
+    let mut queue = VecDeque::new();
+    queue.push_back(source);
+    while let Some(node) = queue.pop_front() {
+        stack.push(node);
+        for next in brandes_neighbors(graph, node, directed) {
+            discover_brandes_neighbor(
+                next,
+                node,
+                &mut queue,
+                &mut distance,
+                &mut sigma,
+                &mut predecessors,
+            );
+        }
+    }
+    (stack, predecessors, sigma)
+}
+
+fn discover_brandes_neighbor(
+    next: usize,
+    node: usize,
+    queue: &mut VecDeque<usize>,
+    distance: &mut [i64],
+    sigma: &mut [f64],
+    predecessors: &mut [Vec<usize>],
+) {
+    if distance[next] < 0 {
+        distance[next] = distance[node] + 1;
+        queue.push_back(next);
+    }
+    if distance[next] == distance[node] + 1 {
+        sigma[next] += sigma[node];
+        predecessors[next].push(node);
+    }
+}
+
+fn brandes_dependencies(
+    stack: &mut Vec<usize>,
+    predecessors: &[Vec<usize>],
+    sigma: &[f64],
+) -> Vec<f64> {
+    let mut delta = vec![0.0f64; predecessors.len()];
+    while let Some(node) = stack.pop() {
+        for &predecessor in &predecessors[node] {
+            delta[predecessor] += (sigma[predecessor] / sigma[node]) * (1.0 + delta[node]);
+        }
+    }
+    delta
 }
 
 /// Configuration for [`eigenvector_centrality`]. CONCEPT:EG-KG.compute.eigenvector-centrality

@@ -57,12 +57,12 @@ where
 // Min-heap entry ordered by (distance, node) — the node tie-break makes the
 // traversal deterministic.
 #[derive(PartialEq)]
-struct HeapItem {
-    dist: f64,
-    node: usize,
+pub(crate) struct MinHeapItem {
+    pub(crate) dist: f64,
+    pub(crate) node: usize,
 }
-impl Eq for HeapItem {}
-impl Ord for HeapItem {
+impl Eq for MinHeapItem {}
+impl Ord for MinHeapItem {
     fn cmp(&self, other: &Self) -> Ordering {
         // Reversed for a min-heap on distance; node id breaks ties (also reversed
         // so the smallest id is popped first).
@@ -73,7 +73,7 @@ impl Ord for HeapItem {
             .then_with(|| other.node.cmp(&self.node))
     }
 }
-impl PartialOrd for HeapItem {
+impl PartialOrd for MinHeapItem {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -99,29 +99,18 @@ where
     if source < n {
         dist[source] = Some(0.0);
         let mut heap = BinaryHeap::new();
-        heap.push(HeapItem {
+        heap.push(MinHeapItem {
             dist: 0.0,
             node: source,
         });
-        while let Some(HeapItem { dist: d, node: u }) = heap.pop() {
+        while let Some(MinHeapItem { dist: d, node: u }) = heap.pop() {
             // Skip stale heap entries.
             if let Some(best) = dist[u] {
                 if d > best {
                     continue;
                 }
             }
-            for &(v, w) in graph.out_edges(u) {
-                let nd = d + w;
-                let better = match dist[v] {
-                    None => true,
-                    Some(old) => nd < old,
-                };
-                if better {
-                    dist[v] = Some(nd);
-                    prev[v] = Some(u);
-                    heap.push(HeapItem { dist: nd, node: v });
-                }
-            }
+            relax_neighbors(graph, u, d, &mut dist, &mut prev, &mut heap);
         }
     }
 
@@ -130,6 +119,33 @@ where
         dist,
         prev,
         labels: graph.nodes().to_vec(),
+    }
+}
+
+fn relax_neighbors<N>(
+    graph: &AdjacencyGraph<N>,
+    source: usize,
+    source_distance: f64,
+    distances: &mut [Option<f64>],
+    predecessors: &mut [Option<usize>],
+    heap: &mut BinaryHeap<MinHeapItem>,
+) where
+    N: Clone + Eq + Hash + Ord,
+{
+    for &(target, weight) in graph.out_edges(source) {
+        let candidate = source_distance + weight;
+        let better = match distances[target] {
+            None => true,
+            Some(old) => candidate < old,
+        };
+        if better {
+            distances[target] = Some(candidate);
+            predecessors[target] = Some(source);
+            heap.push(MinHeapItem {
+                dist: candidate,
+                node: target,
+            });
+        }
     }
 }
 

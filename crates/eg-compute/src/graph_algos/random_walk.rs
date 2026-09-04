@@ -9,29 +9,8 @@
 // this module stays standalone, matching every other file in this crate).
 
 use super::graph::AdjacencyGraph;
+use crate::SplitMix64;
 use std::hash::Hash;
-
-/// A minimal, dependency-free splitmix64 PRNG stream.
-struct SplitMix64 {
-    state: u64,
-}
-impl SplitMix64 {
-    fn new(seed: u64) -> Self {
-        Self { state: seed }
-    }
-    fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-    /// A uniform `f64` in `[0, 1)`, via the top 53 bits (the standard
-    /// integer-to-double technique — full `f64` mantissa precision).
-    fn next_f64(&mut self) -> f64 {
-        (self.next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
-    }
-}
 
 /// Configuration for [`random_walk`]. CONCEPT:EG-KG.compute.random-walk
 #[derive(Debug, Clone, Copy)]

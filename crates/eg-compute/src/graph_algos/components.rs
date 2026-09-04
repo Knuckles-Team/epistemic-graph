@@ -80,64 +80,113 @@ where
     N: Clone + Eq + Hash + Ord,
 {
     let n = graph.node_count();
-    const UNVISITED: usize = usize::MAX;
-
-    let mut index_of = vec![UNVISITED; n]; // discovery index
-    let mut lowlink = vec![0usize; n];
-    let mut on_stack = vec![false; n];
-    let mut stack: Vec<usize> = Vec::new();
-    let mut next_index = 0usize;
-    let mut comp_id = vec![UNVISITED; n];
-    let mut n_comps = 0usize;
-
-    // Explicit DFS frame: (node, position in its out-edge list).
-    let mut work: Vec<(usize, usize)> = Vec::new();
+    let mut state = TarjanState::for_node_count(n);
 
     for root in 0..n {
-        if index_of[root] != UNVISITED {
+        if state.index_of[root] != UNVISITED {
             continue;
         }
-        work.push((root, 0));
-        while let Some(&mut (v, ref mut pos)) = work.last_mut() {
-            if *pos == 0 {
-                // First visit of v.
-                index_of[v] = next_index;
-                lowlink[v] = next_index;
-                next_index += 1;
-                stack.push(v);
-                on_stack[v] = true;
-            }
-            let edges = graph.out_edges(v);
-            if *pos < edges.len() {
-                let w = edges[*pos].0;
-                *pos += 1;
-                if index_of[w] == UNVISITED {
-                    work.push((w, 0));
-                } else if on_stack[w] {
-                    lowlink[v] = lowlink[v].min(index_of[w]);
-                }
-            } else {
-                // Done with v: if it's a root of an SCC, pop the component.
-                if lowlink[v] == index_of[v] {
-                    loop {
-                        let w = stack.pop().unwrap();
-                        on_stack[w] = false;
-                        comp_id[w] = n_comps;
-                        if w == v {
-                            break;
-                        }
-                    }
-                    n_comps += 1;
-                }
-                work.pop();
-                if let Some(&(parent, _)) = work.last() {
-                    lowlink[parent] = lowlink[parent].min(lowlink[v]);
-                }
-            }
+        state.visit_root(graph, root);
+    }
+
+    graph.label_partition(&state.comp_id)
+}
+
+const UNVISITED: usize = usize::MAX;
+
+struct TarjanState {
+    index_of: Vec<usize>,
+    lowlink: Vec<usize>,
+    on_stack: Vec<bool>,
+    stack: Vec<usize>,
+    next_index: usize,
+    comp_id: Vec<usize>,
+    next_component: usize,
+    work: Vec<(usize, usize)>,
+}
+
+impl TarjanState {
+    fn for_node_count(n: usize) -> Self {
+        Self {
+            index_of: vec![UNVISITED; n],
+            lowlink: vec![0; n],
+            on_stack: vec![false; n],
+            stack: Vec::new(),
+            next_index: 0,
+            comp_id: vec![UNVISITED; n],
+            next_component: 0,
+            work: Vec::new(),
         }
     }
 
-    graph.label_partition(&comp_id)
+    fn visit_root<N>(&mut self, graph: &AdjacencyGraph<N>, root: usize)
+    where
+        N: Clone + Eq + Hash + Ord,
+    {
+        self.work.push((root, 0));
+        while !self.work.is_empty() {
+            self.start_frame();
+            if self.advance_edge(graph) {
+                continue;
+            }
+            self.finish_frame();
+        }
+    }
+
+    fn start_frame(&mut self) {
+        let (node, position) = *self.work.last().expect("Tarjan frame must exist");
+        if position != 0 {
+            return;
+        }
+        self.index_of[node] = self.next_index;
+        self.lowlink[node] = self.next_index;
+        self.next_index += 1;
+        self.stack.push(node);
+        self.on_stack[node] = true;
+    }
+
+    fn advance_edge<N>(&mut self, graph: &AdjacencyGraph<N>) -> bool
+    where
+        N: Clone + Eq + Hash + Ord,
+    {
+        let frame = self.work.len() - 1;
+        let (node, position) = self.work[frame];
+        let edges = graph.out_edges(node);
+        if position >= edges.len() {
+            return false;
+        }
+        let next = edges[position].0;
+        self.work[frame].1 += 1;
+        if self.index_of[next] == UNVISITED {
+            self.work.push((next, 0));
+        } else if self.on_stack[next] {
+            self.lowlink[node] = self.lowlink[node].min(self.index_of[next]);
+        }
+        true
+    }
+
+    fn finish_frame(&mut self) {
+        let node = self.work.last().expect("Tarjan frame must exist").0;
+        if self.lowlink[node] == self.index_of[node] {
+            self.pop_component(node);
+        }
+        self.work.pop();
+        if let Some(&(parent, _)) = self.work.last() {
+            self.lowlink[parent] = self.lowlink[parent].min(self.lowlink[node]);
+        }
+    }
+
+    fn pop_component(&mut self, root: usize) {
+        loop {
+            let node = self.stack.pop().expect("Tarjan stack must contain root");
+            self.on_stack[node] = false;
+            self.comp_id[node] = self.next_component;
+            if node == root {
+                break;
+            }
+        }
+        self.next_component += 1;
+    }
 }
 
 #[cfg(test)]

@@ -25,7 +25,40 @@ pub(crate) fn splitmix64_next(state: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
+/// The dependency-free SplitMix64 stream shared by the always-on `graph_algos`
+/// kernels (`louvain::visit_order`, `random_walk`, and the `similarity`
+/// NN-descent sampler), each of which previously carried its own byte-identical
+/// copy. `new` seeds the state directly and every draw advances via
+/// [`splitmix64_next`], so each caller's stream is bit-for-bit what its local
+/// copy produced — the seeded reproducibility those algorithms document is
+/// preserved exactly.
+pub(crate) struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    pub(crate) fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    pub(crate) fn next_u64(&mut self) -> u64 {
+        splitmix64_next(&mut self.state)
+    }
+
+    /// A uniform `f64` in `[0, 1)`, via the top 53 bits (the standard
+    /// integer-to-double technique — full `f64` mantissa precision).
+    pub(crate) fn next_f64(&mut self) -> f64 {
+        (self.next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
+    }
+
+    /// Uniform integer in `[0, bound)`; `bound` must be positive.
+    pub(crate) fn below(&mut self, bound: usize) -> usize {
+        (self.next_u64() % bound as u64) as usize
+    }
+}
+
 pub mod algorithms;
+pub(crate) mod node_labels;
 // CONCEPT:EG-KG.compute.graph-data-science-algorithms — standalone graph data-science algorithms (Neo4j GDS parity).
 // Pure-Rust, deterministic, generic over node id; decoupled from the live engine
 // graph so it is unit-testable in isolation. Always-on (no heavy deps).

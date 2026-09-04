@@ -14,7 +14,8 @@
 //!   cargo bench -p eg-compute --bench approx_knn -- 20000 12 10 0.5
 
 use eg_compute::graph_algos::{
-    knn_similarity, knn_similarity_approx, AdjacencyGraph, Direction, Metric, SimilarityPair,
+    knn_similarity, knn_similarity_approx, AdjacencyGraph, Direction, KnnSimilarityApproxConfig,
+    Metric, SimilarityPair,
 };
 use std::collections::HashSet;
 use std::time::Instant;
@@ -76,14 +77,16 @@ fn main() {
     let t = Instant::now();
     let approx = knn_similarity_approx(
         &g,
-        Metric::Jaccard,
-        Direction::Out,
-        k,
-        0.0,
-        sample_rate,
-        100,
-        0.001,
-        42,
+        KnnSimilarityApproxConfig {
+            metric: Metric::Jaccard,
+            direction: Direction::Out,
+            top_k: k,
+            cutoff: 0.0,
+            sample_rate,
+            max_iters: 100,
+            delta: 0.001,
+            seed: 42,
+        },
     );
     let approx_ms = t.elapsed().as_secs_f64() * 1000.0;
 

@@ -36,7 +36,7 @@
 // optional visit shuffle, exactly like [`super::louvain::LouvainConfig::seed`].
 
 use super::graph::AdjacencyGraph;
-use super::louvain::{aggregate, local_moving, modularity_of};
+use super::louvain::{aggregate, local_moving, modularity_of, run_community};
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -92,27 +92,15 @@ pub fn leiden<N>(graph: &AdjacencyGraph<N>, config: &LeidenConfig) -> LeidenResu
 where
     N: Clone + Eq + Hash + Ord,
 {
-    let n = graph.node_count();
-    if n == 0 {
-        return LeidenResult {
-            communities: Vec::new(),
-            modularity: 0.0,
-        };
-    }
-    let resolution = if config.resolution > 0.0 {
-        config.resolution
-    } else {
-        1.0
-    };
-
-    let base_adj = graph.undirected_weighted_adjacency();
-    let membership = leiden_partition(&base_adj, resolution, config.seed, config);
-    let modularity = modularity_of(&base_adj, &membership, resolution);
-
-    LeidenResult {
-        communities: graph.label_partition(&membership),
-        modularity,
-    }
+    run_community(
+        graph,
+        config.resolution,
+        |base_adj, resolution| leiden_partition(base_adj, resolution, config.seed, config),
+        |communities, modularity| LeidenResult {
+            communities,
+            modularity,
+        },
+    )
 }
 
 /// Core Leiden over a raw symmetric weighted adjacency, mirroring
@@ -175,54 +163,34 @@ fn leiden_partition(
 /// communities. See the module doc for why this makes connectivity a
 /// structural guarantee rather than a typical outcome.
 fn refine(adj: &[Vec<(usize, f64)>], p: &[usize], resolution: f64, m2: f64) -> Vec<usize> {
+    let comm = refinement_local_moving(adj, p, resolution, m2);
+    let roots = refinement_components(adj, &comm);
+    densify_refined_partition(&comm, &roots)
+}
+
+fn refinement_local_moving(
+    adj: &[Vec<(usize, f64)>],
+    parent_comm: &[usize],
+    resolution: f64,
+    m2: f64,
+) -> Vec<usize> {
     let n = adj.len();
     let degree: Vec<f64> = adj
         .iter()
-        .map(|row| row.iter().map(|(_, w)| *w).sum())
+        .map(|row| row.iter().map(|(_, weight)| *weight).sum())
         .collect();
-
-    // Step 1: constrained local-moving, singleton-seeded, restricted to
-    // same-`p`-community candidates — otherwise identical to
-    // `louvain::local_moving`'s single-node greedy reassignment.
     let mut comm: Vec<usize> = (0..n).collect();
-    let mut sigma_tot: Vec<f64> = degree.clone();
-    let order: Vec<usize> = (0..n).collect();
+    let mut sigma_tot = degree.clone();
 
     for _ in 0..config_sweep_cap(n) {
         let mut moved = false;
-        for &i in &order {
-            let ci = comm[i];
-            let ki = degree[i];
-
-            let mut to_comm: HashMap<usize, f64> = HashMap::new();
-            for &(j, w) in &adj[i] {
-                if j != i && p[j] == p[i] {
-                    *to_comm.entry(comm[j]).or_insert(0.0) += w;
-                }
-            }
-
-            sigma_tot[ci] -= ki;
-            let w_ci = *to_comm.get(&ci).unwrap_or(&0.0);
-            let mut best_comm = ci;
-            let mut best_gain = w_ci - resolution * sigma_tot[ci] * ki / m2;
-
-            let mut keys: Vec<usize> = to_comm.keys().copied().collect();
-            keys.sort_unstable();
-            for c in keys {
-                if c == ci {
-                    continue;
-                }
-                let w_ic = to_comm[&c];
-                let gain = w_ic - resolution * sigma_tot[c] * ki / m2;
-                if gain > best_gain + 1e-12 || (gain > best_gain - 1e-12 && c < best_comm) {
-                    best_gain = gain;
-                    best_comm = c;
-                }
-            }
-
-            sigma_tot[best_comm] += ki;
-            comm[i] = best_comm;
-            if best_comm != ci {
+        for node in 0..n {
+            let inputs = RefinementInputs {
+                adj,
+                parent_comm,
+                degree: &degree,
+            };
+            if move_refinement_node(&inputs, &mut comm, &mut sigma_tot, node, resolution, m2) {
                 moved = true;
             }
         }
@@ -230,29 +198,98 @@ fn refine(adj: &[Vec<(usize, f64)>], p: &[usize], resolution: f64, m2: f64) -> V
             break;
         }
     }
+    comm
+}
 
-    // Step 2: split any group left disconnected by step 1 into its connected
-    // components (union-find over ONLY edges joining two same-`comm` nodes).
-    // This is what turns "typically connected" into "always connected".
-    let mut uf_parent: Vec<usize> = (0..n).collect();
-    for i in 0..n {
-        for &(j, _w) in &adj[i] {
-            if j != i && comm[i] == comm[j] {
-                uf_union(&mut uf_parent, i, j);
+/// The read-only topology one refinement sweep reads: the level's adjacency,
+/// the parent partition that bounds every move, and per-node degrees. Grouped
+/// so the per-node move keeps its argument count inside the repo's cap.
+struct RefinementInputs<'a> {
+    adj: &'a [Vec<(usize, f64)>],
+    parent_comm: &'a [usize],
+    degree: &'a [f64],
+}
+
+fn move_refinement_node(
+    inputs: &RefinementInputs<'_>,
+    comm: &mut [usize],
+    sigma_tot: &mut [f64],
+    node: usize,
+    resolution: f64,
+    m2: f64,
+) -> bool {
+    let current = comm[node];
+    let weights = refinement_weights(inputs.adj, inputs.parent_comm, comm, node);
+    let node_degree = inputs.degree[node];
+    sigma_tot[current] -= node_degree;
+    let best = best_refinement_community(&weights, current, sigma_tot, node_degree, resolution, m2);
+    sigma_tot[best] += node_degree;
+    comm[node] = best;
+    best != current
+}
+
+fn refinement_weights(
+    adj: &[Vec<(usize, f64)>],
+    parent_comm: &[usize],
+    comm: &[usize],
+    node: usize,
+) -> HashMap<usize, f64> {
+    let mut weights = HashMap::new();
+    for &(neighbor, weight) in &adj[node] {
+        if neighbor != node && parent_comm[neighbor] == parent_comm[node] {
+            *weights.entry(comm[neighbor]).or_insert(0.0) += weight;
+        }
+    }
+    weights
+}
+
+fn best_refinement_community(
+    weights: &HashMap<usize, f64>,
+    current: usize,
+    sigma_tot: &[f64],
+    degree: f64,
+    resolution: f64,
+    m2: f64,
+) -> usize {
+    let own_weight = *weights.get(&current).unwrap_or(&0.0);
+    let mut best = current;
+    let mut best_gain = own_weight - resolution * sigma_tot[current] * degree / m2;
+    let mut candidates: Vec<usize> = weights.keys().copied().collect();
+    candidates.sort_unstable();
+    for candidate in candidates {
+        if candidate == current {
+            continue;
+        }
+        let weight = weights[&candidate];
+        let gain = weight - resolution * sigma_tot[candidate] * degree / m2;
+        if gain > best_gain + 1e-12 || (gain > best_gain - 1e-12 && candidate < best) {
+            best_gain = gain;
+            best = candidate;
+        }
+    }
+    best
+}
+
+fn refinement_components(adj: &[Vec<(usize, f64)>], comm: &[usize]) -> Vec<usize> {
+    let n = adj.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    for node in 0..n {
+        for &(neighbor, _weight) in &adj[node] {
+            if neighbor != node && comm[node] == comm[neighbor] {
+                uf_union(&mut parent, node, neighbor);
             }
         }
     }
-    let roots: Vec<usize> = (0..n).map(|i| uf_find(&mut uf_parent, i)).collect();
+    (0..n).map(|node| uf_find(&mut parent, node)).collect()
+}
 
-    // Densify (comm, connected-component-root) pairs into 0..k ids, in a fixed
-    // ascending-`i` insertion order — deterministic regardless of hash
-    // iteration, matching `louvain::local_moving`'s own densify idiom.
-    let mut relabel: HashMap<(usize, usize), usize> = HashMap::new();
-    let mut out = vec![0usize; n];
-    for i in 0..n {
-        let key = (comm[i], roots[i]);
+fn densify_refined_partition(comm: &[usize], roots: &[usize]) -> Vec<usize> {
+    let mut relabel = HashMap::new();
+    let mut out = Vec::with_capacity(comm.len());
+    for (&community, &root) in comm.iter().zip(roots) {
+        let key = (community, root);
         let next = relabel.len();
-        out[i] = *relabel.entry(key).or_insert(next);
+        out.push(*relabel.entry(key).or_insert(next));
     }
     out
 }
@@ -448,6 +485,7 @@ fn leiden_hierarchy_raw(
 #[cfg(test)]
 mod hierarchy_tests {
     use super::*;
+    use crate::SplitMix64;
 
     /// Every level's communities must be a strict coarsening of the level
     /// below: each parent's member set is EXACTLY the union of its children's
@@ -605,30 +643,6 @@ mod hierarchy_tests {
     // pessimistic vs. a release build, but still an honest, reproducible
     // measurement of what this algorithm costs today, on this build tier.
 
-    /// Deterministic splitmix64 stream (same construction [`leiden`]'s own
-    /// visit-order shuffle uses) — a dependency-free, seeded bit source for
-    /// synthetic graph generation. Not cryptographic.
-    struct SplitMix64(u64);
-    impl SplitMix64 {
-        fn new(seed: u64) -> Self {
-            Self(seed)
-        }
-        fn next_u64(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = self.0;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        }
-        fn next_range(&mut self, bound: usize) -> usize {
-            if bound == 0 {
-                0
-            } else {
-                (self.next_u64() % bound as u64) as usize
-            }
-        }
-    }
-
     /// A synthetic "planted-partition"-style graph resembling KG community
     /// structure: `n` nodes grouped into dense clusters of `cluster_size`, each
     /// cluster wired to its two ring-neighbours by a handful of sparse bridge
@@ -648,20 +662,57 @@ mod hierarchy_tests {
         for cluster in 0..num_clusters {
             let start = cluster * cluster_size;
             let end = (start + cluster_size).min(n);
-            if end <= start + 1 {
-                continue;
-            }
-            let members: Vec<usize> = (start..end).collect();
-            for &u in &members {
-                for _ in 0..intra_degree {
-                    let v = members[rng.next_range(members.len())];
-                    if v != u {
-                        adjacency[u].1.push((v, 1.0));
-                        edge_count += 1;
-                    }
+            append_cluster_edges(
+                &mut adjacency,
+                start,
+                end,
+                intra_degree,
+                &mut rng,
+                &mut edge_count,
+            );
+        }
+        append_ring_bridges(
+            &mut adjacency,
+            num_clusters,
+            cluster_size,
+            n,
+            &mut rng,
+            &mut edge_count,
+        );
+        (AdjacencyGraph::from_adjacency(adjacency), edge_count)
+    }
+
+    fn append_cluster_edges(
+        adjacency: &mut [(usize, Vec<(usize, f64)>)],
+        start: usize,
+        end: usize,
+        intra_degree: usize,
+        rng: &mut SplitMix64,
+        edge_count: &mut usize,
+    ) {
+        if end <= start + 1 {
+            return;
+        }
+        let members: Vec<usize> = (start..end).collect();
+        for &source in &members {
+            for _ in 0..intra_degree {
+                let target = members[rng.below(members.len())];
+                if target != source {
+                    adjacency[source].1.push((target, 1.0));
+                    *edge_count += 1;
                 }
             }
         }
+    }
+
+    fn append_ring_bridges(
+        adjacency: &mut [(usize, Vec<(usize, f64)>)],
+        num_clusters: usize,
+        cluster_size: usize,
+        n: usize,
+        rng: &mut SplitMix64,
+        edge_count: &mut usize,
+    ) {
         // Sparse ring bridges between adjacent clusters (2 edges each) so the
         // graph is one connected component, not `num_clusters` disjoint islands.
         for cluster in 0..num_clusters {
@@ -674,13 +725,12 @@ mod hierarchy_tests {
                 continue;
             }
             for _ in 0..2 {
-                let u = a_start + rng.next_range(a_end - a_start);
-                let v = b_start + rng.next_range(b_end - b_start);
-                adjacency[u].1.push((v, 1.0));
-                edge_count += 1;
+                let source = a_start + rng.below(a_end - a_start);
+                let target = b_start + rng.below(b_end - b_start);
+                adjacency[source].1.push((target, 1.0));
+                *edge_count += 1;
             }
         }
-        (AdjacencyGraph::from_adjacency(adjacency), edge_count)
     }
 
     /// Resident set size in MB, read from `/proc/self/status` (Linux-only —

@@ -2,6 +2,7 @@
 // (simple) paths between two nodes. Neo4j GDS `gds.shortestPath.yens` parity.
 
 use super::graph::AdjacencyGraph;
+use super::shortest_path::MinHeapItem;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::hash::Hash;
@@ -14,29 +15,6 @@ pub struct RankedPath<N> {
     pub cost: f64,
 }
 
-// Min-heap entry for the internal restricted single-path search — same
-// reversed-Ord + ascending-node-id tie-break idiom as `shortest_path::HeapItem`.
-#[derive(PartialEq)]
-struct YenHeapItem {
-    dist: f64,
-    node: usize,
-}
-impl Eq for YenHeapItem {}
-impl Ord for YenHeapItem {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .dist
-            .partial_cmp(&self.dist)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| other.node.cmp(&self.node))
-    }
-}
-impl PartialOrd for YenHeapItem {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 /// Dijkstra restricted to skip a set of blocked nodes/edges entirely — the
 /// "spur search" primitive Yen's algorithm re-runs for every candidate. A
 /// fresh, self-contained search rather than mutating [`AdjacencyGraph`] (which
@@ -45,13 +23,12 @@ fn restricted_shortest_path<N>(
     graph: &AdjacencyGraph<N>,
     source: usize,
     target: usize,
-    blocked_nodes: &BTreeSet<usize>,
-    blocked_edges: &BTreeSet<(usize, usize)>,
+    blocked: &Blocked<'_>,
 ) -> Option<(Vec<usize>, f64)>
 where
     N: Clone + Eq + Hash + Ord,
 {
-    if blocked_nodes.contains(&source) || blocked_nodes.contains(&target) {
+    if blocked.nodes.contains(&source) || blocked.nodes.contains(&target) {
         return None;
     }
     let n = graph.node_count();
@@ -60,41 +37,74 @@ where
     dist[source] = Some(0.0);
 
     let mut heap = BinaryHeap::new();
-    heap.push(YenHeapItem {
+    heap.push(MinHeapItem {
         dist: 0.0,
         node: source,
     });
-    while let Some(YenHeapItem { dist: d, node: u }) = heap.pop() {
+    while let Some(MinHeapItem { dist: d, node: u }) = heap.pop() {
         if matches!(dist[u], Some(best) if d > best) {
             continue;
         }
         if u == target {
-            let mut path = vec![u];
-            let mut cur = u;
-            while cur != source {
-                cur = prev[cur]?;
-                path.push(cur);
-            }
-            path.reverse();
-            return Some((path, d));
+            return reconstruct_path(source, u, &prev).map(|path| (path, d));
         }
-        for &(v, w) in graph.out_edges(u) {
-            if blocked_nodes.contains(&v) || blocked_edges.contains(&(u, v)) {
-                continue;
-            }
-            let nd = d + w;
-            let better = match dist[v] {
-                None => true,
-                Some(old) => nd < old,
-            };
-            if better {
-                dist[v] = Some(nd);
-                prev[v] = Some(u);
-                heap.push(YenHeapItem { dist: nd, node: v });
-            }
-        }
+        relax_neighbors(graph, u, d, blocked, &mut dist, &mut prev, &mut heap);
     }
     None
+}
+
+fn reconstruct_path(
+    source: usize,
+    target: usize,
+    previous: &[Option<usize>],
+) -> Option<Vec<usize>> {
+    let mut path = vec![target];
+    let mut current = target;
+    while current != source {
+        current = previous[current]?;
+        path.push(current);
+    }
+    path.reverse();
+    Some(path)
+}
+
+/// The exclusion set one Yen spur search runs against: the root-path nodes and
+/// the edges already committed by an accepted path. The two always travel
+/// together, so they are passed as one value.
+struct Blocked<'a> {
+    nodes: &'a BTreeSet<usize>,
+    edges: &'a BTreeSet<(usize, usize)>,
+}
+
+fn relax_neighbors<N>(
+    graph: &AdjacencyGraph<N>,
+    source: usize,
+    source_distance: f64,
+    blocked: &Blocked<'_>,
+    distances: &mut [Option<f64>],
+    predecessors: &mut [Option<usize>],
+    heap: &mut BinaryHeap<MinHeapItem>,
+) where
+    N: Clone + Eq + Hash + Ord,
+{
+    for &(target, weight) in graph.out_edges(source) {
+        if blocked.nodes.contains(&target) || blocked.edges.contains(&(source, target)) {
+            continue;
+        }
+        let candidate = source_distance + weight;
+        let better = match distances[target] {
+            None => true,
+            Some(old) => candidate < old,
+        };
+        if better {
+            distances[target] = Some(candidate);
+            predecessors[target] = Some(source);
+            heap.push(MinHeapItem {
+                dist: candidate,
+                node: target,
+            });
+        }
+    }
 }
 
 fn path_cost<N>(graph: &AdjacencyGraph<N>, path: &[usize]) -> f64
@@ -151,8 +161,11 @@ where
 
     let empty_nodes = BTreeSet::new();
     let empty_edges = BTreeSet::new();
-    let Some(first) = restricted_shortest_path(graph, source, target, &empty_nodes, &empty_edges)
-    else {
+    let unblocked = Blocked {
+        nodes: &empty_nodes,
+        edges: &empty_edges,
+    };
+    let Some(first) = restricted_shortest_path(graph, source, target, &unblocked) else {
         return Vec::new();
     };
 
@@ -164,40 +177,10 @@ where
 
     while a.len() < k {
         let prev_path = a.last().unwrap().0.clone();
-        for i_spur in 0..prev_path.len().saturating_sub(1) {
-            let spur_node = prev_path[i_spur];
-            let root_path = &prev_path[..=i_spur];
-
-            let mut blocked_edges: BTreeSet<(usize, usize)> = BTreeSet::new();
-            for (path, _) in &a {
-                if path.len() > i_spur + 1 && &path[..=i_spur] == root_path {
-                    blocked_edges.insert((path[i_spur], path[i_spur + 1]));
-                }
-            }
-            let blocked_nodes: BTreeSet<usize> = root_path[..i_spur].iter().copied().collect();
-
-            if let Some((spur_path, _)) =
-                restricted_shortest_path(graph, spur_node, target, &blocked_nodes, &blocked_edges)
-            {
-                let mut total_path = root_path[..i_spur].to_vec();
-                total_path.extend(spur_path);
-                let total_cost = path_cost(graph, &total_path);
-                let already_in_a = a.iter().any(|(p, _)| *p == total_path);
-                let already_in_b = b.iter().any(|(_, p)| *p == total_path);
-                if !already_in_a && !already_in_b {
-                    b.push((total_cost, total_path));
-                }
-            }
-        }
-        if b.is_empty() {
+        collect_spur_candidates(graph, &a, &prev_path, target, &mut b);
+        let Some((cost, path)) = take_best_candidate(&mut b) else {
             break;
-        }
-        b.sort_by(|x, y| {
-            x.0.partial_cmp(&y.0)
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| x.1.cmp(&y.1))
-        });
-        let (cost, path) = b.remove(0);
+        };
         a.push((path, cost));
     }
 
@@ -207,6 +190,89 @@ where
             cost,
         })
         .collect()
+}
+
+fn collect_spur_candidates<N>(
+    graph: &AdjacencyGraph<N>,
+    accepted: &[(Vec<usize>, f64)],
+    previous_path: &[usize],
+    target: usize,
+    candidates: &mut Vec<(f64, Vec<usize>)>,
+) where
+    N: Clone + Eq + Hash + Ord,
+{
+    for spur_index in 0..previous_path.len().saturating_sub(1) {
+        let Some(candidate) = spur_candidate(graph, accepted, previous_path, spur_index, target)
+        else {
+            continue;
+        };
+        if !contains_path(accepted, candidates, &candidate.1) {
+            candidates.push(candidate);
+        }
+    }
+}
+
+fn spur_candidate<N>(
+    graph: &AdjacencyGraph<N>,
+    accepted: &[(Vec<usize>, f64)],
+    previous_path: &[usize],
+    spur_index: usize,
+    target: usize,
+) -> Option<(f64, Vec<usize>)>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    let spur_node = previous_path[spur_index];
+    let root_path = &previous_path[..=spur_index];
+    let blocked_edges = blocked_edges_for_prefix(accepted, root_path, spur_index);
+    let blocked_nodes = root_path[..spur_index].iter().copied().collect();
+    let (spur_path, _) = restricted_shortest_path(
+        graph,
+        spur_node,
+        target,
+        &Blocked {
+            nodes: &blocked_nodes,
+            edges: &blocked_edges,
+        },
+    )?;
+    let mut total_path = root_path[..spur_index].to_vec();
+    total_path.extend(spur_path);
+    let total_cost = path_cost(graph, &total_path);
+    Some((total_cost, total_path))
+}
+
+fn blocked_edges_for_prefix(
+    accepted: &[(Vec<usize>, f64)],
+    root_path: &[usize],
+    spur_index: usize,
+) -> BTreeSet<(usize, usize)> {
+    accepted
+        .iter()
+        .filter(|(path, _)| path.len() > spur_index + 1 && &path[..=spur_index] == root_path)
+        .map(|(path, _)| (path[spur_index], path[spur_index + 1]))
+        .collect()
+}
+
+fn contains_path(
+    accepted: &[(Vec<usize>, f64)],
+    candidates: &[(f64, Vec<usize>)],
+    path: &[usize],
+) -> bool {
+    accepted.iter().any(|(known, _)| known == path)
+        || candidates.iter().any(|(_, known)| known == path)
+}
+
+fn take_best_candidate(candidates: &mut Vec<(f64, Vec<usize>)>) -> Option<(f64, Vec<usize>)> {
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.sort_by(|left, right| {
+        left.0
+            .partial_cmp(&right.0)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    Some(candidates.remove(0))
 }
 
 #[cfg(test)]

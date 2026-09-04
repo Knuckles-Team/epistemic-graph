@@ -85,7 +85,7 @@ pub use random_walk::{random_walk, RandomWalkConfig};
 pub use shortest_path::{all_pairs_shortest_paths, dijkstra, shortest_path, DijkstraResult};
 pub use similarity::{
     all_pairs_similarity, cosine_similarity, jaccard_similarity, knn_similarity,
-    knn_similarity_approx, Direction, Metric, SimilarityPair,
+    knn_similarity_approx, Direction, KnnSimilarityApproxConfig, Metric, SimilarityPair,
 };
 pub use steiner::{steiner_tree, SteinerTreeResult};
 pub use triangle::{local_clustering_coefficient, triangle_count};

@@ -85,36 +85,63 @@ where
             continue; // stale heap entry: a cheaper path to `u` was found since
         }
         if u == target {
-            let mut path = Vec::new();
-            let mut cur = u;
-            loop {
-                path.push(graph.node_at(cur).clone());
-                if cur == source {
-                    break;
-                }
-                cur = prev[cur]?;
-            }
-            path.reverse();
-            return Some((path, g));
+            return reconstruct_path(graph, &prev, source, u).map(|path| (path, g));
         }
-        for &(v, w) in graph.out_edges(u) {
-            let tentative = g + w;
-            let better = match g_score[v] {
-                None => true,
-                Some(old) => tentative < old,
-            };
-            if better {
-                g_score[v] = Some(tentative);
-                prev[v] = Some(u);
-                heap.push(AStarHeapItem {
-                    f: tentative + heuristic(v),
-                    g: tentative,
-                    node: v,
-                });
-            }
-        }
+        relax_neighbors(graph, u, g, &heuristic, &mut g_score, &mut prev, &mut heap);
     }
     None
+}
+
+fn relax_neighbors<N, F>(
+    graph: &AdjacencyGraph<N>,
+    source: usize,
+    source_cost: f64,
+    heuristic: &F,
+    g_score: &mut [Option<f64>],
+    prev: &mut [Option<usize>],
+    heap: &mut BinaryHeap<AStarHeapItem>,
+) where
+    N: Clone + Eq + Hash + Ord,
+    F: Fn(usize) -> f64,
+{
+    for &(node, weight) in graph.out_edges(source) {
+        let tentative = source_cost + weight;
+        let better = match g_score[node] {
+            None => true,
+            Some(old) => tentative < old,
+        };
+        if better {
+            g_score[node] = Some(tentative);
+            prev[node] = Some(source);
+            heap.push(AStarHeapItem {
+                f: tentative + heuristic(node),
+                g: tentative,
+                node,
+            });
+        }
+    }
+}
+
+fn reconstruct_path<N>(
+    graph: &AdjacencyGraph<N>,
+    prev: &[Option<usize>],
+    source: usize,
+    target: usize,
+) -> Option<Vec<N>>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    let mut path = Vec::new();
+    let mut current = target;
+    loop {
+        path.push(graph.node_at(current).clone());
+        if current == source {
+            break;
+        }
+        current = prev[current]?;
+    }
+    path.reverse();
+    Some(path)
 }
 
 /// Great-circle distance between two `(lat, lon)` points in DEGREES, via the

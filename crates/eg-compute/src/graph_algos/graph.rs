@@ -12,24 +12,31 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::ops::Deref;
+
+#[path = "graph/storage.rs"]
+mod storage;
+#[path = "graph/topology.rs"]
+mod topology;
+#[path = "graph/views.rs"]
+mod views;
+
+use storage::{sorted_edges, GraphStorage};
+pub use topology::GraphTopology;
+pub use views::GraphViews;
 
 /// A dense, directed, weighted adjacency graph over generic node ids `N`.
 ///
 /// Built once from an adjacency list or an edge list; internal algorithms then
 /// run over compact `usize` indices (`0..node_count`) and map results back to `N`
 /// at the boundary. Parallel edges between the same ordered pair are **summed**.
+/// Stable topology and derived views are exposed through transparent deref
+/// capability layers, keeping the public method surface unchanged.
 ///
 /// CONCEPT:EG-KG.compute.graph-data-science-algorithms
 #[derive(Debug, Clone)]
 pub struct AdjacencyGraph<N> {
-    /// Compact index → node id. Sorted, unique — the determinism anchor.
-    nodes: Vec<N>,
-    /// Node id → compact index.
-    index: HashMap<N, usize>,
-    /// Outgoing edges per node, each sorted by target index, weights merged.
-    out: Vec<Vec<(usize, f64)>>,
-    /// Incoming edges per node, each sorted by source index, weights merged.
-    inc: Vec<Vec<(usize, f64)>>,
+    topology: GraphTopology<N>,
 }
 
 impl<N> AdjacencyGraph<N>
@@ -89,10 +96,12 @@ where
         let inc = inc_maps.into_iter().map(sorted_edges).collect();
 
         Self {
-            nodes: ids,
-            index,
-            out,
-            inc,
+            topology: GraphTopology::from_storage(GraphStorage {
+                nodes: ids,
+                index,
+                out,
+                inc,
+            }),
         }
     }
 
@@ -129,139 +138,14 @@ where
     {
         Self::from_edges(edges.into_iter().map(|(s, d)| (s, d, 1.0)))
     }
-
-    /// Number of nodes.
-    #[inline]
-    pub fn node_count(&self) -> usize {
-        self.nodes.len()
-    }
-
-    /// Number of directed edges (after parallel-edge merge).
-    #[inline]
-    pub fn edge_count(&self) -> usize {
-        self.out.iter().map(Vec::len).sum()
-    }
-
-    /// The nodes in compact-index order (i.e. sorted `N`).
-    #[inline]
-    pub fn nodes(&self) -> &[N] {
-        &self.nodes
-    }
-
-    /// Compact index of a node id, if present.
-    #[inline]
-    pub fn index_of(&self, node: &N) -> Option<usize> {
-        self.index.get(node).copied()
-    }
-
-    /// Node id at a compact index.
-    #[inline]
-    pub fn node_at(&self, idx: usize) -> &N {
-        &self.nodes[idx]
-    }
-
-    /// Outgoing `(neighbor_idx, weight)` edges, sorted by neighbor index.
-    #[inline]
-    pub fn out_edges(&self, idx: usize) -> &[(usize, f64)] {
-        &self.out[idx]
-    }
-
-    /// Incoming `(source_idx, weight)` edges, sorted by source index.
-    #[inline]
-    pub fn in_edges(&self, idx: usize) -> &[(usize, f64)] {
-        &self.inc[idx]
-    }
-
-    /// Weighted out-degree (sum of outgoing edge weights).
-    #[inline]
-    pub fn weighted_out_degree(&self, idx: usize) -> f64 {
-        self.out[idx].iter().map(|(_, w)| *w).sum()
-    }
-
-    /// Number of outgoing edges.
-    #[inline]
-    pub fn out_degree(&self, idx: usize) -> usize {
-        self.out[idx].len()
-    }
-
-    /// Number of incoming edges.
-    #[inline]
-    pub fn in_degree(&self, idx: usize) -> usize {
-        self.inc[idx].len()
-    }
-
-    /// Undirected neighbour set of a node as a sorted, de-duplicated index list
-    /// (union of out- and in-neighbours, self excluded). Used by the undirected
-    /// algorithms (similarity, WCC). CONCEPT:EG-KG.compute.graph-data-science-algorithms
-    pub fn undirected_neighbors(&self, idx: usize) -> Vec<usize> {
-        let mut v: Vec<usize> = Vec::with_capacity(self.out[idx].len() + self.inc[idx].len());
-        for &(t, _) in &self.out[idx] {
-            if t != idx {
-                v.push(t);
-            }
-        }
-        for &(s, _) in &self.inc[idx] {
-            if s != idx {
-                v.push(s);
-            }
-        }
-        v.sort_unstable();
-        v.dedup();
-        v
-    }
-
-    /// Build a symmetric undirected weighted adjacency (each undirected edge's
-    /// weight is the sum of both directions; self-loops kept once). Returned as
-    /// per-node sorted `(neighbor, weight)` lists over compact indices. Shared by
-    /// Louvain and weighted undirected measures. CONCEPT:EG-KG.compute.graph-data-science-algorithms
-    pub fn undirected_weighted_adjacency(&self) -> Vec<Vec<(usize, f64)>> {
-        let n = self.node_count();
-        let mut maps: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
-        for u in 0..n {
-            for &(v, w) in &self.out[u] {
-                if u == v {
-                    *maps[u].entry(u).or_insert(0.0) += w;
-                } else {
-                    *maps[u].entry(v).or_insert(0.0) += w;
-                    *maps[v].entry(u).or_insert(0.0) += w;
-                }
-            }
-        }
-        maps.into_iter().map(sorted_edges).collect()
-    }
-
-    /// Map an index-keyed score vector back to `(N, score)` pairs in node order.
-    pub(crate) fn label_scores(&self, scores: &[f64]) -> Vec<(N, f64)> {
-        self.nodes
-            .iter()
-            .cloned()
-            .zip(scores.iter().copied())
-            .collect()
-    }
-
-    /// Map compact-index communities to sorted `Vec<Vec<N>>`, communities ordered
-    /// by their smallest member for determinism.
-    pub(crate) fn label_partition(&self, membership: &[usize]) -> Vec<Vec<N>> {
-        use std::collections::BTreeMap;
-        let mut groups: BTreeMap<usize, Vec<N>> = BTreeMap::new();
-        for (i, &c) in membership.iter().enumerate() {
-            groups.entry(c).or_default().push(self.nodes[i].clone());
-        }
-        groups
-            .into_values()
-            .map(|mut members| {
-                members.sort();
-                members
-            })
-            .collect()
-    }
 }
 
-/// Turn an index→weight map into a sorted `(idx, weight)` edge list.
-fn sorted_edges(m: HashMap<usize, f64>) -> Vec<(usize, f64)> {
-    let mut v: Vec<(usize, f64)> = m.into_iter().collect();
-    v.sort_unstable_by_key(|(i, _)| *i);
-    v
+impl<N> Deref for AdjacencyGraph<N> {
+    type Target = GraphTopology<N>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.topology
+    }
 }
 
 #[cfg(test)]
