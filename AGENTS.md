@@ -793,6 +793,145 @@ action: signer-backed `eg2.` self-registration in `__commons__` as `System`, wit
 no teams or roles and the single exact scope `security:bootstrap`. All later
 operations use normal durable identity/RBAC policy.
 
+## Greenfield replacement target invariants (design-only)
+
+This section is a durable target contract for the unreleased greenfield
+replacement. It is **not** a claim that the current checkout, current runtime,
+or current package graph already satisfies these invariants. Current-state
+descriptions elsewhere in this file remain evidence and operating guidance; a
+current migration or route reference does not authorize that path in the target.
+
+- **One catalog and plane-local dispatch authorities.** The one language-neutral contract
+  catalog is the canonical `catalog.json` at
+  `agent-packages/agent-utilities/agent_utilities/protocols/epistemic_operations/schemas/v1/catalog.json`,
+  with id `urn:au-eg-query:v1:catalog`, protocol `au-eg.query.v1`, and digest
+  `sha256(canonical_json(catalog_without_digest))`; the signed release manifest
+  binds that `catalog_digest`. `plans/refactor/evidence/proposals/AUTHORITY-CONTEXT-V1.md:31-68`
+  and `plans/refactor/evidence/proposals/TARGET-DAG.md:214-219` are the canonical
+  authority/projection references. Rust `eg-types`, Python/client DTOs,
+  MessagePack, REST, MCP, CLI, workflow, and frontend types are deterministic
+  projections carrying the same catalog and source/generator digests; missing or
+  mismatched digest fails closed. The EG `eg-server` handler registry is the
+  sole EG route/capability registry; AU `ApplicationRegistryV1` is the sole AU
+  application-surface registry. They are distinct plane-local registries joined
+  by one catalog/projection and one cross-plane operation identity; no
+  competing classifier/table exists in either plane.
+- **Verified request and replay boundary.** Every protected application
+  operation/method follows `decode → verify → policy/admit → registry → handler
+  → effect → durable receipt/telemetry → response`. `/health` is dependency-free
+  liveness, `/health/ready` is fail-closed readiness, and authenticated
+  `/metrics` plus loopback-only auxiliary listeners use separately declared
+  fail-closed operational contracts; none becomes a protected route or bypasses
+  a protected effect. Verification creates one immutable
+  `VerifiedAuthorityV1`, the lossless EG projection of canonical
+  `AuthorityContextV1`/`SignedAuthorityEnvelopeV1`, carrying the complete
+  schema/request/trace/ingress, principal/authentication/delegation, tenant,
+  graph/source/placement, purpose/resource, operation, policy revision/epoch/
+  decision/scopes/capabilities, issued/expiry, nonce/idempotency, and
+  verification/admission/replay receipts; the envelope
+  binds protocol/schema/catalog/context/payload digests, signer key, algorithm,
+  canonicalization, and signature. Canonical fields and projections are defined at
+  `plans/refactor/evidence/proposals/AUTHORITY-CONTEXT-V1.md:123-208,290-345,429-461`;
+  no local alias may drop or rename them. The lossless field map binds
+  `context_digest` to the complete canonical context and
+  `request_digest`/`fingerprint` to the complete canonical operation-payload
+  `payload_digest`, `catalog_digest` to the contract/catalog digest, transport
+  `deadline` to admission timeout distinct from context/envelope `issued_at` /
+  `expires_at` and `VerifiedAuthorityV1.valid_until`, `signer_key_id`/explicit
+  signer-key version to the signer-key registry, and `StorageCryptoProfileV1.key_version` to the
+  `eg-storage` crypto owner. Storage key version is not replay scope unless the
+  canonical replay tuple and fixtures explicitly bind it. Policy may narrow,
+  never widen. The EG handler registry alone selects the handler, and the handler
+  alone reaches a protected effect; direct client/handler bypasses fail.
+- **One logical EG durable authority and public mutation boundary.** Exactly one
+  `eg-storage::StorageKernelV1` owns physical persistence, schema/MVCC,
+  snapshots, indexes, blobs, checkpoints, and outbox storage; exactly one
+  `eg-transaction::MutationKernelV1` owns mutation, authority, idempotency,
+  effect, receipt, and commit semantics (including outbox append/delivery), and
+  is the only public durable mutation boundary. Canonical state, audit,
+  cryptographic sealing/key use, receipts, and watermarks use this split;
+  transaction reaches storage only through its typed port. Verification/admission
+  durably consumes a scoped nonce and checks idempotency atomically **before**
+  registry dispatch or any effect; replay/admission receipts bind the verified
+  context/catalog and final effect receipt. The authoritative effect, receipt,
+  outbox, and watermark commit and fsync precede acknowledgement or completion.
+  Nonce/idempotency use the canonical authority tuples
+  `(protocol_id,catalog_digest,audience,principal.subject,tenant,nonce)` and
+  `(protocol_id,catalog_digest,audience,principal.subject,tenant,purpose,operation,resource,idempotency_key)`;
+  signer/storage key versions are provenance, not silent replay dimensions.
+  Caches, mirrors, replicas, and sidecars cannot ack or become another
+  transaction, audit, crypto, replay, or outbox authority
+  (`plans/refactor/evidence/proposals/AUTHORITY-CONTEXT-V1.md:679-710`).
+- **Fresh target and target-format recovery.** The replacement starts fresh
+  stores and graph/incarnation, cursor/replay, audit, index, provenance, and
+  reconciliation state, then deterministic source-of-record reingestion. It
+  follows the source-lifecycle and durable-ingestion split in
+  `plans/refactor/evidence/proposals/INGESTION-CONTRACT.md:79-117,946-971`:
+  AU `SourceLifecycleServiceV1` owns provider lifecycle orchestration, while EG
+  `IngestionAuthorityV1` owns durable raw/CAS, canonical mutation, provenance,
+  cursors, receipts, reconciliation, and outbox state; EG does not absorb
+  vendor lifecycle orchestration or define a second ingestion authority. It
+  forbids legacy-format readers/converters, dual read/write, mixed-version
+  routes, or rollback to the old system. Target-format snapshot/export/import
+  and target-native reshard/recovery are explicitly allowed; recovery never
+  interprets an old format.
+- **Query, compute, and fleet-edge ownership.** Proposed `eg-plan`/`eg-query`
+  names are subject to RF-00 target-DAG approval; the invariant is ownership:
+  the planning owner handles UQL parse/lower and federation, the query owner
+  handles execution/native leaf dispatch, and compute crates own cohesive native
+  leaves. AU/client projections cannot grow a second planner, executor, storage,
+  or dispatch authority. `workspace.yml` is the sole canonical fleet manifest;
+  repository-manager is the pinned control-plane validator/mirror/SCC/topological
+  owner, never an EG runtime or product authority, and its artifact/tree and
+  validator receipt are recorded. Every edge retains a primary `edge_class` plus
+  independent `observation_modality`, `resolution_state`, qualifiers/feature
+  guard, graph-universe membership, source/target identities, owner/disposition,
+  deletion/inversion plan digest, and raw receipt; incomplete or unresolved is
+  unknown, never zero. Accepted fleet-edge rows cover REST/AG-UI/A2A, MCP, CLI,
+  workflow/Atlas, source connectors, EG client, deployment, and observability.
+  The signed registry records GraphQL, broker, and stream as explicit
+  consumer-family rows (or explicit absent rows); each accepted row names its
+  owner, edge class/modality, contract/catalog/config identity, and cutover
+  journey. An absent or unaccepted row is not a target consumer. These
+  adapters/projections have inward dependencies only;
+  lower-level EG crates may not gain upward edges. See
+  `plans/refactor/DESIGN.md:91-126` and `plans/refactor/inventory.yml:111-216`.
+- **One durable authority with distinct work lifecycles.** One durable EG
+  authority, identity, and receipt chain backs distinct namespaces: `WorkItem`
+  has one `eg-transaction` transition owner; `AnalyticsJob` has one
+  `eg-transaction` transition/effect owner over the `eg-jobs` domain leaf;
+  `WorkLink` has one `eg-transaction::WorkLinkLedger` owner, and `eg-storage`
+  is the physical owner. AU `WorkflowRun`, `LoopRun`, and `Schedule` each have
+  one AU owner/store namespace and lifecycle. Cross-lifecycle relationships use shared typed IDs,
+  links, and receipts; queue, scheduler, task, audit, cache, and frontend views
+  are projections and never writers, acknowledgers, or status authorities.
+  Completion is reported only after the authoritative effect, receipt, outbox,
+  and watermark are durable
+  (`plans/refactor/evidence/proposals/WORKFLOW-JOB-CONTRACT.md:30-49,92-122`).
+- **Dependency, extraction, and cutover discipline.** Merge or delete duplicate
+  behavior before extracting a helper, file, or crate. Target runtime/package
+  graphs have zero SCCs; dev/test dependencies cannot pull production upward.
+  A new crate/repository requires one cohesive lower-level owner, a stable typed
+  inward boundary, at least two distinct pre-existing live consumers, and measured
+  reduction in cycles, duplicate/public surface, or dependency edges after
+  adapters/generated/release/config/operational artifacts; a forwarding façade or
+  moved cycle fails. Production/runtime/package, build/generation, dev/test,
+  deployment, generated-projection, feature/optional, dynamic/unresolved, and
+  third-party edges remain separate. Repository-manager validates that fleet graph
+  as control-plane tooling and is never an EG runtime dependency or product
+  authority. Agents, skills, services, frontends, deployments, packages,
+  documentation, and dynamic loaders cut over atomically to the same
+  catalog/config/artifact identity and target format. A signed canonical
+  `ReleaseManifest`/`ReleaseCutoverManifestV1` has one `release_id`, complete
+  consumer rows (consumer/owner/tree/artifact identity, kind, binding/entrypoint,
+  target contract/release, protocol/catalog/config digests, identity/tenant/purpose,
+  expected journey, status, edge IDs, old absence/deletion proof), and exactly
+  `pre-cutover`, `committed`, or `failed` barrier evidence: signer/signature/
+  verification, complete consumer/graph receipt sets, generated artifacts, live
+  journeys, and old-path deletion. Only the signed committed barrier activates;
+  any partial/stale projection, bypass, or surviving old path fails the gate. See
+  `plans/refactor/evidence/proposals/RELEASE-CUTOVER-CONTRACT.md:34-79,248-292`.
+
 ## Quality Bar — Leave the Codebase Clean (REQUIRED)
 
 After completing any code change, you **MUST** run the project's pre-commit suite

@@ -62,26 +62,30 @@ wrapping either native domain in a second, non-atomic graph-snapshot commit.
 
 ## Durable invariants
 
-- The sole current persisted schema is `MutationBatch` v2. Every operation carries
-  an explicit durability domain; missing fields, unknown fields, and other schema
-  versions are rejected rather than defaulted during replay.
+- The sole current persisted schema is product `MutationBatch` v1. Every batch
+  carries one `MutationScopeIdentity`: a validated tenant, a tagged `Graph`
+  logical name or typed `Native` domain/resource, an opaque incarnation, and a
+  recomputable SHA-256 identity digest. Missing fields, unknown fields, digest
+  mismatches, and every other schema version are rejected.
 - A batch has one opaque `batch_id` and deterministic idempotency key.
 - Verified principals are stored only as SHA-256 pseudonyms.
 - State-backed operations store an opaque method digest, not query text, paths,
   document bodies, or caller-provided identifiers.
-- `expected_graph_version`, placement epoch, and fencing token are checked inside
-  the same write transaction that advances the durable graph version.
+- `VersionExpectation` is explicitly `Graph`, `Native`, or capability-gated
+  `Unversioned`. Graph and native expectations must match the batch's typed scope;
+  `Unversioned` is restricted to the reserved system tenant, control-plane or
+  lifecycle domain, and a verified `UnversionedSystemMutation` capability.
+- The typed version expectation, placement epoch, and fencing token are checked
+  inside the same write transaction that advances the authoritative version.
 - A state descriptor advances exactly one checked graph-version step. Missing
   durable version state is accepted only for a true version-zero bootstrap; an
   advanced or mismatched serving projection cannot substitute its RAM version.
 - A retry after durable commit returns the stored result and reconciles RAM from
   the authoritative snapshot; it does not execute the handler again.
-- Each outbox record and projection cursor carries the current schema version, a
-  required `version_scope`, and a required `source_graph_version`. Graph-authoritative
-  rows use `version_scope=graph` and a strictly positive committed graph version.
-  Native SQL/KV/blob/job/control stores use `version_scope=non_graph` and the explicit
-  value `0`; their independent owner-domain counter is never presented as a graph
-  version.
+- Each durable receipt, outbox record, and projection cursor repeats the exact
+  `MutationScopeIdentity` and carries a typed `CommittedVersion`. Graph and native
+  commits record checked adjacent source/target versions in their own variants;
+  `None` is valid only for the capability-gated unversioned system operation.
 - Graph-domain delivery leases are consumer-specific, ordered by source graph
   version, epoch-fenced, and acknowledged in the same transaction that advances that
   projection's cursor. A cursor can advance within the same batch ordinal or to a
@@ -91,11 +95,10 @@ wrapping either native domain in a second, non-atomic graph-snapshot commit.
   the same database that owns the table rows.
 - Durable methods fail closed when an authoritative backend is unavailable.
 
-There is no online reader for the pre-v2 mutation/projection shape and no caller-
-supplied version seeding when a durable version row is absent. The earlier shape was
-never a promoted production format, so this cutover intentionally ships no permanent
-migration path. Any retained development data must be rebuilt or converted by a
-finite release-specific offline operation before it is opened by a current binary.
+The product opens only the v1 mutation-store tables. Unversioned prototype table
+names and the exact `*_v3` candidate table family are detected and quarantined
+before initialization or serving. They are never translated, interpreted as v1,
+or exposed through a current reader.
 
 The staged image limit is automatically sized from effective cgroup-aware RAM
 (bounded between 1 byte and 2 GiB). `EPISTEMIC_GRAPH_MUTATION_SNAPSHOT_MAX_BYTES`
@@ -145,11 +148,12 @@ an old epoch cannot acknowledge it. Any ordering gap fails closed, allowing a
 consumer to restart from its durable cursor and rebuild text, vector, RDF, CDC,
 audit, or lineage projections deterministically.
 
-The compact reasoning snapshot has its own required v2 schema marker. Its applied
-position always contains a positive graph version, rejects a lower watermark or a
-different batch at the same version, and is validated before load and before atomic
-replacement. Missing snapshots bootstrap from authoritative graph state; malformed
-or unsupported snapshots fail closed instead of being interpreted through defaults.
+The compact reasoning snapshot has its own required, independently versioned schema
+marker. Its applied position always contains a positive graph version, rejects a
+lower watermark or a different batch at the same version, and is validated before
+load and before atomic replacement. Missing snapshots bootstrap from authoritative
+graph state; malformed or unsupported snapshots fail closed instead of being
+interpreted through defaults.
 
 SQL table/catalog recovery follows the same durable-status rule within the SQL
 authority: a pre-commit crash reopens with neither table changes nor coordinator
@@ -160,10 +164,14 @@ its modality manifest contains counts and a payload digest, never raw embeddings
 document bodies, query text, filesystem paths, or caller names.
 
 The current-only persistence contract is guarded by
-`python scripts/check_persisted_mutation_contract.py`. It checks the required schema,
-version scopes, checked version advancement, strict watermarks, canonical wire names,
-and the closed Python MutationBatch serializer without opening a database. The same
-source-only gate parses the live `ALL_METHODS` policy ledger, the real durable
+`python scripts/check_persisted_mutation_contract.py`. It checks the typed scope
+identity and version contracts, strict watermarks, canonical wire names, and the
+closed Python MutationBatch serializer without opening a database. The companion
+`tests/test_mutation_batch_documentation_contract.py` gate requires this document,
+the Rust contract, and the store to agree on product v1, the typed identity/version
+shape, the v1 table family, and the v3 quarantine inventory. The persistence gate
+also parses the domain-owned canonical method-policy registry and iterator derived
+directly from the eleven current domain `ROWS` declarations, the real durable
 classifier and applier, the WorkItem and native-command owners, the gateway/native
 partition, dispatch route order, and the clustered consensus inventory. These sets
 must agree exactly: a stale Rust mirror, an unowned mutation, an open gateway entry,
