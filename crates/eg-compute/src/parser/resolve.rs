@@ -584,7 +584,21 @@ fn similarity_edges(nodes: &[ExtractedNode], edges: &mut Vec<ExtractedEdge>) -> 
         })
         .collect();
     // Strongest links first so the per-node cap keeps the best neighbours.
-    scored.sort_by(|x, y| y.2.partial_cmp(&x.2).unwrap_or(std::cmp::Ordering::Equal));
+    // The comparator must be a TOTAL order: `sort_by` is stable, so ordering by
+    // score alone leaves equal-score pairs in `candidates`' `HashSet` iteration
+    // order — which is per-process — and the greedy `SIMILAR_CAP_PER_NODE` loop
+    // below then admits a different edge set on every run. The pair's `sigs`
+    // indices break every tie: `sigs` is built from `nodes` in order, so they
+    // are stable across runs. (`buckets` iteration order is irrelevant: it only
+    // feeds `candidates`, a `HashSet` whose membership is order-independent —
+    // each bucket's member list is built by ascending `idx`, the skip rule reads
+    // only `members.len()`, and every pair is normalised to (min, max).)
+    scored.sort_by(|x, y| {
+        y.2.partial_cmp(&x.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| x.0.cmp(&y.0))
+            .then_with(|| x.1.cmp(&y.1))
+    });
 
     for (a, b, score) in scored {
         if *per_node.get(&a).unwrap_or(&0) >= SIMILAR_CAP_PER_NODE
@@ -734,8 +748,16 @@ fn split_csv(v: Option<&String>) -> Vec<String> {
 /// Map an import module string to the in-batch file that defines it, or `None`
 /// for external packages / unknown layouts. Handles the dominant conventions:
 /// dotted module paths (Python/Java), relative specifiers (JS/TS), and
-/// `::`-separated paths (Rust). Matching is suffix-based against the batch's
-/// file paths, so it's path-layout tolerant and never invents a target.
+/// `::`-separated paths (Rust).
+///
+/// Importer-relative forms — Rust `crate::`/`self::`/`super::` and Python
+/// leading-dot relatives — are **anchored to the importer** rather than stripped
+/// to a bare stem. Stripping `crate::reduce` to `reduce` made it suffix-match
+/// every `reduce.rs` in the batch, so `eg-viz-export/src/render.rs` could bind to
+/// `eg-compute/src/mining/reduce.rs`; `crate::` names the importer's OWN crate
+/// root, and that is exactly the information the strip threw away. An anchored
+/// path is therefore matched EXACTLY under its anchor: one that does not exist
+/// there is left unresolved rather than bound to a same-named file elsewhere.
 fn resolve_import(importer: &str, module: &str, files: &HashSet<&str>) -> Option<String> {
     let m = module
         .trim()
@@ -748,25 +770,111 @@ fn resolve_import(importer: &str, module: &str, files: &HashSet<&str>) -> Option
     if m.starts_with("./") || m.starts_with("../") {
         let base = dir_of(importer);
         let joined = normalize_join(&base, m);
-        return match_with_extensions(&joined, files);
+        return match_with_extensions(&joined, files, importer, false).filter(|f| f != importer);
     }
 
-    // Dotted (Python `a.b.c`, Java `com.foo.Bar`) or `::` (Rust) module path →
-    // slash path, then suffix-match. `crate::`/`self::`/`super::` Rust prefixes
-    // and a Python leading dot are stripped to a best-effort relative stem.
-    let stem = m
-        .trim_start_matches('.')
-        .replace("::", "/")
-        .replace('.', "/");
-    let stem = stem
-        .strip_prefix("crate/")
-        .or_else(|| stem.strip_prefix("self/"))
-        .unwrap_or(&stem)
-        .to_string();
+    // The directory a Rust file's module OWNS. A crate/module root — `mod.rs`,
+    // `lib.rs`, `main.rs` — owns its own directory; any other `a/b.rs` owns the
+    // sibling directory `a/b/` (the non-`mod.rs` layout, 943 of 992 `.rs` files
+    // in this workspace). `self::` resolves there; each `super::` climbs one
+    // level, so `super::x` from `a/b.rs` is the sibling `a/x`, not `a/../x`.
+    let module_dir = |path: &str| -> String {
+        let dir = dir_of(path);
+        let file = path.rsplit('/').next().unwrap_or(path);
+        let Some(stem) = file.strip_suffix(".rs") else {
+            return dir;
+        };
+        if matches!(stem, "mod" | "lib" | "main") {
+            dir
+        } else if dir.is_empty() {
+            stem.to_string()
+        } else {
+            format!("{dir}/{stem}")
+        }
+    };
+
+    // (anchor dir, module path relative to it) for an importer-relative form;
+    // `None` leaves an absolute/dotted path to the suffix matcher below.
+    let mut anchor: Option<(String, String)> = None;
+    if let Some(rest) = m
+        .strip_prefix("crate::")
+        .or_else(|| (m == "crate").then_some(""))
+    {
+        // Crate root: the path up to and including the importer's last `src`
+        // segment (this workspace's layout). No `src` segment — a single-file
+        // example/bench crate — falls back to the importer's own directory.
+        let segs: Vec<&str> = importer.split('/').collect();
+        let root = match segs.iter().rposition(|s| *s == "src") {
+            Some(i) => segs[..=i].join("/"),
+            None => dir_of(importer),
+        };
+        anchor = Some((root, rest.to_string()));
+    } else if m.starts_with("self::") || m.starts_with("super::") || m == "self" || m == "super" {
+        let mut base = module_dir(importer);
+        let mut rest = m;
+        loop {
+            if let Some(r) = rest.strip_prefix("self::") {
+                rest = r;
+            } else if let Some(r) = rest.strip_prefix("super::") {
+                base = dir_of(&base);
+                rest = r;
+            } else if rest == "self" || rest == "super" {
+                if rest == "super" {
+                    base = dir_of(&base);
+                }
+                rest = "";
+                break;
+            } else {
+                break;
+            }
+        }
+        anchor = Some((base, rest.to_string()));
+    } else if m.starts_with('.') {
+        // Python relative import: the first dot is the importer's own package,
+        // each further dot climbs one package.
+        let dots = m.len() - m.trim_start_matches('.').len();
+        let mut base = dir_of(importer);
+        for _ in 1..dots {
+            base = dir_of(&base);
+        }
+        anchor = Some((base, m[dots..].to_string()));
+    }
+
+    if let Some((base, rest)) = anchor {
+        // A file never depends on itself: `from . import x` inside a package's
+        // own `__init__.py` anchors back onto the importer.
+        let not_self = |hit: Option<String>| hit.filter(|f| f != importer);
+        let join = |b: &str, r: &str| -> String {
+            match (b.is_empty(), r.is_empty()) {
+                (_, true) => b.to_string(),
+                (true, false) => r.to_string(),
+                _ => format!("{b}/{r}"),
+            }
+        };
+        let rel = rest.replace("::", "/").replace('.', "/");
+        let segs: Vec<&str> = rel.split('/').filter(|s| !s.is_empty()).collect();
+        if segs.is_empty() {
+            // `from . import x` / bare `crate` — the anchor dir IS the package.
+            return not_self(match_with_extensions(&base, files, importer, true));
+        }
+        // A Rust `use` path ends in the ITEM (`crate::a::b::Thing`), so try the
+        // longest module path first and drop one trailing segment at a time.
+        for take in (1..=segs.len()).rev() {
+            let stem = join(&base, &segs[..take].join("/"));
+            if let Some(hit) = not_self(match_with_extensions(&stem, files, importer, true)) {
+                return Some(hit);
+            }
+        }
+        return None;
+    }
+
+    // Absolute dotted (Python `a.b.c`, Java `com.foo.Bar`) or `::` (Rust) module
+    // path -> slash path, then suffix-match against the batch's files.
+    let stem = m.replace("::", "/").replace('.', "/");
     if stem.is_empty() {
         return None;
     }
-    match_with_extensions(&stem, files)
+    match_with_extensions(&stem, files, importer, false).filter(|f| f != importer)
 }
 
 /// Directory portion of a file path (`a/b/c.py` → `a/b`), empty for a bare name.
@@ -798,13 +906,40 @@ fn normalize_join(base: &str, rel: &str) -> String {
 
 /// Suffix-match a module stem against the batch files, trying source extensions
 /// and package-index files (`__init__.py`, `index.ts`, `mod.rs`). Returns the
-/// matched file path. Suffix (not exact) matching tolerates repo-root prefixes
-/// that the importer's relative/dotted path omits.
-fn match_with_extensions(stem: &str, files: &HashSet<&str>) -> Option<String> {
+/// matched file path.
+///
+/// `exact` (an importer-anchored stem, already a full batch-relative path) admits
+/// only the literal path; otherwise a boundary-aware path SUFFIX also matches
+/// (`auth.py` != `oauth.py`), tolerating a repo-root prefix that a dotted module
+/// path omits.
+///
+/// Determinism: `files` is a `HashSet`, so "the first file that matches" is a
+/// per-process hash order — the same binary on the same input returned different
+/// targets on different runs. Every match for a spelling is now collected and the
+/// winner chosen by a stated TOTAL order:
+///   1. extension / index-file precedence (the outer `candidates` loop, unchanged);
+///   2. longest shared leading path-segment prefix with the importer — the file
+///      nearest the importer in the tree wins, so an exact match always beats a
+///      suffix match in a foreign subtree;
+///   3. lexicographically smallest path.
+fn match_with_extensions(
+    stem: &str,
+    files: &HashSet<&str>,
+    importer: &str,
+    exact: bool,
+) -> Option<String> {
     const EXTS: &[&str] = &[
         "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "go", "rs", "java",
     ];
     const INDEX: &[&str] = &["__init__.py", "index.ts", "index.js", "mod.rs"];
+
+    /// Leading path segments `a` and `b` share.
+    fn shared_segments(a: &str, b: &str) -> usize {
+        a.split('/')
+            .zip(b.split('/'))
+            .take_while(|(x, y)| x == y)
+            .count()
+    }
 
     let mut candidates: Vec<String> = Vec::new();
     for ext in EXTS {
@@ -815,12 +950,28 @@ fn match_with_extensions(stem: &str, files: &HashSet<&str>) -> Option<String> {
     }
 
     for cand in &candidates {
-        // Exact or path-suffix match (boundary-aware so `auth.py` ≠ `oauth.py`).
-        for f in files {
-            if *f == cand || f.ends_with(&format!("/{cand}")) {
+        if exact {
+            // Anchored: a hash lookup, and no cross-subtree fallback at all.
+            if let Some(f) = files.get(cand.as_str()) {
                 return Some((*f).to_string());
             }
+            continue;
         }
+        let suffix = format!("/{cand}");
+        let mut matches: Vec<&str> = files
+            .iter()
+            .copied()
+            .filter(|f| *f == cand.as_str() || f.ends_with(suffix.as_str()))
+            .collect();
+        if matches.is_empty() {
+            continue;
+        }
+        matches.sort_unstable_by(|a, b| {
+            shared_segments(b, importer)
+                .cmp(&shared_segments(a, importer))
+                .then_with(|| a.cmp(b))
+        });
+        return Some(matches[0].to_string());
     }
     None
 }
@@ -1176,6 +1327,144 @@ mod tests {
             "stdlib/external imports must not bind"
         );
         assert!(r.imports_unresolved >= 1);
+    }
+
+    /// Regression: `similarity_edges` sorted equal-score candidate pairs by score
+    /// only. `sort_by` is stable, so tied pairs kept the per-process `HashSet`
+    /// iteration order and the greedy `SIMILAR_CAP_PER_NODE` loop admitted a
+    /// DIFFERENT edge set on every run (measured: 72,944 vs 72,889 `similar_to`
+    /// edges from one binary on one input). A clone family larger than the cap
+    /// makes every pair a tie AND forces the cap to reject some of them; two
+    /// `index_repository` calls must still produce the identical edge sequence.
+    /// (Each `HashMap`/`HashSet` gets a fresh `RandomState`, so the two calls
+    /// really do walk the candidate set in different orders.)
+    #[test]
+    fn tied_similarity_scores_are_ordered_deterministically() {
+        // 14 structurally identical functions with distinct names → all C(14,2)
+        // pairs score 1.0, and the per-node cap (10) must reject some of them.
+        let src: Vec<(String, String)> = (0..14)
+            .map(|i| {
+                (
+                    format!("f{i}.py"),
+                    format!(
+                        "def fn{i}(seq{i}):\n    acc{i} = 0\n    for item{i} in seq{i}:\n        acc{i} = acc{i} + item{i}\n    return acc{i}\n"
+                    ),
+                )
+            })
+            .collect();
+        let batch: Vec<(String, Vec<u8>)> = src
+            .iter()
+            .map(|(p, b)| (p.clone(), b.as_bytes().to_vec()))
+            .collect();
+        let sim = |r: &IndexResult| -> Vec<(String, String)> {
+            r.edges
+                .iter()
+                .filter(|e| e.edge_type == "similar_to")
+                .map(|e| (e.source.clone(), e.target.clone()))
+                .collect()
+        };
+        let a = index_repository(&batch);
+        let b = index_repository(&batch);
+        let (ea, eb) = (sim(&a), sim(&b));
+        assert!(
+            ea.len() < 14 * 13 / 2,
+            "the per-node cap must actually reject tied pairs, got {} edges",
+            ea.len()
+        );
+        assert_eq!(ea, eb, "similar_to edge sequence must be run-independent");
+    }
+
+    /// Regression: `crate::`/`self::`/`super::` were stripped to a bare stem, so
+    /// `crate::reduce` suffix-matched EVERY `reduce.rs` in the batch and bound
+    /// `eg-viz-export/src/render.rs` to `eg-compute/src/mining/reduce.rs` — and
+    /// which one it picked varied per run. Each anchored form must resolve
+    /// inside the importer's own crate, with a same-named decoy present.
+    #[test]
+    fn rust_crate_and_super_imports_resolve_inside_the_importers_crate() {
+        let r = index_repository(&files(&[
+            ("crates/a/src/lib.rs", "use crate::reduce;\npub fn a() {}\n"),
+            ("crates/a/src/reduce.rs", "pub fn go() {}\n"),
+            ("crates/a/src/nested/sibling.rs", "pub struct Thing;\n"),
+            (
+                "crates/b/src/render.rs",
+                "use crate::reduce;\npub fn r() {}\n",
+            ),
+            ("crates/b/src/reduce.rs", "pub fn go() {}\n"),
+            (
+                "crates/b/src/nested/deep.rs",
+                "use super::sibling::Thing;\npub fn d() {}\n",
+            ),
+            ("crates/b/src/nested/sibling.rs", "pub struct Thing;\n"),
+        ]));
+        let target = |src: &str, module: &str| -> Option<String> {
+            r.edges
+                .iter()
+                .find(|e| {
+                    e.edge_type == "depends_on"
+                        && e.source == format!("file:{src}")
+                        && e.properties.get("module").map(String::as_str) == Some(module)
+                })
+                .map(|e| e.target.clone())
+        };
+        assert_eq!(
+            target("crates/b/src/render.rs", "crate::reduce").as_deref(),
+            Some("file:crates/b/src/reduce.rs"),
+            "crate:: must anchor on the importer's own crate root; edges={:?}",
+            r.edges
+        );
+        assert_eq!(
+            target("crates/a/src/lib.rs", "crate::reduce").as_deref(),
+            Some("file:crates/a/src/reduce.rs")
+        );
+        // `crates/b/src/nested/deep.rs` owns module dir `.../nested/deep`, so
+        // `super::` is `.../nested` — never crate `a`'s same-named sibling.
+        assert_eq!(
+            target("crates/b/src/nested/deep.rs", "super::sibling::Thing").as_deref(),
+            Some("file:crates/b/src/nested/sibling.rs"),
+            "super:: must stay in the importer's parent module; edges={:?}",
+            r.edges
+        );
+    }
+
+    /// The Python leading-dot relative import has the same shape and was broken
+    /// the same way: `.helper` was stripped to `helper` and suffix-matched the
+    /// whole batch. It must anchor on the importer's own package.
+    #[test]
+    fn python_relative_import_anchors_on_the_importers_package() {
+        let r = index_repository(&files(&[
+            ("pkg/helper.py", "def decoy():\n    return 0\n"),
+            ("pkg/sub/helper.py", "def real():\n    return 1\n"),
+            (
+                "pkg/sub/mod_a.py",
+                "from .helper import real\n\ndef go():\n    return real()\n",
+            ),
+            (
+                "pkg/sub/mod_b.py",
+                "from ..helper import decoy\n\ndef go():\n    return decoy()\n",
+            ),
+        ]));
+        let target = |src: &str, module: &str| -> Option<String> {
+            r.edges
+                .iter()
+                .find(|e| {
+                    e.edge_type == "depends_on"
+                        && e.source == format!("file:{src}")
+                        && e.properties.get("module").map(String::as_str) == Some(module)
+                })
+                .map(|e| e.target.clone())
+        };
+        assert_eq!(
+            target("pkg/sub/mod_a.py", ".helper").as_deref(),
+            Some("file:pkg/sub/helper.py"),
+            "single dot = the importer's own package; edges={:?}",
+            r.edges
+        );
+        assert_eq!(
+            target("pkg/sub/mod_b.py", "..helper").as_deref(),
+            Some("file:pkg/helper.py"),
+            "two dots = the parent package; edges={:?}",
+            r.edges
+        );
     }
 
     #[test]
