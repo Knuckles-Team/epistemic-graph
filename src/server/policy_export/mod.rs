@@ -35,7 +35,7 @@
 //! is the REQUIREMENT a marking imposes: `Marking.role_token` is always
 //! `marking:<name>`, mechanically, for every marking that exists. This module
 //! defines [`MarkingPredicate::RequiresRole`] as the bridge: a marking's
-//! `predicate` says a row is visible only to a principal whose `principals[…]`
+//! `predicate` says a row is visible only to a principal whose effective
 //! role set contains `marking:<name>` — the same fungible role/scope check
 //! `server::auth::bind_verified_identity` already applies at the primary
 //! protocol boundary — AND (new, proposed, not yet a live convention) that the
@@ -53,22 +53,41 @@
 //! yet renderable end-to-end. P8 (eg leg) must not claim this bridge closes
 //! that gap by itself; it only defines the target shape.
 //!
-//! # `principals` (DEC-CA-04 A2)
+//! # `caller` — one verified subject, never a population (DEC-CA-04 A2)
 //!
-//! `principals` is the **effective request-time role set**, never a read of
-//! `IsolationLayer`'s `agents: HashMap<String, AgentIdentity>` (`rbac.redb`,
-//! M7's own store). Every entry populated by this crate is the UNION of a
-//! verified token's `roles` (realm + every `resource_access.*` client role) and
-//! `scopes`/`scp` claims — see [`crate::server::oidc::JwtValidator::validate_claims`]
-//! and this module's `tests::live_token_proves_principals_are_claims_derived`
+//! A bundle carries exactly one [`BundleCaller`]: the **verified caller this
+//! bundle was generated for**, and its **effective request-time role set** —
+//! never a read of `IsolationLayer`'s `agents: HashMap<String, AgentIdentity>`
+//! (`rbac.redb`, M7's own store), and **never a caller-supplied map**. The role
+//! set is the UNION of a verified token's `roles` (realm + every
+//! `resource_access.*` client role) and `scopes`/`scp` claims — see
+//! [`crate::server::oidc::JwtValidator::validate_claims`] and this module's
+//! `tests::live_token_proves_caller_roles_are_claims_derived_not_rbac_redb`
 //! for the literal proof (a real RS256-signed, issuer/audience/expiry-verified
 //! token, run through the SAME code the primary protocol boundary uses,
 //! against an `IsolationLayer` that has never heard of the subject).
-//! `server::dispatch`'s `Method::PolicyExport` arm additionally folds the
-//! CALLING principal's own live claims into `principals` on every export call,
-//! so the bundle is partly self-populating from real traffic rather than
-//! requiring a separate Keycloak-enumeration job to exist first (that job
-//! remains a named gap — see the module-level "Owed" note below).
+//!
+//! **Why a singular `caller` and not a `principals` map.** Until 2026-09-04
+//! this module exported `principals: BTreeMap<subject, roles>`, seeded from a
+//! caller-supplied `Method::PolicyExport.principals` field with the calling
+//! principal's own claims folded in. Two defects, one contract:
+//!
+//! 1. the map was **forgeable** — a caller named the subjects and the roles it
+//!    wanted the bundle to assert, and eg has no principal inventory to check
+//!    them against; and
+//! 2. a `BTreeMap<subject, roles>` **is a population type**. Every consumer
+//!    that receives one is entitled to ask it "who holds role R?" and to read
+//!    the absence of a subject as "that subject does not hold R". au's CA-26
+//!    Trino renderer did exactly that, and rendered the answer as an
+//!    *absence of restriction* (`permissioning_external_sync.py`'s
+//!    `role_holders`). A one-entry map is structurally indistinguishable from
+//!    "this is everyone".
+//!
+//! [`BundleCaller`] is not a population type, so a deny-list renderer is
+//! structurally unable to mistake it for one. When an engine-owned principal
+//! inventory exists it gets its own field with its own provenance, and every
+//! consumer is forced to re-read the contract at that point rather than
+//! silently widening (RF-ADR-001: no field retained "just in case").
 //!
 //! ## The `"*"` vs `kg:admin` asymmetry (DEC-CA-04, unresolved, picked here)
 //!
@@ -120,10 +139,14 @@
 //! # Epoch / versioning
 //!
 //! `generated_from` is a deterministic `sha256` content hash over
-//! `(tenant, sorted graphs, sorted principals+roles, sorted marking names)` —
-//! see [`compute_epoch`]. Identical inputs always yield the identical epoch;
-//! adding, removing, or renaming a marking (or a principal's role set)
-//! changes it. This satisfies the negative test this lane owns: a Marking
+//! `(tenant, sorted graphs, sorted marking names)` — see [`compute_epoch`].
+//! The **caller is deliberately not hashed**: it is bundle metadata, not
+//! policy content, and hashing it would give two callers holding identical
+//! policy two different epochs, turning `generated_from` into a cache-buster
+//! instead of the cache key au's staleness contract ("never longer than one
+//! policy epoch stale") depends on. Identical policy inputs always yield the
+//! identical epoch; adding, removing, or renaming a marking changes it. This
+//! satisfies the negative test this lane owns: a Marking
 //! added to `marking_names` is invisible in a bundle generated from the OLD
 //! input and visible (with a NEW `generated_from`) in one generated from the
 //! new input — see `tests::marking_appears_only_in_the_next_epoch`.
@@ -144,12 +167,15 @@
 //!
 //! This module has no live enumeration of Keycloak realm `homelab`'s subject
 //! population (DEC-CA-04 A2 marks that source `INFERRED`) and adds no durable
-//! `principals` store of its own (kept out of `DURABLE_STORES` deliberately —
-//! see this crate's `access.rs`/`durable_stores.rs` gates) — `principals`
-//! today only ever contains a caller-supplied seed plus whichever principals
-//! have themselves called `/policy/export` or `Method::PolicyExport`. A full
-//! population requires either a Keycloak admin-API sync job or a durable
-//! observed-principal store; both are named, not built, here.
+//! principal store of its own (kept out of `DURABLE_STORES` deliberately —
+//! see this crate's `access.rs`/`durable_stores.rs` gates). A bundle therefore
+//! describes **exactly one subject**: the verified caller. A population
+//! requires either a Keycloak admin-API sync job or a durable
+//! observed-principal store; both are named, not built, here — and until one
+//! exists, no consumer may derive "who else holds role R" from a bundle. See
+//! au's `permissioning_external_sync.py` for the applier-side consequence: a
+//! per-subject deny-list is not derivable from a single-caller bundle and is
+//! reported as not-applicable rather than rendered as a catch-all.
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -190,9 +216,57 @@ pub struct PolicyBundle {
     /// `tenant_sharing.accessible_graphs`, never this crate's dead
     /// `IsolationLayer::accessible_graphs` (see the module doc's trap note).
     pub graphs: Vec<String>,
-    pub principals: BTreeMap<String, Vec<String>>,
+    /// The ONE verified caller this bundle was generated for. Never a
+    /// population, never caller-supplied — see the module doc's `caller`
+    /// section for why the `principals` map it replaced was both forgeable and
+    /// structurally misreadable as an inventory.
+    pub caller: BundleCaller,
     pub markings: BTreeMap<String, MarkingPolicyEntry>,
     pub renderings: Renderings,
+}
+
+/// The single authenticated subject a [`PolicyBundle`] was generated for.
+///
+/// eg has no engine-owned principal inventory (see the module doc's "Owed"
+/// section), so a bundle describes exactly one subject and never a population.
+/// A consumer MUST NOT read this as "the set of principals" — in particular it
+/// cannot answer "who holds role R?", and the absence of a subject here says
+/// nothing whatsoever about that subject's roles.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BundleCaller {
+    /// The verified subject — `RequestContextClaims.principal` on the RPC
+    /// path, the OIDC token's `sub` on the HTTP path. Both are identities the
+    /// server verified before this type could be built; neither is read from
+    /// the method body.
+    pub subject: String,
+    /// The subject's effective request-time role set: the sorted, deduplicated
+    /// UNION of its verified roles and scopes (DEC-CA-04 A2 — claims-derived,
+    /// never `rbac.redb`/`IsolationLayer.agents`).
+    pub effective_roles: Vec<String>,
+}
+
+impl BundleCaller {
+    /// Build the caller block from an identity the server has ALREADY
+    /// verified. There is no constructor from method-body data: the wire
+    /// contract (`Method::PolicyExport`) carries no principal field at all, so
+    /// this is the only shape a bundle's subject can come from.
+    pub(crate) fn from_verified<'a>(
+        subject: &str,
+        roles: impl IntoIterator<Item = &'a String>,
+        scopes: impl IntoIterator<Item = &'a String>,
+    ) -> Self {
+        let effective_roles: Vec<String> = roles
+            .into_iter()
+            .chain(scopes)
+            .cloned()
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect();
+        Self {
+            subject: subject.to_string(),
+            effective_roles,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -203,7 +277,7 @@ pub struct MarkingPolicyEntry {
 }
 
 /// Left empty by this lane per `DEC-CA-04`'s generator/applier split — CA-26
-/// populates these from the SAME `principals`/`markings` this bundle carries.
+/// populates these from the SAME `caller`/`markings` this bundle carries.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Renderings {
     #[serde(default)]
@@ -223,8 +297,8 @@ pub struct Renderings {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MarkingPredicate {
     RequiresRole {
-        /// The role token a principal's `principals[subject]` entry must
-        /// contain to see a row carrying this marking. Always
+        /// The role token a principal's effective role set must contain to
+        /// see a row carrying this marking. Always
         /// `{MARKING_ROLE_PREFIX}{marking name}`.
         role: String,
         /// The per-row column/property name a rendering target's schema must
@@ -254,15 +328,23 @@ pub struct MarkingDef {
 pub struct GenerateBundleInput {
     pub tenant: String,
     pub graphs: Vec<String>,
-    pub principals: BTreeMap<String, Vec<String>>,
     pub marking_names: Vec<MarkingDef>,
 }
 
-/// Generate a [`PolicyBundle`] from `input`. Fails LOUDLY (never emits a
-/// partial/empty bundle a consumer could mistake for "no restrictions") on any
-/// malformed input: empty tenant, empty/duplicate graphs, an empty/duplicate/
-/// out-of-charset marking name, or an empty principal subject/role string.
-pub fn generate_bundle(input: &GenerateBundleInput) -> Result<PolicyBundle, String> {
+/// Generate a [`PolicyBundle`] for `caller` from `input`. Fails LOUDLY (never
+/// emits a partial/empty bundle a consumer could mistake for "no restrictions")
+/// on any malformed input: empty tenant, empty/duplicate graphs, an
+/// empty/duplicate/out-of-charset marking name, or an empty caller
+/// subject/role string.
+///
+/// `caller` is a separate argument, not a field of [`GenerateBundleInput`],
+/// precisely because every field of `input` IS caller-supplied and the caller
+/// block is not: it can only be built by [`BundleCaller::from_verified`] from
+/// an identity the server already verified.
+pub fn generate_bundle(
+    caller: &BundleCaller,
+    input: &GenerateBundleInput,
+) -> Result<PolicyBundle, String> {
     let tenant = input.tenant.trim();
     if tenant.is_empty() {
         return Err(
@@ -329,21 +411,23 @@ pub fn generate_bundle(input: &GenerateBundleInput) -> Result<PolicyBundle, Stri
         );
     }
 
-    for (subject, roles) in &input.principals {
-        if subject.trim().is_empty() {
-            return Err("policy bundle generation rejects an empty principal subject".to_string());
-        }
-        for role in roles {
-            if role.trim().is_empty() {
-                return Err(format!(
-                    "policy bundle generation rejects an empty role string for principal \
-                     '{subject}'"
-                ));
-            }
+    if caller.subject.trim().is_empty() {
+        return Err(
+            "policy bundle generation rejects an empty caller subject -- a bundle always \
+             names the ONE verified subject it was generated for"
+                .to_string(),
+        );
+    }
+    for role in &caller.effective_roles {
+        if role.trim().is_empty() {
+            return Err(format!(
+                "policy bundle generation rejects an empty role string for caller '{}'",
+                caller.subject
+            ));
         }
     }
 
-    let generated_from = compute_epoch(tenant, &input.graphs, &input.principals, &markings);
+    let generated_from = compute_epoch(tenant, &input.graphs, &markings);
 
     Ok(PolicyBundle {
         version: POLICY_BUNDLE_FORMAT_VERSION.to_string(),
@@ -351,7 +435,7 @@ pub fn generate_bundle(input: &GenerateBundleInput) -> Result<PolicyBundle, Stri
         governs: GOVERNS.iter().map(|s| s.to_string()).collect(),
         tenant: tenant.to_string(),
         graphs: input.graphs.clone(),
-        principals: input.principals.clone(),
+        caller: caller.clone(),
         markings,
         renderings: Renderings::default(),
     })
@@ -363,10 +447,14 @@ pub fn generate_bundle(input: &GenerateBundleInput) -> Result<PolicyBundle, Stri
 /// GENERATED map (keys are the validated, deduplicated marking names), so
 /// hashing it is equivalent to hashing the validated `marking_names` input but
 /// avoids computing the predicate twice.
+///
+/// The CALLER is deliberately absent from this hash: it is bundle metadata,
+/// not policy content. Hashing it would give two callers holding identical
+/// policy two different epochs, which breaks `generated_from` as the cache key
+/// au's "never longer than one policy epoch stale" contract reads it as.
 fn compute_epoch(
     tenant: &str,
     graphs: &[String],
-    principals: &BTreeMap<String, Vec<String>>,
     markings: &BTreeMap<String, MarkingPolicyEntry>,
 ) -> String {
     let mut hasher = Sha256::new();
@@ -379,18 +467,7 @@ fn compute_epoch(
         hasher.update(graph.as_bytes());
         hasher.update(b"\0");
     }
-    // `principals`/`markings` are `BTreeMap`s -- iteration order is already
-    // sorted by key.
-    for (subject, roles) in principals {
-        hasher.update(subject.as_bytes());
-        hasher.update(b"\0");
-        let mut sorted_roles: Vec<&str> = roles.iter().map(String::as_str).collect();
-        sorted_roles.sort_unstable();
-        for role in sorted_roles {
-            hasher.update(role.as_bytes());
-            hasher.update(b"\0");
-        }
-    }
+    // `markings` is a `BTreeMap` -- iteration order is already sorted by key.
     for (name, entry) in markings {
         hasher.update(name.as_bytes());
         hasher.update(b"\0");
@@ -421,7 +498,7 @@ fn is_admin_claims(
 
 #[cfg(feature = "oidc")]
 mod http {
-    use super::{generate_bundle, is_admin_claims, GenerateBundleInput, MarkingDef};
+    use super::{generate_bundle, is_admin_claims, BundleCaller, GenerateBundleInput, MarkingDef};
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -583,25 +660,21 @@ mod http {
             })
             .collect();
 
-        let mut roles: Vec<String> = claims
-            .roles
-            .iter()
-            .chain(claims.scopes.iter())
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        roles.sort();
-        let mut principals = BTreeMap::new();
-        principals.insert(claims.subject.clone(), roles);
+        // DEC-CA-04 A2: the bundle's caller block is derived from the token
+        // this request already proved, never from the query string. There is
+        // no `?principal=` parameter and there never was one.
+        let caller = BundleCaller::from_verified(
+            &claims.subject,
+            claims.roles.iter(),
+            claims.scopes.iter(),
+        );
 
         let input = GenerateBundleInput {
             tenant,
             graphs,
-            principals,
             marking_names,
         };
-        match generate_bundle(&input) {
+        match generate_bundle(&caller, &input) {
             Ok(bundle) => match serde_json::to_string(&bundle) {
                 Ok(body) => write_response(stream, 200, "OK", &body).await,
                 Err(error) => {
@@ -634,8 +707,8 @@ mod http {
     /// No issuer configured ⇒ every request is denied (fail-closed) — there is
     /// no static-secret fallback for this surface, unlike `/sparql`/KV-cache:
     /// this endpoint needs REAL claims (a subject + role/scope set) to
-    /// populate `principals` and to gate admin, which a shared static secret
-    /// cannot provide.
+    /// populate the bundle's `caller` block and to gate admin, which a shared
+    /// static secret cannot provide.
     pub async fn serve(listener: TcpListener) {
         if let Err(error) = crate::server::require_loopback_listener(&listener) {
             tracing::error!("policy-export listener refused: {error}");
@@ -687,16 +760,18 @@ pub async fn serve(_listener: tokio::net::TcpListener) {
 mod tests {
     use super::*;
 
+    fn caller_fixture() -> BundleCaller {
+        BundleCaller::from_verified(
+            "svc:planner",
+            ["kg:write".to_string(), "kg:read".to_string()].iter(),
+            std::iter::empty(),
+        )
+    }
+
     fn input_with_one_marking() -> GenerateBundleInput {
-        let mut principals = BTreeMap::new();
-        principals.insert(
-            "svc:planner".to_string(),
-            vec!["kg:read".to_string(), "kg:write".to_string()],
-        );
         GenerateBundleInput {
             tenant: "tenant-a".to_string(),
             graphs: vec!["tenant:tenant-a".to_string(), "__commons__".to_string()],
-            principals,
             marking_names: vec![MarkingDef {
                 name: "confidential".to_string(),
                 requires_audit: true,
@@ -707,7 +782,8 @@ mod tests {
     /// W03: a known marking set -> the expected bundle JSON shape, verbatim.
     #[test]
     fn known_marking_set_produces_the_expected_bundle_json() {
-        let bundle = generate_bundle(&input_with_one_marking()).expect("valid input");
+        let bundle =
+            generate_bundle(&caller_fixture(), &input_with_one_marking()).expect("valid input");
         assert_eq!(bundle.version, POLICY_BUNDLE_FORMAT_VERSION);
         assert_eq!(bundle.governs, vec!["M1".to_string()]);
         assert_eq!(bundle.tenant, "tenant-a");
@@ -718,9 +794,13 @@ mod tests {
         assert!(bundle.renderings.trino.is_empty());
         assert!(bundle.renderings.opensearch.is_empty());
         assert!(bundle.renderings.lakekeeper.is_empty());
+        assert_eq!(bundle.caller.subject, "svc:planner");
         assert_eq!(
-            bundle.principals.get("svc:planner").cloned(),
-            Some(vec!["kg:read".to_string(), "kg:write".to_string()])
+            bundle.caller.effective_roles,
+            vec!["kg:read".to_string(), "kg:write".to_string()],
+            "the caller block is the sorted, deduplicated union of the verified roles and \
+             scopes -- and it is a SINGLE subject, not a map a consumer could read as a \
+             population"
         );
         let entry = bundle
             .markings
@@ -741,52 +821,52 @@ mod tests {
     /// W07: malformed-registry-errors-loudly, one case per malformation.
     #[test]
     fn malformed_input_errors_loudly_never_a_partial_bundle() {
+        let caller = caller_fixture();
+
         let mut empty_tenant = input_with_one_marking();
         empty_tenant.tenant = "   ".to_string();
-        assert!(generate_bundle(&empty_tenant).is_err());
+        assert!(generate_bundle(&caller, &empty_tenant).is_err());
 
         let mut empty_graphs = input_with_one_marking();
         empty_graphs.graphs.clear();
-        assert!(generate_bundle(&empty_graphs).is_err());
+        assert!(generate_bundle(&caller, &empty_graphs).is_err());
 
         let mut dup_graphs = input_with_one_marking();
         dup_graphs.graphs.push(dup_graphs.graphs[0].clone());
-        assert!(generate_bundle(&dup_graphs).is_err());
+        assert!(generate_bundle(&caller, &dup_graphs).is_err());
 
         let mut empty_marking_name = input_with_one_marking();
         empty_marking_name.marking_names.push(MarkingDef {
             name: String::new(),
             requires_audit: false,
         });
-        assert!(generate_bundle(&empty_marking_name).is_err());
+        assert!(generate_bundle(&caller, &empty_marking_name).is_err());
 
         let mut bad_charset = input_with_one_marking();
         bad_charset.marking_names.push(MarkingDef {
             name: "not a valid name!".to_string(),
             requires_audit: false,
         });
-        assert!(generate_bundle(&bad_charset).is_err());
+        assert!(generate_bundle(&caller, &bad_charset).is_err());
 
         let mut dup_marking = input_with_one_marking();
         dup_marking.marking_names.push(MarkingDef {
             name: "confidential".to_string(),
             requires_audit: false,
         });
-        assert!(generate_bundle(&dup_marking).is_err());
+        assert!(generate_bundle(&caller, &dup_marking).is_err());
 
-        let mut empty_principal_subject = input_with_one_marking();
-        empty_principal_subject
-            .principals
-            .insert(String::new(), vec!["kg:read".to_string()]);
-        assert!(generate_bundle(&empty_principal_subject).is_err());
+        let empty_subject = BundleCaller {
+            subject: "   ".to_string(),
+            effective_roles: vec!["kg:read".to_string()],
+        };
+        assert!(generate_bundle(&empty_subject, &input_with_one_marking()).is_err());
 
-        let mut empty_role = input_with_one_marking();
-        empty_role
-            .principals
-            .get_mut("svc:planner")
-            .unwrap()
-            .push(String::new());
-        assert!(generate_bundle(&empty_role).is_err());
+        let empty_role = BundleCaller {
+            subject: "svc:planner".to_string(),
+            effective_roles: vec!["kg:read".to_string(), String::new()],
+        };
+        assert!(generate_bundle(&empty_role, &input_with_one_marking()).is_err());
     }
 
     /// W07 negative test (also the lane's own acceptance gate 4): a Marking
@@ -795,7 +875,9 @@ mod tests {
     /// AFTER it.
     #[test]
     fn marking_appears_only_in_the_next_epoch() {
-        let before = generate_bundle(&input_with_one_marking()).expect("valid input");
+        let caller = caller_fixture();
+        let before =
+            generate_bundle(&caller, &input_with_one_marking()).expect("valid input");
         assert!(!before.markings.contains_key("restricted"));
 
         let mut input_after = input_with_one_marking();
@@ -803,7 +885,7 @@ mod tests {
             name: "restricted".to_string(),
             requires_audit: false,
         });
-        let after = generate_bundle(&input_after).expect("valid input");
+        let after = generate_bundle(&caller, &input_after).expect("valid input");
         assert!(after.markings.contains_key("restricted"));
         assert!(before.markings.contains_key("confidential"));
         assert!(after.markings.contains_key("confidential"));
@@ -815,8 +897,74 @@ mod tests {
         );
 
         // Same input twice -> same epoch (deterministic, not wall-clock-based).
-        let after_again = generate_bundle(&input_after).expect("valid input");
+        let after_again = generate_bundle(&caller, &input_after).expect("valid input");
         assert_eq!(after.generated_from, after_again.generated_from);
+    }
+
+    /// C-8: the caller is bundle METADATA, not policy content, so it must not
+    /// perturb `generated_from`. Two different callers holding identical policy
+    /// get the identical epoch -- otherwise au's "never longer than one policy
+    /// epoch stale" contract reads a cache-buster instead of a cache key.
+    #[test]
+    fn the_caller_does_not_perturb_the_epoch() {
+        let input = input_with_one_marking();
+        let one = generate_bundle(&caller_fixture(), &input).expect("valid input");
+        let other = generate_bundle(
+            &BundleCaller::from_verified(
+                "svc:other-caller",
+                ["kg:admin".to_string()].iter(),
+                std::iter::empty(),
+            ),
+            &input,
+        )
+        .expect("valid input");
+        assert_ne!(one.caller.subject, other.caller.subject);
+        assert_eq!(
+            one.generated_from, other.generated_from,
+            "two callers over identical policy must share one epoch (C-8)"
+        );
+    }
+
+    /// The deleted contract, proven deleted at the WIRE, not just in the
+    /// struct: a `Method::PolicyExport` body carrying the old `principals`
+    /// field is REJECTED, never silently truncated. `Method` is
+    /// `#[serde(tag = "method", content = "params", deny_unknown_fields)]`, so
+    /// a client that keeps sending it fails loudly.
+    #[test]
+    fn a_wire_body_carrying_the_deleted_principals_field_is_rejected() {
+        let legal = serde_json::json!({
+            "method": "PolicyExport",
+            "params": {
+                "tenant": "tenant-a",
+                "graphs": ["tenant:tenant-a"],
+                "marking_names": ["confidential"],
+            }
+        });
+        serde_json::from_value::<eg_types::protocol::Method>(legal)
+            .expect("a body without `principals` still decodes");
+
+        let forged = serde_json::json!({
+            "method": "PolicyExport",
+            "params": {
+                "tenant": "tenant-a",
+                "graphs": ["tenant:tenant-a"],
+                "principals": {"svc:someone-else": ["marking:confidential"]},
+                "marking_names": ["confidential"],
+            }
+        });
+        assert!(
+            serde_json::from_value::<eg_types::protocol::Method>(forged.clone()).is_err(),
+            "a caller-supplied `principals` map must be REJECTED, not ignored"
+        );
+
+        // Same proof against the codec the live wire actually uses
+        // (`server::transport` decodes with `rmp_serde`), not just serde_json:
+        // a named-map msgpack body carrying the deleted field must fail too.
+        let packed = rmp_serde::to_vec_named(&forged).expect("encode forged body");
+        assert!(
+            rmp_serde::from_slice::<eg_types::protocol::Method>(&packed).is_err(),
+            "the msgpack path must reject the deleted field as well as the JSON path"
+        );
     }
 
     /// Acceptance gate 5 (known-bad, function level): a caller lacking `*`/
@@ -846,8 +994,8 @@ mod tests {
         );
     }
 
-    // ── Live-token proof (DEC-CA-04 A2): `principals` is claims-derived, never
-    // `IsolationLayer.agents`/`rbac.redb` ──────────────────────────────────────
+    // ── Live-token proof (DEC-CA-04 A2): the `caller` block is claims-derived,
+    // never `IsolationLayer.agents`/`rbac.redb` ───────────────────────────────
 
     #[cfg(feature = "oidc")]
     mod live_token_proof {
@@ -902,15 +1050,15 @@ mod tests {
         /// A real RS256-signed, issuer/audience/expiry-verified token shaped
         /// exactly like a Keycloak realm `homelab` access token: `realm_access.
         /// roles`, one `resource_access.<client>.roles` block, and a
-        /// space-delimited `scope` claim -- proves `principals` is populated
-        /// from the token's OWN claims (via the SAME `oidc::JwtValidator::
+        /// space-delimited `scope` claim -- proves the bundle's `caller` block
+        /// is populated from the token's OWN claims (via the SAME `oidc::JwtValidator::
         /// validate_claims` the primary protocol boundary uses), completely
         /// independent of `IsolationLayer.agents`/`rbac.redb`: the
         /// `IsolationLayer` built below has NEVER heard of this subject (no
         /// `register_agent` call at all) and yet the effective role set below
         /// is exactly right -- because nothing in this path ever consults it.
         #[test]
-        fn live_token_proves_principals_are_claims_derived_not_rbac_redb() {
+        fn live_token_proves_caller_roles_are_claims_derived_not_rbac_redb() {
             let subject = "f47ac10b-58cc-4372-a567-0e02b2c3d479"; // Keycloak-shaped UUID subject
             let token = sign(&serde_json::json!({
                 "sub": subject,
@@ -937,20 +1085,17 @@ mod tests {
                 "this subject was never registered in rbac.redb"
             );
 
-            // The bundle's `principals` entry is built the SAME way
+            // The bundle's `caller` block is built the SAME way
             // `server::dispatch`'s `Method::PolicyExport` arm builds it: the
-            // union of the VERIFIED token's roles and scopes, sorted.
-            let mut effective_roles: Vec<String> = verified_claims
-                .roles
-                .iter()
-                .chain(verified_claims.scopes.iter())
-                .cloned()
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            effective_roles.sort();
+            // union of the VERIFIED token's roles and scopes, sorted -- through
+            // the one shared constructor, so there is no second definition.
+            let caller = BundleCaller::from_verified(
+                &verified_claims.subject,
+                verified_claims.roles.iter(),
+                verified_claims.scopes.iter(),
+            );
             assert_eq!(
-                effective_roles,
+                caller.effective_roles,
                 vec![
                     "kg-reader".to_string(),
                     "kg:read".to_string(),
@@ -960,19 +1105,19 @@ mod tests {
                  client's roles, and the scope claim -- exactly what reached rbac.redb: nothing"
             );
 
-            let mut principals = BTreeMap::new();
-            principals.insert(subject.to_string(), effective_roles.clone());
             let input = GenerateBundleInput {
                 tenant: "tenant-a".to_string(),
                 graphs: vec!["tenant:tenant-a".to_string(), "__commons__".to_string()],
-                principals,
                 marking_names: vec![],
             };
-            let bundle = generate_bundle(&input).expect("valid input");
+            let bundle = generate_bundle(&caller, &input).expect("valid input");
             assert_eq!(
-                bundle.principals.get(subject).cloned(),
-                Some(effective_roles),
-                "the bundle's principals entry is exactly the live token's effective role set"
+                bundle.caller.subject, subject,
+                "the bundle names the verified token's OWN subject"
+            );
+            assert_eq!(
+                bundle.caller.effective_roles, caller.effective_roles,
+                "the bundle's caller block is exactly the live token's effective role set"
             );
 
             // Admin definition proof, against the SAME live claims: this
