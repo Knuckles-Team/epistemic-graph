@@ -107,11 +107,9 @@ pub fn resolve(files: &[(String, Vec<u8>)], results: &[ParseResult]) -> IndexRes
 
     let mut inputs = ResolutionInputs::default();
     collect_resolution_inputs(results, &mut out, &mut inputs);
-    let bases_of = build_bases_of(&inputs.class_by_name);
+    let bases_of = build_bases_of(&inputs.families);
     let context = ResolutionContext {
-        def_index: &inputs.def_index,
-        scoped: &inputs.scoped,
-        class_by_name: &inputs.class_by_name,
+        families: &inputs.families,
         bases_of: &bases_of,
     };
 
@@ -123,7 +121,7 @@ pub fn resolve(files: &[(String, Vec<u8>)], results: &[ParseResult]) -> IndexRes
     out.calls_type_resolved = calls.type_resolved;
 
     // ── Structural edges: class → base (`inherits`) / interface (`realizes`) ──
-    let structural = resolve_structural_edges(&inputs.class_by_name, &mut inputs.edges);
+    let structural = resolve_structural_edges(&inputs.families, &mut inputs.edges);
     out.inherits_edges = structural.inherits;
     out.realizes_edges = structural.realizes;
 
@@ -145,25 +143,35 @@ pub fn resolve(files: &[(String, Vec<u8>)], results: &[ParseResult]) -> IndexRes
     out
 }
 
+/// The symbol indexes of ONE language family (see [`call_family`]). Call and
+/// class resolution never reach outside the family of the file being resolved:
+/// a Python call site cannot name a Rust `fn`, so a same-named definition in
+/// another family is not a weaker candidate, it is not a candidate at all.
 #[derive(Default)]
-struct ResolutionInputs {
+struct LangIndex {
     // name → definitions (functions, methods, classes). Built first so a call in
-    // any file can resolve to a def in any other.
+    // any file can resolve to a def in any other file OF THIS FAMILY.
     def_index: HashMap<String, Vec<Def>>,
     // (class scope, method name) → method node ids, for receiver-scoped calls.
     scoped: HashMap<(String, String), Vec<String>>,
     // class name → its definitions (for structural edges + scoped lookup).
     class_by_name: HashMap<String, Vec<ClassDef>>,
+}
+
+#[derive(Default)]
+struct ResolutionInputs {
+    // Symbol indexes PARTITIONED by language family, so a cross-language bind is
+    // unrepresentable rather than merely filtered out at each decision point.
+    families: HashMap<&'static str, LangIndex>,
     // Carry the (file→module) import facts to resolve after node merge.
     import_raw: Vec<(String, String)>,
     edges: Vec<ExtractedEdge>,
 }
 
 struct ResolutionContext<'a> {
-    def_index: &'a HashMap<String, Vec<Def>>,
-    scoped: &'a HashMap<(String, String), Vec<String>>,
-    class_by_name: &'a HashMap<String, Vec<ClassDef>>,
-    bases_of: &'a HashMap<String, Vec<String>>,
+    families: &'a HashMap<&'static str, LangIndex>,
+    /// Per family: class name → its base/interface names.
+    bases_of: &'a HashMap<&'static str, HashMap<String, Vec<String>>>,
 }
 
 /// Intermediate caller data kept owned while resolution appends edges.
@@ -244,49 +252,57 @@ fn index_node(node: &ExtractedNode, inputs: &mut ResolutionInputs) {
 }
 
 fn index_symbol(node: &ExtractedNode, name: &str, file_path: &str, inputs: &mut ResolutionInputs) {
-    let symbol_type = node.properties.get("symbol_type").map(String::as_str);
-    let scope = node.properties.get("scope").cloned().unwrap_or_default();
-    let arity = node.properties.get("arity").and_then(|a| a.parse().ok());
-    let definition = Def {
-        id: node.node_id.clone(),
-        file_path: file_path.to_string(),
-        arity,
-    };
-
-    match symbol_type {
-        Some("Function") => {
-            inputs
-                .def_index
-                .entry(name.to_string())
-                .or_default()
-                .push(definition);
-            if !scope.is_empty() {
-                inputs
-                    .scoped
-                    .entry((scope, name.to_string()))
-                    .or_default()
-                    .push(node.node_id.clone());
-            }
-        }
-        Some("Class") => {
-            inputs
-                .def_index
-                .entry(name.to_string())
-                .or_default()
-                .push(definition);
-            inputs
-                .class_by_name
-                .entry(name.to_string())
-                .or_default()
-                .push(ClassDef {
-                    id: node.node_id.clone(),
-                    file_path: file_path.to_string(),
-                    bases: split_csv(node.properties.get("bases")),
-                    interfaces: split_csv(node.properties.get("interfaces")),
-                });
-        }
+    // Index into the DEFINING file's own language family: a definition is only
+    // ever a candidate for a call site written in the same language.
+    match node.properties.get("symbol_type").map(String::as_str) {
+        Some("Function") => index_function(node, name, family_index(inputs, file_path), file_path),
+        Some("Class") => index_class(node, name, family_index(inputs, file_path), file_path),
         _ => {}
     }
+}
+
+/// The symbol index of `file_path`'s language family, created on first use.
+fn family_index<'a>(inputs: &'a mut ResolutionInputs, file_path: &str) -> &'a mut LangIndex {
+    inputs.families.entry(call_family(file_path)).or_default()
+}
+
+fn index_function(node: &ExtractedNode, name: &str, index: &mut LangIndex, file_path: &str) {
+    push_definition(node, name, index, file_path);
+    let scope = node.properties.get("scope").cloned().unwrap_or_default();
+    if scope.is_empty() {
+        return;
+    }
+    index
+        .scoped
+        .entry((scope, name.to_string()))
+        .or_default()
+        .push(node.node_id.clone());
+}
+
+fn index_class(node: &ExtractedNode, name: &str, index: &mut LangIndex, file_path: &str) {
+    push_definition(node, name, index, file_path);
+    index
+        .class_by_name
+        .entry(name.to_string())
+        .or_default()
+        .push(ClassDef {
+            id: node.node_id.clone(),
+            file_path: file_path.to_string(),
+            bases: split_csv(node.properties.get("bases")),
+            interfaces: split_csv(node.properties.get("interfaces")),
+        });
+}
+
+fn push_definition(node: &ExtractedNode, name: &str, index: &mut LangIndex, file_path: &str) {
+    index
+        .def_index
+        .entry(name.to_string())
+        .or_default()
+        .push(Def {
+            id: node.node_id.clone(),
+            file_path: file_path.to_string(),
+            arity: node.properties.get("arity").and_then(|a| a.parse().ok()),
+        });
 }
 
 fn collect_result_edges(result: &ParseResult, inputs: &mut ResolutionInputs) {
@@ -306,7 +322,19 @@ fn collect_result_edges(result: &ParseResult, inputs: &mut ResolutionInputs) {
     }
 }
 
-fn build_bases_of(class_by_name: &HashMap<String, Vec<ClassDef>>) -> HashMap<String, Vec<String>> {
+/// Per family: class name → its base/interface names. Family-scoped like every
+/// other index — a Python class must not inherit the bases of a same-named Rust
+/// struct, and `ancestors` walks this map by bare name.
+fn build_bases_of(
+    families: &HashMap<&'static str, LangIndex>,
+) -> HashMap<&'static str, HashMap<String, Vec<String>>> {
+    families
+        .iter()
+        .map(|(family, index)| (*family, family_bases_of(&index.class_by_name)))
+        .collect()
+}
+
+fn family_bases_of(class_by_name: &HashMap<String, Vec<ClassDef>>) -> HashMap<String, Vec<String>> {
     let mut bases_of = HashMap::new();
     for (name, definitions) in class_by_name {
         let mut bases = Vec::new();
@@ -425,7 +453,7 @@ fn record_call_resolution(
 }
 
 fn resolve_structural_edges(
-    class_by_name: &HashMap<String, Vec<ClassDef>>,
+    families: &HashMap<&'static str, LangIndex>,
     edges: &mut Vec<ExtractedEdge>,
 ) -> StructuralCounts {
     let mut state = StructuralResolutionState {
@@ -433,12 +461,28 @@ fn resolve_structural_edges(
         edges,
         counts: StructuralCounts::default(),
     };
-    // Emission ORDER, not membership, was per-process: `class_by_name` is a
-    // `HashMap`, so `.values()` walked it in `RandomState` order and the emitted
+    // Emission ORDER, not membership, was per-process: these are `HashMap`s, so
+    // `.values()` walked them in `RandomState` order and the emitted
     // `inherits`/`realizes` sequence differed run to run even though the sorted
     // edge SET was stable. Membership was always safe -- `resolve_class` picks
     // same-file-else-unique-or-none, which is order-free -- but a corpus that is
-    // diffed byte-for-byte needs the order too. Walk the keys sorted.
+    // diffed byte-for-byte needs the order too. Walk both key levels sorted.
+    let mut family_names: Vec<&'static str> = families.keys().copied().collect();
+    family_names.sort_unstable();
+    for family in family_names {
+        append_family_structural_edges(&families[family].class_by_name, &mut state);
+    }
+    state.counts
+}
+
+/// Emit the `inherits`/`realizes` edges of ONE language family. A base name is
+/// resolved only against classes of that same family: `resolve_class` is keyed
+/// on the bare name, so a Python `class Child(Base)` would otherwise bind a Rust
+/// `struct Base` whenever no Python `Base` was in the batch.
+fn append_family_structural_edges(
+    class_by_name: &HashMap<String, Vec<ClassDef>>,
+    state: &mut StructuralResolutionState<'_>,
+) {
     let mut class_names: Vec<&String> = class_by_name.keys().collect();
     class_names.sort_unstable();
     for name in class_names {
@@ -448,18 +492,17 @@ fn resolve_structural_edges(
                 &definition.bases,
                 "inherits",
                 class_by_name,
-                &mut state,
+                state,
             );
             append_named_structural_edges(
                 definition,
                 &definition.interfaces,
                 "realizes",
                 class_by_name,
-                &mut state,
+                state,
             );
         }
     }
-    state.counts
 }
 
 fn append_named_structural_edges(
@@ -655,25 +698,34 @@ fn resolve_site(
 ) -> Option<(String, &'static str, f64)> {
     let callee = site.callee.as_str();
     let recv = site.receiver.as_str();
+    // 0. Confine every candidate below to the CALLER's language family. A
+    //    same-named definition in another family is not a weaker match, it is a
+    //    wrong one -- Python cannot call a Rust `fn` by name. Both maps are keyed
+    //    by the same family set, so the second lookup cannot miss when the first
+    //    hits; a family with no indexed symbol resolves nothing, which is the
+    //    honest answer rather than a foreign guess.
+    let family = call_family(caller_file);
+    let index = context.families.get(family)?;
+    let bases_of = context.bases_of.get(family)?;
 
     // 1. `self`/`this`/`super` receiver (or an implicit-this language's bare call)
     //    → a method of the caller's own class or an inherited one.
     let implicit_this = matches!(caller_lang, "java" | "cpp" | "csharp");
     let self_recv = matches!(recv, "self" | "this" | "super") || (recv.is_empty() && implicit_this);
     if self_recv && !caller_scope.is_empty() {
-        if let Some(id) = lookup_method(caller_scope, callee, context.scoped, context.bases_of) {
+        if let Some(id) = lookup_method(caller_scope, callee, &index.scoped, bases_of) {
             return Some((id, "scoped", 0.95));
         }
     }
     // 2. Explicit receiver naming a known class (static call / typed receiver)
     //    → a method of that class or an inherited one.
-    if !recv.is_empty() && context.class_by_name.contains_key(recv) {
-        if let Some(id) = lookup_method(recv, callee, context.scoped, context.bases_of) {
+    if !recv.is_empty() && index.class_by_name.contains_key(recv) {
+        if let Some(id) = lookup_method(recv, callee, &index.scoped, bases_of) {
             return Some((id, "scoped", 0.9));
         }
     }
 
-    let defs = context.def_index.get(callee)?;
+    let defs = index.def_index.get(callee)?;
     // 3. A definition in the caller's own file.
     if let Some(d) = defs.iter().find(|d| d.file_path == caller_file) {
         return Some((d.id.clone(), "same_file", 0.9));
@@ -685,7 +737,7 @@ fn resolve_site(
             return Some((only.id.clone(), "arity", 0.7));
         }
     }
-    // 5. A unique definition anywhere in the batch.
+    // 5. A unique definition anywhere in the batch, within this family.
     if let [only] = defs.as_slice() {
         return Some((only.id.clone(), "unique", 0.6));
     }
@@ -951,6 +1003,9 @@ fn normalize_join(base: &str, rel: &str) -> String {
 /// unresolvable import has no intra-batch target, and no edge is the honest
 /// output. There is deliberately no cross-family fallback.
 struct LangFamily {
+    /// Stable family name -- the key call/class resolution partitions on
+    /// (see [`call_family`]), so imports and calls share ONE family model.
+    name: &'static str,
     /// Source extensions, in candidate-precedence order.
     exts: &'static [&'static str],
     /// Package-index basenames, in candidate-precedence order.
@@ -958,25 +1013,80 @@ struct LangFamily {
 }
 
 const PYTHON: LangFamily = LangFamily {
+    name: "python",
     exts: &["py", "pyi"],
     index: &["__init__.py"],
 };
 const JSTS: LangFamily = LangFamily {
+    name: "jsts",
     exts: &["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts"],
     index: &["index.ts", "index.js"],
 };
 const RUST: LangFamily = LangFamily {
+    name: "rust",
     exts: &["rs"],
     index: &["mod.rs"],
 };
 const GO: LangFamily = LangFamily {
+    name: "go",
     exts: &["go"],
     index: &[],
 };
 const JAVA: LangFamily = LangFamily {
+    name: "java",
     exts: &["java"],
     index: &[],
 };
+
+/// Extension → call-resolution family for the languages [`LangFamily`] does not
+/// model. Those five are the ones with a module-path convention, which is all
+/// IMPORT resolution needs; call resolution needs a family for every language
+/// the parser has a grammar for, because every language has call sites.
+///
+/// `c` merges C and C++ for the same reason `jsts` merges TS and JS: they share
+/// headers and `extern "C"` linkage, so a name defined in one is genuinely
+/// callable from the other. Every other language is its own family.
+const EXTRA_CALL_FAMILIES: &[(&str, &str)] = &[
+    ("c", "c"),
+    ("h", "c"),
+    ("cpp", "c"),
+    ("cc", "c"),
+    ("cxx", "c"),
+    ("hpp", "c"),
+    ("hxx", "c"),
+    ("hh", "c"),
+    ("c++", "c"),
+    ("cs", "csharp"),
+    ("sql", "sql"),
+    ("ddl", "sql"),
+    ("rb", "ruby"),
+    ("php", "php"),
+    ("sh", "bash"),
+    ("bash", "bash"),
+    ("scala", "scala"),
+    ("sc", "scala"),
+    ("lua", "lua"),
+];
+
+/// The language family a file's SYMBOLS belong to, for call and class
+/// resolution -- the same family model, the same names and the same merge
+/// decisions as [`LangFamily`]. [`family_of`] answers "where may this file's
+/// imports point?" and needs each family's module conventions; this answers
+/// "which definitions may this file's calls name?" and needs only the identity,
+/// so it also covers the languages that have no module convention to model.
+///
+/// An extension with no grammar (`lang_for_path`) maps to `""`. Such a file is
+/// never parsed and contributes no symbols, so that bucket stays empty.
+fn call_family(path: &str) -> &'static str {
+    if let Some(family) = family_of(path) {
+        return family.name;
+    }
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    EXTRA_CALL_FAMILIES
+        .iter()
+        .find(|(candidate, _)| *candidate == ext)
+        .map_or("", |(_, family)| *family)
+}
 
 /// The family an importing file belongs to, from its own extension — the same
 /// extension→language mapping `lang_for_path` uses to choose a grammar, so the
@@ -1758,6 +1868,207 @@ mod tests {
             "a Rust module dir must resolve via mod.rs; edges={:?}",
             r.edges
         );
+    }
+
+    /// True when a resolved `calls` edge runs from `source` to `target`.
+    fn has_call(r: &IndexResult, source: &str, target: &str) -> bool {
+        r.edges
+            .iter()
+            .any(|e| e.edge_type == "calls" && e.source == source && e.target == target)
+    }
+
+    /// True when ANY resolved edge of `edge_type` points at `target`.
+    fn any_edge_into(r: &IndexResult, edge_type: &str, target: &str) -> bool {
+        r.edges
+            .iter()
+            .any(|e| e.edge_type == edge_type && e.target == target)
+    }
+
+    // ── Language-family boundary for call/class resolution ────────────────
+    // Every one of these carries its POSITIVE control in the SAME batch, so a
+    // resolver that went dead (resolving nothing at all) fails them too.
+
+    #[test]
+    fn python_call_never_binds_a_rust_function_of_the_same_name() {
+        // `only_rust` exists ONLY as a Rust `fn`; before the family constraint
+        // the `unique` strategy bound the Python call site straight to it.
+        let r = index_repository(&files(&[
+            (
+                "crates/eg-numeric/src/reductions.rs",
+                "pub fn only_rust(a: i32) -> i32 { a }\n",
+            ),
+            ("pkg/helper.py", "def only_python(a):\n    return a\n"),
+            (
+                "pkg/caller.py",
+                "def go():\n    return only_rust(1) + only_python(2)\n",
+            ),
+        ]));
+        let go = node_id(&r, "go", "pkg/caller.py");
+        // Positive control, same batch: the same-language call still resolves.
+        assert!(
+            has_call(&r, &go, &node_id(&r, "only_python", "pkg/helper.py")),
+            "same-language only_python() must still resolve; edges={:?}",
+            r.edges
+        );
+        let rust_fn = node_id(&r, "only_rust", "crates/eg-numeric/src/reductions.rs");
+        assert!(
+            !any_edge_into(&r, "calls", &rust_fn),
+            "a Python call must not bind a Rust fn; edges={:?}",
+            r.edges
+        );
+    }
+
+    #[test]
+    fn rust_call_never_binds_a_python_function_of_the_same_name() {
+        let r = index_repository(&files(&[
+            ("pkg/only_py.py", "def only_python(a):\n    return a\n"),
+            (
+                "crates/a/src/util.rs",
+                "pub fn only_rust(a: i32) -> i32 { a }\n",
+            ),
+            (
+                "crates/a/src/main.rs",
+                "fn run() { only_python(1); only_rust(2); }\n",
+            ),
+        ]));
+        let run = node_id(&r, "run", "crates/a/src/main.rs");
+        // Positive control: the same-language call still resolves.
+        assert!(
+            has_call(&r, &run, &node_id(&r, "only_rust", "crates/a/src/util.rs")),
+            "same-language only_rust() must still resolve; edges={:?}",
+            r.edges
+        );
+        let py_fn = node_id(&r, "only_python", "pkg/only_py.py");
+        assert!(
+            !any_edge_into(&r, "calls", &py_fn),
+            "a Rust call must not bind a Python def; edges={:?}",
+            r.edges
+        );
+    }
+
+    #[test]
+    fn arity_disambiguation_stays_inside_the_language_family() {
+        // The 2-arg call matches the RUST definition's arity exactly and no
+        // Python one's -- `arity` (1,639 of the 2,436 cross-language edges
+        // measured on the epistemic-graph corpus) is precisely that shape.
+        // Constrained to Python, arity finds nothing and the unique Python
+        // definition wins instead.
+        let r = index_repository(&files(&[
+            (
+                "crates/a/src/lib.rs",
+                "pub fn make(a: i32, b: i32) -> i32 { a + b }\n",
+            ),
+            ("pkg/defs.py", "def make(x):\n    return x\n"),
+            ("pkg/call.py", "def go():\n    return make(1, 2)\n"),
+        ]));
+        let go = node_id(&r, "go", "pkg/call.py");
+        assert!(
+            !any_edge_into(&r, "calls", &node_id(&r, "make", "crates/a/src/lib.rs")),
+            "the 2-arg Rust fn must not absorb a Python call; edges={:?}",
+            r.edges
+        );
+        assert!(
+            has_call(&r, &go, &node_id(&r, "make", "pkg/defs.py")),
+            "the call must fall back to the unique PYTHON make; edges={:?}",
+            r.edges
+        );
+    }
+
+    #[test]
+    fn scoped_method_lookup_stays_inside_the_language_family() {
+        // `scoped` is keyed (class name, method name) with no language, so a
+        // Python `self.shared()` could bind the method of a same-named JAVA
+        // class -- it measured 0 on both corpora only because no such name
+        // collision happened to exist, not because it was safe.
+        let r = index_repository(&files(&[
+            ("A.java", "class Holder { void shared() {} }\n"),
+            (
+                "m.py",
+                "class Holder:\n    def shared(self):\n        return 1\n\n    def run(self):\n        return self.shared()\n",
+            ),
+        ]));
+        let run = node_id(&r, "run", "m.py");
+        assert!(
+            has_call(&r, &run, &node_id(&r, "shared", "m.py")),
+            "self.shared() must bind the PYTHON method; edges={:?}",
+            r.edges
+        );
+        assert!(
+            !any_edge_into(&r, "calls", &node_id(&r, "shared", "A.java")),
+            "a Python call must not bind a Java method; edges={:?}",
+            r.edges
+        );
+    }
+
+    #[test]
+    fn class_resolution_never_crosses_the_language_family() {
+        // `resolve_class` feeds `inherits`/`realizes` and is name-keyed the same
+        // way. `OnlyRust` exists only as a Rust struct, so a Python subclass of
+        // that name must produce NO edge.
+        let r = index_repository(&files(&[
+            (
+                "crates/a/src/lib.rs",
+                "pub struct OnlyRust { pub x: i32 }\n",
+            ),
+            ("pkg/base.py", "class PyBase:\n    pass\n"),
+            (
+                "pkg/child.py",
+                "class Child(OnlyRust):\n    pass\n\nclass Sibling(PyBase):\n    pass\n",
+            ),
+        ]));
+        // Positive control, same batch: the same-language inherits still lands.
+        assert!(
+            r.edges.iter().any(|e| e.edge_type == "inherits"
+                && e.source == node_id(&r, "Sibling", "pkg/child.py")
+                && e.target == node_id(&r, "PyBase", "pkg/base.py")),
+            "Sibling→PyBase inherits must survive; edges={:?}",
+            r.edges
+        );
+        assert!(
+            !any_edge_into(
+                &r,
+                "inherits",
+                &node_id(&r, "OnlyRust", "crates/a/src/lib.rs")
+            ),
+            "a Python class must not inherit a Rust struct; edges={:?}",
+            r.edges
+        );
+    }
+
+    #[test]
+    fn ts_call_resolves_a_js_definition_in_the_same_family() {
+        // TS and JS are ONE family for calls, exactly as for imports: a `.ts`
+        // file genuinely calls a function defined in a `.js` file.
+        let r = index_repository(&files(&[
+            ("src/util.js", "export function helper(a) { return a; }\n"),
+            (
+                "src/main.ts",
+                "export function go() { return helper(1); }\n",
+            ),
+        ]));
+        assert!(
+            has_call(
+                &r,
+                &node_id(&r, "go", "src/main.ts"),
+                &node_id(&r, "helper", "src/util.js")
+            ),
+            "a TS call must still resolve a JS definition; edges={:?}",
+            r.edges
+        );
+    }
+
+    #[test]
+    fn call_family_agrees_with_the_import_family_names() {
+        // One family model, two entry points: whatever `family_of` claims for a
+        // path, `call_family` must agree, and every grammar the parser has must
+        // land in some family so its own calls can resolve.
+        for path in ["a.py", "a.pyi", "a.ts", "a.js", "a.rs", "a.go", "A.java"] {
+            assert_eq!(call_family(path), family_of(path).unwrap().name, "{path}");
+        }
+        assert_eq!(call_family("a.tsx"), call_family("a.mjs"));
+        assert_eq!(call_family("a.c"), call_family("a.cpp"));
+        assert_ne!(call_family("a.py"), call_family("a.rs"));
+        assert_eq!(call_family("Makefile"), "");
     }
 
     #[test]
