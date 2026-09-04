@@ -922,9 +922,87 @@ fn normalize_join(base: &str, rel: &str) -> String {
     parts.join("/")
 }
 
-/// Suffix-match a module stem against the batch files, trying source extensions
-/// and package-index files (`__init__.py`, `index.ts`, `mod.rs`). Returns the
-/// matched file path.
+/// A language FAMILY: the set of file extensions whose modules may resolve to
+/// one another, plus the package-index basenames that stand in for a directory.
+///
+/// An import edge is an intra-batch `depends_on` claim — "this file's module
+/// system binds this specifier to that file". A module system only ever binds
+/// inside its own language, so a candidate must be drawn from the IMPORTER's
+/// family. Before this existed, one flat extension list was tried for every
+/// stem regardless of the importing file's language, so three Python files
+/// doing `import types` (stdlib, no `types.py` in the batch) fell through the
+/// Python candidates and bound to a Rust `.../similarity/types.rs` — a
+/// `depends_on` asserting a Python module depends on a Rust file.
+///
+/// The families are deliberately explicit rather than derived:
+///   * `python`  — `.py`/`.pyi`; a directory is its `__init__.py`.
+///   * `jsts`    — one family, NOT two: TS and JS genuinely interoperate, a
+///                 `.ts` importing `./foo` legitimately resolves `foo.js`
+///                 (and `.d.ts`-less JS deps are the norm). Directory index
+///                 files are `index.ts`/`index.js`.
+///   * `rust`    — `.rs`; a directory is its `mod.rs`.
+///   * `go`      — `.go`. No index-file convention (a Go package is every
+///                 `.go` in the directory), so directories do not resolve.
+///   * `java`    — `.java`. One public type per file; no index convention.
+///
+/// A language with no entry here (C/C++/C#/Ruby/PHP/Bash/Scala/Lua, and the
+/// SQL DDL path, which emits no import facts at all) resolves NOTHING rather
+/// than falling back to a foreign family. That is the correct answer: an
+/// unresolvable import has no intra-batch target, and no edge is the honest
+/// output. There is deliberately no cross-family fallback.
+struct LangFamily {
+    /// Source extensions, in candidate-precedence order.
+    exts: &'static [&'static str],
+    /// Package-index basenames, in candidate-precedence order.
+    index: &'static [&'static str],
+}
+
+const PYTHON: LangFamily = LangFamily {
+    exts: &["py", "pyi"],
+    index: &["__init__.py"],
+};
+const JSTS: LangFamily = LangFamily {
+    exts: &["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts"],
+    index: &["index.ts", "index.js"],
+};
+const RUST: LangFamily = LangFamily {
+    exts: &["rs"],
+    index: &["mod.rs"],
+};
+const GO: LangFamily = LangFamily {
+    exts: &["go"],
+    index: &[],
+};
+const JAVA: LangFamily = LangFamily {
+    exts: &["java"],
+    index: &[],
+};
+
+/// The family an importing file belongs to, from its own extension — the same
+/// extension→language mapping `lang_for_path` uses to choose a grammar, so the
+/// resolver and the parser agree on what language a file is. `None` for a file
+/// whose language has no module-resolution convention modelled here.
+fn family_of(path: &str) -> Option<&'static LangFamily> {
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "py" | "pyi" => &PYTHON,
+        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" => &JSTS,
+        "rs" => &RUST,
+        "go" => &GO,
+        "java" => &JAVA,
+        _ => return None,
+    })
+}
+
+/// Suffix-match a module stem against the batch files, trying the source
+/// extensions and package-index files of the IMPORTER's own language family
+/// (see [`LangFamily`]). Returns the matched file path.
+///
+/// Language boundary: candidates come only from `family_of(importer)`, so a
+/// Python import can never bind to a `.rs`/`.go`/`.java` file and a Rust `use`
+/// can never bind to a `.py`. An importer whose language has no family here,
+/// or a stem with no same-family file, resolves to `None` — no edge — never to
+/// a wrong-language near-match.
 ///
 /// `exact` (an importer-anchored stem, already a full batch-relative path) admits
 /// only the literal path; otherwise a boundary-aware path SUFFIX also matches
@@ -946,10 +1024,10 @@ fn match_with_extensions(
     importer: &str,
     exact: bool,
 ) -> Option<String> {
-    const EXTS: &[&str] = &[
-        "py", "pyi", "ts", "tsx", "js", "jsx", "mjs", "go", "rs", "java",
-    ];
-    const INDEX: &[&str] = &["__init__.py", "index.ts", "index.js", "mod.rs"];
+    // The importer's OWN language decides which spellings are even candidates.
+    let Some(family) = family_of(importer) else {
+        return None;
+    };
 
     /// Leading path segments `a` and `b` share.
     fn shared_segments(a: &str, b: &str) -> usize {
@@ -960,10 +1038,10 @@ fn match_with_extensions(
     }
 
     let mut candidates: Vec<String> = Vec::new();
-    for ext in EXTS {
+    for ext in family.exts {
         candidates.push(format!("{stem}.{ext}"));
     }
-    for idx in INDEX {
+    for idx in family.index {
         candidates.push(format!("{stem}/{idx}"));
     }
 
@@ -1541,6 +1619,143 @@ mod tests {
             target("pkg/sub/mod_b.py", "..helper").as_deref(),
             Some("file:pkg/helper.py"),
             "two dots = the parent package; edges={:?}",
+            r.edges
+        );
+    }
+
+    /// Helper: the `depends_on` target for one (importer, module) pair.
+    fn dep_target(r: &IndexResult, src: &str, module: &str) -> Option<String> {
+        r.edges
+            .iter()
+            .find(|e| {
+                e.edge_type == "depends_on"
+                    && e.source == format!("file:{src}")
+                    && e.properties.get("module").map(String::as_str) == Some(module)
+            })
+            .map(|e| e.target.clone())
+    }
+
+    /// Regression: one flat extension list was tried for EVERY stem, so a Python
+    /// `import types` (stdlib — no `types.py` anywhere in the batch) fell through
+    /// the Python candidates and bound to a Rust `types.rs`, asserting that a
+    /// Python module depends on a Rust file. A stdlib/external import has no
+    /// intra-batch target; NO edge is the correct answer.
+    #[test]
+    fn python_import_never_binds_to_a_rust_file() {
+        let r = index_repository(&files(&[
+            (
+                "crates/eg-compute/src/graph_algos/similarity/types.rs",
+                "pub struct Pair;\n",
+            ),
+            ("crates/eg-compute/src/mining/math.rs", "pub fn add() {}\n"),
+            ("crates/eg-compute/src/ast/mod.rs", "pub fn walk() {}\n"),
+            // Positive control: a real intra-batch Python target, so the test
+            // fails if the resolver simply stopped resolving anything.
+            ("epistemic_graph/kvcache/store.py", "def put():\n    return 1\n"),
+            (
+                "epistemic_graph/kvcache/connector.py",
+                "import types\nimport math\nimport ast\nfrom epistemic_graph.kvcache.store import put\n\ndef go():\n    return put()\n",
+            ),
+        ]));
+        let crossed: Vec<&ExtractedEdge> = r
+            .edges
+            .iter()
+            .filter(|e| {
+                e.edge_type == "depends_on"
+                    && e.source.ends_with(".py")
+                    && e.target.ends_with(".rs")
+            })
+            .collect();
+        assert!(
+            crossed.is_empty(),
+            "a Python import must never resolve to a Rust file; got {crossed:?}"
+        );
+        for module in ["types", "math", "ast"] {
+            assert_eq!(
+                dep_target(&r, "epistemic_graph/kvcache/connector.py", module),
+                None,
+                "`import {module}` has no intra-batch Python target -- expected no edge"
+            );
+        }
+        assert_eq!(
+            dep_target(
+                &r,
+                "epistemic_graph/kvcache/connector.py",
+                "epistemic_graph.kvcache.store"
+            )
+            .as_deref(),
+            Some("file:epistemic_graph/kvcache/store.py"),
+            "the positive control must still resolve; edges={:?}",
+            r.edges
+        );
+    }
+
+    /// The boundary is symmetric: a Rust `use` must not bind to a Python file
+    /// that happens to share the stem.
+    #[test]
+    fn rust_use_never_binds_to_a_python_file() {
+        let r = index_repository(&files(&[
+            ("pkg/serde.py", "def loads():\n    return 1\n"),
+            (
+                "crates/a/src/lib.rs",
+                "use serde::Deserialize;\npub fn a() {}\n",
+            ),
+        ]));
+        assert_eq!(
+            dep_target(&r, "crates/a/src/lib.rs", "serde::Deserialize"),
+            None,
+            "an external crate must not bind to a same-named .py; edges={:?}",
+            r.edges
+        );
+    }
+
+    /// TS and JS are ONE family, not two: a `.ts` importing `./util` legitimately
+    /// resolves `util.js` when that is the only file with the stem. Constraining
+    /// by language must not sever that.
+    #[test]
+    fn ts_import_resolves_a_js_file_in_the_same_family() {
+        let r = index_repository(&files(&[
+            ("src/util.js", "export function shared() { return 1; }\n"),
+            (
+                "src/app.ts",
+                "import { shared } from './util';\nexport function run(): number { return shared(); }\n",
+            ),
+        ]));
+        assert_eq!(
+            dep_target(&r, "src/app.ts", "'./util'").as_deref(),
+            Some("file:src/util.js"),
+            "TS/JS interoperate -- a .ts must still resolve a .js; edges={:?}",
+            r.edges
+        );
+    }
+
+    /// A Python package directory still resolves through its `__init__.py`, and
+    /// a Rust module directory through its `mod.rs` -- each within its own family
+    /// and never the other's.
+    #[test]
+    fn package_index_files_follow_the_family() {
+        let r = index_repository(&files(&[
+            ("pkg/shared/__init__.py", "def go():\n    return 1\n"),
+            ("crates/a/src/shared/mod.rs", "pub fn go() {}\n"),
+            (
+                "pkg/app.py",
+                "from pkg.shared import go\n\ndef run():\n    return go()\n",
+            ),
+            (
+                "crates/a/src/lib.rs",
+                "use crate::shared;\npub fn run() {}\n",
+            ),
+        ]));
+        assert_eq!(
+            dep_target(&r, "pkg/app.py", "pkg.shared").as_deref(),
+            Some("file:pkg/shared/__init__.py"),
+            "a Python package must resolve via __init__.py; edges={:?}",
+            r.edges
+        );
+        assert_eq!(
+            dep_target(&r, "crates/a/src/lib.rs", "crate::shared").as_deref(),
+            Some("file:crates/a/src/shared/mod.rs"),
+            "a Rust module dir must resolve via mod.rs; edges={:?}",
             r.edges
         );
     }
