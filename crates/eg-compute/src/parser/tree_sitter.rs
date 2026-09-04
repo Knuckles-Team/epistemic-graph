@@ -126,6 +126,7 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
         lang_label,
         &file_node_id,
         "",
+        &[],
         &mut result,
     );
 
@@ -902,9 +903,116 @@ fn innermost_declarator_name(node: Node, source: &[u8]) -> Option<String> {
     None
 }
 
+// ── CONCEPT:EG-KG.compute.qualified-symbol — lexical qualification of symbols ──
+//
+// `name` is BARE, so two `run` methods on different types are indistinguishable
+// downstream. `qualified_symbol` stamps the symbol's LEXICAL ancestor chain
+// (containers actually present in the AST) joined by the language's scope
+// separator: `Outer.Inner.method` (Python), `inner::Thing::method` (Rust).
+//
+// Deterministic rules — chosen for stability, not elegance, because these strings
+// key an external inventory:
+//   * Containers that contribute a segment: every class-like and function-like
+//     declaration (so nested functions/methods qualify), plus Rust `mod_item` and
+//     `impl_item`, which are NOT class-like and would otherwise be invisible.
+//   * `impl Type` contributes `Type`; `impl Trait for Type` contributes
+//     `<Type as Trait>` — Rust's own unambiguous disambiguation syntax, so an
+//     inherent `new` and a trait `new` on the same type do not collide.
+//   * Generic arguments and references are stripped from an impl's type
+//     (`Foo<T>` / `&Foo` → `Foo`), so a symbol's qualified name does not move
+//     when a type parameter is renamed.
+//   * A container with no readable name (anonymous impls of an unnamed type,
+//     closures, expression-position lambdas) contributes NO segment and is
+//     skipped — its children qualify against the nearest named ancestor.
+//   * The FILE/module/crate prefix is deliberately NOT included: it is not in the
+//     AST and its derivation needs repository layout (Python package roots) and
+//     Cargo metadata (Rust crate + file-module path). The inventory driver
+//     composes `<module prefix><sep><qualified_symbol>`.
+
+/// Scope separator for a language's qualified names.
+fn scope_sep(language: &str) -> &'static str {
+    match language {
+        "rust" | "c" | "cpp" => "::",
+        _ => ".",
+    }
+}
+
+/// Collapse whitespace runs so a segment read from multi-line source stays a
+/// single stable token.
+fn squash_ws(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Base of a Rust type expression: strip generic arguments and references so
+/// `Foo<T>`, `&Foo` and `&mut Foo<'a, T>` all qualify as `Foo`.
+fn rust_type_base(node: Node, source: &[u8]) -> String {
+    match node.kind() {
+        "generic_type" | "reference_type" => node
+            .child_by_field_name("type")
+            .map(|n| rust_type_base(n, source))
+            .unwrap_or_else(|| squash_ws(&get_node_text(node, source))),
+        _ => squash_ws(&get_node_text(node, source)),
+    }
+}
+
+/// Qualification segment for a Rust `impl_item`: `Type`, or `<Type as Trait>`
+/// for a trait impl.
+fn rust_impl_segment(node: Node, source: &[u8]) -> Option<String> {
+    let ty = rust_type_base(node.child_by_field_name("type")?, source);
+    if ty.is_empty() {
+        return None;
+    }
+    Some(match node.child_by_field_name("trait") {
+        Some(tr) => {
+            let t = rust_type_base(tr, source);
+            if t.is_empty() {
+                ty
+            } else {
+                format!("<{ty} as {t}>")
+            }
+        }
+        None => ty,
+    })
+}
+
+/// The segment this node contributes to its DESCENDANTS' qualified names, or
+/// `None` when it contributes nothing.
+fn qual_segment(node: Node, source: &[u8], language: &str) -> Option<String> {
+    let kind = node.kind();
+    if language == "rust" {
+        match kind {
+            // Rust inline modules are containers but not `class_like_kind`.
+            "mod_item" => {
+                return node
+                    .child_by_field_name("name")
+                    .map(|n| squash_ws(&get_node_text(n, source)))
+                    .filter(|n| !n.is_empty())
+            }
+            "impl_item" => return rust_impl_segment(node, source),
+            _ => {}
+        }
+    }
+    if class_like_kind(kind).is_some() || function_like_kind(kind).is_some() {
+        return symbol_name(node, source)
+            .map(|n| squash_ws(&n))
+            .filter(|n| !n.is_empty());
+    }
+    None
+}
+
+/// Join an ancestor chain and a bare name into a qualified symbol name.
+fn join_qualified(qual: &[String], name: &str, language: &str) -> String {
+    if qual.is_empty() {
+        return name.to_string();
+    }
+    let sep = scope_sep(language);
+    format!("{}{}{}", qual.join(sep), sep, name)
+}
+
 /// Build a SYMBOL node (id = content hash) + an IMPLEMENTS edge from its file,
 /// stamping the common facts (name, symbol_type, kind_detail, language, line,
-/// ast_hash, file_path) plus any language-specific ``extra`` properties.
+/// qualified_symbol, end_line/start_col/end_col/start_byte/end_byte, ast_hash,
+/// file_path) plus any language-specific ``extra`` properties.
 #[allow(clippy::too_many_arguments)]
 fn emit_symbol(
     node: Node,
@@ -914,6 +1022,7 @@ fn emit_symbol(
     symbol_type: &str,
     kind_detail: &str,
     name: String,
+    qualified_symbol: String,
     file_node_id: &str,
     extra: HashMap<String, String>,
     result: &mut ParseResult,
@@ -933,6 +1042,27 @@ fn emit_symbol(
         "line".to_string(),
         (node.start_position().row + 1).to_string(),
     );
+    // CONCEPT:EG-KG.compute.qualified-symbol — lexically qualified name (see the
+    // rules above `scope_sep`). `name` stays BARE for existing consumers.
+    properties.insert("qualified_symbol".to_string(), qualified_symbol);
+    // Full declaration range. `line` (1-based start line) is unchanged for
+    // compatibility; these are additive. Byte offsets are half-open
+    // [start_byte, end_byte); lines are 1-based; columns are 1-based BYTE
+    // columns within their line, with `end_col` exclusive.
+    properties.insert(
+        "end_line".to_string(),
+        (node.end_position().row + 1).to_string(),
+    );
+    properties.insert(
+        "start_col".to_string(),
+        (node.start_position().column + 1).to_string(),
+    );
+    properties.insert(
+        "end_col".to_string(),
+        (node.end_position().column + 1).to_string(),
+    );
+    properties.insert("start_byte".to_string(), node.start_byte().to_string());
+    properties.insert("end_byte".to_string(), node.end_byte().to_string());
     properties.insert("ast_hash".to_string(), content_hash);
     properties.insert("file_path".to_string(), file_path.to_string());
     // CONCEPT:EG-KG.compute.model-free-similar-code — model-free similarity signature (MinHash over normalized
@@ -968,9 +1098,19 @@ fn walk_node(
     language: &str,
     file_node_id: &str,
     scope: &str,
+    qual: &[String],
     result: &mut ParseResult,
 ) {
     let kind = node.kind();
+    // CONCEPT:EG-KG.compute.qualified-symbol — the lexical ancestor chain children
+    // inherit. Allocates only at a real container, not at every AST node.
+    let descend_qual_owned: Option<Vec<String>> = qual_segment(node, source, language).map(|seg| {
+        let mut v = Vec::with_capacity(qual.len() + 1);
+        v.extend_from_slice(qual);
+        v.push(seg);
+        v
+    });
+    let descend_qual: &[String] = descend_qual_owned.as_deref().unwrap_or(qual);
     // The enclosing-class name children inherit (CONCEPT:EG-KG.compute.type-scope-resolved-call scope tracking);
     // defaults to propagating the current scope unless this node is a named class.
     let mut descend_scope = scope.to_string();
@@ -1000,6 +1140,7 @@ fn walk_node(
                 extra.insert("is_abstract".to_string(), has_abstract.to_string());
                 extra.insert("method_count".to_string(), methods.len().to_string());
             }
+            let qualified = join_qualified(qual, &name, language);
             emit_symbol(
                 node,
                 source,
@@ -1008,6 +1149,7 @@ fn walk_node(
                 "Class",
                 detail,
                 name,
+                qualified,
                 file_node_id,
                 extra,
                 result,
@@ -1079,6 +1221,7 @@ fn walk_node(
                 extra.insert("marks".to_string(), marks.join(","));
                 extra.insert("is_skipped".to_string(), is_skipped.to_string());
             }
+            let qualified = join_qualified(qual, &name, language);
             emit_symbol(
                 node,
                 source,
@@ -1087,6 +1230,7 @@ fn walk_node(
                 "Function",
                 detail,
                 name,
+                qualified,
                 file_node_id,
                 extra,
                 result,
@@ -1150,6 +1294,7 @@ fn walk_node(
             language,
             file_node_id,
             &descend_scope,
+            descend_qual,
             result,
         );
     }
@@ -1674,5 +1819,148 @@ namespace App {
             .nodes
             .iter()
             .any(|n| n.properties.get("name").map(|s| s.as_str()) == Some("C")));
+    }
+
+    // ── CONCEPT:EG-KG.compute.qualified-symbol ───────────────────────────────
+
+    /// Every symbol in a file, keyed by qualified name (so overloads/duplicated
+    /// bare names are distinguishable).
+    fn quals(path: &str, src: &str) -> Vec<String> {
+        let r =
+            parse_file(path, src.as_bytes()).unwrap_or_else(|e| panic!("parse {path} failed: {e}"));
+        let mut v: Vec<String> = r
+            .nodes
+            .iter()
+            .filter_map(|n| n.properties.get("qualified_symbol").cloned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn rust_nested_impl_method_is_qualified() {
+        let src = r#"
+mod inner {
+    pub struct Thing;
+    impl Thing {
+        pub fn method(&self) -> u32 { 1 }
+    }
+    impl std::fmt::Debug for Thing {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { Ok(()) }
+    }
+}
+pub fn free() {}
+"#;
+        let q = quals("m.rs", src);
+        assert!(
+            q.contains(&"inner::Thing::method".to_string()),
+            "inherent impl method must qualify through mod + type: {q:?}"
+        );
+        assert!(
+            q.contains(&"inner::<Thing as std::fmt::Debug>::fmt".to_string()),
+            "trait impl must disambiguate with `<Type as Trait>`: {q:?}"
+        );
+        assert!(
+            q.contains(&"inner::Thing".to_string()),
+            "the struct itself qualifies through its mod: {q:?}"
+        );
+        assert!(
+            q.contains(&"free".to_string()),
+            "a top-level item qualifies to its bare name: {q:?}"
+        );
+        // `name` stays BARE — existing consumers are untouched.
+        assert_eq!(sym("m.rs", src, "method")["name"], "method");
+    }
+
+    #[test]
+    fn rust_impl_generics_and_references_are_stripped() {
+        let src = "struct Wrap<T>(T);\nimpl<T> Wrap<T> { fn get(&self) -> u8 { 0 } }\n";
+        assert_eq!(sym("g.rs", src, "get")["qualified_symbol"], "Wrap::get");
+    }
+
+    #[test]
+    fn python_nested_class_method_is_qualified() {
+        let src = "class Outer:\n    class Inner:\n        def method(self):\n            return 1\n\n    def top(self):\n        def helper():\n            return 2\n        return helper()\n";
+        let q = quals("p.py", src);
+        assert!(
+            q.contains(&"Outer.Inner.method".to_string()),
+            "nested class method: {q:?}"
+        );
+        assert!(
+            q.contains(&"Outer.top.helper".to_string()),
+            "function nested in a method: {q:?}"
+        );
+        assert!(q.contains(&"Outer.Inner".to_string()), "{q:?}");
+        assert_eq!(sym("p.py", src, "method")["name"], "method");
+    }
+
+    #[test]
+    fn end_range_is_stamped_and_well_formed() {
+        let src = "def f(a):\n    b = a + 1\n    return b\n";
+        let p = sym("r.py", src, "f");
+        let line: usize = p["line"].parse().unwrap();
+        let end_line: usize = p["end_line"].parse().unwrap();
+        let start_byte: usize = p["start_byte"].parse().unwrap();
+        let end_byte: usize = p["end_byte"].parse().unwrap();
+        assert_eq!(line, 1);
+        assert!(end_line >= line, "end_line {end_line} >= line {line}");
+        assert_eq!(end_line, 3, "the def spans three lines");
+        assert!(end_byte > start_byte);
+        // Byte range is half-open and slices back to the declaration text.
+        assert!(src[start_byte..end_byte].starts_with("def f(a):"));
+        assert!(p.contains_key("start_col") && p.contains_key("end_col"));
+    }
+
+    #[test]
+    fn end_line_never_precedes_line_across_a_repo_shaped_batch() {
+        let files: Vec<(String, Vec<u8>)> = vec![
+            (
+                "a.py".into(),
+                b"class C:\n    def m(self):\n        pass\n".to_vec(),
+            ),
+            (
+                "b.rs".into(),
+                b"mod m {\n    struct S;\n    impl S { fn go(&self) {} }\n}\n".to_vec(),
+            ),
+            ("c.go".into(), b"package m\nfunc F() {}\n".to_vec()),
+            (
+                "d.java".into(),
+                b"class K { int f() { return 1; } }\n".to_vec(),
+            ),
+        ];
+        let results = parse_files(&files);
+        let mut seen = 0usize;
+        for r in &results {
+            for n in &r.nodes {
+                let line: usize = n.properties["line"].parse().unwrap();
+                let end_line: usize = n.properties["end_line"].parse().unwrap();
+                assert!(end_line >= line, "{:?}", n.properties);
+                assert!(
+                    !n.properties["qualified_symbol"].is_empty(),
+                    "every symbol carries a qualified name: {:?}",
+                    n.properties
+                );
+                seen += 1;
+            }
+        }
+        assert!(seen >= 6, "expected symbols across the batch, got {seen}");
+    }
+
+    #[test]
+    fn qualification_survives_index_repository_resolution() {
+        // resolve() strips `call_sites`/`minhash` — it must NOT strip the new facts.
+        let files: Vec<(String, Vec<u8>)> = vec![(
+            "x.py".into(),
+            b"class A:\n    def run(self):\n        return 1\n".to_vec(),
+        )];
+        let out = super::super::resolve::index_repository(&files);
+        let run = out
+            .nodes
+            .iter()
+            .find(|n| n.properties.get("name").map(String::as_str) == Some("run"))
+            .expect("run symbol");
+        assert_eq!(run.properties["qualified_symbol"], "A.run");
+        assert!(run.properties.contains_key("end_line"));
+        assert!(!run.properties.contains_key("minhash"));
     }
 }
