@@ -4259,23 +4259,21 @@ async fn dispatch_policy_export(
         Method::PolicyExport {
             tenant,
             graphs,
-            mut principals,
             marking_names,
         } => {
+            // DEC-CA-04 A2: the bundle's caller block is derived from the
+            // envelope's ALREADY-VERIFIED claims. `Method::PolicyExport` carries
+            // no principal field, so there is nothing here to forge and nothing
+            // to merge -- the bundle describes exactly this one subject.
             let claims = verified_context.claims();
-            let caller_roles: Vec<String> = claims
-                .roles
-                .iter()
-                .chain(claims.scopes.iter())
-                .cloned()
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            principals.insert(claims.principal.clone(), caller_roles);
+            let caller = crate::server::policy_export::BundleCaller::from_verified(
+                &claims.principal,
+                claims.roles.iter(),
+                claims.scopes.iter(),
+            );
             let input = crate::server::policy_export::GenerateBundleInput {
                 tenant,
                 graphs,
-                principals,
                 marking_names: marking_names
                     .into_iter()
                     .map(|name| crate::server::policy_export::MarkingDef {
@@ -4284,7 +4282,7 @@ async fn dispatch_policy_export(
                     })
                     .collect(),
             };
-            match crate::server::policy_export::generate_bundle(&input) {
+            match crate::server::policy_export::generate_bundle(&caller, &input) {
                 Ok(bundle) => match serde_json::to_value(&bundle) {
                     Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
                     Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
@@ -6196,8 +6194,9 @@ async fn dispatch_identity_and_access_methods(
         // principal's OWN live-token-verified role set (RequestContextClaims'
         // roles ∪ scopes, ALREADY cross-checked against the verified OIDC token
         // by bind_verified_identity -- never IsolationLayer.agents/rbac.redb)
-        // is always folded into `principals` here, so every export call is
-        // self-proving against a real verified token (DEC-CA-04 A2). See
+        // becomes the bundle's `caller` block here. The method body carries no
+        // principal field at all, so the exported subject is always the one the
+        // envelope proved, never one a caller named (DEC-CA-04 A2). See
         // `server::policy_export`'s module doc for the full design.
         #[cfg(feature = "policy_export")]
         method @ Method::PolicyExport { .. } => {
