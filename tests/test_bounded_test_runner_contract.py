@@ -61,7 +61,7 @@ def test_r820_gate_preserves_all_feature_selection_and_no_fail_fast():
 
 def test_constrained_gate_routes_every_test_phase_through_runner():
     source = CONSTRAINED_GATE.read_text(encoding="utf-8")
-    assert "def bounded_test()" in source
+    assert "bounded_test() {" in source
     assert source.count("bounded_test ") >= 4
     assert "timeout -k" not in source
     assert "EG_CONSTRAINED_TEST_TIMEOUT" in source
