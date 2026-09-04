@@ -458,13 +458,35 @@ impl PersistenceBackend for RecordingBackend {
                     .push((args.graph_fname.to_string(), node_id.clone()));
             }
         }
+        // MutationBatch v1 (`1d83cf4b`) added the self-checking `identity`
+        // envelope copies and the exact `committed_version` transition. Derive
+        // both the way the landed production commit does
+        // (`redb_store::write_mutation_batch_commit_rows`): the identity is the
+        // batch's own identity (`validate_identity` requires exact equality at
+        // every level), and the committed version is the OCC expectation's
+        // `expected -> expected + 1` transition. A wire graph write is always
+        // `VersionExpectation::Graph`, and production fails closed on anything
+        // else, so this mock does too rather than stubbing a default.
+        let committed_version = match args.batch.version_expectation {
+            epistemic_graph::mutation_batch::VersionExpectation::Graph(expected) => {
+                epistemic_graph::mutation_batch::CommittedVersion::checked_graph(expected)?
+            }
+            other => {
+                return Err(format!(
+                    "graph MutationBatch requires a graph version expectation, got {other:?}"
+                ))
+            }
+        };
         Ok(epistemic_graph::mutation_batch::MutationBatchCommit {
             record: epistemic_graph::mutation_batch::MutationBatchRecord {
                 batch: args.batch.clone(),
+                identity: args.batch.identity.clone(),
                 status: epistemic_graph::mutation_batch::MutationBatchStatus::Committed,
+                committed_version,
                 result_msgpack: args.result_msgpack.map(|b| b.to_vec()),
                 committed_at_ms: args.committed_at_ms,
             },
+            identity: args.batch.identity.clone(),
             replayed: false,
         })
     }
