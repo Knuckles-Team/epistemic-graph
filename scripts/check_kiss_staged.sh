@@ -32,7 +32,7 @@ git_cmd() {
   local arg sanitized
   sanitized="$(sanitized_env_args)" || return 1
   while IFS= read -r arg; do
-    args+=("$arg")
+    [ -n "$arg" ] && args+=("$arg")
   done <<< "$sanitized"
   env "${args[@]}" git "$@"
 }
@@ -42,24 +42,30 @@ scanner_cmd() {
   local arg sanitized
   sanitized="$(sanitized_env_args)" || return 1
   while IFS= read -r arg; do
-    args+=("$arg")
+    [ -n "$arg" ] && args+=("$arg")
   done <<< "$sanitized"
   env "${args[@]}" "$@"
-}
-
-ROOT="$(git_cmd rev-parse --show-toplevel 2>/dev/null)" || {
-  echo "kiss(staged): CANNOT RUN: not inside a git work tree" >&2
-  exit 2
-}
-cd "$ROOT" || {
-  echo "kiss(staged): CANNOT RUN: could not enter repository root" >&2
-  exit 2
 }
 
 die() {
   echo "kiss(staged): CANNOT RUN: $*" >&2
   exit 2
 }
+
+# A pre-commit runner normally starts local hooks at the repository root, but
+# that is not guaranteed for a direct hook invocation or a remote gate wrapper.
+# Resolve the checkout from this script's location first, then ask Git to
+# validate that location.  Running the probe with -C keeps root discovery
+# independent of the caller's cwd while the sanitized environment still
+# prevents ambient GIT_* selectors from re-rooting it.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || \
+  die "could not resolve the hook directory"
+ROOT="$(cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd -P)" || \
+  die "could not resolve the repository root"
+GIT_ROOT="$(git_cmd -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" || \
+  die "not inside a git work tree"
+[ "$GIT_ROOT" = "$ROOT" ] || die "Git resolved a different work tree"
+cd "$ROOT" || die "could not enter repository root"
 
 read_contract() {
   command -v python3 >/dev/null 2>&1 || die "python3 is required to read pyproject.toml"
@@ -106,15 +112,11 @@ esac
 [ ! -e .kissconfig ] && [ ! -L .kissconfig ] || die \
   ".kissconfig exists; remove it because bare kiss check self-calibrates and disables rules"
 
-# Pre-commit normally exports GIT_INDEX_FILE.  Read the index because it is
-# the tree that will actually be committed; when invoked manually with no
-# staged change, fall back to the working-tree diff for useful diagnostics.
+# Pre-commit normally exports GIT_INDEX_FILE.  Read only that index because it
+# is the tree that will actually be committed; unstaged working-tree bytes are
+# deliberately outside this hook's contract.
 paths="$(git_cmd diff --cached --name-only --diff-filter=ACMR 2>/dev/null)" || \
   die "git diff --cached failed"
-if [ -z "$paths" ]; then
-  paths="$(git_cmd diff --name-only --diff-filter=ACMR HEAD 2>/dev/null)" || \
-    die "git diff HEAD failed"
-fi
 
 # This repo's checked-in KISS policy is Rust-only.  Python/JS KISS sections
 # must be added with measured thresholds before this hook should claim to own
@@ -142,18 +144,31 @@ if [ "${#files[@]}" -eq 0 ]; then
   exit 0
 fi
 
+STAGED_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/eg-kiss-staged.XXXXXX")" || \
+  die "could not create staged-source directory"
+cleanup() {
+  rm -rf -- "$STAGED_ROOT"
+}
+trap cleanup EXIT HUP INT TERM
+
 rc=0
 total=0
 for path in "${files[@]}"; do
   # Never pass more than one path to KISS.  KISS 0.4.10's multi-path check
   # prints NO VIOLATIONS and exits 0 even when either input has violations.
-  resolved="$(realpath -- "$path" 2>/dev/null)" || die \
-    "could not resolve changed path $path"
+  staged_path="$STAGED_ROOT/$path"
+  mkdir -p -- "$(dirname -- "$staged_path")" || die \
+    "could not create staged path for $path"
+  git_cmd show ":$path" > "$staged_path" 2>/dev/null || die \
+    "could not materialize staged source $path"
+  resolved="$(realpath -- "$staged_path" 2>/dev/null)" || die \
+    "could not resolve staged path $path"
   case "$resolved" in
-    "$ROOT"/*) ;;
-    *) die "changed path $path resolves outside repository root" ;;
+    "$STAGED_ROOT"/*) ;;
+    *) die "staged path $path resolves outside the temporary source root" ;;
   esac
-  output="$(scanner_cmd "$KISS" check --config "$CFG" --lang rust "$path" 2>&1)"
+  output="$(cd "$STAGED_ROOT" && \
+    scanner_cmd "$KISS" check --config "$cfg_resolved" --lang rust "$path" 2>&1)"
   status=$?
   if grep -q "Unknown config key" <<< "$output"; then
     printf '%s\n' "$output" >&2
