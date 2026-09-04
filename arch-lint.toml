@@ -12,7 +12,15 @@ fail_on = "error"
 # the path passed by the hook (`arch-lint check ... .`).
 root = "."
 exclude = [
+    # `.gitignore` declares `target/`, `target-isolated/` AND `target-*/`: every
+    # worktree builds into its own isolated target dir (AGENTS.md). Matching only
+    # `target/` here left cargo output inside the gate's declared root `.`, so the
+    # finding total moved with build state -- 4,638 / 4,642 / 4,650 were measured
+    # on three occasions with no source change between them. A gate whose
+    # denominator depends on whether someone has built cannot be a baseline for
+    # anything. Keep this list in step with `.gitignore`.
     "**/target/**",
+    "**/target-*/**",
     "**/generated/**",
     "**/vendor/**",
     "**/third_party/**",
