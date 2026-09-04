@@ -433,8 +433,16 @@ fn resolve_structural_edges(
         edges,
         counts: StructuralCounts::default(),
     };
-    for definitions in class_by_name.values() {
-        for definition in definitions {
+    // Emission ORDER, not membership, was per-process: `class_by_name` is a
+    // `HashMap`, so `.values()` walked it in `RandomState` order and the emitted
+    // `inherits`/`realizes` sequence differed run to run even though the sorted
+    // edge SET was stable. Membership was always safe -- `resolve_class` picks
+    // same-file-else-unique-or-none, which is order-free -- but a corpus that is
+    // diffed byte-for-byte needs the order too. Walk the keys sorted.
+    let mut class_names: Vec<&String> = class_by_name.keys().collect();
+    class_names.sort_unstable();
+    for name in class_names {
+        for definition in &class_by_name[name] {
             append_named_structural_edges(
                 definition,
                 &definition.bases,
