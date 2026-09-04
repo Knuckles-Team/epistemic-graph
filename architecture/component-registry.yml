@@ -1,0 +1,3635 @@
+---
+# EG owner-repository architecture component registry.
+#
+# This is the canonical owner manifest RF-ADR-005 / RF-022 specifies at the fixed path
+# `architecture/component-registry.yml` inside this repository. Until it is reviewed and
+# adopted, the authoritative inputs to
+# `plans/refactor/scripts/architecture_component_registry.py` remain the non-authoritative
+# proposal fixtures in `plans/refactor/architecture/components/`. This file is written to
+# REPLACE the `epistemic-graph.yml` fixture, and preserves every `component_id`,
+# `capability_id` and `target_item_ref` that fixture declared so the transition is a
+# refinement, not a re-identification.
+#
+# NOTHING here is accepted. Every component and every wiring decision is `status: proposed`
+# with `evidence_status: not_run`. No operator has signed off on any of it.
+#
+# Verification posture: every crate name, path, line number, dependency edge, feature and
+# count below was re-verified against this working tree at the commit recorded in
+# `verified_against` on 2026-09-04. Where a claim in the source finding or in the
+# `epistemic-graph-development` skill did not survive verification, the corrected value is
+# recorded and the stale claim is named explicitly in `corrections_to_upstream_claims`.
+
+schema: eg-architecture-component-registry/v1
+supersedes_fragment_schema: au-eg-architecture-component-fragment/v1
+projects_into_registry_schema: au-eg-architecture-component-registry/v1
+schema_authority_ref: plans/refactor/architecture/component-registry.schema.yml
+schema_shape_note: >-
+  The proposal schema at `component-registry.schema.yml` closes two vocabularies: the
+  fragment vocabulary (`component_required_fields`, `unknown_fields: reject`) and the
+  future owner-manifest vocabulary (`implementation_layout_contract.required_fields`).
+  This file follows BOTH -- every component carries the fragment's required identity
+  fields AND the layout contract's required fields (lane_kind, ownership_kind,
+  parent_component_id, parent_layer, owner, owned_source_roots, public_contract_roots,
+  test_roots, generated_roots, shared_roots, shared_files, review_policy,
+  dependency_edge_refs, replaces, migration_lineage, test_mirrors_component_id,
+  acceptance_gates, status) with `acceptance_gates` using exactly the seven declared
+  `acceptance_gate_fields`. Ambiguities resolved, and the choice made in each case:
+    1. The layout contract has no field for the crates a component owns. Added
+       `owned_crates` -- the crate is this repository's real ownership unit and
+       `owned_source_roots` alone cannot express "this component owns crates/eg-tsdb"
+       distinctly from "it owns some files under it".
+    2. The registry doc forbids owner records from declaring dependency endpoints
+       ("Owner layout records never declare dependency endpoints. They carry only exact
+       `dependency_edge_refs` into `inventory.yml:fleet_graph`"). `inventory.yml:fleet_graph`
+       is `status: not_started` / `observed_state: unknown` and contains no edge to
+       reference, so every `dependency_edge_refs` is `[]`. Intra-repository Cargo edges are
+       recorded separately under `observed_crate_edges` / `observed_consumers`, explicitly
+       marked as a VERIFIED OBSERVATION and not a second graph authority. The task asked
+       for consumers; this is the only way to supply them without inventing edge authority.
+    3. The schema has no vocabulary for architectural decisions. Added the top-level
+       `wiring_decisions` list plus a per-component `wiring_decision_refs`. Components and
+       decisions cross-reference by id in both directions.
+    4. Added `declared_layer_violations` at the top level (not per component) because every
+       violation is an EDGE between two components and belongs to neither alone.
+    5. `component_kind` uses `layer_boundary_root_seam` for the six RF-022 seams and
+       `implementation_component` for the 23 records beneath them. The registry doc states
+       the proposal checker "intentionally refuses implementation-component rows until that
+       owner-manifest schema and externally anchored transition are reviewed" -- so this
+       file is expected to be REJECTED by the current checker until that review happens.
+       That is the intended state, not a defect in this file.
+
+owner_repository: epistemic-graph
+owner_repository_path: agent-packages/epistemic-graph
+canonical_manifest_path: architecture/component-registry.yml
+authority_matrix_ref: inventory.repositories.epistemic-graph
+registry_version: 1
+authority_state: owner_manifest_draft_unreviewed
+proposal_seed_replaced: plans/refactor/architecture/components/epistemic-graph.yml
+overlaps: []
+history_policy: append_only_versioned_identities
+concept_semantics: discovery_tags_only
+ownership_semantics: capability_ids_and_implementation_authority_only
+
+verified_against:
+  repository_head: 1d83cf4b704fdfc2120d9444e9486cfbc4fb7687
+  package_version: 2.27.0
+  workspace_members: 48
+  verified_on: '2026-09-04'
+  method: read_only_inspection
+  commands_run:
+    - "tomllib parse of Cargo.toml [workspace] members and every crates/*/Cargo.toml"
+    - "git grep / grep -rn over src/ and crates/ for every cited symbol and line"
+    - "arch-lint check --format json (read-only; arch-lint 0.5.0)"
+    - "arch-lint list-rules"
+  commands_not_run:
+    - "cargo (any subcommand) -- explicitly out of scope for this pass"
+    - "pre-commit run --all-files"
+    - "the six heavy hooks (cargo-clippy, cargo-clippy-all-features, cargo-deny-advisories,
+       wheel-smoke, pytest, constrained-parallelism) remain UNMEASURED"
+
+layer_model:
+  authority: plans/refactor/inventory.yml -> inventory.repositories.epistemic-graph.target_layers
+  target_layers: [types, core, storage-transaction, query-reasoning, server-protocol, composition]
+  rule_as_written: >-
+    "A crate may only `use` crates to its left. No storage or query crate imports server
+    dispatch." (plans/refactor/DESIGN.md -> EG target crate graph, restated in the
+    epistemic-graph-development skill.)
+  rule_as_it_must_be_restated: >-
+    See wiring decision D-EG-002. As written the rule is violated by roughly a dozen
+    legitimate same-layer edges (eg-ann -> eg-numeric; eg-shacl/eg-shex/eg-graphql ->
+    eg-rdf; eg-plan -> eg-query and -> eg-epistemic; eg-query -> eg-compute; eg-epistemic
+    -> eg-compute), so "to its left" cannot mean "strictly lower layer". It must mean
+    "strictly-lower layer, OR same layer provided the [dependencies] graph stays acyclic".
+  enforcement_today: >-
+    Cargo acyclicity over [dependencies] only, and nothing else. VERIFIED: no
+    crates/*/Cargo.toml declares `epistemic-graph` as a dependency, so a crate cannot
+    depend back on the root facade. That property is real but it is NOT layer enforcement:
+    eg-tsdb -> eg-compute and eg-tensor -> eg-tsdb are both upward edges that build fine.
+    See D-EG-004.
+
+capability_authority_model:
+  rule: >-
+    "A capability and target item have exactly one implementation-authority component"
+    (plans/refactor/ARCHITECTURE-COMPONENT-REGISTRY.md, Consolidation and history rules).
+  how_this_file_satisfies_it: >-
+    The six layer_boundary_root_seam records own NO source path and therefore implement nothing.
+    Each carries the capability_ids the RF-022 fixture bound to it (so identities are preserved
+    across the transition) together with an explicit `capability_delegation` map naming the ONE
+    child implementation component that is the actual authority. Every capability is declared by
+    at most one implementation component -- verified: zero duplicates across the 23
+    implementation records.
+  inherited_name_reuse: >-
+    Three capability ids are spelled the same as the seam that carries them (eg.query-reasoning,
+    eg.server-protocol, eg.composition). That collision comes from the RF-022 fixture, not from
+    this file, and is preserved deliberately rather than renamed -- renaming would break the
+    identity continuity the transition depends on. The capability and the component are distinct
+    objects in distinct namespaces; the delegation map disambiguates which is meant.
+  unclaimed_capabilities:
+    - capability: eg.agent-library-entry
+      seam: eg.types
+      target_record: contract:rf-020/agent-library-entry/v1
+      state: no_implementation_component_declares_it
+      reason: >-
+        RF-020 created the target record; no source implements a typed AgentLibraryEntry today.
+        Claiming it for a component would be inventing coverage. Left UNCLAIMED on purpose.
+    - capability: eg.agent-library-table
+      seam: eg.storage-transaction
+      target_record: data:rf-020/agent-library-entry-table/v1
+      state: no_implementation_component_declares_it
+      reason: >-
+        Same. The durable Agent Library table, its revisions, outbox, tombstones, replay and
+        reconciliation do not exist in this repository yet.
+
+components:
+  - component_id: eg.types
+    component_kind: layer_boundary_root_seam
+    parent_component_id: null
+    parent_layer: null
+    layer: types
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:types"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.types
+    capability_ids:
+      - "eg.contracts"
+      - "eg.agent-library-entry"
+    capability_authority: delegated_to_child_implementation_components
+    capability_authority_note: >-
+      These capability_ids are carried forward verbatim from the RF-022 fixture so the
+      transition is a refinement and not a re-identification. This seam is NOT the
+      implementation authority for them -- the registry rule is that a capability has exactly
+      ONE implementation-authority component, and that is the child implementation component
+      listed in child_component_ids that owns the source. A seam owns no path and can implement
+      nothing. See capability_delegation below.
+    capability_delegation:
+      - "eg.contracts -> eg.wire-contracts"
+      - "eg.agent-library-entry -> UNCLAIMED (no implementation component declares it; RF-020 target record exists but no source owner has been identified)"
+    target_item_refs:
+      - "tgt:contract:v1:be004ea258853b8df307958d8d3b68f8b2508665a2208df94597035b5ba8a14c"
+    contract_state: target_inventory_bound
+    child_component_ids:
+      - "eg.wire-contracts"
+      - "eg.mutation-store"
+      - "eg.modality"
+      - "eg.numeric-ann"
+      - "eg.lm-program"
+      - "eg.speech-providers"
+    owned_crates: []
+    owned_source_roots: []
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: layer_seam_navigation_root_no_exclusive_paths
+    dependency_edge_refs: []
+    test_mirrors_component_id: null
+    migration_lineage: []
+    concepts:
+      - "contracts"
+      - "identity"
+      - "protocol"
+    aliases: []
+    replaces: []
+    merged_from: []
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      RF-022 layer boundary root seam, carried forward unchanged from the non-authoritative
+      fixture at plans/refactor/architecture/components/epistemic-graph.yml. It owns no source
+      path; the implementation components listed in child_component_ids do.
+  - component_id: eg.core
+    component_kind: layer_boundary_root_seam
+    parent_component_id: null
+    parent_layer: null
+    layer: core
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:core"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.core
+    capability_ids:
+      - "eg.graph-invariants"
+      - "eg.identity-rbac-admission"
+      - "eg.graph-acl-isolation"
+      - "eg.graph-policy-lease"
+    capability_authority: delegated_to_child_implementation_components
+    capability_authority_note: >-
+      These capability_ids are carried forward verbatim from the RF-022 fixture so the
+      transition is a refinement and not a re-identification. This seam is NOT the
+      implementation authority for them -- the registry rule is that a capability has exactly
+      ONE implementation-authority component, and that is the child implementation component
+      listed in child_component_ids that owns the source. A seam owns no path and can implement
+      nothing. See capability_delegation below.
+    capability_delegation:
+      - "eg.graph-invariants -> eg.graph-core"
+      - "eg.identity-rbac-admission -> eg.graph-core"
+      - "eg.graph-acl-isolation -> eg.graph-core"
+      - "eg.graph-policy-lease -> eg.graph-core"
+    target_item_refs:
+      - "tgt:contract:v1:c6a92d6da087009386e75c287d3dbbe80d41f9088264c227caeab56766374e97"
+    contract_state: target_inventory_bound
+    child_component_ids:
+      - "eg.graph-core"
+    owned_crates: []
+    owned_source_roots: []
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: layer_seam_navigation_root_no_exclusive_paths
+    dependency_edge_refs: []
+    test_mirrors_component_id: null
+    migration_lineage: []
+    concepts:
+      - "graph"
+      - "invariants"
+      - "capability"
+      - "rbac"
+      - "isolation"
+      - "tenancy"
+      - "row-visibility"
+      - "lease"
+    aliases: []
+    replaces: []
+    merged_from: []
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      RF-022 layer boundary root seam, carried forward unchanged from the non-authoritative
+      fixture at plans/refactor/architecture/components/epistemic-graph.yml. It owns no source
+      path; the implementation components listed in child_component_ids do.
+  - component_id: eg.storage-transaction
+    component_kind: layer_boundary_root_seam
+    parent_component_id: null
+    parent_layer: null
+    layer: storage-transaction
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:storage-transaction"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.storage-transaction
+    capability_ids:
+      - "eg.storage-transaction"
+      - "eg.agent-library-table"
+    capability_authority: delegated_to_child_implementation_components
+    capability_authority_note: >-
+      These capability_ids are carried forward verbatim from the RF-022 fixture so the
+      transition is a refinement and not a re-identification. This seam is NOT the
+      implementation authority for them -- the registry rule is that a capability has exactly
+      ONE implementation-authority component, and that is the child implementation component
+      listed in child_component_ids that owns the source. A seam owns no path and can implement
+      nothing. See capability_delegation below.
+    capability_delegation:
+      - "eg.storage-transaction -> eg.persistence"
+      - "eg.agent-library-table -> UNCLAIMED (no implementation component declares it; RF-020 target record exists but no source owner has been identified)"
+    target_item_refs:
+      - "tgt:data:v1:970cee140bbe9696f255e2bbe5d32962eb421209b78b3ab9d2841756fd11aaf7"
+    contract_state: target_inventory_bound
+    child_component_ids:
+      - "eg.timeseries"
+      - "eg.job-plane"
+      - "eg.kv-cache"
+      - "eg.lake-interop"
+      - "eg.persistence"
+      - "eg.cluster-replication"
+    owned_crates: []
+    owned_source_roots: []
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: layer_seam_navigation_root_no_exclusive_paths
+    dependency_edge_refs: []
+    test_mirrors_component_id: null
+    migration_lineage: []
+    concepts:
+      - "storage"
+      - "transaction"
+      - "durability"
+    aliases: []
+    replaces: []
+    merged_from: []
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      RF-022 layer boundary root seam, carried forward unchanged from the non-authoritative
+      fixture at plans/refactor/architecture/components/epistemic-graph.yml. It owns no source
+      path; the implementation components listed in child_component_ids do.
+  - component_id: eg.query-reasoning
+    component_kind: layer_boundary_root_seam
+    parent_component_id: null
+    parent_layer: null
+    layer: query-reasoning
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:query-reasoning"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.query-reasoning
+    capability_ids:
+      - "eg.query-reasoning"
+      - "eg.semantic-indexing"
+    capability_authority: delegated_to_child_implementation_components
+    capability_authority_note: >-
+      These capability_ids are carried forward verbatim from the RF-022 fixture so the
+      transition is a refinement and not a re-identification. This seam is NOT the
+      implementation authority for them -- the registry rule is that a capability has exactly
+      ONE implementation-authority component, and that is the child implementation component
+      listed in child_component_ids that owns the source. A seam owns no path and can implement
+      nothing. See capability_delegation below.
+    capability_delegation:
+      - "eg.query-reasoning -> eg.query-plan"
+      - "eg.semantic-indexing -> eg.graph-core"
+    target_item_refs:
+      - "tgt:contract:v1:578ebabcb0d5bac2e6b1e3e06dd9fd8ab175e433194c7297dfc058d255264226"
+    contract_state: target_inventory_bound
+    child_component_ids:
+      - "eg.compute"
+      - "eg.query-plan"
+      - "eg.rdf-semantics"
+      - "eg.epistemic"
+      - "eg.quantum"
+      - "eg.viz"
+    owned_crates: []
+    owned_source_roots: []
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: layer_seam_navigation_root_no_exclusive_paths
+    dependency_edge_refs: []
+    test_mirrors_component_id: null
+    migration_lineage: []
+    concepts:
+      - "query"
+      - "reasoning"
+      - "semantic-indexing"
+    aliases: []
+    replaces: []
+    merged_from: []
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      RF-022 layer boundary root seam, carried forward unchanged from the non-authoritative
+      fixture at plans/refactor/architecture/components/epistemic-graph.yml. It owns no source
+      path; the implementation components listed in child_component_ids do.
+  - component_id: eg.server-protocol
+    component_kind: layer_boundary_root_seam
+    parent_component_id: null
+    parent_layer: null
+    layer: server-protocol
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:server-protocol"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.server-protocol
+    capability_ids:
+      - "eg.server-protocol"
+      - "eg.kg-delegate"
+      - "eg.policy-aware-query-dispatch"
+    capability_authority: delegated_to_child_implementation_components
+    capability_authority_note: >-
+      These capability_ids are carried forward verbatim from the RF-022 fixture so the
+      transition is a refinement and not a re-identification. This seam is NOT the
+      implementation authority for them -- the registry rule is that a capability has exactly
+      ONE implementation-authority component, and that is the child implementation component
+      listed in child_component_ids that owns the source. A seam owns no path and can implement
+      nothing. See capability_delegation below.
+    capability_delegation:
+      - "eg.server-protocol -> eg.server-dispatch"
+      - "eg.kg-delegate -> eg.server-dispatch"
+      - "eg.policy-aware-query-dispatch -> eg.server-dispatch"
+    target_item_refs:
+      - "tgt:surface:v1:4fc8eaeae2373fc116b94935c29fd5f270a3b1d62a6d623aa7359b74789c5496"
+    contract_state: target_inventory_bound
+    child_component_ids:
+      - "eg.server-dispatch"
+      - "eg.embedded-bindings"
+    owned_crates: []
+    owned_source_roots: []
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: layer_seam_navigation_root_no_exclusive_paths
+    dependency_edge_refs: []
+    test_mirrors_component_id: null
+    migration_lineage: []
+    concepts:
+      - "server"
+      - "protocol"
+      - "admission"
+      - "policy-lease-consumer"
+    aliases: []
+    replaces: []
+    merged_from: []
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      RF-022 layer boundary root seam, carried forward unchanged from the non-authoritative
+      fixture at plans/refactor/architecture/components/epistemic-graph.yml. It owns no source
+      path; the implementation components listed in child_component_ids do.
+  - component_id: eg.composition
+    component_kind: layer_boundary_root_seam
+    parent_component_id: null
+    parent_layer: null
+    layer: composition
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:composition"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.composition
+    capability_ids:
+      - "eg.composition"
+      - "eg.derived-data-lifecycle"
+    capability_authority: delegated_to_child_implementation_components
+    capability_authority_note: >-
+      These capability_ids are carried forward verbatim from the RF-022 fixture so the
+      transition is a refinement and not a re-identification. This seam is NOT the
+      implementation authority for them -- the registry rule is that a capability has exactly
+      ONE implementation-authority component, and that is the child implementation component
+      listed in child_component_ids that owns the source. A seam owns no path and can implement
+      nothing. See capability_delegation below.
+    capability_delegation:
+      - "eg.composition -> eg.binary-composition"
+      - "eg.derived-data-lifecycle -> eg.binary-composition"
+    target_item_refs:
+      - "tgt:process:v1:0b133b324756cce5666923a4a8f9317d8e081284675a2adee825a30f45fb64fb"
+    contract_state: target_inventory_bound
+    child_component_ids:
+      - "eg.observability"
+      - "eg.binary-composition"
+    owned_crates: []
+    owned_source_roots: []
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: layer_seam_navigation_root_no_exclusive_paths
+    dependency_edge_refs: []
+    test_mirrors_component_id: null
+    migration_lineage: []
+    concepts:
+      - "composition"
+      - "deployment"
+      - "lifecycle"
+    aliases: []
+    replaces: []
+    merged_from: []
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      RF-022 layer boundary root seam, carried forward unchanged from the non-authoritative
+      fixture at plans/refactor/architecture/components/epistemic-graph.yml. It owns no source
+      path; the implementation components listed in child_component_ids do.
+  - component_id: eg.wire-contracts
+    component_kind: implementation_component
+    parent_component_id: eg.types
+    parent_layer: types
+    layer: types
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:wire-contracts"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.types
+    capability_ids:
+      - "eg.contracts"
+      - "eg.mutation-batch-contract"
+      - "eg.method-policy-ledger"
+      - "eg.durable-execution-routing"
+      - "eg.host-resource-capacity"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-types"
+      - "eg-capabilities"
+      - "eg-durable"
+      - "eg-resource"
+    owned_source_roots:
+      - "crates/eg-types/src/"
+      - "crates/eg-capabilities/src/"
+      - "crates/eg-durable/src/"
+      - "crates/eg-resource/src/"
+    public_contract_roots:
+      - "crates/eg-types/src/lib.rs"
+      - "crates/eg-capabilities/src/lib.rs"
+      - "crates/eg-durable/src/lib.rs"
+      - "crates/eg-resource/src/lib.rs"
+    test_roots:
+      - "crates/eg-capabilities/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-capabilities -> eg-types [eg.wire-contracts]"
+      dev_dependencies: []
+    observed_consumers:
+      - "eg.compute (crates/eg-compute -> crates/eg-types)"
+      - "eg.epistemic (crates/eg-epistemic -> crates/eg-types)"
+      - "eg.graph-core (crates/eg-core -> crates/eg-types)"
+      - "eg.job-plane (crates/eg-jobs -> crates/eg-types)"
+      - "eg.job-plane (crates/eg-statechart -> crates/eg-types)"
+      - "eg.lm-program (crates/eg-program -> crates/eg-types)"
+      - "eg.modality (crates/eg-modality -> crates/eg-types)"
+      - "eg.mutation-store (crates/eg-mutation-store -> crates/eg-types)"
+      - "eg.quantum (crates/eg-quantum-jobs -> crates/eg-types)"
+      - "eg.quantum (crates/eg-quantum-workloads -> crates/eg-types)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-types)"
+      - "eg.query-plan (crates/eg-query -> crates/eg-types)"
+      - "eg.rdf-semantics (crates/eg-graphql -> crates/eg-types)"
+      - "eg.rdf-semantics (crates/eg-rdf -> crates/eg-types)"
+      - "eg.speech-providers (crates/eg-asr-whisper -> crates/eg-resource)"
+      - "eg.timeseries (crates/eg-tsdb -> crates/eg-types)"
+    al002_no_sync_io:
+      owned_errors: 13
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-resource/src/lib.rs (11)"
+        - "crates/eg-capabilities/src/bin/gen_ledger.rs (1)"
+        - "crates/eg-capabilities/tests/consistency/checks.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-001"
+      - "D-EG-008"
+      - "D-EG-010"
+    concepts:
+      - "contracts"
+      - "protocol"
+      - "wire"
+      - "mutation-batch"
+      - "capability-ledger"
+      - "durable-routing"
+      - "resource"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.wire-contracts
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The zero- and one-edge contract leaves every other component imports. eg-types is the BOTTOM of the DAG and the only crate the whole workspace can see: protocol.rs (Request/Response/Method/ResultPayload), types.rs, wire.rs, acl.rs and the MutationBatch v1 contract itself (mutation_batch/, incl. MutationScope, MutationScopeIdentity, PRIVATE_PAYLOAD_EVENT_TYPES, COMPILED_BATCH_INCARNATION and the three domain predicates). eg-capabilities is the machine-checked MethodPolicy projection of eg_types::protocol::Method (deps = eg-types only). eg-durable carries routing contracts only (CallShape/WorkShape/DurableBackendKind) with no journal, lease or 2PC. eg-resource is dependency-free cgroup-aware capacity resolution. Grouped as one seam because all four are contract-only, are consumed workspace-wide, and splitting them would produce exactly the tiny-facade pattern the layout contract forbids.
+  - component_id: eg.mutation-store
+    component_kind: implementation_component
+    parent_component_id: eg.types
+    parent_layer: types
+    layer: types
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:mutation-store"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.types
+    capability_ids:
+      - "eg.mutation-ledger"
+      - "eg.mutation-scope-binding"
+      - "eg.private-payload-seal"
+      - "eg.store-incarnation-identity"
+      - "eg.store-relocation-adoption"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-mutation-store"
+    owned_source_roots:
+      - "crates/eg-mutation-store/src/"
+    public_contract_roots:
+      - "crates/eg-mutation-store/src/lib.rs"
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-mutation-store -> eg-types [eg.wire-contracts]"
+      dev_dependencies: []
+    observed_consumers:
+      - "eg.graph-core (crates/eg-core -> crates/eg-mutation-store)"
+      - "eg.job-plane (crates/eg-jobs -> crates/eg-mutation-store)"
+      - "eg.job-plane (crates/eg-statechart -> crates/eg-mutation-store)"
+      - "eg.timeseries (crates/eg-tsdb -> crates/eg-mutation-store)"
+    al002_no_sync_io:
+      owned_errors: 4
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-mutation-store/src/store/identity.rs (3)"
+        - "crates/eg-mutation-store/src/store/recovery.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-001"
+      - "D-EG-008"
+    concepts:
+      - "mutation"
+      - "ledger"
+      - "redb"
+      - "idempotency"
+      - "scope-binding"
+      - "incarnation"
+      - "private-payload"
+      - "occ"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.mutation-store
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The shared redb subordinate-domain ledger for canonical MutationBatch commits: MutationStore, StoreIncarnation, scope bindings, the batch ledger, private-payload sealing, and the restore-boundary adoption entry points (adopt_restored_store / adopt_restored_store_if_mutation_store). It is the sole authority for 'which store owns this state and its version counter'. Placed under target layer `types`, NOT `storage-transaction`: eg-core (layer `core`) depends on it, so binding it to a layer above `core` would make the target layer matrix itself cyclic. Its crate deps are eg-types only, which matches.
+  - component_id: eg.modality
+    component_kind: implementation_component
+    parent_component_id: eg.types
+    parent_layer: types
+    layer: types
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:modality"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.types
+    capability_ids:
+      - "eg.modality-contract"
+      - "eg.governed-media-decode"
+      - "eg.typed-document-structure"
+      - "eg.geospatial-predicates"
+      - "eg.lexical-index"
+      - "eg.stream-cep"
+      - "eg.evidence-alignment"
+      - "eg.tensor-modality"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-modality"
+      - "eg-audio"
+      - "eg-image"
+      - "eg-video"
+      - "eg-document"
+      - "eg-geo"
+      - "eg-text"
+      - "eg-stream"
+      - "eg-alignment"
+      - "eg-tensor"
+    owned_source_roots:
+      - "crates/eg-modality/src/"
+      - "crates/eg-audio/src/"
+      - "crates/eg-image/src/"
+      - "crates/eg-video/src/"
+      - "crates/eg-document/src/"
+      - "crates/eg-geo/src/"
+      - "crates/eg-text/src/"
+      - "crates/eg-stream/src/"
+      - "crates/eg-alignment/src/"
+      - "crates/eg-tensor/src/"
+    public_contract_roots:
+      - "crates/eg-modality/src/lib.rs"
+      - "crates/eg-audio/src/lib.rs"
+      - "crates/eg-image/src/lib.rs"
+      - "crates/eg-video/src/lib.rs"
+      - "crates/eg-document/src/lib.rs"
+      - "crates/eg-geo/src/lib.rs"
+      - "crates/eg-text/src/lib.rs"
+      - "crates/eg-stream/src/lib.rs"
+      - "crates/eg-alignment/src/lib.rs"
+      - "crates/eg-tensor/src/lib.rs"
+    test_roots:
+      - "crates/eg-modality/tests/"
+      - "crates/eg-alignment/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-alignment -> eg-modality [eg.modality]"
+        - "eg-audio -> eg-modality [eg.modality]"
+        - "eg-document -> eg-modality [eg.modality]"
+        - "eg-geo -> eg-modality [eg.modality]"
+        - "eg-image -> eg-modality [eg.modality]"
+        - "eg-modality -> eg-types [eg.wire-contracts]"
+        - "eg-stream -> eg-modality [eg.modality]"
+        - "eg-tensor -> eg-modality [eg.modality]"
+        - "eg-tensor -> eg-tsdb [eg.timeseries]"
+        - "eg-text -> eg-modality [eg.modality]"
+        - "eg-video -> eg-modality [eg.modality]"
+      dev_dependencies:
+        - "eg-alignment -(dev)-> eg-audio [eg.modality]"
+        - "eg-alignment -(dev)-> eg-document [eg.modality]"
+        - "eg-alignment -(dev)-> eg-image [eg.modality]"
+        - "eg-alignment -(dev)-> eg-video [eg.modality]"
+        - "eg-modality -(dev)-> eg-audio [eg.modality]"
+        - "eg-modality -(dev)-> eg-document [eg.modality]"
+        - "eg-modality -(dev)-> eg-geo [eg.modality]"
+        - "eg-modality -(dev)-> eg-image [eg.modality]"
+        - "eg-modality -(dev)-> eg-tensor [eg.modality]"
+        - "eg-modality -(dev)-> eg-video [eg.modality]"
+    observed_consumers:
+      - "eg.compute (crates/eg-compute -> crates/eg-geo)"
+      - "eg.compute (crates/eg-compute -> crates/eg-modality)"
+      - "eg.epistemic (crates/eg-epistemic -> crates/eg-modality)"
+      - "eg.graph-core (crates/eg-core -> crates/eg-modality)"
+      - "eg.kv-cache (crates/eg-kvcache -> crates/eg-modality)"
+      - "eg.lake-interop (crates/eg-lake -> crates/eg-modality)"
+      - "eg.lm-program (crates/eg-program -> crates/eg-modality)"
+      - "eg.numeric-ann (crates/eg-ann -> crates/eg-modality)"
+      - "eg.numeric-ann (crates/eg-numeric -> crates/eg-modality)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-geo)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-modality)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-stream)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-tensor)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-text)"
+      - "eg.query-plan (crates/eg-query -> crates/eg-text)"
+      - "eg.rdf-semantics (crates/eg-rdf -> crates/eg-geo)"
+      - "eg.rdf-semantics (crates/eg-rdf -> crates/eg-modality)"
+      - "eg.rdf-semantics (crates/eg-shacl -> crates/eg-modality)"
+      - "eg.rdf-semantics (crates/eg-shex -> crates/eg-modality)"
+      - "eg.speech-providers (crates/eg-asr-whisper -> crates/eg-audio)"
+      - "eg.speech-providers (crates/eg-tts-piper -> crates/eg-audio)"
+      - "eg.timeseries (crates/eg-tsdb -> crates/eg-modality)"
+    al002_no_sync_io:
+      owned_errors: 1
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-tensor/src/store.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-002"
+      - "D-EG-003"
+    concepts:
+      - "modality"
+      - "evidence"
+      - "decode"
+      - "audio"
+      - "image"
+      - "video"
+      - "document"
+      - "geo"
+      - "text"
+      - "stream"
+      - "alignment"
+      - "tensor"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.modality
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The ModalityContract seam and every crate that converges on it. eg-modality owns the trait + conformance harness (TCK) and deliberately sits BELOW eg-plan/eg-core with deps = eg-types only. The leaves own governed pure-Rust decode + evidence: PCM/WAV, PNG + pHash, ISOBMFF + RGB frames, typed document pages/layout/tables, WKT geometry + an in-house packed Hilbert R-tree (no GEOS/PROJ), a Tantivy BM25 inverted index, a bounded-NFA CEP engine, and the shared alignment graph over EvidenceLocus. eg-tensor is owned here as the dense N-D array modality but carries a declared layer violation (see D-EG-002): its edge to eg-tsdb is mandatory while its edge to eg-modality is OPTIONAL behind the `contract` feature.
+  - component_id: eg.numeric-ann
+    component_kind: implementation_component
+    parent_component_id: eg.types
+    parent_layer: types
+    layer: types
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:numeric-ann"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.types
+    capability_ids:
+      - "eg.numeric-kernel"
+      - "eg.ann-index"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-numeric"
+      - "eg-ann"
+    owned_source_roots:
+      - "crates/eg-numeric/src/"
+      - "crates/eg-ann/src/"
+    public_contract_roots:
+      - "crates/eg-numeric/src/lib.rs"
+      - "crates/eg-ann/src/lib.rs"
+    test_roots:
+      - "crates/eg-numeric/tests/"
+      - "crates/eg-ann/benches/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-ann -> eg-modality [eg.modality]"
+        - "eg-ann -> eg-numeric [eg.numeric-ann]"
+        - "eg-numeric -> eg-modality [eg.modality]"
+      dev_dependencies: []
+    observed_consumers:
+      - "eg.graph-core (crates/eg-core -> crates/eg-ann)"
+      - "eg.quantum (crates/eg-quantum-gates -> crates/eg-numeric)"
+      - "eg.quantum (crates/eg-quantum-jobs -> crates/eg-numeric)"
+      - "eg.quantum (crates/eg-quantum-sim -> crates/eg-numeric)"
+      - "eg.quantum (crates/eg-quantum-workloads -> crates/eg-numeric)"
+      - "eg.query-plan (crates/eg-query -> crates/eg-ann)"
+      - "eg.query-plan (crates/eg-query -> crates/eg-numeric)"
+    al002_no_sync_io:
+      owned_errors: 2
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-ann/src/persist.rs (1)"
+        - "crates/eg-ann/src/version.rs (1)"
+    wiring_decision_refs: []
+    concepts:
+      - "numeric"
+      - "linalg"
+      - "ann"
+      - "ivf-pq"
+      - "opq"
+      - "vector-index"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.numeric-ann
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The slim BLAS/LAPACK-free numeric kernel (ndarray + nalgebra; one kernel, two surfaces) and the native IVF-PQ + OPQ + SQ8-refine ANN index built on it. Kept as one seam because eg-ann is the only in-workspace consumer of eg-numeric's kernel surface besides the quantum stack, and both are pure numeric leaves with no store or policy authority.
+  - component_id: eg.lm-program
+    component_kind: implementation_component
+    parent_component_id: eg.types
+    parent_layer: types
+    layer: types
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:lm-program"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.types
+    capability_ids:
+      - "eg.lm-program-contract"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-program"
+    owned_source_roots:
+      - "crates/eg-program/src/"
+    public_contract_roots:
+      - "crates/eg-program/src/lib.rs"
+    test_roots:
+      - "crates/eg-program/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-program -> eg-modality [eg.modality]"
+        - "eg-program -> eg-types [eg.wire-contracts]"
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 0
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files: []
+    wiring_decision_refs: []
+    concepts:
+      - "lm-program"
+      - "self-improvement"
+      - "governed-program"
+      - "optimization"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.lm-program
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      Graph-native governed LM-program and self-improvement contracts (deps = eg-modality, eg-types). Contract-only; wired into the facade behind the root `program-optimization` feature. Model- and vendor-agnostic by construction, per the layout contract's prohibition on vendor labels in ownership identity.
+  - component_id: eg.speech-providers
+    component_kind: implementation_component
+    parent_component_id: eg.types
+    parent_layer: types
+    layer: types
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:speech-providers"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.types
+    capability_ids:
+      - "eg.asr-provider"
+      - "eg.tts-provider"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-asr-whisper"
+      - "eg-tts-piper"
+    owned_source_roots:
+      - "crates/eg-asr-whisper/src/"
+      - "crates/eg-tts-piper/src/"
+    public_contract_roots:
+      - "crates/eg-asr-whisper/src/lib.rs"
+      - "crates/eg-tts-piper/src/lib.rs"
+    test_roots:
+      - "crates/eg-asr-whisper/tests/"
+      - "crates/eg-tts-piper/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-asr-whisper -> eg-audio [eg.modality]"
+        - "eg-asr-whisper -> eg-resource [eg.wire-contracts]"
+        - "eg-tts-piper -> eg-audio [eg.modality]"
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 16
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-tts-piper/tests/piper_synthesis.rs (7)"
+        - "crates/eg-asr-whisper/tests/real_transcription.rs (3)"
+        - "crates/eg-asr-whisper/src/model.rs (2)"
+        - "crates/eg-asr-whisper/tests/honest_failure_paths.rs (2)"
+        - "crates/eg-tts-piper/src/voice.rs (2)"
+    wiring_decision_refs:
+      - "D-EG-005"
+    concepts:
+      - "asr"
+      - "tts"
+      - "provider"
+      - "speech"
+      - "whisper"
+      - "piper"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.speech-providers
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      Provider implementations of the frozen `asr.*` and `tts.*` contracts eg-audio declares. They are the only crates in the workspace that compile a vendored C/C++ library (whisper.cpp/ggml via whisper-rs-sys), which is why the repo's CPU-portability contract (GGML_NATIVE=OFF and the explicit GGML_BMI2=OFF in .cargo/config.toml) exists; the fleet's hosts are pre-AVX2. Providers never decide policy and never own a mutation scope.
+  - component_id: eg.graph-core
+    component_kind: implementation_component
+    parent_component_id: eg.core
+    parent_layer: core
+    layer: core
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:graph-core"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.core
+    capability_ids:
+      - "eg.graph-invariants"
+      - "eg.identity-rbac-admission"
+      - "eg.graph-acl-isolation"
+      - "eg.graph-policy-lease"
+      - "eg.rls-view-cache"
+      - "eg.semantic-indexing"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-core"
+    owned_source_roots:
+      - "crates/eg-core/src/"
+    public_contract_roots:
+      - "crates/eg-core/src/lib.rs"
+    test_roots:
+      - "crates/eg-core/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-core -> eg-ann [eg.numeric-ann]"
+        - "eg-core -> eg-modality [eg.modality]"
+        - "eg-core -> eg-mutation-store [eg.mutation-store]"
+        - "eg-core -> eg-types [eg.wire-contracts]"
+      dev_dependencies: []
+    observed_consumers:
+      - "eg.compute (crates/eg-compute -> crates/eg-core)"
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-core)"
+      - "eg.epistemic (crates/eg-epistemic -> crates/eg-core)"
+      - "eg.job-plane (crates/eg-jobs -> crates/eg-core)"
+      - "eg.quantum (crates/eg-quantum-workloads -> crates/eg-core)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-core)"
+      - "eg.query-plan (crates/eg-query -> crates/eg-core)"
+      - "eg.rdf-semantics (crates/eg-graphql -> crates/eg-core)"
+      - "eg.rdf-semantics (crates/eg-rdf -> crates/eg-core)"
+      - "eg.timeseries (crates/eg-tsdb -> crates/eg-core)"
+    al002_no_sync_io:
+      owned_errors: 23
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-core/src/rbac_persist.rs (6)"
+        - "crates/eg-core/src/persist_lock.rs (4)"
+        - "crates/eg-core/src/compute/semantic_ann_backend_persistence.rs (3)"
+        - "crates/eg-core/src/compute/semantic_store_ann.rs (3)"
+        - "crates/eg-core/src/path_persist.rs (3)"
+        - "crates/eg-core/src/compute/semantic_ann_persistence.rs (2)"
+    wiring_decision_refs:
+      - "D-EG-007"
+      - "D-EG-009"
+    concepts:
+      - "graph"
+      - "invariants"
+      - "rbac"
+      - "isolation"
+      - "tenancy"
+      - "row-visibility"
+      - "lease"
+      - "semantic-store"
+      - "rls-cache"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.graph-core
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      GraphCore (petgraph graph + ledger), GraphRegistry (multi-tenant), isolation.rs (the zero-trust ACL, AccessLevel/RowVisibility/check_access/can_see_row/filter_view and mint_graph_policy_lease), SemanticStore, rls_view_cache.rs and rbac_persist.rs. Per RF-022/RF-010's four-boundary ruling this is the SOLE deciding authority for durable RBAC/identity admission, graph ACL / tenant isolation / row visibility, and policy-lease minting; eg.query-plan, eg.persistence and eg.server-dispatch are consumers that call lease.filter_view()/validate_before/validate_after, never a second deciding authority.
+  - component_id: eg.timeseries
+    component_kind: implementation_component
+    parent_component_id: eg.storage-transaction
+    parent_layer: storage-transaction
+    layer: storage-transaction
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:timeseries"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.storage-transaction
+    capability_ids:
+      - "eg.timeseries-store"
+      - "eg.timeseries-primitives"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-tsdb"
+    owned_source_roots:
+      - "crates/eg-tsdb/src/"
+    public_contract_roots:
+      - "crates/eg-tsdb/src/lib.rs"
+    test_roots:
+      - "crates/eg-tsdb/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-tsdb -> eg-compute [eg.compute]"
+        - "eg-tsdb -> eg-core [eg.graph-core]"
+        - "eg-tsdb -> eg-modality [eg.modality]"
+        - "eg-tsdb -> eg-mutation-store [eg.mutation-store]"
+        - "eg-tsdb -> eg-types [eg.wire-contracts]"
+      dev_dependencies: []
+    observed_consumers:
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-tsdb)"
+      - "eg.modality (crates/eg-tensor -> crates/eg-tsdb)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-tsdb)"
+    al002_no_sync_io:
+      owned_errors: 5
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-tsdb/src/bin/tsdb_bench.rs (4)"
+        - "crates/eg-tsdb/src/store.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-001"
+      - "D-EG-002"
+    concepts:
+      - "timeseries"
+      - "tsdb"
+      - "asof"
+      - "gap-fill"
+      - "time-bucket"
+      - "ohlc"
+      - "rollup"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.timeseries
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The native time-series store and its TS primitives (time_bucket / ASOF / gap-fill / OHLC / rollup / decay_weighted_mean). Owns its own native mutation scope. Its crate Cargo.toml states outright that depending on eg-core AND eg-compute 'puts eg-tsdb ABOVE eg-compute in the DAG -- parallel to where eg-query sits', which is why D-EG-002 rules the LAYER assignment wrong rather than the edge.
+  - component_id: eg.job-plane
+    component_kind: implementation_component
+    parent_component_id: eg.storage-transaction
+    parent_layer: storage-transaction
+    layer: storage-transaction
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:job-plane"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.storage-transaction
+    capability_ids:
+      - "eg.analytics-job-plane"
+      - "eg.statechart-engine"
+      - "eg.durable-work-item"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-jobs"
+      - "eg-statechart"
+    owned_source_roots:
+      - "crates/eg-jobs/src/"
+      - "crates/eg-statechart/src/"
+      - "src/work_item_statechart.rs"
+      - "src/loop_statechart.rs"
+      - "src/agent_lifecycle_statechart.rs"
+    public_contract_roots:
+      - "crates/eg-jobs/src/lib.rs"
+      - "crates/eg-statechart/src/lib.rs"
+    test_roots:
+      - "crates/eg-jobs/tests/"
+      - "crates/eg-statechart/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-jobs -> eg-core [eg.graph-core]"
+        - "eg-jobs -> eg-mutation-store [eg.mutation-store]"
+        - "eg-jobs -> eg-types [eg.wire-contracts]"
+        - "eg-statechart -> eg-mutation-store [eg.mutation-store]"
+        - "eg-statechart -> eg-types [eg.wire-contracts]"
+      dev_dependencies: []
+    observed_consumers:
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-jobs)"
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-statechart)"
+      - "eg.quantum (crates/eg-quantum-jobs -> crates/eg-jobs)"
+    al002_no_sync_io:
+      owned_errors: 2
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-jobs/src/store.rs (1)"
+        - "crates/eg-statechart/src/store.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-001"
+    concepts:
+      - "jobs"
+      - "statechart"
+      - "fsm"
+      - "durable"
+      - "work-item"
+      - "lease"
+      - "scheduler"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.job-plane
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The durable analytics-job plane over a redb-backed AnalyticsJob state machine (committing results as provenance'd claims through GraphCore), plus its disciplined sibling, the formal FSM/statechart engine and its durable machine-instance store. The three facade-level statechart definitions (work item, loop, agent lifecycle) are owned here because they are chart DEFINITIONS over this engine, not server dispatch.
+  - component_id: eg.kv-cache
+    component_kind: implementation_component
+    parent_component_id: eg.storage-transaction
+    parent_layer: storage-transaction
+    layer: storage-transaction
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:kv-cache"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.storage-transaction
+    capability_ids:
+      - "eg.tiered-kv-cache"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-kvcache"
+    owned_source_roots:
+      - "crates/eg-kvcache/src/"
+    public_contract_roots:
+      - "crates/eg-kvcache/src/lib.rs"
+    test_roots:
+      - "crates/eg-kvcache/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-kvcache -> eg-compute [eg.compute]"
+        - "eg-kvcache -> eg-modality [eg.modality]"
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 0
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files: []
+    wiring_decision_refs:
+      - "D-EG-002"
+    concepts:
+      - "kvcache"
+      - "tiered-cache"
+      - "content-addressed"
+      - "paging"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.kv-cache
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      Tiered hot/warm/cold KV-cache store plus the content-addressed shared multi-instance backend. Its edge to eg-compute is OPTIONAL behind the off-by-default `graph` feature (graph-guided paging) and is NOT in the default or `full` feature closure -- see D-EG-002.
+  - component_id: eg.lake-interop
+    component_kind: implementation_component
+    parent_component_id: eg.storage-transaction
+    parent_layer: storage-transaction
+    layer: storage-transaction
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:lake-interop"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.storage-transaction
+    capability_ids:
+      - "eg.lakehouse-interop"
+      - "eg.sqlite-file-format"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-lake"
+      - "eg-sqlite-format"
+    owned_source_roots:
+      - "crates/eg-lake/src/"
+      - "crates/eg-sqlite-format/src/"
+    public_contract_roots:
+      - "crates/eg-lake/src/lib.rs"
+      - "crates/eg-sqlite-format/src/lib.rs"
+    test_roots:
+      - "crates/eg-lake/tests/"
+      - "crates/eg-sqlite-format/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-lake -> eg-modality [eg.modality]"
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 2
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-sqlite-format/src/reader.rs (1)"
+        - "crates/eg-sqlite-format/src/writer.rs (1)"
+    wiring_decision_refs: []
+    concepts:
+      - "lakehouse"
+      - "parquet"
+      - "delta"
+      - "iceberg"
+      - "sqlite"
+      - "file-format"
+      - "interop"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.lake-interop
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      Foreign storage-format interop: the LTAP lakehouse leg (Parquet + Delta + Iceberg + Iceberg-REST catalog) and the pure-Rust SQLite .db file-format reader/bulk-load writer (no C, no libsqlite3). Both are format adapters with no in-engine store authority; grouped because both exist solely to read and write somebody else's on-disk format.
+  - component_id: eg.persistence
+    component_kind: implementation_component
+    parent_component_id: eg.storage-transaction
+    parent_layer: storage-transaction
+    layer: storage-transaction
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:persistence"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.storage-transaction
+    capability_ids:
+      - "eg.storage-transaction"
+      - "eg.durable-graph-persistence"
+      - "eg.shard-migration"
+      - "eg.backup-restore"
+      - "eg.cold-tier-offload"
+      - "eg.write-coalescing"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates: []
+    owned_source_roots:
+      - "src/redb_store.rs"
+      - "src/redb_store/"
+      - "src/redb_layout.rs"
+      - "src/persist.rs"
+      - "src/persist_lock.rs"
+      - "src/durability.rs"
+      - "src/mutation_apply.rs"
+      - "src/write_coalescer.rs"
+      - "src/graph_delta.rs"
+      - "src/crypto.rs"
+      - "src/server/persistence/"
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies: []
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 285
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "src/server/persistence/redb_backend.rs (97)"
+        - "src/redb_store.rs (49)"
+        - "src/server/persistence/shard_migrate.rs (40)"
+        - "src/server/persistence/backup.rs (37)"
+        - "src/redb_store/resource_reservation_tests.rs (16)"
+        - "src/server/persistence/cold_offload.rs (15)"
+    wiring_decision_refs:
+      - "D-EG-005"
+      - "D-EG-009"
+    concepts:
+      - "persistence"
+      - "redb"
+      - "shards"
+      - "backup"
+      - "restore"
+      - "cold-tier"
+      - "durability"
+      - "transaction"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.persistence
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The facade's own durable persistence and transaction layer: the 20,818-line src/redb_store.rs graph store plus its submodules (capacity leases, development lane, work-item capability, resource reservations), the redb physical layout, persist locking, durability, mutation apply, the write coalescer, graph deltas, at-rest crypto, and src/server/persistence/ (redb_backend, shard_migrate, backup, cold_offload). This component is NOT modelled anywhere in the epistemic-graph-development skill's layer table and owns the single largest AL002 burden in the repository.
+  - component_id: eg.cluster-replication
+    component_kind: implementation_component
+    parent_component_id: eg.storage-transaction
+    parent_layer: storage-transaction
+    layer: storage-transaction
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:cluster-replication"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.storage-transaction
+    capability_ids:
+      - "eg.raft-consensus"
+      - "eg.shard-placement"
+      - "eg.cross-shard-transaction"
+      - "eg.cluster-elasticity"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates: []
+    owned_source_roots:
+      - "src/raft/"
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies: []
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 90
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "src/raft/tests.rs (37)"
+        - "src/raft/xshard_harness.rs (21)"
+        - "src/raft/placement_harness.rs (9)"
+        - "src/raft/harness/cluster.rs (6)"
+        - "src/raft/xshard_modality_harness.rs (5)"
+        - "src/raft/config.rs (3)"
+    wiring_decision_refs:
+      - "D-EG-005"
+    concepts:
+      - "raft"
+      - "consensus"
+      - "replication"
+      - "sharding"
+      - "placement"
+      - "membership"
+      - "cross-shard"
+      - "pregel"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.cluster-replication
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The clustering, consensus and replication subsystem (23 modules): node/network/store, membership shrink, drain, reshard, placement, cross-node elasticity, cross-shard transactions, exchange, xread, Pregel, and their harnesses. Like eg.persistence this seam is entirely absent from the epistemic-graph-development skill's layer model, and it is the third-largest AL002 owner. Recorded here so the burndown has an owner.
+  - component_id: eg.compute
+    component_kind: implementation_component
+    parent_component_id: eg.query-reasoning
+    parent_layer: query-reasoning
+    layer: query-reasoning
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:compute"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.query-reasoning
+    capability_ids:
+      - "eg.compute-domains"
+      - "eg.graph-algorithms"
+      - "eg.datalog-reasoning"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-compute"
+    owned_source_roots:
+      - "crates/eg-compute/src/"
+      - "src/server/compute.rs"
+    public_contract_roots:
+      - "crates/eg-compute/src/lib.rs"
+    test_roots:
+      - "crates/eg-compute/tests/"
+      - "crates/eg-compute/benches/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-compute -> eg-core [eg.graph-core]"
+        - "eg-compute -> eg-geo [eg.modality]"
+        - "eg-compute -> eg-modality [eg.modality]"
+        - "eg-compute -> eg-types [eg.wire-contracts]"
+      dev_dependencies: []
+    observed_consumers:
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-compute)"
+      - "eg.epistemic (crates/eg-epistemic -> crates/eg-compute)"
+      - "eg.kv-cache (crates/eg-kvcache -> crates/eg-compute)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-compute)"
+      - "eg.query-plan (crates/eg-query -> crates/eg-compute)"
+      - "eg.timeseries (crates/eg-tsdb -> crates/eg-compute)"
+    al002_no_sync_io:
+      owned_errors: 1
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-compute/src/graph_algos/leiden.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-002"
+    concepts:
+      - "compute"
+      - "algorithms"
+      - "ast"
+      - "tree-sitter"
+      - "finance"
+      - "datascience"
+      - "datalog"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.compute
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      Compute domains: graph algorithms (always compiled), AST/tree-sitter, finance, datascience and Datalog reasoning. Consumed by eg-query, eg-epistemic, eg-plan, eg-tsdb and (optionally) eg-kvcache -- the last two are the D-EG-002 edges.
+  - component_id: eg.query-plan
+    component_kind: implementation_component
+    parent_component_id: eg.query-reasoning
+    parent_layer: query-reasoning
+    layer: query-reasoning
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:query-plan"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.query-reasoning
+    capability_ids:
+      - "eg.query-reasoning"
+      - "eg.cross-modal-planner"
+      - "eg.sql-catalog"
+      - "eg.wasm-udf"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-query"
+      - "eg-plan"
+      - "eg-wasm"
+    owned_source_roots:
+      - "crates/eg-query/src/"
+      - "crates/eg-plan/src/"
+      - "crates/eg-wasm/src/"
+    public_contract_roots:
+      - "crates/eg-query/src/lib.rs"
+      - "crates/eg-plan/src/lib.rs"
+      - "crates/eg-wasm/src/lib.rs"
+    test_roots:
+      - "crates/eg-query/tests/"
+      - "crates/eg-plan/tests/"
+      - "crates/eg-plan/benches/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-plan -> eg-compute [eg.compute]"
+        - "eg-plan -> eg-core [eg.graph-core]"
+        - "eg-plan -> eg-epistemic [eg.epistemic]"
+        - "eg-plan -> eg-geo [eg.modality]"
+        - "eg-plan -> eg-modality [eg.modality]"
+        - "eg-plan -> eg-query [eg.query-plan]"
+        - "eg-plan -> eg-rdf [eg.rdf-semantics]"
+        - "eg-plan -> eg-stream [eg.modality]"
+        - "eg-plan -> eg-tensor [eg.modality]"
+        - "eg-plan -> eg-text [eg.modality]"
+        - "eg-plan -> eg-tsdb [eg.timeseries]"
+        - "eg-plan -> eg-types [eg.wire-contracts]"
+        - "eg-plan -> eg-wasm [eg.query-plan]"
+        - "eg-query -> eg-ann [eg.numeric-ann]"
+        - "eg-query -> eg-compute [eg.compute]"
+        - "eg-query -> eg-core [eg.graph-core]"
+        - "eg-query -> eg-numeric [eg.numeric-ann]"
+        - "eg-query -> eg-text [eg.modality]"
+        - "eg-query -> eg-types [eg.wire-contracts]"
+      dev_dependencies:
+        - "eg-plan -(dev)-> eg-core [eg.graph-core]"
+        - "eg-plan -(dev)-> eg-query [eg.query-plan]"
+        - "eg-plan -(dev)-> eg-rdf [eg.rdf-semantics]"
+        - "eg-plan -(dev)-> eg-types [eg.wire-contracts]"
+    observed_consumers:
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-plan)"
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-query)"
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-wasm)"
+      - "eg.quantum (crates/eg-quantum-jobs -> crates/eg-plan)"
+      - "eg.quantum (crates/eg-quantum-workloads -> crates/eg-plan)"
+      - "eg.rdf-semantics (crates/eg-graphql -> crates/eg-plan)"
+    al002_no_sync_io:
+      owned_errors: 17
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-plan/src/tsdb_scan_tests.rs (6)"
+        - "crates/eg-query/src/sql/exec.rs (3)"
+        - "crates/eg-plan/benches/hybrid_queries.rs (2)"
+        - "crates/eg-query/src/sql/iceberg_federation.rs (2)"
+        - "crates/eg-plan/src/nl.rs (1)"
+        - "crates/eg-plan/src/result_stream.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-005"
+    concepts:
+      - "query"
+      - "sql"
+      - "cypher"
+      - "planner"
+      - "rowset"
+      - "cost"
+      - "catalog"
+      - "wasm"
+      - "udf"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.query-plan
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The SQL/Cypher surface (DataFusion behind the `sql` feature), the SQL catalog and its native scope key, and THE unified cross-modal planner: a RowSet closed algebra sequencing SQL, graph and vector legs into one plan with cost-based reorder. eg-plan has the widest fan-in in the workspace (13 path dependencies). eg-wasm -- the wasmtime-sandboxed UDF runtime with fuel + memory limits and no host capabilities -- is owned here because the plan/query surface is its only consumer.
+  - component_id: eg.rdf-semantics
+    component_kind: implementation_component
+    parent_component_id: eg.query-reasoning
+    parent_layer: query-reasoning
+    layer: query-reasoning
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:rdf-semantics"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.query-reasoning
+    capability_ids:
+      - "eg.rdf-sparql"
+      - "eg.shape-validation"
+      - "eg.graphql-read-surface"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-rdf"
+      - "eg-shacl"
+      - "eg-shex"
+      - "eg-graphql"
+    owned_source_roots:
+      - "crates/eg-rdf/src/"
+      - "crates/eg-shacl/src/"
+      - "crates/eg-shex/src/"
+      - "crates/eg-graphql/src/"
+    public_contract_roots:
+      - "crates/eg-rdf/src/lib.rs"
+      - "crates/eg-shacl/src/lib.rs"
+      - "crates/eg-shex/src/lib.rs"
+      - "crates/eg-graphql/src/lib.rs"
+    test_roots:
+      - "crates/eg-rdf/tests/"
+      - "crates/eg-shacl/tests/"
+      - "crates/eg-shex/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-graphql -> eg-core [eg.graph-core]"
+        - "eg-graphql -> eg-plan [eg.query-plan]"
+        - "eg-graphql -> eg-rdf [eg.rdf-semantics]"
+        - "eg-graphql -> eg-types [eg.wire-contracts]"
+        - "eg-rdf -> eg-core [eg.graph-core]"
+        - "eg-rdf -> eg-geo [eg.modality]"
+        - "eg-rdf -> eg-modality [eg.modality]"
+        - "eg-rdf -> eg-types [eg.wire-contracts]"
+        - "eg-shacl -> eg-modality [eg.modality]"
+        - "eg-shacl -> eg-rdf [eg.rdf-semantics]"
+        - "eg-shex -> eg-modality [eg.modality]"
+        - "eg-shex -> eg-rdf [eg.rdf-semantics]"
+      dev_dependencies:
+        - "eg-graphql -(dev)-> eg-query [eg.query-plan]"
+        - "eg-rdf -(dev)-> eg-shacl [eg.rdf-semantics]"
+    observed_consumers:
+      - "eg.embedded-bindings (crates/eg-pyengine -> crates/eg-rdf)"
+      - "eg.query-plan (crates/eg-plan -> crates/eg-rdf)"
+    al002_no_sync_io:
+      owned_errors: 2
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-rdf/src/rules.rs (2)"
+    wiring_decision_refs:
+      - "D-EG-003"
+      - "D-EG-007"
+    concepts:
+      - "rdf"
+      - "sparql"
+      - "shacl"
+      - "shex"
+      - "graphql"
+      - "oxrdf"
+      - "validation"
+      - "ontology"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.rdf-semantics
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      RDF <-> property-graph mapping and SPARQL 1.1 compiled to GraphView scans, the pure-Rust SHACL Core and ShEx Core validators over eg-rdf's oxrdf model, and the native GraphQL read surface (schema-from-graph + a resolver compiling to GraphView scans). Grouped as one seam because all four share the oxrdf term/graph model and the GraphView scan contract. Carries an undocumented dev-dependency cycle (eg-rdf dev-depends eg-shacl, which depends on eg-rdf) -- see D-EG-003.
+  - component_id: eg.epistemic
+    component_kind: implementation_component
+    parent_component_id: eg.query-reasoning
+    parent_layer: query-reasoning
+    layer: query-reasoning
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:epistemic"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.query-reasoning
+    capability_ids:
+      - "eg.claims-evidence-belief"
+      - "eg.contradiction-tms"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-epistemic"
+    owned_source_roots:
+      - "crates/eg-epistemic/src/"
+      - "src/server/reasoning_cascade.rs"
+      - "src/server/reasoning_projection.rs"
+    public_contract_roots:
+      - "crates/eg-epistemic/src/lib.rs"
+    test_roots:
+      - "crates/eg-epistemic/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-epistemic -> eg-compute [eg.compute]"
+        - "eg-epistemic -> eg-core [eg.graph-core]"
+        - "eg-epistemic -> eg-modality [eg.modality]"
+        - "eg-epistemic -> eg-types [eg.wire-contracts]"
+      dev_dependencies: []
+    observed_consumers:
+      - "eg.query-plan (crates/eg-plan -> crates/eg-epistemic)"
+    al002_no_sync_io:
+      owned_errors: 21
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "src/server/reasoning_projection.rs (21)"
+    wiring_decision_refs:
+      - "D-EG-005"
+    concepts:
+      - "claims"
+      - "evidence"
+      - "belief"
+      - "contradiction"
+      - "confidence"
+      - "justification"
+      - "tms"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.epistemic
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      Claims, evidence, belief-state, contradiction detection, confidence propagation and justification (a truth-maintenance system), plus the facade's reasoning cascade and reasoning projection that serve it.
+  - component_id: eg.quantum
+    component_kind: implementation_component
+    parent_component_id: eg.query-reasoning
+    parent_layer: query-reasoning
+    layer: query-reasoning
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:quantum"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.query-reasoning
+    capability_ids:
+      - "eg.quantum-contracts"
+      - "eg.quantum-simulation"
+      - "eg.quantum-hardware-backends"
+      - "eg.quantum-job-integration"
+      - "eg.quantum-workloads"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-quantum-core"
+      - "eg-quantum-gates"
+      - "eg-quantum-sim"
+      - "eg-quantum-hardware"
+      - "eg-quantum-jobs"
+      - "eg-quantum-workloads"
+    owned_source_roots:
+      - "crates/eg-quantum-core/src/"
+      - "crates/eg-quantum-gates/src/"
+      - "crates/eg-quantum-sim/src/"
+      - "crates/eg-quantum-hardware/src/"
+      - "crates/eg-quantum-jobs/src/"
+      - "crates/eg-quantum-workloads/src/"
+    public_contract_roots:
+      - "crates/eg-quantum-core/src/lib.rs"
+      - "crates/eg-quantum-gates/src/lib.rs"
+      - "crates/eg-quantum-sim/src/lib.rs"
+      - "crates/eg-quantum-hardware/src/lib.rs"
+      - "crates/eg-quantum-jobs/src/lib.rs"
+      - "crates/eg-quantum-workloads/src/lib.rs"
+    test_roots:
+      - "crates/eg-quantum-core/tests/"
+      - "crates/eg-quantum-sim/tests/"
+      - "crates/eg-quantum-hardware/tests/"
+      - "crates/eg-quantum-jobs/tests/"
+      - "crates/eg-quantum-workloads/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-quantum-gates -> eg-numeric [eg.numeric-ann]"
+        - "eg-quantum-gates -> eg-quantum-core [eg.quantum]"
+        - "eg-quantum-hardware -> eg-quantum-core [eg.quantum]"
+        - "eg-quantum-jobs -> eg-jobs [eg.job-plane]"
+        - "eg-quantum-jobs -> eg-numeric [eg.numeric-ann]"
+        - "eg-quantum-jobs -> eg-plan [eg.query-plan]"
+        - "eg-quantum-jobs -> eg-quantum-core [eg.quantum]"
+        - "eg-quantum-jobs -> eg-quantum-sim [eg.quantum]"
+        - "eg-quantum-jobs -> eg-types [eg.wire-contracts]"
+        - "eg-quantum-sim -> eg-numeric [eg.numeric-ann]"
+        - "eg-quantum-sim -> eg-quantum-core [eg.quantum]"
+        - "eg-quantum-sim -> eg-quantum-gates [eg.quantum]"
+        - "eg-quantum-workloads -> eg-core [eg.graph-core]"
+        - "eg-quantum-workloads -> eg-numeric [eg.numeric-ann]"
+        - "eg-quantum-workloads -> eg-plan [eg.query-plan]"
+        - "eg-quantum-workloads -> eg-quantum-core [eg.quantum]"
+        - "eg-quantum-workloads -> eg-quantum-gates [eg.quantum]"
+        - "eg-quantum-workloads -> eg-quantum-sim [eg.quantum]"
+        - "eg-quantum-workloads -> eg-types [eg.wire-contracts]"
+      dev_dependencies:
+        - "eg-quantum-hardware -(dev)-> eg-quantum-core [eg.quantum]"
+        - "eg-quantum-workloads -(dev)-> eg-epistemic [eg.epistemic]"
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 0
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files: []
+    wiring_decision_refs:
+      - "D-EG-003"
+    concepts:
+      - "quantum"
+      - "qaoa"
+      - "statevector"
+      - "stabilizer"
+      - "backend"
+      - "exactness"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.quantum
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The quantum specialty sub-DAG, six crates, entirely default-off (none of the quantum/quantum-quest/quantum-gpu/quantum-hardware features is in `full`). eg-quantum-core holds the QuantumProgram IR, the QuantumBackend trait + capability flags, the estimate()/planner rules R0-R5 and the exactness-typed QuantumResult; gates supplies unitary matrices; sim is statevector + stabilizer; hardware adapts IBM/Braket/Azure and is ALWAYS BackendFamily::Hardware, never exact; jobs runs quantum as an eg-jobs AnalyticsJob; workloads (QAOA) writes back TYPED PROPOSALS through the :Claim/:Evidence/SUPPORTS convention, never a hard constraint. NOTE: the skill says 'Quantum (5)'; there are SIX.
+  - component_id: eg.viz
+    component_kind: implementation_component
+    parent_component_id: eg.query-reasoning
+    parent_layer: query-reasoning
+    layer: query-reasoning
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:viz"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.query-reasoning
+    capability_ids:
+      - "eg.view-spec-contract"
+      - "eg.viz-columnstore"
+      - "eg.viz-lod-kernels"
+      - "eg.viz-graph-tiles"
+      - "eg.viz-export"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-viz-core"
+      - "eg-viz-columnstore"
+      - "eg-viz-kernels"
+      - "eg-viz-graph-tiles"
+      - "eg-viz-export"
+    owned_source_roots:
+      - "crates/eg-viz-core/src/"
+      - "crates/eg-viz-columnstore/src/"
+      - "crates/eg-viz-kernels/src/"
+      - "crates/eg-viz-graph-tiles/src/"
+      - "crates/eg-viz-export/src/"
+      - "src/server/viz_engine.rs"
+      - "src/server/viz_interactive.rs"
+      - "src/server/viz_interactive_client.html"
+      - "src/server/viz_provenance.rs"
+      - "src/server/graph_tile_server.rs"
+      - "src/server/graph_tile_source.rs"
+    public_contract_roots:
+      - "crates/eg-viz-core/src/lib.rs"
+      - "crates/eg-viz-columnstore/src/lib.rs"
+      - "crates/eg-viz-kernels/src/lib.rs"
+      - "crates/eg-viz-graph-tiles/src/lib.rs"
+      - "crates/eg-viz-export/src/lib.rs"
+    test_roots:
+      - "crates/eg-viz-kernels/tests/"
+      - "crates/eg-viz-kernels/benches/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-viz-columnstore -> eg-viz-core [eg.viz]"
+        - "eg-viz-export -> eg-viz-columnstore [eg.viz]"
+        - "eg-viz-export -> eg-viz-core [eg.viz]"
+        - "eg-viz-export -> eg-viz-kernels [eg.viz]"
+        - "eg-viz-graph-tiles -> eg-viz-core [eg.viz]"
+        - "eg-viz-kernels -> eg-viz-core [eg.viz]"
+      dev_dependencies:
+        - "eg-viz-core -(dev)-> eg-jobs [eg.job-plane]"
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 6
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "crates/eg-viz-export/examples/render_graph_demo.rs (2)"
+        - "src/server/viz_provenance.rs (2)"
+        - "crates/eg-viz-export/examples/render_large_n_tier.rs (1)"
+        - "crates/eg-viz-export/examples/render_repo_commit_history.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-003"
+    concepts:
+      - "viz"
+      - "viewspec"
+      - "lod"
+      - "m4"
+      - "lttb"
+      - "columnstore"
+      - "tiles"
+      - "export"
+      - "chart"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.viz
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The native visualization stack. eg-viz-core is the declarative ViewSpec chart IR, the ViewResult exact-vs-approximated metadata, the mark capability matrix and the LOD tier-selection rules -- a true leaf with ZERO normal-build workspace dependencies. Above it: the columnstore, the M4/LTTB kernels (runtime-detected AVX2), graph tiles and export. CORRECTION to the skill: the viz features are NOT all off by default -- `full` (which is in `default`) enables viz, viz-columnstore, viz-static-export, viz-interactive and viz-graph-tiles.
+  - component_id: eg.server-dispatch
+    component_kind: implementation_component
+    parent_component_id: eg.server-protocol
+    parent_layer: server-protocol
+    layer: server-protocol
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:server-dispatch"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.server-protocol
+    capability_ids:
+      - "eg.server-protocol"
+      - "eg.kg-delegate"
+      - "eg.policy-aware-query-dispatch"
+      - "eg.wire-protocol-family"
+      - "eg.federation"
+      - "eg.cdc"
+      - "eg.blob-store"
+      - "eg.kv-surface"
+      - "eg.s3-surface"
+      - "eg.obda"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates: []
+    owned_source_roots:
+      - "src/server/ (all except persistence/, obs/, compute.rs, reasoning_cascade.rs, reasoning_projection.rs, viz_*.rs, graph_tile_*.rs)"
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies: []
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 120
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "src/server/handlers/admin.rs (19)"
+        - "src/server/handlers/sqlite_file.rs (18)"
+        - "src/server/registry_reaper.rs (12)"
+        - "src/server/dispatch.rs (11)"
+        - "src/server/sql_tables.rs (10)"
+        - "src/server/nl.rs (9)"
+    wiring_decision_refs:
+      - "D-EG-001"
+      - "D-EG-005"
+      - "D-EG-010"
+    concepts:
+      - "server"
+      - "protocol"
+      - "dispatch"
+      - "handlers"
+      - "admission"
+      - "transport"
+      - "wire"
+      - "federation"
+      - "cdc"
+      - "blob"
+      - "s3"
+      - "obda"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.server-dispatch
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      The root facade's server/protocol adapter and the TOP of the DAG. There is deliberately no eg-server crate: the server lib and the bin are 1:1, so splitting would carry no consumer and entangle the server/metrics features. Owns dispatch.rs (14,174 lines -- the 'thin routing table' convention describes the intent, not the present state), handlers/, state.rs, auth.rs, access.rs, transport.rs, mutation.rs, mutation_batch.rs, the ten-member wire family (pgwire, mysql_wire, mssql_wire, bolt_wire, redis_wire, sqlite_wire, amqp_wire, mqtt_wire, stomp_wire, broker_wire), federation/, cdc*, s3/, lake/, obda/, blob/ and kv.rs. It is the one permitted caller of IsolationLayer::mint_graph_policy_lease (authorize_and_route_knowledge_stream), enforced by the mint-lease-call-sites hook.
+  - component_id: eg.embedded-bindings
+    component_kind: implementation_component
+    parent_component_id: eg.server-protocol
+    parent_layer: server-protocol
+    layer: server-protocol
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:embedded-bindings"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.server-protocol
+    capability_ids:
+      - "eg.embedded-store"
+      - "eg.pyo3-inprocess-binding"
+      - "eg.language-clients"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates:
+      - "eg-pyengine"
+    owned_source_roots:
+      - "crates/eg-pyengine/src/"
+      - "src/embedded.rs"
+      - "src/embedded/"
+      - "epistemic_graph/"
+      - "clients/"
+    public_contract_roots:
+      - "crates/eg-pyengine/src/lib.rs"
+    test_roots:
+      - "crates/eg-pyengine/tests/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies:
+        - "eg-pyengine -> eg-compute [eg.compute]"
+        - "eg-pyengine -> eg-core [eg.graph-core]"
+        - "eg-pyengine -> eg-jobs [eg.job-plane]"
+        - "eg-pyengine -> eg-plan [eg.query-plan]"
+        - "eg-pyengine -> eg-query [eg.query-plan]"
+        - "eg-pyengine -> eg-rdf [eg.rdf-semantics]"
+        - "eg-pyengine -> eg-statechart [eg.job-plane]"
+        - "eg-pyengine -> eg-tsdb [eg.timeseries]"
+        - "eg-pyengine -> eg-wasm [eg.query-plan]"
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 11
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "src/embedded/tests.rs (8)"
+        - "src/embedded.rs (2)"
+        - "src/embedded/store.rs (1)"
+    wiring_decision_refs:
+      - "D-EG-004"
+    concepts:
+      - "embedded"
+      - "pyo3"
+      - "bindings"
+      - "clients"
+      - "python"
+      - "javascript"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.embedded-bindings
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      In-process and out-of-process language bindings: the embedded store surface, the PyO3 in-process binding (opt-in only -- the out-of-process build must never link it, enforced by scripts/check_no_pyo3.sh), the Python client package (governed by .importlinter) and the JS client (governed by clients/js/.dependency-cruiser.cjs, which is the ONLY thing the dependency-cruiser-architecture hook validates -- see D-EG-004).
+  - component_id: eg.observability
+    component_kind: implementation_component
+    parent_component_id: eg.composition
+    parent_layer: composition
+    layer: composition
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:observability"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.composition
+    capability_ids:
+      - "eg.metrics-otel"
+      - "eg.slow-query-observability"
+      - "eg.cost-accounting"
+      - "eg.audit-log"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates: []
+    owned_source_roots:
+      - "src/metrics.rs"
+      - "src/otel.rs"
+      - "src/slow_query.rs"
+      - "src/cost.rs"
+      - "src/performance_probe.rs"
+      - "src/audit.rs"
+      - "src/autosize.rs"
+      - "src/channels.rs"
+      - "src/server/obs/"
+      - "src/server/traces/"
+      - "src/server/promql/"
+    public_contract_roots: []
+    test_roots: []
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies: []
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 25
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "src/server/obs/mod.rs (10)"
+        - "src/cost.rs (9)"
+        - "src/performance_probe.rs (6)"
+    wiring_decision_refs:
+      - "D-EG-005"
+    concepts:
+      - "metrics"
+      - "otel"
+      - "tracing"
+      - "slow-query"
+      - "cost"
+      - "audit"
+      - "promql"
+      - "observability"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.observability
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      Metrics, OpenTelemetry export, the slow-query log, cost accounting and probes, the audit log, autosizing and channels, plus the served observability surfaces (obs/, traces/, promql/). Kept disjoint from eg.server-dispatch's roots so exclusive ownership holds.
+  - component_id: eg.binary-composition
+    component_kind: implementation_component
+    parent_component_id: eg.composition
+    parent_layer: composition
+    layer: composition
+    owner: epistemic-graph
+    lane_kind: worker
+    ownership_kind: exclusive
+    implementation_authority: "epistemic-graph:binary-composition"
+    authority_matrix_ref: inventory.repositories.epistemic-graph.target_layers.composition
+    capability_ids:
+      - "eg.composition"
+      - "eg.derived-data-lifecycle"
+      - "eg.feature-graph"
+      - "eg.architecture-gates"
+      - "eg.release-composition"
+    target_item_refs: []
+    contract_state: unknown_not_inventory_complete
+    owned_crates: []
+    owned_source_roots:
+      - "Cargo.toml"
+      - "src/lib.rs"
+      - "src/main.rs"
+      - "src/bin/"
+      - "src/test_support.rs"
+      - ".cargo/config.toml"
+      - "arch-lint.toml"
+      - ".pre-commit-config.yaml"
+      - ".repo-layout.toml"
+      - ".importlinter"
+      - ".bumpversion.cfg"
+      - "scripts/"
+      - "docker/"
+      - "docs/"
+      - "protocols/"
+    public_contract_roots: []
+    test_roots:
+      - "tests/"
+      - "benches/"
+      - "examples/"
+    generated_roots: []
+    shared_roots: []
+    shared_files: []
+    review_policy: single_owner_exclusive_paths_reviewed_by_component_owner
+    dependency_edge_refs: []
+    dependency_edge_state: >-
+      not_run -- inventory.yml:fleet_graph is status:not_started / observed_state:unknown, so no
+      exact edge id exists to reference. The observed_crate_edges block below is a VERIFIED Cargo
+      observation recorded as evidence, NOT a second dependency-graph authority.
+    observed_crate_edges:
+      dependencies: []
+      dev_dependencies: []
+    observed_consumers: []
+    al002_no_sync_io:
+      owned_errors: 41
+      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      top_files:
+        - "tests/txn_recovery_key_decoupled_d_orc_50.rs (9)"
+        - "tests/advanced_crossmodal_roundtrip.rs (4)"
+        - "tests/sharded_startup_open_timing_d_cdx_65.rs (4)"
+        - "src/main.rs (3)"
+        - "tests/pgwire_roundtrip.rs (3)"
+        - "benches/cold_warm_reopen.rs (2)"
+    wiring_decision_refs:
+      - "D-EG-004"
+      - "D-EG-006"
+      - "D-EG-009"
+    concepts:
+      - "composition"
+      - "features"
+      - "binaries"
+      - "gates"
+      - "pre-commit"
+      - "release"
+      - "deployment"
+      - "lifecycle"
+    aliases: []
+    replaces: []
+    merged_from: []
+    migration_lineage: []
+    test_mirrors_component_id: eg.binary-composition
+    acceptance_gates:
+      reexport_tiny_facade_file_explosion: not_run
+      duplicate_constants_registries: not_run
+      top_level_stability: not_run
+      import_layer_conformance: not_run
+      orphan_roots: not_run
+      generated_isolation: not_run
+      agents_boundary_conformance: not_run
+    status: proposed
+    version: 1
+    acceptance_evidence: []
+    evidence_status: not_run
+    summary: >-
+      Feature selection, process lifecycle and the gate suite. Owns the root Cargo.toml feature graph (default = graph, algorithms, metrics, full; full is an 84-entry list that INCLUDES security and the viz family), the five [[bin]] targets each behind required-features (epistemic-graph-server/server, nemesis/harness, migrate-shards, restore/redb+server, lake-fixture-export/lake), .cargo/config.toml (target-dir = target-isolated, the GGML CPU portability contract, mold, sccache), arch-lint.toml, the 60-hook .pre-commit-config.yaml and scripts/. It is therefore the owner of every architecture-gate decision: D-EG-004 (no crate-DAG gate exists), D-EG-006 (the arch-lint exclude misses target-isolated) and the sequencing half of D-EG-009.
+
+# ---------------------------------------------------------------------------
+# NOTE ON SEPARATION (requested during this pass): a dev-time LAYER INVERSION and a
+# dev-dependency CYCLE are different findings and are recorded in different lists.
+#   * `declared_layer_violations` holds edges that point at a higher layer, cyclic or not.
+#     LV-04 (eg-viz-core -(dev)-> eg-jobs) lives here: it is a Layer-0 leaf reaching a
+#     storage-layer crate, and it is NOT a cycle.
+#   * `dev_dependency_cycles` holds edges that close a loop. DC-01 (eg-modality against its
+#     six modality crates) and DC-02 (eg-rdf <-> eg-shacl) live here.
+# Conflating them was the original finding's error and it is not reproduced.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Declared layer violations. Every entry is an EDGE, so it belongs to a PAIR of
+# components and is recorded here rather than under either one. This list is a
+# reviewed, reasoned allowlist that must SHRINK -- it is not a ratchet and not a
+# baseline: it hides no finding, grows only by a reviewed human edit with a stated
+# reason, and D-EG-004's proposed gate fails when an entry stops matching reality.
+# ---------------------------------------------------------------------------
+declared_layer_violations:
+  - edge_id: LV-01
+    edge: "crates/eg-tsdb -> crates/eg-compute"
+    from_component: eg.timeseries
+    to_component: eg.compute
+    kind: mandatory_normal_dependency
+    verified_at: "crates/eg-tsdb/Cargo.toml:59"
+    verified_text: 'eg-compute = { path = "../eg-compute", features = ["finance"] }'
+    in_default_and_full_closure: true
+    disposition: layer_assignment_is_wrong_not_the_edge
+    decision_ref: D-EG-002
+
+  - edge_id: LV-02
+    edge: "crates/eg-kvcache -> crates/eg-compute"
+    from_component: eg.kv-cache
+    to_component: eg.compute
+    kind: optional_feature_gated_dependency
+    verified_at: "crates/eg-kvcache/Cargo.toml:37 (declaration), :63 (gate)"
+    verified_text: 'eg-compute = { path = "../eg-compute", optional = true }   /   graph = ["dep:eg-compute"]'
+    in_default_and_full_closure: false
+    in_default_and_full_closure_evidence: >-
+      The root package declares eg-kvcache optional (Cargo.toml:1646) and reaches it only
+      through `kvcache-server = ["server", "oidc", "dep:eg-kvcache"]` (:1026) and
+      `kvcache-compression = ["kvcache-server", "eg-kvcache/compression"]` (:1031). Neither
+      enables `eg-kvcache/graph`. `full` lists kvcache-server and kvcache-compression but
+      not the graph feature, so this edge is absent from every default and `full` build.
+    disposition: not_a_violation_of_the_restated_rule
+    decision_ref: D-EG-002
+
+  - edge_id: LV-03
+    edge: "crates/eg-tensor -> crates/eg-tsdb"
+    from_component: eg.modality
+    to_component: eg.timeseries
+    kind: mandatory_normal_dependency
+    verified_at: "crates/eg-tensor/Cargo.toml:24"
+    verified_text: 'eg-tsdb = { path = "../eg-tsdb", default-features = false }'
+    in_default_and_full_closure: true
+    aggravating_fact: >-
+      eg-tensor's edge to eg-modality is OPTIONAL (crates/eg-tensor/Cargo.toml:31, behind
+      the `contract` feature) while its edge to eg-tsdb is MANDATORY. eg-tensor is
+      therefore not a modality leaf that happens to reach upward; in a default build it is
+      a crate whose only workspace dependency is a storage-layer crate.
+    disposition: real_violation_invert_the_edge
+    decision_ref: D-EG-002
+
+  - edge_id: LV-04
+    edge: "crates/eg-viz-core -(dev)-> crates/eg-jobs"
+    from_component: eg.viz
+    to_component: eg.job-plane
+    kind: dev_dependency_only
+    verified_at: "crates/eg-viz-core/Cargo.toml:58"
+    is_a_cycle: false
+    correction: >-
+      The source finding calls this a dev-dependency CYCLE. It is not. eg-jobs does not
+      depend on eg-viz-core -- eg-jobs' path dependencies are exactly eg-core,
+      eg-mutation-store and eg-types. This edge is a one-way dev-time LAYER INVERSION (a
+      zero-normal-dependency contract leaf reaching a storage-layer crate for a test), and
+      the crate's own Cargo.toml documents it as deliberate: the edge is dev-only
+      "precisely so the crate itself (and any default/normal build of it) never links
+      eg-jobs, eg-types, eg-core, eg-mutation-store, or redb".
+    disposition: permitted_by_the_restated_rule
+    decision_ref: D-EG-003
+
+dev_dependency_cycles:
+  - cycle_id: DC-01
+    crate: crates/eg-modality
+    dev_depends_on: [eg-tensor, eg-geo, eg-document, eg-image, eg-audio, eg-video]
+    is_a_cycle: true
+    evidence: >-
+      All six depend on eg-modality -- five directly, and eg-tensor through its optional
+      `contract` feature which eg-modality's own dev-dependency turns on
+      (`eg-tensor = { path = "../eg-tensor", features = ["contract"] }`). So each of the
+      six edges closes a cycle. eg-modality's Cargo.toml states the intent verbatim:
+      the crate "EXPLICITLY permits cycles through dev-dependencies".
+    components: [eg.modality]
+    decision_ref: D-EG-003
+
+  - cycle_id: DC-02
+    crate: crates/eg-rdf
+    dev_depends_on: [eg-shacl]
+    is_a_cycle: true
+    evidence: >-
+      eg-shacl's normal dependency is eg-rdf (crates/eg-shacl/Cargo.toml:31,
+      `features = ["rdf"]`), and eg-rdf dev-depends on eg-shacl for the ICV integration
+      test (CONCEPT:EG-146). NOT NAMED in the source finding, and NOT in the corrected list that
+      reached this lane during the pass (which states eg-modality's is "the only genuine dev-dep
+      cycle"). It is genuine: crates/eg-shacl/Cargo.toml:31 declares
+      `eg-rdf = { path = "../eg-rdf", features = ["rdf"] }` as a NORMAL dependency, and
+      crates/eg-rdf/Cargo.toml's [dev-dependencies] declares `eg-shacl = { path = "../eg-shacl" }`.
+      eg-rdf's own comment concedes it: "using it as a DEV-dependency here is a dev-dep cycle,
+      which Cargo permits". Found by enumerating the dev path deps of all 48 crates rather than
+      checking the two that were named. Retained over the correction, with the evidence above.
+    components: [eg.rdf-semantics]
+    decision_ref: D-EG-003
+
+  - cycle_id: DC-03
+    crate: crates/eg-quantum-hardware
+    dev_depends_on: [eg-quantum-core]
+    is_a_cycle: false
+    evidence: >-
+      eg-quantum-core is already a NORMAL dependency of eg-quantum-hardware, so the dev
+      entry is redundant rather than cyclic. Recorded only so the census is complete.
+    components: [eg.quantum]
+    decision_ref: D-EG-003
+
+# ---------------------------------------------------------------------------
+# Wiring decisions. One per open architectural finding.
+#
+# `decision_authority` says who the call belongs to:
+#   component_owner -- the owning component can decide and implement it.
+#   operator        -- it changes a product-visible contract, a supported build shape,
+#                      or the release queue, and I should not decide it.
+# Every decision is `status: proposed` regardless; no operator has signed off.
+# ---------------------------------------------------------------------------
+wiring_decisions:
+
+  - decision_id: D-EG-001
+    title: "MutationStore::database() is public and the write() revalidation is bypassed"
+    owning_component: eg.mutation-store
+    affected_components: [eg.server-dispatch, eg.job-plane, eg.timeseries, eg.graph-core, eg.persistence]
+    status: proposed
+    decision_authority: component_owner
+    evidence_status: not_run
+
+    verified_facts:
+      - "`pub fn database(&self) -> &Database` is at crates/eg-mutation-store/src/store/identity.rs:142.
+         The finding says :144. STALE BY TWO LINES."
+      - "`pub fn write(&self) -> Result<MutationWrite, String>` is at identity.rs:150 and its FIRST
+         statement is `self.validate_physical_root()?`. A raw `database().begin_write()` skips that
+         and the handle revalidation. The security delta is real and is exactly as described."
+      - "A second, already-narrow accessor exists: `pub(crate) fn database(&self) -> &ReadOnlyDatabase`
+         at identity.rs:220. The read side is therefore already solved; only the write side is open."
+      - "`.database()` appears at 71 sites across src/ and crates/ (including doc comments and tests)."
+    corrected_census:
+      method: >-
+        Every line containing `.database()` whose next three lines contain `begin_write`, over
+        src/ and crates/, at HEAD 1d83cf4b.
+      production_begin_write_bypasses_outside_the_owning_crate: 17
+      finding_originally_claimed: 12
+      note_on_the_18th: >-
+        A single further production `.database().begin_write()` exists at
+        crates/eg-mutation-store/src/store/recovery.rs:131. It is INSIDE the owning crate and is
+        therefore not a bypass of the store's own API; it is excluded from the 17. Counted
+        together the figure is 18, which is why both numbers appear in earlier notes.
+      breakdown:
+        - "src/server/kv.rs:193, :218, :328 (3) -- owner eg.server-dispatch"
+        - "src/server/blob/store.rs:570, :643, :699, :1315 (4) -- owner eg.server-dispatch"
+        - "crates/eg-jobs/src/store.rs:1241, :1297, :1362 (3) -- owner eg.job-plane"
+        - "crates/eg-statechart/src/store.rs:267 (1) -- owner eg.job-plane"
+        - "crates/eg-tsdb/src/store.rs:562, :582, :774, :812, :934, :977 (6) -- owner eg.timeseries"
+      re_measurement_finding: >-
+        THE CHOKEPOINT BYPASS GOT WIDER WHEN RE-MEASURED, and by whom matters. eg-tsdb (6) and
+        eg-statechart (1) account for 7 of the 17 and were absent from the original finding.
+        Those are precisely the stores that were RESTRUCTURED to own a `MutationStore` rather
+        than a bare `Database` -- they should be the best-behaved consumers of the contract, and
+        instead they are its largest single bypasser. That is the strongest argument for closing
+        the accessor: a migration whose stated purpose was "every consumer holds a store + an
+        identity, never a bare Database" reproduced the bare-Database call shape through a public
+        accessor, and nothing observed it. Leaving `database()` public means the next store to be
+        migrated will do the same.
+      test_only_sites_excluded:
+        - "crates/eg-core/src/rbac_persist.rs:763"
+        - "crates/eg-tsdb/src/store.rs:1390"
+        - "crates/eg-mutation-store/src/store/tests.rs:196"
+      corrections_to_the_finding:
+        - "eg-tsdb was MISSED entirely and is the single largest bypasser (6 of the 17 external sites)."
+        - "eg-statechart was MISSED (1 site)."
+        - "`crates/eg-jobs/src/store.rs:416` is correctly EXCLUDED from the 17 -- it is
+           `initialize_scheduler_indexes(mutation_store.database())`, which is a call, not a
+           transaction mint. PARTIAL DISAGREEMENT with the correction that reached this lane,
+           which describes :416 as 'a read': it is not. VERIFIED at
+           crates/eg-jobs/src/store.rs:1485-1486 --
+           `fn initialize_scheduler_indexes(db: &Database) -> Result<u64> { let wtx =
+           db.begin_write().map_err(redb_err)?; ... }`. So the raw `&Database` handed out at :416
+           is used to mint a WRITE transaction one frame away at :1486. It is not a 17th
+           direct-mint site, but it IS a transitive bypass and the accessor narrowing in
+           `concrete_change` must cover it (the parameter type becomes the revalidating
+           accessor's output, not `&Database`). Recorded rather than silently dropped, because
+           dropping it would leave a live bypass with no owner."
+        - "src/server/blob/store.rs has TWELVE `.database()` sites (570, 612, 643, 662, 685, 699, 713,
+           724, 968, 1243, 1294, 1315), not 14. Four of the twelve reach begin_write; the other eight
+           are begin_read."
+        - "src/server/kv.rs:1071 and :164, :258 are begin_READ, correctly excluded from the write census."
+
+    decision: >-
+      `database()` becomes `pub(crate)`, AND the bypass sites are NOT migrated to `write()`.
+      Both halves of the finding's either/or are wrong on their own; the answer is a third
+      option, a narrow write accessor that keeps the revalidation.
+    rationale: >-
+      Migrating the 17 external sites to `MutationStore::write()` would be incorrect. Every one
+      of eg-jobs, eg-statechart, eg-tsdb, eg-core::rbac_persist and src/server/blob/store.rs
+      documents in its own source that its AUTHORITATIVE table lives beside the ledger in the
+      SAME physical redb file and is deliberately opened off the raw `Database`
+      (e.g. crates/eg-jobs/src/store.rs:368-372, crates/eg-core/src/rbac_persist.rs:130,
+      crates/eg-statechart/src/store.rs:206). `write()` returns a `MutationWrite` bound to a
+      ledger batch; these writes are not ledger batches. What the bypass sites actually skip is
+      only the two revalidations -- so the fix is an accessor that keeps the revalidation and
+      drops the batch requirement, not a call-shape migration. Leaving `database()` public and
+      "just being careful" is the option this repository has already disproved: a public raw
+      handle is a second construction route to the same authority, which is the exact
+      anti-pattern the `mint-lease-call-sites` gate exists to prevent for leases.
+    concrete_change:
+      - "crates/eg-mutation-store/src/store/identity.rs: change `pub fn database` (:142) to
+         `pub(crate) fn database`."
+      - "crates/eg-mutation-store/src/store/identity.rs: add
+         `pub fn owner_write(&self) -> Result<redb::WriteTransaction, String>` which runs the
+         SAME `validate_physical_root()` + handle revalidation as `write()` (:150) and then
+         returns a bare `WriteTransaction` for the store owner's own non-ledger tables."
+      - "crates/eg-mutation-store/src/store/identity.rs: add the matching
+         `pub fn owner_read(&self) -> Result<redb::ReadTransaction, String>` so the 40-odd
+         `.database().begin_read()` sites get the same treatment rather than a second exception."
+      - "Migrate the 17 external write sites listed in `corrected_census.breakdown` to
+         `owner_write()`, and the external read sites to `owner_read()`."
+      - "src/server/kv.rs:193, :218, :328 are the only three sites with NO separate-table reason --
+         they are plain KV mutations. Migrate those to `MutationStore::write()` proper, not to
+         `owner_write()`."
+      - "Cover the TRANSITIVE site too: `initialize_scheduler_indexes` takes `db: &Database`
+         (crates/eg-jobs/src/store.rs:1485) and mints a write at :1486 from the handle passed at
+         :416. Change its parameter to the revalidating accessor's output rather than
+         `&Database`, so narrowing `database()` to pub(crate) does not simply push the raw handle
+         one frame down. Grep for other `fn f(db: &Database)` signatures in the same pass."
+      - "Add a pre-commit check (owner: eg.binary-composition) that `\\.database()` does not appear
+         outside crates/eg-mutation-store, so the narrowing cannot silently regress. Make it also
+         reject `&redb::Database` in a function signature outside that crate -- otherwise the
+         accessor is narrowed and the raw handle keeps travelling by parameter."
+    acceptance_evidence: []
+    would_have_been_caught_by: >-
+      NOTHING in the current gate suite. `persisted-mutation-contract` checks the method/projection
+      persistence inventory, not the transaction-minting route. This is a coverage hole, not a
+      failing gate.
+
+  - decision_id: D-EG-002
+    title: "Crate-DAG layer violations: eg-tsdb -> eg-compute, eg-kvcache -> eg-compute, eg-tensor -> eg-tsdb"
+    owning_component: eg.binary-composition
+    affected_components: [eg.timeseries, eg.compute, eg.kv-cache, eg.modality]
+    status: proposed
+    decision_authority: component_owner
+    evidence_status: not_run
+    edges_ref: [LV-01, LV-02, LV-03]
+
+    decision: >-
+      Split verdict, one per edge, plus a mandatory restatement of the rule itself.
+      (a) LV-01 eg-tsdb -> eg-compute: the LAYER ASSIGNMENT is wrong, not the edge. eg-tsdb is not
+          a layer-4 storage crate; it is a query/reasoning-layer store. Reassign it.
+      (b) LV-02 eg-kvcache -> eg-compute: not a violation of the rule as it must be restated. The
+          edge is optional, off by default, and outside the default+`full` feature closure.
+          Qualify the rule to bind on a FEATURE CLOSURE, not on the union of all declarations.
+      (c) LV-03 eg-tensor -> eg-tsdb: a real violation. Invert it.
+      (d) The rule as written ("only crates to its left") is itself wrong and must be restated to
+          permit same-layer acyclic edges.
+    rationale:
+      a: >-
+        crates/eg-tsdb/Cargo.toml:56-57 states the position outright: "Depending on both puts
+        eg-tsdb ABOVE eg-compute in the DAG -- parallel to where eg-query sits." The edge is
+        mandatory, carries `features = ["finance"]`, and exists to REUSE the ewma_signal /
+        rolling_zscore kernels rather than copy them -- which is precisely the anti-sprawl
+        behaviour this repository wants. Duplicating those kernels into eg-tsdb to satisfy a
+        layer label would be strictly worse. In this manifest eg.timeseries stays under the
+        `storage-transaction` target layer because that is what it IS to a consumer, and the
+        violation is DECLARED (LV-01) rather than papered over; the crate-DAG tier and the
+        target-layer matrix are two different models and this is where they disagree.
+      b: >-
+        A rule that binds on every declared dependency regardless of feature gating cannot
+        distinguish "this ships" from "this exists behind an off-by-default flag". Since the
+        repository ships exactly one main build (`default == full`), the enforceable statement is
+        about that closure. Recording LV-02 keeps the edge visible without making a
+        never-shipped code path block the gate.
+      c: >-
+        This one has no defence. eg-tensor's eg-modality edge is OPTIONAL and its eg-tsdb edge is
+        MANDATORY, so in a default build eg-tensor is a crate whose only workspace dependency is
+        a storage crate -- it is not a modality leaf at all. The eg-tsdb Cargo comment claims
+        "eg-tsdb does NOT depend on eg-tensor, so there is no cycle", which is true and beside the
+        point: acyclicity is not layer conformance.
+      d: >-
+        The rule as written forbids at least ten legitimate same-layer edges (see
+        `layer_model.rule_as_it_must_be_restated`). A rule that the tree violates a dozen times
+        for good reasons is not a rule anyone can gate on.
+    concrete_change:
+      - "(a) Move eg-tsdb's crate-DAG tier from the storage tier to the query/reasoning tier in
+         plans/refactor/DESIGN.md's 'EG target crate graph' and in the
+         epistemic-graph-development skill's Layer 4 table. No code change. LV-01 is then closed
+         by correcting the model, and D-EG-004's gate must read the corrected model."
+      - "(b) State the rule as binding over the `default`+`full` feature closure. LV-02 stays
+         declared with `in_default_and_full_closure: false`; D-EG-004's gate resolves features
+         before evaluating edges and does not fail on it."
+      - "(c) Extract the shared time-grid primitive eg-tensor consumes -- the common grid and the
+         EG-067 tumbling windows named at crates/eg-tensor/Cargo.toml:20-23 -- out of eg-tsdb into
+         a crate BELOW both (eg-types is the crate both can already see; a new
+         `eg-time-grid` leaf is the alternative if the primitive is too heavy for eg-types).
+         Then delete `eg-tsdb = { path = \"../eg-tsdb\" }` from crates/eg-tensor/Cargo.toml:24 and
+         make eg-tensor's eg-modality dependency NON-optional, restoring it to an actual modality
+         leaf. This is the only one of the three that costs real work."
+      - "(d) Replace the rule text in plans/refactor/DESIGN.md and in the skill with:
+         'A crate's [dependencies] and [build-dependencies] may name only crates in a strictly
+         lower layer, or in the same layer provided the graph stays acyclic. [dev-dependencies]
+         are out of scope (see D-EG-003). Evaluation is over the default+full feature closure.'"
+    acceptance_evidence: []
+
+  - decision_id: D-EG-003
+    title: "[dev-dependencies] cycles exist and build fine"
+    owning_component: eg.binary-composition
+    affected_components: [eg.modality, eg.rdf-semantics, eg.viz, eg.quantum]
+    status: proposed
+    decision_authority: component_owner
+    evidence_status: not_run
+    cycles_ref: [DC-01, DC-02, DC-03]
+    edges_ref: [LV-04]
+
+    decision: >-
+      Dev edges are EXPLICITLY OUT of the DAG rule, and are permitted upward. They are not
+      inverted. The rule text must say so rather than leaving it implied.
+    rationale: >-
+      Why it is safe, mechanically rather than by assertion:
+        1. `[dev-dependencies]` are compiled ONLY for the owning crate's own test, bench and
+           example targets. They are not in the dependency graph of `cargo build`,
+           `cargo check`, or the crate's `lib` target, so no consumer of eg-modality ever links
+           eg-audio through it, and no shipped binary contains a dev edge.
+        2. They therefore cannot create a link-time or runtime cycle. The cycle exists only in
+           the metadata of a test build, which Cargo resolves by building the crate's lib once
+           without dev-deps and then building the test target against it.
+        3. Under edition 2021 (root Cargo.toml:90), the v2 feature resolver is in effect, so
+           dev-dependency features do NOT unify into the normal build graph. This is the one
+           mechanism that could have made a dev edge change a shipped artifact, and it is off.
+           If this workspace ever moves to a resolver where dev features unify, this decision
+           must be re-taken.
+      Inverting them would cost real architecture for no safety: the eg-modality cycle exists so
+      the ModalityContract TCK (`tests/fleet_tck.rs`) can run the CONTRACT against its six real
+      implementations. Inverting it means either duplicating six pilot implementations inside
+      eg-modality, or moving the TCK up into a seventh crate that depends on all seven -- both
+      strictly worse than a dev edge that never ships.
+    boundary_condition: >-
+      The permission is not unlimited. A dev edge must not (i) enable a feature on the
+      dev-depended crate that the normal build also enables differently, nor (ii) be the only
+      thing keeping a crate in the workspace. Both are checkable; neither is checked today.
+    concrete_change:
+      - "Restate the rule (same edit as D-EG-002(d)): '[dev-dependencies] are out of scope. A dev
+         edge may point upward or close a cycle.' with the three-point mechanical justification
+         above recorded alongside it, not just the conclusion."
+      - "D-EG-004's gate parses `[dependencies]` and `[build-dependencies]` only, and must SAY so
+         in its own failure message so a future reader does not assume dev edges were checked."
+      - "Add to that gate a check that no dev edge enables a feature on its target that the
+         normal build graph does not also enable -- the one mechanical hazard the exemption
+         leaves open."
+      - "Fix the source finding's record: eg-viz-core -> eg-jobs (LV-04) is NOT a cycle, and
+         eg-rdf -> eg-shacl (DC-02) IS one and was missing."
+    acceptance_evidence: []
+
+  - decision_id: D-EG-004
+    title: "Nothing enforces the crate DAG"
+    owning_component: eg.binary-composition
+    affected_components: [eg.embedded-bindings]
+    status: proposed
+    decision_authority: component_owner
+    evidence_status: not_run
+
+    verified_facts:
+      - "`arch-lint list-rules` (arch-lint 0.5.0) reports EIGHT rules: AL001 no-unwrap-expect,
+         AL002 no-sync-io, AL003 no-error-swallowing, AL013 no-silent-result-drop,
+         AL004 handler-complexity, AL005 require-thiserror, AL006 require-tracing,
+         AL007 tracing-env-init. NONE is a dependency-direction rule. The finding is correct."
+      - "arch-lint.toml's own comment says 'Keep arch-lint focused on dependency direction until
+         that debt is deliberately reduced'. That comment is FACTUALLY WRONG -- arch-lint has no
+         dependency-direction rule to be focused on. It should be corrected in the same change."
+      - "The dependency-cruiser hook's entry is
+         `depcruise --validate --config clients/js/.dependency-cruiser.cjs clients/js/index.mjs`
+         (.pre-commit-config.yaml:277). It validates the JS client only, and it CANNOT PASS in a
+         clean checkout: node_modules is uncommitted and the hook runs no `npm ci`."
+      - "Cargo's guarantee is real but narrow: VERIFIED that no crates/*/Cargo.toml declares
+         `epistemic-graph`, so no crate depends back on the root facade. That is acyclicity, not
+         direction -- LV-01 and LV-03 are acyclic upward edges that build fine."
+
+    decision: >-
+      A gate IS required, owned by eg.binary-composition, and it must read its layer model from
+      THIS manifest rather than from a second hand-maintained table.
+    rationale: >-
+      The property the program believes is held is 'no storage or query crate imports server
+      dispatch'. Cargo does hold exactly that one, for free, and no gate can hold it better. But
+      the property anyone actually reasons with is the six-layer direction, and Cargo holds none
+      of it -- proven by LV-01 and LV-03 building green. Adding a gate that re-derives its own
+      layer table would create a second ownership authority, which the registry's consolidation
+      rule forbids; reading `owned_crates` + `parent_layer` out of this file keeps one authority
+      and makes the manifest load-bearing instead of decorative.
+    concrete_change:
+      - "Add scripts/check_crate_layer_direction.py: load architecture/component-registry.yml;
+         build crate -> component -> parent_layer from `owned_crates`; parse every
+         crates/*/Cargo.toml `[dependencies]` and `[build-dependencies]` path dep; resolve the
+         default+full feature closure; fail on any edge to a strictly-higher layer that is not
+         listed in `declared_layer_violations` with a live `decision_ref`. Ignore
+         `[dev-dependencies]` and say so in the failure message (D-EG-003)."
+      - "Also fail when a `declared_layer_violations` entry no longer matches the tree -- a
+         declared entry that stops being true is a failure, exactly as .repo-layout.toml treats a
+         declared root that stops being tracked. This is what keeps the list from becoming a
+         ratchet."
+      - "Also fail when a crate in Cargo.toml [workspace] members is owned by no component, or by
+         more than one -- the exclusive-root property the layout contract requires."
+      - "Add the `crate-layer-direction` hook to .pre-commit-config.yaml, language: system,
+         pass_filenames: false, always_run: true."
+      - "Correct the misleading comment in arch-lint.toml."
+      - "Separately: the dependency-cruiser hook is a gate that cannot pass. Either add an
+         `npm ci --prefix clients/js` step or remove the hook. A hook that always errors is
+         indistinguishable from one that is enforcing nothing (owner: eg.embedded-bindings)."
+    acceptance_evidence: []
+
+  - decision_id: D-EG-005
+    title: "AL002 no-sync-io: 687 blocking errors, assigned to owners"
+    owning_component: eg.binary-composition
+    affected_components: all_with_owned_errors_above_zero
+    status: proposed
+    decision_authority: operator
+    decision_authority_reason: >-
+      Whether 687 blocking errors are burned down, or the rule's severity is lowered, or the
+      release ships with the gate red, is a release-scope call. I can assign the work and say
+      what the correct fix is; I cannot decide the release posture.
+    evidence_status: measured_not_remediated
+
+    measurement:
+      command: "arch-lint check --format json"
+      tool_version: "arch-lint 0.5.0"
+      head: 1d83cf4b704fdfc2120d9444e9486cfbc4fb7687
+      measured_on: '2026-09-04'
+      files_checked: 1077
+      total_violations: 4642
+      by_rule:
+        AL013_no_silent_result_drop_warning: 3845
+        AL002_no_sync_io_error: 687
+        AL003_no_error_swallowing_warning: 58
+        AL005_require_thiserror_warning: 52
+      note: >-
+        This reproduces the 2026-09-03 census exactly (4,642 / 687). AL001 contributes zero
+        because it is the one rule explicitly disabled in arch-lint.toml; the other seven run
+        regardless of `preset = "minimal"`, which arch-lint 0.5.0 does not honour as a filter.
+
+    ownership_assignment:
+      total: 687
+      unassigned: 0
+      by_component:
+        eg.persistence: 285
+        eg.server-dispatch: 153
+        eg.cluster-replication: 90
+        eg.binary-composition: 41
+        eg.graph-core: 23
+        eg.query-plan: 17
+        eg.speech-providers: 16
+        eg.observability: 15
+        eg.contracts: 13
+        eg.embedded-bindings: 11
+        eg.timeseries: 5
+        eg.mutation-store: 4
+        eg.viz: 4
+        eg.job-plane: 2
+        eg.numeric-ann: 2
+        eg.rdf-semantics: 2
+        eg.lake-interop: 2
+        eg.compute: 1
+        eg.modality: 1
+      heaviest_files:
+        - "src/server/persistence/redb_backend.rs (97) -- eg.persistence"
+        - "src/redb_store.rs (49) -- eg.persistence"
+        - "src/server/persistence/shard_migrate.rs (40) -- eg.persistence"
+        - "src/server/persistence/backup.rs (37) -- eg.persistence"
+        - "src/raft/tests.rs (37) -- eg.cluster-replication"
+        - "src/raft/xshard_harness.rs (21) -- eg.cluster-replication"
+        - "src/server/reasoning_projection.rs (21) -- eg.epistemic (counted under its owner)"
+        - "src/server/handlers/admin.rs (19) -- eg.server-dispatch"
+        - "src/server/handlers/sqlite_file.rs (18) -- eg.server-dispatch"
+      note_on_eg_binary_composition: >-
+        41 = 37 in tests/, benches/ and examples/ plus 4 in src/lib.rs, src/main.rs,
+        src/test_support.rs and src/bin/. The 37 in test and bench harnesses are the cheapest
+        to clear and are NOT production defects; they should be separated from the production
+        set before anyone quotes a burndown number.
+
+    decision: >-
+      Three of the nineteen owners hold 528 of the 687 (77%): eg.persistence, eg.server-dispatch
+      and eg.cluster-replication. The burndown is those three, in that order, and it is a real
+      defect class, not a lint preference. The correct fix per site is one of exactly three, and
+      which one must be decided per call site, never blanket-applied:
+        (i)   the path IS reachable from the async runtime -> use the tokio::fs equivalent;
+        (ii)  the path is genuinely blocking and belongs off the reactor ->
+              tokio::task::spawn_blocking, with the blocking call moved inside;
+        (iii) the path is provably not on an async path (startup, a test harness, a bin main,
+              a #[cfg(test)] fixture) -> it is a FALSE POSITIVE of a syn-based analyzer that
+              cannot see the call graph, and it should be recorded as such, not silenced.
+    rationale: >-
+      arch-lint's AL002 is a syntactic rule -- it flags `std::fs::*` in a file, not a proven
+      async reachability. 37 of the 687 are in tests/, benches/ and examples/, and a substantial
+      share of eg.cluster-replication's 90 are in `src/raft/tests.rs` (37) and the *_harness.rs
+      files (30+). So the true production denominator is materially smaller than 687 and NOBODY
+      HAS MEASURED IT. Quoting 687 as a production defect count would repeat the exact error the
+      2026-09-03 report corrected itself for: describing a gate's meaning instead of its output.
+      Per the no-ratchets rule the number stays 687 until a per-site triage lowers it with
+      evidence -- it is not lowered by asserting that some of it is tests.
+    concrete_change:
+      - "Split the census into production vs test/bench/example harness before any burndown
+         target is set, and publish both numbers. No baseline file, no ratchet."
+      - "eg.persistence (285) first: redb_backend.rs, redb_store.rs, shard_migrate.rs and
+         backup.rs are 223 of its 285, and all four are on the served persistence path where
+         (i) or (ii) genuinely applies."
+      - "eg.cluster-replication (90): triage first -- the majority look like harness code where
+         (iii) applies."
+      - "Each component's `al002_no_sync_io.owned_errors` in this manifest is the per-owner
+         denominator. It must be re-measured, not decremented by hand, after each slice."
+    acceptance_evidence: []
+
+  - decision_id: D-EG-006
+    title: "arch-lint.toml excludes **/target/** but the build writes to target-isolated/"
+    owning_component: eg.binary-composition
+    status: proposed
+    decision_authority: component_owner
+    evidence_status: measured_not_remediated
+
+    verified_facts:
+      - "arch-lint.toml `exclude` is exactly:
+         [\"**/target/**\", \"**/generated/**\", \"**/vendor/**\", \"**/third_party/**\",
+          \"**/fixtures/**\"]. `target-isolated` matches none of them."
+      - ".cargo/config.toml sets `[build] target-dir = \"target-isolated\"` as this repository's
+         committed default (a RELATIVE path, so every worktree gets its own)."
+      - "Both target-isolated/ and target-*/ ARE listed in .gitignore (lines 79-81 and 122-123),
+         and arch-lint.toml sets `respect_gitignore = true`. The gitignore route therefore
+         SHOULD have covered this and does not. Either arch-lint 0.5.0's respect_gitignore does
+         not apply to the excluded-path walk, or `exclude` is evaluated as the whole filter.
+         Observed behaviour is what counts: build artifacts are being linted."
+      - "Measured impact at HEAD: 1,144 of 4,642 violations are in build artifacts --
+         target-isolated/ (858) and target-wd9recon/ (286). That confirms the ~1,144 figure."
+
+    correction_to_the_finding: >-
+      IMPORTANT AND NEW. All 1,144 build-artifact findings are AL013 WARNINGS. ZERO of them are
+      AL002 errors. Fixing the exclude removes 25% of the total finding COUNT and 0% of the
+      BLOCKING set -- the gate stays red at exactly 687 errors afterwards. The 2026-09-03 report
+      says "Fixing the exclude is the first move; it is a quarter of the backlog and none of it
+      is real debt", which is true about the count and misleading about the blocker. The
+      source-tree total after the fix is 3,498 findings, still 687 of them blocking.
+    decision: >-
+      Fix the exclude anyway -- linting 41 GiB of build output is wasted work and 1,144 phantom
+      findings distort every count anyone quotes -- but record that it does NOT move the gate
+      toward green and must not be scheduled as if it did.
+    concrete_change:
+      - "arch-lint.toml: extend `exclude` with \"**/target-*/**\" (which covers target-isolated,
+         target-wd9recon and every future per-worktree dir named by the .gitignore convention)."
+      - "Do NOT rely on `respect_gitignore = true`; it demonstrably did not exclude these paths.
+         File that upstream against arch-lint 0.5.0 with this reproduction."
+      - "Re-measure after the change and publish the new absolute number (expected 3,498 total /
+         687 error). No baseline."
+    acceptance_evidence: []
+
+  - decision_id: D-EG-007
+    title: "RLS view-cache serves rows a revoked grant forbids"
+    owning_component: eg.graph-core
+    affected_components: [eg.server-dispatch, eg.rdf-semantics, eg.query-plan]
+    status: proposed
+    decision_authority: component_owner
+    evidence_status: not_run
+    severity: security
+
+    verified_facts:
+      - "crates/eg-core/src/rls_view_cache.rs:66-70 -- `struct Inner { entries: HashMap<String,
+         (u64, Arc<GraphView>)>, order: VecDeque<..>, generation: u64 }`. The key is the ACTOR
+         STRING. The value carries a graph-content version. No policy, role, grant or identity
+         digest appears anywhere in the key or the value."
+      - "rls_view_cache.rs:110 `get(&self, actor: &str, current_version: u64)` returns a hit when
+         `*version == current_version`. On a hit `rls.filter_view` is never called."
+      - "rls_view_cache.rs:151 `invalidate_all()` bumps `generation` and clears. It is the only
+         invalidation path."
+      - "`GraphCore::invalidate_filtered_view_cache` is defined at crates/eg-core/src/graph.rs:3610
+         and called from exactly TWO sites, graph.rs:6183 and graph.rs:6253 -- both whole-image
+         graph transitions."
+      - "`grep -c invalidate_filtered_view_cache crates/eg-core/src/isolation.rs` = 0. CONFIRMED
+         on the current tree."
+      - "Six live read sites, all confirmed at the cited lines: src/server/access.rs:301;
+         src/server/handlers/rdf.rs:131, :162, :462; src/server/handlers/query.rs:5627, :5684."
+    finding_understated_the_problem: >-
+      The finding names three uninvalidating mutators (try_add_grant, try_remove_grant,
+      try_register_agent). There are at least THIRTEEN, all in crates/eg-core/src/isolation.rs
+      and all with zero invalidation: try_add_role:1151, try_remove_role:1171, add_grant:1186,
+      try_add_grant:1191, remove_grant:1299, try_remove_grant:1304,
+      try_bootstrap_system_identity:1346 and :1373, register_agent:1392, try_register_agent:1400,
+      try_register_agent_from_request:1437, unregister_agent:1456, try_unregister_agent:1460.
+      This is the strongest possible argument against the "add invalidation calls" fix.
+
+    decision: >-
+      Key the cache on a policy epoch, exactly as the finding proposes. Do NOT fix it by adding
+      invalidation calls to the mutators.
+    rationale: >-
+      An invalidation list is an ENUMERATION of call sites, and it goes stale the moment someone
+      adds a fourteenth mutator -- silently, with no gate observing it, producing a security
+      regression that looks like a performance optimisation. That is documented failure pattern
+      5.3 in the epistemic-graph-development skill, and thirteen uninvalidating mutators is that
+      pattern already realised. A key makes the staleness UNREPRESENTABLE: a permission change
+      bumps the epoch, every prior entry becomes unreachable by construction, and a new mutator
+      cannot forget because it does not have to remember. The cache's own doc already concedes
+      the cost is acceptable -- a miss "costs exactly what every call cost before this cache
+      existed."
+    concrete_change:
+      - "crates/eg-core/src/isolation.rs: add a `policy_epoch: AtomicU64` to `IsolationLayer` and a
+         `pub fn policy_epoch(&self) -> u64`. Bump it in EVERY mutator of the grant, role or
+         agent-identity tables -- all thirteen listed above -- by routing them through one private
+         `fn mutate_policy<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R` that bumps on exit,
+         so a fourteenth mutator cannot be written without it."
+      - "crates/eg-core/src/rls_view_cache.rs: change `entries` to
+         `HashMap<(String, u64), (u64, Arc<GraphView>)>` keyed on (actor, policy_epoch); take
+         `policy_epoch` in `get` and `put`; leave `generation` as-is (it closes the
+         build-race, a different property)."
+      - "crates/eg-core/src/graph.rs: thread the epoch through `cached_filtered_view` /
+         `put_cached_filtered_view` (used at graph.rs around :3610)."
+      - "Update the six read sites (access.rs:301; rdf.rs:131/162/462; query.rs:5627/5684) to pass
+         the epoch. They already fetch `filtered_view_cache_generation()` at the adjacent line, so
+         the call shape is unchanged in structure."
+      - "Add a test that a cached actor served a row, then a `try_remove_grant` for that row's
+         scope, then a re-read, does NOT return the row. No such test exists today -- which is why
+         this has stayed open."
+    would_have_been_caught_by: >-
+      No existing gate or test. `universal-read-rls-architecture` checks that a served read does
+      not BYPASS row/carrier ownership isolation; a cache HIT is not structurally a bypass, so the
+      gate is green while the property is violated. That is the coverage hole to close.
+    acceptance_evidence: []
+
+  - decision_id: D-EG-008
+    title: "verify_replay_identity compares the whole batch, forcing callers to reconstruct request stamps"
+    owning_component: eg.mutation-store
+    affected_components: [eg.contracts, eg.server-dispatch, eg.persistence]
+    status: proposed
+    decision_authority: component_owner
+    evidence_status: not_run
+
+    verified_facts:
+      - "crates/eg-mutation-store/src/store/ledger.rs:177-190 --
+         `verify_replay_identity(proposed: &MutationBatch, stored: &MutationBatch)` validates both
+         write budgets then compares `encode_bounded(proposed) == encode_bounded(stored)`, i.e.
+         WHOLE-STRUCT byte equality, and otherwise returns
+         `IDEMPOTENCY_CONFLICT: key was already used by a different mutation`."
+      - "Four call sites inside the crate: apply.rs:12, apply.rs:51, saga.rs:49, saga.rs:110.
+         Re-exported at lib.rs:120."
+      - "Compensation 1 (production): src/server/handlers/admin.rs:607-635. `admin_saga_request_stamp`
+         reuses the ORIGINAL attempt's expected_graph_version / request_id / created_at_ms when a
+         record already exists, and only a genuine first attempt reads live state. Its own doc
+         says re-deriving them live 'makes a legitimate replay's freshly-compiled batch
+         byte-diverge from the one already on record purely on this incidental metadata,
+         spuriously failing closed with IDEMPOTENCY_CONFLICT even though the intended operation
+         (domain/event/payload) is identical.'"
+      - "Compensation 2 (independent): src/redb_store/development_lane.rs:6553-6570. Same fix,
+         reached independently, and its comment says so verbatim: 'This mirrors the production fix
+         in `handlers/admin.rs`. That the same correction is needed independently here is the
+         evidence that the underlying validator is comparing more than identity.'"
+
+    decision: >-
+      The contract is wrong and moves. Idempotency identity is the caller's INTENDED OPERATION --
+      scope identity, domain, the operation list and their payloads -- and excludes the request
+      envelope (version_expectation, request_id, created_at_ms). Both compensations are then
+      deleted, not generalised into a shared helper.
+    rationale: >-
+      Two independent call sites needing the same compensation is the definition of a contract
+      pushing work onto its callers. And the compensation is not free: it makes every replay path
+      read the stored record BEFORE it can build the batch it is about to compare, which inverts
+      the natural order and is exactly the kind of subtlety a third caller will get wrong.
+      Extracting a shared `request_stamp` helper would be the WRONG fix here -- per failure
+      pattern 5.3 an extraction changes the set of call sites a control runs on, and this
+      particular control (reuse the stored stamp) must run on replay paths and must NOT run on
+      first attempts. Moving the comparison instead removes the need for the control entirely.
+      The stored `version_expectation` must still be REUSED on replay (it is the OCC value the
+      first attempt actually committed against) -- that is a separate assertion, not part of the
+      identity comparison.
+    concrete_change:
+      - "crates/eg-types/src/mutation_batch/: add
+         `MutationBatch::operation_identity_digest(&self) -> [u8; 32]` covering scope identity,
+         domain, and the ordered operation list with payloads; explicitly EXCLUDING
+         version_expectation, request_id and created_at_ms. It belongs in eg-types because both
+         the store (crate A) and every producer (crate B) must agree on the set -- the
+         crate-both-can-see rule from failure pattern 5.2."
+      - "crates/eg-mutation-store/src/store/ledger.rs:183-185: compare
+         `proposed.operation_identity_digest() == stored.operation_identity_digest()`."
+      - "Same function: add a SEPARATE, explicit check that the proposed batch's
+         version_expectation equals the stored one, with its own distinct error message, so a
+         caller that re-derived the OCC value gets told exactly that instead of a generic
+         IDEMPOTENCY_CONFLICT."
+      - "Delete src/server/handlers/admin.rs's `admin_saga_request_stamp` (:628+) and its callers'
+         use of it; delete the equivalent block at src/redb_store/development_lane.rs:6553-6570."
+      - "Add a store-level test: prepare a saga, then replay it with a DIFFERENT req_id and a
+         later created_at_ms, and assert it REPLAYS rather than conflicting. No such test exists
+         -- both compensations exist precisely because nothing at the store level covers this."
+    acceptance_evidence: []
+
+  - decision_id: D-EG-009
+    title: "The `security` feature is a second, unauthenticated architecture"
+    owning_component: eg.binary-composition
+    co_owning_component: eg.graph-core
+    status: proposed
+    decision_authority: operator
+    decision_authority_reason: >-
+      De-gating deletes the `--no-default-features` build shape as an authenticated-optional
+      target. Whether that lean/Pi profile must survive as a supported artifact is a product
+      decision about what this engine ships, not an architecture call I can make. I can say the
+      negative arms are a security liability and that de-gating is the right shape; I cannot
+      decide that the lean build stops being offered.
+    evidence_status: measured_not_remediated
+
+    verified_facts:
+      - "`grep -rn 'cfg(feature = \"security\")' src/ crates/ --include=*.rs | wc -l` = 636."
+      - "`grep -rn 'cfg(not(feature = \"security\"))' src/ crates/ --include=*.rs | wc -l` = 64.
+         Both figures reproduce the earlier census exactly."
+      - "Root Cargo.toml: `default = ['graph', 'algorithms', 'metrics', 'full']` and `full`
+         contains 'security'. So the 64 negative arms are reachable ONLY via
+         --no-default-features, and no shipped default build compiles them."
+      - "crates/eg-core/src/isolation.rs:1542-1545 -- under `#[cfg(not(feature = \"security\"))]`,
+         `check_access` (declared :1508) matches graph_type and returns
+         `GraphType::Commons => true` under the comment 'Bus: all authenticated agents have full
+         access', with no identity resolution on that arm."
+      - "`DurableCrypto::none()` appears at 224 sites across src/ and crates/."
+      - "`security = ['redb', 'oidc', 'dep:chacha20poly1305', 'eg-types/security',
+         'eg-core/security']` -- so de-gating also makes redb, oidc and chacha20poly1305
+         unconditional, which is the part with real dependency-footprint consequences."
+
+    decision: >-
+      De-gate. `security` stops being a feature and becomes unconditional; the 64 negative arms
+      are DELETED, not preserved behind a renamed flag. Sequenced LAST in the EG queue.
+    rationale: >-
+      636 positive arms is not a feature flag, it is a second implementation of the engine that
+      nobody runs, nobody tests in CI, and that returns `true` from an access check. Its only
+      justification is a lean build, and the lean build's savings are redb + oidc +
+      chacha20poly1305 -- a footprint question that can be answered on its own terms without
+      carrying an unauthenticated authorization path in the tree. Renaming the flag or inverting
+      it (`insecure` opt-in) is worse than deleting: it keeps 700 conditional arms alive to
+      preserve a build nobody ships.
+    sequencing:
+      position: last_in_the_eg_queue
+      blocked_behind: [D-EG-001, D-EG-007, D-EG-008]
+      reason: >-
+        De-gating rewrites the same isolation.rs, mutation-store and server-dispatch call sites
+        that D-EG-001, D-EG-007 and D-EG-008 each modify. Running it first would put a 700-arm
+        mechanical rewrite underneath three semantic changes and make every merge conflict
+        unreviewable -- the mechanical-merge failure mode this program has already paid for.
+      also: >-
+        Composing a 700-site change into a repository whose gate suite is already red hides the
+        regressions the composition itself causes. Land the three semantic fixes and re-establish
+        a per-hook baseline first.
+    concrete_change:
+      - "Prerequisite: measure the actual size/dependency delta of --no-default-features vs
+         default, and get an operator ruling on whether that build shape is still shipped. If it
+         is, this decision does not proceed as written."
+      - "Delete all 64 `#[cfg(not(feature = \"security\"))]` arms, starting with
+         crates/eg-core/src/isolation.rs:1542-1545."
+      - "Delete all 636 `#[cfg(feature = \"security\")]` attributes, making the guarded code
+         unconditional."
+      - "Remove `security` from root Cargo.toml `full`, from `eg-types` and `eg-core` feature
+         lists, and make redb/oidc/chacha20poly1305 unconditional dependencies."
+      - "Audit each of the 224 `DurableCrypto::none()` sites separately -- `None` on a security
+         seam needs a named reason at the construction site (failure pattern 5.4's companion
+         rule), and de-gating does not by itself fix them."
+      - "Existing proposal: plans/refactor/evidence/proposals/EG-SECURITY-DEGATING-SLICE.md."
+    acceptance_evidence: []
+
+  - decision_id: D-EG-010
+    title: "src/server/blob/store.rs still hand-rolls the four-constructor identity form"
+    owning_component: eg.server-dispatch
+    co_owning_component: eg.contracts
+    status: proposed
+    decision_authority: component_owner
+    evidence_status: not_run
+
+    verified_facts:
+      - "src/server/blob/store.rs:454 -- `fn ledger_bootstrap_identity()` calls
+         `MutationScopeIdentity::native(TenantId::system(), MutationDomain::BlobStore,
+         LogicalName::new(\"blob-ledger-root\")?, IncarnationId::new(COMPILED_BATCH_INCARNATION)?)`.
+         The line number in the finding is EXACT."
+      - "The collapsed helpers are used at exactly four sites, matching the A-1 record:
+         crates/eg-core/src/rbac_persist.rs:64 (fixed_native),
+         crates/eg-jobs/src/store.rs:2382 (fixed_native),
+         crates/eg-statechart/src/store.rs:738 (fixed_native),
+         src/server/persistence/redb_backend.rs:1347 (fixed_graph)."
+      - "crates/eg-types/src/mutation_batch/model/identity.rs:228-240 --
+         `fixed_native(tenant: &str, domain: MutationDomain, resource: &str, incarnation_id: &str)`
+         forwards to `native(TenantId::new(tenant)?, domain, LogicalName::new(resource)?,
+         IncarnationId::new(incarnation_id)?)`."
+
+    decision: >-
+      Migrate it. It is residue of the A-1 collapse, not a deliberate exception, and it is the
+      last one.
+    rationale: >-
+      Failure pattern 5.6: a named reference implementation is a copy instruction, and eight
+      near-identical scope-identity builders appeared because the pattern had no shared home.
+      `fixed_native`/`fixed_graph` gave it one and collapsed seven of the eight. Leaving the
+      eighth is how the pattern restarts -- the next lane greps for the shape, finds a hand-rolled
+      one, and copies it.
+    verified_caveat_for_the_migration: >-
+      The migration is NOT purely mechanical and this must be checked before it is made.
+      `TenantId::system()` (identity.rs:27) constructs `Self(RESERVED_SYSTEM_TENANT)` DIRECTLY,
+      bypassing `validate_identifier`, whereas `fixed_native` routes its `&str` through
+      `TenantId::new` which validates. VERIFIED that this is safe here:
+      `RESERVED_SYSTEM_TENANT = "__eg_system__"` (identity.rs:13) contains no `.`, `..`, `/`,
+      `\\` or `@`, so it passes `validate_identifier` (identity.rs:319-339) and the resulting
+      TenantId is byte-identical. If the reserved literal ever changes to something with path or
+      address shape, this migration silently starts failing closed at construction.
+    concrete_change:
+      - "src/server/blob/store.rs:454-464: replace the body of `ledger_bootstrap_identity` with
+         `MutationScopeIdentity::fixed_native(
+            eg_types::mutation_batch::RESERVED_SYSTEM_TENANT,
+            MutationDomain::BlobStore,
+            \"blob-ledger-root\",
+            crate::server::mutation_batch::COMPILED_BATCH_INCARNATION)`."
+      - "Keep the existing 15-line doc comment above it verbatim -- it records WHY the incarnation
+         reuses COMPILED_BATCH_INCARNATION rather than a store-local constant, and that reasoning
+         is the thing most likely to be lost in a mechanical migration."
+      - "Inspect the sibling `scope_identity` in the same file (immediately below :480) for the
+         same shape before declaring the collapse complete."
+      - "Consider adding `MutationScopeIdentity::fixed_system_native(domain, resource,
+         incarnation)` so the reserved-tenant literal is not spelled at call sites at all -- but
+         only if a SECOND system-tenant call site exists; one call site does not justify a helper."
+    acceptance_evidence: []
+
+# ---------------------------------------------------------------------------
+# Where the epistemic-graph-development skill (and the source findings) did not
+# survive verification. Recorded here because the manifest is downstream of them.
+# ---------------------------------------------------------------------------
+corrections_to_upstream_claims:
+  - claim: "MutationStore::database() is at identity.rs:144"
+    source: source_finding_1
+    verdict: stale
+    actual: "crates/eg-mutation-store/src/store/identity.rs:142"
+
+  - claim: "12 production sites bypass write()"
+    source: source_finding_1
+    verdict: undercount
+    actual: >-
+      18 production `.database().begin_write()` sites; 17 outside the owning crate. eg-tsdb
+      (6 sites) and eg-statechart (1 site) were missed entirely.
+
+  - claim: "src/server/blob/store.rs has 14 .database() sites"
+    source: source_finding_1
+    verdict: wrong
+    actual: "12 (four of which reach begin_write)"
+
+  - claim: "crates/eg-jobs/src/store.rs:416 is a direct begin_write bypass"
+    source: source_finding_1
+    verdict: imprecise
+    actual: >-
+      :416 is `initialize_scheduler_indexes(mutation_store.database())` -- a call, not a
+      transaction mint, so it is correctly excluded from the 17 direct-mint sites. It is NOT a
+      read either: `fn initialize_scheduler_indexes(db: &Database)` does `db.begin_write()` at
+      crates/eg-jobs/src/store.rs:1486. Transitive bypass; owner eg.job-plane; must be covered
+      by the accessor narrowing in D-EG-001.
+
+  - claim: "eg-viz-core dev-depends on eg-jobs -- a dev-dependency cycle"
+    source: source_finding_3
+    verdict: wrong
+    actual: >-
+      Not a cycle. eg-jobs' path dependencies are eg-core, eg-mutation-store and eg-types; it
+      does not depend on eg-viz-core. It is a one-way dev-time layer inversion, documented as
+      deliberate in crates/eg-viz-core/Cargo.toml:50-58.
+
+  - claim: "the dev-dependency cycles are eg-modality's six and eg-viz-core's one"
+    source: source_finding_3
+    verdict: incomplete
+    actual: >-
+      eg-rdf dev-depends on eg-shacl which depends on eg-rdf -- a real, undocumented-in-the-
+      finding dev cycle (DC-02).
+
+  - claim: "~1,144 findings are lint of build artifacts [implying they are part of the blocking backlog]"
+    source: source_finding_6_and_ARCH-LINT-GATE-IS-RED-4642-FINDINGS-20260903.md
+    verdict: correct_count_misleading_conclusion
+    actual: >-
+      1,144 is exact (target-isolated 858 + target-wd9recon 286), but ALL 1,144 are AL013
+      warnings and ZERO are AL002 errors. Fixing the exclude leaves the blocking set at exactly
+      687. The report's "first move" framing implies progress toward green that the fix does not
+      deliver.
+
+  - claim: "isolation.rs performs zero invalidations on try_add_grant / try_remove_grant / try_register_agent"
+    source: source_finding_7_and_skill_5.3
+    verdict: correct_but_understated
+    actual: >-
+      True, and there are at least THIRTEEN such mutators in isolation.rs with zero
+      invalidations, not three. Every line number the skill cites for this finding
+      (rls_view_cache.rs, graph.rs:6183/6253, access.rs:301, rdf.rs:131/162/462,
+      query.rs:5627/5684) is CURRENT and verified.
+
+  - claim: "Quantum (5) crates"
+    source: skill_section_1_specialty_stacks
+    verdict: wrong
+    actual: >-
+      Six: eg-quantum-core, eg-quantum-gates, eg-quantum-sim, eg-quantum-hardware,
+      eg-quantum-jobs, eg-quantum-workloads. (The 48-crate total is still correct because
+      eg-quantum-core is double-counted between Layer 0 and the specialty stack.)
+
+  - claim: "The facade wires viz in behind the viz/viz-interactive/viz-gpu-export features, ALL OFF by default (unlike jobs, NOT folded into full)"
+    source: skill_section_1_and_root_Cargo.toml_comment
+    verdict: stale
+    actual: >-
+      Root Cargo.toml `full` includes viz, viz-columnstore, viz-static-export, viz-interactive
+      and viz-graph-tiles, and `default` includes `full`. The viz stack IS in the default build.
+      The Cargo.toml's own inline comment is stale in the same way.
+
+  - claim: "eg-tensor -- Dense N-D array modality ... (Also deps eg-tsdb.)"
+    source: skill_section_1_layer_2
+    verdict: understated
+    actual: >-
+      The eg-tsdb edge is MANDATORY and the eg-modality edge is OPTIONAL (behind `contract`).
+      In a default build eg-tensor is not a modality leaf at all. Presenting eg-tsdb as a
+      parenthetical understates a real layer violation (LV-03).
+
+  - claim: "eg-kvcache (L4) -> eg-compute (L5) is a layer violation"
+    source: source_finding_2
+    verdict: correct_declaration_wrong_weight
+    actual: >-
+      The edge is optional, behind the off-by-default `graph` feature, and outside the
+      default+`full` closure. It is a declaration-level edge only (LV-02).
+
+  - claim: "arch-lint has no dependency-direction rule"
+    source: source_finding_4
+    verdict: confirmed
+    actual: >-
+      `arch-lint list-rules` (0.5.0) shows eight rules, none of them dependency-direction.
+      Separately: arch-lint.toml's own comment claims the gate is "focused on dependency
+      direction", which is false and should be corrected.
+
+  - claim: "src/server/dispatch.rs is 14,174 lines"
+    source: skill_section_1_layer_6
+    verdict: confirmed_exactly
+
+  - claim: "the workspace has 48 member crates and root version 2.27.0"
+    source: skill_header
+    verdict: confirmed_exactly
+
+  - claim: "no crates/*/Cargo.toml declares epistemic-graph as a dependency"
+    source: skill_section_1_dependency_direction_rule
+    verdict: confirmed
+
+skill_gaps_found:
+  - gap: >-
+      The skill's layer model covers the 48 crates and `src/server/`, and NOTHING ELSE in the
+      root facade. Two large subsystems have no place in it at all: `src/raft/` (23 modules --
+      consensus, replication, sharding, placement, cross-shard transactions, Pregel) and the
+      persistence layer (`src/redb_store.rs` at 20,818 lines plus src/redb_store/,
+      src/server/persistence/, persist.rs, durability.rs, mutation_apply.rs, write_coalescer.rs,
+      crypto.rs). Together they own 375 of the 687 AL002 blocking errors -- 55% of the burndown
+      lives in code the skill's inventory does not mention. This manifest models them as
+      eg.cluster-replication and eg.persistence.
+    impact: high
+  - gap: >-
+      "Layer 7 -- binary composition" is described as "[[bin]] targets ... feature selection and
+      process lifecycle only", which omits that the same seam owns arch-lint.toml,
+      .cargo/config.toml, .pre-commit-config.yaml, .repo-layout.toml and scripts/ -- i.e. every
+      gate. Four of the ten wiring decisions here are owned by that seam, and the skill gives no
+      hint that it is a decision-bearing owner.
+    impact: medium
+  - gap: >-
+      The skill's §2 gate table lists what each hook FORBIDS but not what it CANNOT SEE. Three of
+      the ten findings (D-EG-001, D-EG-004, D-EG-007) are coverage holes where a gate is green
+      while the property is violated. A "what this gate does not observe" column would have
+      surfaced all three.
+    impact: medium
+  - gap: >-
+      §1 gives crate OWNERSHIP but no consumer direction, so "who breaks if I change this" is not
+      answerable from the skill. The `observed_consumers` block per component in this manifest is
+      the missing half; it was cheap to compute (one pass over 48 Cargo.toml files) and should be
+      generated into the skill rather than re-derived by every reader.
+    impact: medium
+  - gap: >-
+      §6 says CARGO_TARGET_DIR must live off /home, but does not mention that
+      .cargo/config.toml COMMITS `target-dir = "target-isolated"` as the repo default -- which
+      is on /home, is 41 GiB in the canonical checkout, and is the direct cause of D-EG-006.
+      The two facts contradict each other and the skill states only one.
+    impact: medium
+  - gap: >-
+      §3's MutationBatch contract documents `MutationStore::write()` as the only way to mint a
+      WriteTransaction ("a WriteTransaction is only mintable through MutationStore::write()").
+      That is FALSE on the current tree -- `pub fn database()` (identity.rs:142) mints one at 18
+      production sites. The skill states the intended invariant as if it were the observed one,
+      which is the specific error mode it warns about elsewhere.
+    impact: high
+
+unverifiable:
+  - item: >-
+      Whether the six heavy pre-commit hooks (cargo-clippy, cargo-clippy-all-features,
+      cargo-deny-advisories, wheel-smoke, pytest, constrained-parallelism) pass. They require
+      cargo, which was out of scope for this pass. They remain UNMEASURED, as the skill records.
+  - item: >-
+      Whether the AL002 findings in test/bench/harness files are true positives. arch-lint's
+      AL002 is syntactic and cannot prove async reachability; separating true from false
+      positives needs a call-graph pass, not a grep. The 687 figure is therefore an upper bound
+      on production defects and is reported as measured, not as triaged.
+  - item: >-
+      Whether `respect_gitignore = true` is honoured by arch-lint 0.5.0 at all, or is overridden
+      by `exclude`. Only the observable outcome was established: build artifacts under
+      target-isolated/ and target-wd9recon/ ARE linted despite both being gitignored.
+  - item: >-
+      Every `target_item_refs` for the 23 implementation components is `[]` and every
+      `contract_state` is `unknown_not_inventory_complete`. RF-00 has not created target records
+      below the layer-seam level, so there is nothing to bind to. Binding them to the seams'
+      existing single slots would be inventing coverage.
+  - item: >-
+      `dependency_edge_refs` is `[]` everywhere. inventory.yml:fleet_graph is
+      `status: not_started` / `observed_state: unknown` and contains no edges. The observed Cargo
+      edges recorded per component are evidence, not fleet-graph references.
+  - item: >-
+      No `acceptance_evidence`, `live_caller_evidence` or `deletion_proof` exists for any
+      component. All are NOT RUN, consistent with the RF-022 authority model.
