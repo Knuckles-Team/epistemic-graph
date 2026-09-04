@@ -90,7 +90,7 @@ const SECRET: &str = "advanced-crossmodal-secret";
 /// Fix: every call re-provisions the var (not just the first) AND does so under the
 /// SAME `ENC_ENV_LOCK` eg394 holds for its entire body, so the two participants that
 /// mutate this process-global never interleave. This still mutates a process-global
-/// (see the module doc on `RedbBackend::open` for why: `ValueCipher::from_env` is the
+/// (see the module doc on `RedbBackend::open` for why: `ValueCipher::from_env_checked` is the
 /// only key-provisioning seam that exists today -- there is no `RedbBackend::open`
 /// overload or `DurabilityPolicy` variant that accepts key material directly). A
 /// non-ambient fix would need a new constructor seam, e.g.

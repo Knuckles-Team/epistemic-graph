@@ -242,17 +242,8 @@ impl ValueCipher {
         &self.key_ref
     }
 
-    /// Resolve the cipher from the environment (the KMS seam — today it reads the env
-    /// key; a future KMS provider would fetch the data key here). Returns `None` when
-    /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` is unset/empty ⇒ encryption stays OFF.
-    pub fn from_env() -> Option<Self> {
-        Self::from_env_checked().ok().flatten()
-    }
-
     /// Resolve the configured data key and fail closed on malformed key metadata.
-    /// This is the startup path used by the authoritative redb backend; the legacy
-    /// [`from_env`](Self::from_env) wrapper remains for compatibility with embedded
-    /// callers that cannot propagate a configuration error at this boundary.
+    /// This is the startup path used by every authoritative and embedded store.
     pub fn from_env_checked() -> Result<Option<Self>, String> {
         Ok(resolve_key_config()?.map(|config| ValueCipher::from_key_config(&config)))
     }
@@ -477,7 +468,7 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
 ///
 /// `cargo test` runs every `#[test]`/`#[tokio::test]` function on a pool of OS
 /// threads IN ONE PROCESS, and `std::env::set_var`/`remove_var` mutate the
-/// WHOLE process's environment. `RedbBackend`/`ValueCipher::from_env()`
+/// WHOLE process's environment. `RedbBackend`/`ValueCipher::from_env_checked()`
 /// resolve+cache the cipher ONCE per `open()` call — so a test that opens a
 /// backend, does work, and opens it (or a related backend) AGAIN — a restart,
 /// a backup/restore, or a shard-migration round trip — implicitly depends on
@@ -725,13 +716,15 @@ mod tests {
         let _guard = EnvGuard::acquire();
         assert!(resolve_key().is_none());
         assert!(resolve_txn_recovery_key().is_none());
-        assert!(ValueCipher::from_env().is_none());
+        assert!(ValueCipher::from_env_checked()
+            .expect("unset data-key configuration must be valid")
+            .is_none());
         assert!(ValueCipher::from_env_for_txn_recovery().is_none());
     }
 
     /// D-ORC-50 core proof: setting ONLY the dedicated recovery key resolves a
     /// txn-recovery cipher WITHOUT resolving a data-at-rest cipher. This is exactly the
-    /// decoupling the destructive-read bug required — the data cipher (`from_env`,
+    /// decoupling the destructive-read bug required — the data cipher (`from_env_checked`,
     /// which drives `Shard::cipher` / the value-blob read+write path) must stay `None`
     /// so existing plaintext values are never expected to be sealed.
     #[test]
@@ -744,7 +737,9 @@ mod tests {
             "data-at-rest key must stay unresolved"
         );
         assert!(
-            ValueCipher::from_env().is_none(),
+            ValueCipher::from_env_checked()
+                .expect("recovery-only configuration must be valid")
+                .is_none(),
             "data-at-rest cipher must stay uninstalled — existing plaintext values must \
              not be expected to carry sealed framing"
         );
@@ -756,16 +751,16 @@ mod tests {
         assert_eq!(cipher.unseal(&sealed).unwrap(), b"recovery-plan-bytes");
     }
 
-    /// D-ORC-50 back-compat: a deployment that already opted into full at-rest
-    /// encryption (`ENCRYPTION_KEY_ENV` set, no dedicated recovery key) keeps sealing
-    /// the recovery-plan channel with THE SAME key material as before — byte-for-byte
-    /// the old shared-cipher behavior, so this is additive, not breaking.
+    /// D-ORC-50: with only full at-rest encryption configured, the recovery-plan
+    /// channel uses that same configured key material.
     #[test]
     fn falls_back_to_shared_data_key_when_no_dedicated_recovery_key_is_set() {
         let _guard = EnvGuard::acquire();
         std::env::set_var(ENCRYPTION_KEY_ENV, "shared-key-material");
 
-        let data_cipher = ValueCipher::from_env().expect("data cipher must resolve");
+        let data_cipher = ValueCipher::from_env_checked()
+            .expect("data-key configuration must be valid")
+            .expect("data cipher must resolve");
         let recovery_cipher =
             ValueCipher::from_env_for_txn_recovery().expect("recovery cipher must resolve");
 
@@ -783,7 +778,9 @@ mod tests {
         std::env::set_var(ENCRYPTION_KEY_ENV, "data-key-material");
         std::env::set_var(TXN_RECOVERY_KEY_ENV, "recovery-key-material");
 
-        let data_cipher = ValueCipher::from_env().expect("data cipher must resolve");
+        let data_cipher = ValueCipher::from_env_checked()
+            .expect("data-key configuration must be valid")
+            .expect("data cipher must resolve");
         let recovery_cipher =
             ValueCipher::from_env_for_txn_recovery().expect("recovery cipher must resolve");
 

@@ -455,18 +455,6 @@ pub(crate) enum Cmd {
         graph: String,
         done: oneshot::Sender<Result<(), String>>,
     },
-    /// Read a single node's stored properties back (read-through on RAM miss under
-    /// authoritative mode). NO LONGER CONSTRUCTED as of CONCEPT:EG-KG.storage.snapshot-read-off-writer — the
-    /// point-read path now serves directly off a `begin_read()` MVCC snapshot on the
-    /// shard's shared `Database` (see `read_node_blocking`), so it never routes
-    /// through the writer. The variant + handler are retained (the writer loop is left
-    /// byte-for-byte) but unused; `allow(dead_code)` keeps the build warning-clean.
-    #[allow(dead_code)]
-    ReadNode {
-        graph: String,
-        node_id: String,
-        reply: std::sync::mpsc::Sender<Result<Option<Vec<u8>>, String>>,
-    },
     /// Read the full store back as owned dumps. redb holds an EXCLUSIVE per-process
     /// file lock, so the load MUST go through the one thread that owns the
     /// `Database` rather than opening a second handle (which errors "Database
@@ -4395,17 +4383,6 @@ fn handle_cmd(
             // (incl. graph_meta) in one durable transaction.
             flush(pending);
             let _ = done.send(purge_graph_rows(db, &graph, crypto));
-            false
-        }
-        Cmd::ReadNode {
-            graph,
-            node_id,
-            reply,
-        } => {
-            // Flush pending (incl. any awaited ops) so the read reflects the latest
-            // durable state, then point-read the node row.
-            flush(pending);
-            let _ = reply.send(read_one_node(db, &graph, &node_id, crypto));
             false
         }
         Cmd::Load { reply } => {
@@ -8842,7 +8819,7 @@ mod tests {
     async fn k_gt_1_routes_to_deterministic_shard_and_survives_restart() {
         // Held for the whole test: this test opens the backend TWICE (initial write,
         // then a restart reopen) and both `RedbBackend::open_with_shards` calls must
-        // resolve the SAME encryption-at-rest cipher (`ValueCipher::from_env`,
+        // resolve the SAME encryption-at-rest cipher (`ValueCipher::from_env_checked`,
         // resolved fresh at each `open`) or the restart reopen's read fails with
         // "encrypted durable value is missing sealed framing" -- the exact
         // destructive-read mismatch documented on `RedbBackend::transaction_recovery_cipher`.

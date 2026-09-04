@@ -16,11 +16,6 @@ pub use eg_resource::{
     MEMORY_HEADROOM_PERCENT, UNKNOWN_RAM_BYTES,
 };
 
-/// Host RAM only, retained for callers that need the diagnostic `/proc` value.
-pub fn total_ram_bytes() -> Option<u64> {
-    eg_resource::total_ram_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

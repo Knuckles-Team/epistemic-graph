@@ -326,14 +326,6 @@ impl IndexManifest {
             && self.source_snapshot_version == source_snapshot_version
     }
 
-    /// Legacy version-only spelling retained for downstream callers. New
-    /// readiness/reconciliation code must pass source row counts through
-    /// [`Self::covers_source`].
-    #[deprecated(note = "use covers_source for readiness/reconciliation")]
-    pub fn covers(&self, source_snapshot_version: u64) -> bool {
-        self.covers_version(source_snapshot_version)
-    }
-
     /// Whether the manifest exactly describes the current source graph.
     ///
     /// Version-only checks were insufficient for recovered/catalog-only graphs:
