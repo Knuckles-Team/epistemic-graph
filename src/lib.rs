@@ -122,10 +122,10 @@ pub mod embedded;
 // Shared test-only filesystem helpers. Keeping the process/epoch-nanos path
 // construction in one owner prevents unit-test modules from drifting while
 // preserving each caller's existing path prefix and cleanup contract.
-#[cfg(test)]
-pub(crate) mod test_support;
 #[cfg(feature = "server")]
 pub mod server;
+#[cfg(test)]
+pub(crate) mod test_support;
 // Canonical durable mutation classification/application is shared by the socket,
 // embedded, and Raft paths.
 #[cfg(any(feature = "server", feature = "redb"))]

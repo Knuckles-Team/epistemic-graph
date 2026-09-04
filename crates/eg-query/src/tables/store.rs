@@ -7591,6 +7591,7 @@ mod tests {
                 purpose: None,
                 policy_fingerprint: None,
                 trace_id: None,
+                verified_capabilities: Default::default(),
             },
             identity: MutationScopeIdentity::native(
                 TenantId::new("tenant-a").unwrap(),

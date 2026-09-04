@@ -270,11 +270,14 @@ fn spill_path() -> std::path::PathBuf {
 /// resident memory is bounded by `spill_rows`, not the total result size. Stops
 /// early — never over-reading the source — once either `cancel` fires or
 /// [`MAX_ROWS`] is reached (the same cap the eager path applies, just enforced
-/// during accumulation instead of after). Returns every batch actually produced
-/// (spilled-then-recovered ++ resident, in original order) plus an outcome
-/// summary. Generic over the stream's item type (`Result<RecordBatch, String>`) so
-/// this core loop is directly unit-testable against a synthetic `futures_util::stream::iter`
-/// fixture, independent of a running DataFusion physical plan.
+/// during accumulation instead of after). A batch that crosses the cap is sliced to
+/// the remaining allowance before it is retained or spilled, so every output mode
+/// receives the same bounded, schema-preserving Arrow prefix. Returns every batch
+/// actually produced (spilled-then-recovered ++ resident, in original order) plus
+/// an outcome summary. Generic over the stream's item type (`Result<RecordBatch,
+/// String>`) so this core loop is directly unit-testable against a synthetic
+/// `futures_util::stream::iter` fixture, independent of a running DataFusion
+/// physical plan.
 async fn collect_streaming<S>(
     mut stream: S,
     cancel: &CancellationToken,
@@ -297,6 +300,18 @@ where
             break;
         }
         let batch = next?;
+        let remaining = MAX_ROWS.saturating_sub(total_rows);
+        if remaining == 0 {
+            break;
+        }
+        // RecordBatch::slice is zero-copy over the existing Arrow buffers. Apply the
+        // cap before spill bookkeeping so raw Arrow, JSON, and MessagePack paths all
+        // observe exactly the same ordered prefix without decode/re-encode work.
+        let batch = if batch.num_rows() > remaining {
+            batch.slice(0, remaining)
+        } else {
+            batch
+        };
         let n = batch.num_rows();
         resident_rows += n;
         total_rows += n;
@@ -342,9 +357,9 @@ where
 /// stream at its next batch boundary — the drop-in replacement for `df.collect()` every
 /// internal call site below now uses. For any query under the default spill threshold
 /// (the overwhelming common case) an uncancelled run is behaviorally identical to the
-/// eager path: same batches, same order, the same downstream `MAX_ROWS` truncation —
-/// only the ACCUMULATION becomes batch-at-a-time and boundedly resident instead of
-/// buffering the whole result up front.
+/// eager path: same ordered rows and the same `MAX_ROWS` cap — only the ACCUMULATION
+/// becomes batch-at-a-time and boundedly resident instead of buffering the whole
+/// result up front.
 async fn collect_default(
     df: datafusion::dataframe::DataFrame,
     cancel: &CancellationToken,
@@ -1833,28 +1848,28 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
         UInt8 => Value::Number(
             col.as_any()
                 .downcast_ref::<UInt8Array>()
-                .unwrap()
+                .ok_or("UInt8 cell is not a UInt8Array")?
                 .value(row)
                 .into(),
         ),
         UInt16 => Value::Number(
             col.as_any()
                 .downcast_ref::<UInt16Array>()
-                .unwrap()
+                .ok_or("UInt16 cell is not a UInt16Array")?
                 .value(row)
                 .into(),
         ),
         UInt32 => Value::Number(
             col.as_any()
                 .downcast_ref::<UInt32Array>()
-                .unwrap()
+                .ok_or("UInt32 cell is not a UInt32Array")?
                 .value(row)
                 .into(),
         ),
         UInt64 => Value::Number(
             col.as_any()
                 .downcast_ref::<UInt64Array>()
-                .unwrap()
+                .ok_or("UInt64 cell is not a UInt64Array")?
                 .value(row)
                 .into(),
         ),
@@ -1863,7 +1878,7 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
             let f = col
                 .as_any()
                 .downcast_ref::<Float16Array>()
-                .unwrap()
+                .ok_or("Float16 cell is not a Float16Array")?
                 .value(row);
             serde_json::Number::from_f64(f.to_f64())
                 .map(Value::Number)
@@ -1873,7 +1888,7 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
             let f = col
                 .as_any()
                 .downcast_ref::<Float32Array>()
-                .unwrap()
+                .ok_or("Float32 cell is not a Float32Array")?
                 .value(row);
             serde_json::Number::from_f64(f as f64)
                 .map(Value::Number)
@@ -1883,7 +1898,7 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
             let f = col
                 .as_any()
                 .downcast_ref::<Float64Array>()
-                .unwrap()
+                .ok_or("Float64 cell is not a Float64Array")?
                 .value(row);
             serde_json::Number::from_f64(f)
                 .map(Value::Number)
@@ -1893,13 +1908,13 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
         Binary => bytes_to_json(
             col.as_any()
                 .downcast_ref::<BinaryArray>()
-                .unwrap()
+                .ok_or("Binary cell is not a BinaryArray")?
                 .value(row),
         ),
         LargeBinary => bytes_to_json(
             col.as_any()
                 .downcast_ref::<LargeBinaryArray>()
-                .unwrap()
+                .ok_or("LargeBinary cell is not a LargeBinaryArray")?
                 .value(row),
         ),
         // ── pgvector `vector` (CONCEPT:EG-KG.query.view-pgvector-operators): a `List<Float32>` cell → JSON array of
@@ -1911,7 +1926,7 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
             } else {
                 col.as_any()
                     .downcast_ref::<FixedSizeListArray>()
-                    .unwrap()
+                    .ok_or("vector cell is not a FixedSizeListArray")?
                     .value(row)
             };
             let floats = child
@@ -1978,6 +1993,7 @@ mod streaming_tests {
     use arrow::array::Int32Array;
     use arrow::datatypes::{DataType, Field, Schema};
     use futures_util::StreamExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn batch(vals: &[i32]) -> arrow::record_batch::RecordBatch {
         let schema = Arc::new(Schema::new(vec![Field::new("v", DataType::Int32, false)]));
@@ -2074,6 +2090,133 @@ mod streaming_tests {
             "a cancelled collect must stop before draining the whole 5-row stream: got {rows}"
         );
         assert!(rows >= 2, "batches consumed before cancellation still land");
+    }
+
+    /// A multi-batch source whose second batch crosses [`MAX_ROWS`] is sliced before
+    /// any output adapter sees it. Raw Arrow batches, JSON cells, and MessagePack
+    /// rows must expose the same capped, ordered prefix and never an oversized batch.
+    #[tokio::test]
+    async fn collect_streaming_caps_crossing_batch_for_all_result_modes() {
+        let first: Vec<i32> = (0..(MAX_ROWS as i32 - 1)).collect();
+        let last = MAX_ROWS as i32 - 1;
+        let stream =
+            futures_util::stream::iter(vec![Ok(batch(&first)), Ok(batch(&[last, last + 1]))]);
+        let cancel = CancellationToken::new();
+        let (capped, outcome) = collect_streaming(stream, &cancel, MAX_ROWS).await.unwrap();
+
+        assert_eq!(outcome.rows, MAX_ROWS);
+        assert!(!outcome.cancelled);
+        assert!(
+            outcome.spilled,
+            "the exact-cap boundary also exercises spill"
+        );
+        assert_eq!(total_rows(&capped), MAX_ROWS);
+        assert_eq!(capped.len(), 2, "the crossing source remains multi-batch");
+        assert_eq!(capped[0].num_rows(), MAX_ROWS - 1);
+        assert_eq!(capped[1].num_rows(), 1);
+        assert!(capped.iter().all(|b| b.num_rows() <= MAX_ROWS));
+        let flattened = flatten_i32(&capped);
+        assert_eq!(flattened.first(), Some(&0));
+        assert_eq!(flattened.last(), Some(&last));
+
+        let typed = batches_to_typed(&capped).unwrap();
+        let msgpack = batches_to_result(&capped).unwrap();
+        assert_eq!(typed.rows.len(), MAX_ROWS);
+        assert_eq!(msgpack.rows.len(), MAX_ROWS);
+        assert_eq!(typed.rows[MAX_ROWS - 1][0], serde_json::json!(last));
+        let msgpack_last: Vec<serde_json::Value> =
+            rmp_serde::from_slice(&msgpack.rows[MAX_ROWS - 1]).unwrap();
+        assert_eq!(msgpack_last, vec![serde_json::json!(last)]);
+    }
+
+    /// The cap is terminal: a source error queued after the crossing batch must
+    /// not be pulled, and no oversized batch may reach any result adapter. The
+    /// same collector also stops on cancellation before processing a batch, while
+    /// an error before the cap remains an execution error rather than being
+    /// swallowed by the bounded collector.
+    #[tokio::test]
+    async fn collect_streaming_cap_cancellation_and_error_boundaries() {
+        let first: Vec<i32> = (0..(MAX_ROWS as i32 - 1)).collect();
+        let last = MAX_ROWS as i32 - 1;
+        let seen = Arc::new(AtomicUsize::new(0));
+        let seen_source = Arc::clone(&seen);
+        let cancel = CancellationToken::new();
+        let stream = futures_util::stream::iter(vec![
+            Ok(batch(&first)),
+            Ok(batch(&[last, last + 1])),
+            Err("source error after MAX_ROWS".to_string()),
+        ])
+        .map(move |item| {
+            seen_source.fetch_add(1, Ordering::SeqCst);
+            item
+        });
+
+        let (capped, outcome) = collect_streaming(stream, &cancel, MAX_ROWS)
+            .await
+            .expect("the post-cap source error must not be over-read");
+        assert_eq!(
+            seen.load(Ordering::SeqCst),
+            2,
+            "the error item was not pulled"
+        );
+        assert_eq!(outcome.rows, MAX_ROWS);
+        assert!(!outcome.cancelled);
+        assert_eq!(total_rows(&capped), MAX_ROWS);
+        assert!(capped.iter().all(|batch| batch.num_rows() <= MAX_ROWS));
+        assert_eq!(flatten_i32(&capped).last(), Some(&last));
+
+        // Cancellation is checked on the same batch-boundary loop. It must stop
+        // before processing the first item and before pulling the queued error.
+        let cancelled_seen = Arc::new(AtomicUsize::new(0));
+        let cancelled_seen_source = Arc::clone(&cancelled_seen);
+        let cancelled = CancellationToken::new();
+        let cancel_trigger = cancelled.clone();
+        let cancelled_stream = futures_util::stream::iter(vec![
+            Ok(batch(&[1])),
+            Err("source error after cancellation".to_string()),
+        ])
+        .map(move |item| {
+            cancelled_seen_source.fetch_add(1, Ordering::SeqCst);
+            cancel_trigger.cancel();
+            item
+        });
+        let (stopped, cancelled_outcome) =
+            collect_streaming(cancelled_stream, &cancelled, MAX_ROWS)
+                .await
+                .expect("cancellation is a successful early stop");
+        assert!(cancelled.is_cancelled());
+        assert!(stopped.is_empty());
+        assert_eq!(cancelled_outcome.rows, 0);
+        assert!(cancelled_outcome.cancelled);
+        assert_eq!(
+            cancelled_seen.load(Ordering::SeqCst),
+            1,
+            "cancellation must prevent the queued error from being pulled"
+        );
+
+        let error_stream = futures_util::stream::iter(vec![
+            Ok(batch(&[1])),
+            Err("source error before MAX_ROWS".to_string()),
+        ]);
+        let error = collect_streaming(error_stream, &CancellationToken::new(), MAX_ROWS).await;
+        assert!(matches!(error, Err(message) if message == "source error before MAX_ROWS"));
+    }
+
+    /// Empty streams retain the existing zero-row contract across all three result
+    /// representations; no fabricated schema or batch is introduced by the cap.
+    #[tokio::test]
+    async fn collect_streaming_empty_result_stays_empty_across_result_modes() {
+        let stream = futures_util::stream::iter(Vec::<
+            Result<arrow::record_batch::RecordBatch, String>,
+        >::new());
+        let cancel = CancellationToken::new();
+        let (batches, outcome) = collect_streaming(stream, &cancel, 1_000_000).await.unwrap();
+
+        assert!(batches.is_empty());
+        assert_eq!(outcome.rows, 0);
+        assert!(!outcome.cancelled);
+        assert!(batches_to_typed(&batches).unwrap().rows.is_empty());
+        assert!(batches_to_result(&batches).unwrap().rows.is_empty());
     }
 
     #[test]

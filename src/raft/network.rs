@@ -1046,21 +1046,11 @@ pub struct GroupNetworkFactory {
     local: NodeId,
     /// Shared per-peer connection pool (CONCEPT:AU-KG.ontology.manage-arbitrary).
     pool: Arc<PeerPool>,
-    /// Installed only by a live MultiRaft manager.  The legacy constructor keeps
-    /// standalone callers on the exact single-RPC behavior.
-    coalescer: Option<Arc<HeartbeatCoalescer>>,
+    /// Installed by the live MultiRaft manager.
+    coalescer: Arc<HeartbeatCoalescer>,
 }
 
 impl GroupNetworkFactory {
-    pub fn new(gid: GroupId, local: NodeId, pool: Arc<PeerPool>) -> Self {
-        Self {
-            gid,
-            local,
-            pool,
-            coalescer: None,
-        }
-    }
-
     pub(crate) fn with_coalescer(
         gid: GroupId,
         local: NodeId,
@@ -1071,7 +1061,7 @@ impl GroupNetworkFactory {
             gid,
             local,
             pool,
-            coalescer: Some(coalescer),
+            coalescer,
         }
     }
 }
@@ -1104,7 +1094,7 @@ pub struct GroupNetworkClient {
     addr: String,
     /// The node's shared per-peer connection pool.
     pool: Arc<PeerPool>,
-    coalescer: Option<Arc<HeartbeatCoalescer>>,
+    coalescer: Arc<HeartbeatCoalescer>,
 }
 
 impl GroupNetworkClient {
@@ -1139,12 +1129,10 @@ impl RaftNetworkV2<TypeConfig> for GroupNetworkClient {
         _option: RPCOption,
     ) -> Result<AppendEntriesResponse<TypeConfig>, RPCError<TypeConfig>> {
         let group_rpc = GroupRpc::Append(self.gid, rpc);
-        let result = if let Some(coalescer) = &self.coalescer {
-            if HeartbeatCoalescer::is_heartbeat(&group_rpc) {
-                coalescer.heartbeat_round_trip(&self.addr, group_rpc).await
-            } else {
-                self.round_trip(group_rpc).await
-            }
+        let result = if HeartbeatCoalescer::is_heartbeat(&group_rpc) {
+            self.coalescer
+                .heartbeat_round_trip(&self.addr, group_rpc)
+                .await
         } else {
             self.round_trip(group_rpc).await
         };
