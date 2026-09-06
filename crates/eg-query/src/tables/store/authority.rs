@@ -314,6 +314,17 @@ impl SqlAuthority {
         eg_transaction::version(&read)
     }
 
+    /// The bootstrap scope's authoritative version -- the scope every one-shot
+    /// DDL/DML maintenance mutation of this store advances.
+    ///
+    /// No serving path needs it on its own (`catalog_fingerprint` folds it in
+    /// with every other bound scope); it exists so the version test can name
+    /// the maintenance scope apart from a caller's.
+    #[cfg(test)]
+    pub(crate) fn bootstrap_scope_version(&self) -> Result<u64, String> {
+        self.scope_version(self.bootstrap.as_ref())
+    }
+
     /// Every bound scope's authoritative version, in ledger-key order.
     ///
     /// The ledger version table is scope-bounded on read, so no reader can

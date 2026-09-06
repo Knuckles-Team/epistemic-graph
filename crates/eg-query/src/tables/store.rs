@@ -6809,7 +6809,7 @@ mod tests {
     // The mutation ledger is the kernel's now, so the store itself no longer
     // imports these; the fixtures that build a `MutationBatch` still need them.
     use eg_types::mutation_batch::{
-        IncarnationId, LogicalName, MutationOperation, MutationOutboxIntent,
+        IncarnationId, LogicalName, MutationBatchStatus, MutationOperation, MutationOutboxIntent,
         MutationRequestContext, MutationSurface, TenantId, VersionExpectation,
         COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
     };
@@ -7674,6 +7674,138 @@ mod tests {
         assert!(store
             .commit_txn_batch(&create_metrics_txn(), &changed, 103)
             .is_err());
+    }
+
+    /// RF-RULING-004/006, the version half: EVERY admitted mutation advances the
+    /// scope's authoritative version by exactly one -- the caller's statement
+    /// batches AND the one-shot DDL/DML the store admits as maintenance -- and a
+    /// batch whose `version_expectation` no longer equals it is STALE_VERSION.
+    ///
+    /// The retired ledger's counter moved only on a `commit_txn_batch`; the
+    /// kernel's moves on every ledgered write, which is what makes an
+    /// un-ledgered owner write impossible to hide.
+    #[test]
+    fn every_admitted_sql_mutation_advances_its_scope_version_by_one() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        let scope = || store.mutation_version("tenant-a", "graph-a").unwrap();
+        assert_eq!(scope(), 0);
+
+        let first = sql_batch("version-1");
+        store
+            .commit_txn_batch(&create_metrics_txn(), &first, 100)
+            .unwrap();
+        assert_eq!(scope(), 1);
+
+        // A second batch must observe the advanced version.
+        let mut stale = sql_batch("version-2");
+        assert_eq!(stale.version_expectation, VersionExpectation::Native(0));
+        let error = store
+            .commit_txn_batch(&insert_one_metric(), &stale, 101)
+            .unwrap_err();
+        assert!(error.contains("STALE_VERSION"), "{error}");
+        assert_eq!(scope(), 1, "a refused batch advances nothing");
+
+        stale.version_expectation = VersionExpectation::Native(1);
+        store
+            .commit_txn_batch(&insert_one_metric(), &stale, 102)
+            .unwrap();
+        assert_eq!(scope(), 2);
+
+        // The store's OWN bootstrap scope is a different scope, and its
+        // maintenance writes advance it, not the caller's.
+        let before_bootstrap = store.authority.bootstrap_scope_version().unwrap();
+        store.create_view("v", "SELECT 1", false).unwrap();
+        assert_eq!(
+            store.authority.bootstrap_scope_version().unwrap(),
+            before_bootstrap + 1,
+            "a one-shot DDL is a ledgered maintenance mutation"
+        );
+        assert_eq!(scope(), 2, "and it does not touch the caller's scope");
+    }
+
+    /// RF-RULING-004/006, the fence half: a batch from a superseded placement
+    /// epoch or fencing token is refused, and a fresher one is accepted.
+    #[test]
+    fn a_superseded_sql_coordinator_is_fenced_out() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        let mut fresh = sql_batch("fence-1");
+        fresh.placement_epoch = 2;
+        fresh.fencing_token = Some(5);
+        store
+            .commit_txn_batch(&create_metrics_txn(), &fresh, 100)
+            .unwrap();
+
+        for (label, epoch, token) in [
+            ("an older placement epoch", 1u64, Some(9u64)),
+            ("an older fencing token at the same epoch", 2, Some(4)),
+        ] {
+            let mut superseded = sql_batch("fence-stale");
+            superseded.placement_epoch = epoch;
+            superseded.fencing_token = token;
+            superseded.version_expectation = VersionExpectation::Native(1);
+            let error = store
+                .commit_txn_batch(&insert_one_metric(), &superseded, 101)
+                .unwrap_err();
+            assert!(error.contains("STALE_FENCE"), "{label}: {error}");
+        }
+
+        let mut newer = sql_batch("fence-2");
+        newer.placement_epoch = 3;
+        newer.fencing_token = Some(1);
+        newer.version_expectation = VersionExpectation::Native(1);
+        store
+            .commit_txn_batch(&insert_one_metric(), &newer, 102)
+            .unwrap();
+    }
+
+    /// The receipt a SQL commit returns is the kernel's durable one: readable
+    /// back by scope and batch id, terminal, carrying the affected-row result
+    /// and exactly the outbox intents the batch declared.
+    #[test]
+    fn a_committed_sql_batch_leaves_the_kernel_receipt_and_its_declared_outbox() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        store.create_table(&metrics_schema(), false).unwrap();
+        let mut batch = sql_batch("receipt");
+        batch.version_expectation =
+            VersionExpectation::Native(store.mutation_version("tenant-a", "graph-a").unwrap());
+        let commit = store
+            .commit_txn_batch(&insert_one_metric(), &batch, 100)
+            .unwrap();
+        assert!(!commit.replayed);
+
+        let stored = store
+            .mutation_batch(&batch.identity, &batch.batch_id)
+            .unwrap()
+            .expect("the kernel ledger holds the receipt");
+        assert_eq!(stored.status, MutationBatchStatus::Committed);
+        assert_eq!(stored.batch.batch_id, batch.batch_id);
+        let affected: usize =
+            rmp_serde::from_slice(stored.result_msgpack.as_ref().unwrap()).unwrap();
+        assert_eq!(affected, 1);
+
+        let outbox = store
+            .mutation_outbox(&batch.identity, &batch.batch_id)
+            .unwrap();
+        assert_eq!(outbox.len(), batch.outbox.len());
+        assert_eq!(outbox[0].intent.topic, "engine.projection.rebuild");
+        assert_eq!(outbox[0].ordinal, 0);
+
+        // Another scope's reader sees nothing: ledger rows are scope-bounded.
+        let other = sql_scope_identity("tenant-a", "graph-b").unwrap();
+        assert!(store
+            .mutation_batch(&other, &batch.batch_id)
+            .unwrap()
+            .is_none());
+    }
+
+    fn insert_one_metric() -> TableTxn {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::Insert {
+            table: "metrics".into(),
+            col_order: vec!["ts".into(), "name".into(), "value".into()],
+            rows: vec![vec![1i64.into(), "cpu".into(), 1.0.into()]],
+        });
+        txn
     }
 
     fn create_metrics_txn() -> TableTxn {

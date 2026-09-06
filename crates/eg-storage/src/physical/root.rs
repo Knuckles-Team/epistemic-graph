@@ -1,10 +1,10 @@
 use crate::codec::encode_bounded;
 use crate::owner::{validate_declared_tables_write, validate_manifest_write};
-use crate::physical::manifest::OwnerManifest;
 use crate::physical::incarnation::{
     persisted_root, require_persisted_root, StoreIncarnation, STORE_ROOT_KEY,
 };
 use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
+use crate::physical::manifest::OwnerManifest;
 use crate::tables::{open_declared_ledger_tables, STORE_ROOT};
 use redb::{Database, ReadTransaction, ReadableDatabase, TableHandle, WriteTransaction};
 use std::path::PathBuf;
@@ -36,6 +36,18 @@ const RETIRED_PROTOTYPE_TABLES: &[&str] = &[
     "mutation_fences_v3",
     "mutation_outbox_v3",
     "mutation_private_payloads_v3",
+    // The SQL `TableStore`'s private mutation ledger, retired onto
+    // `MutationKernelV1`'s by RF-RULING-006. Unlike the bare
+    // `mutation_batches`/`mutation_idempotency`/`mutation_outbox` names above,
+    // these five are unambiguous: no live subsystem writes a `__sql_mutation_*__`
+    // table, and only `eg-query`'s retired second ledger ever did. A file still
+    // carrying one is quarantined rather than served -- greenfield, so there is
+    // no reader for those rows anywhere.
+    "__sql_mutation_batches__",
+    "__sql_mutation_idempotency__",
+    "__sql_mutation_version__",
+    "__sql_mutation_fence__",
+    "__sql_mutation_outbox__",
 ];
 
 /// Non-serializable proof that a store root was derived from and matched the
@@ -196,7 +208,10 @@ pub(crate) fn validate_incarnation_read(
     Ok(())
 }
 
-pub(crate) fn validate_handle_write(handle: &StoreHandle, wtx: &WriteTransaction) -> Result<(), String> {
+pub(crate) fn validate_handle_write(
+    handle: &StoreHandle,
+    wtx: &WriteTransaction,
+) -> Result<(), String> {
     reject_prototype_names(
         wtx.list_tables()
             .map_err(|error| error.to_string())?

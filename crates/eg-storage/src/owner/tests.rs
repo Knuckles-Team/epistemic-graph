@@ -1,5 +1,6 @@
-use crate::kernel::{create_physical, open_physical};
+use crate::kernel::{create_physical, open_physical, StorageKernelV1};
 use crate::owner::contract::{CAP_CAS, CAP_DELETE, CAP_INSERT, CAP_READ, CAP_UPDATE};
+use crate::owner::domain::SqlOwner;
 use crate::owner::identity::PhysicalStoreIdentity;
 use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
 use crate::owner::registry::{
@@ -700,9 +701,12 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
 #[test]
 fn plain_recovery_rejects_every_retired_mutation_table_marker() {
     let names = retired_prototype_table_names();
-    assert_eq!(names.len(), 11);
+    // 16, not 11: RF-RULING-006 retired the SQL store's five private
+    // `__sql_mutation_*__` ledger tables onto the mutation kernel's ledger.
+    assert_eq!(names.len(), 16);
     assert!(names.contains(&"mutation_versions"));
     assert!(names.contains(&"mutation_store_root_v3"));
+    assert!(names.contains(&"__sql_mutation_version__"));
     for (ordinal, name) in names.iter().copied().enumerate() {
         assert!(is_retired_prototype_table(name));
         let dir = tempfile::tempdir().unwrap();
@@ -714,6 +718,56 @@ fn plain_recovery_rejects_every_retired_mutation_table_marker() {
         write.commit().unwrap();
         drop(database);
         assert!(classify_recovery_store(&path, RecoveryExpectation::Plain, None).is_err());
+    }
+}
+
+/// RF-RULING-006 greenfield fail-closed: the SQL layout's declared census holds
+/// no `__sql_mutation_*__` table, and a physical file that still carries one is
+/// refused rather than served.
+///
+/// This is a negative test with a known-bad input, not a "we stopped writing
+/// them" assertion: each of the five is planted into a real, otherwise-valid
+/// `OwnerLayout::Sql` store with a raw `redb::Database` underneath the kernel,
+/// and the kernel must then refuse to reopen it.
+#[test]
+fn the_sql_census_rejects_a_retired_private_mutation_ledger_table() {
+    for (ordinal, name) in [
+        "__sql_mutation_batches__",
+        "__sql_mutation_idempotency__",
+        "__sql_mutation_version__",
+        "__sql_mutation_fence__",
+        "__sql_mutation_outbox__",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert!(
+            !owner_table_names(OwnerLayout::Sql).contains(&name),
+            "{name} must not be declared by the SQL layout"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("sql-ledger-{ordinal}.redb"));
+        let physical = PhysicalStoreIdentity::new("eg-query:sql-user-tables").unwrap();
+        StorageKernelV1::create_owner::<SqlOwner>(&path, physical.clone(), None).unwrap();
+
+        // Plant the retired table with a raw database, under the kernel: a store
+        // opened through the kernel cannot reach an undeclared table at all, so
+        // the guard has to be proved against a stronger write path.
+        let database = redb::Database::create(&path).unwrap();
+        let write = database.begin_write().unwrap();
+        let planted: TableDefinition<&str, &[u8]> = TableDefinition::new(name);
+        write.open_table(planted).unwrap();
+        write.commit().unwrap();
+        drop(database);
+
+        let error = match StorageKernelV1::open_owner::<SqlOwner>(&path, physical, None) {
+            Ok(_) => panic!("{name}: a retired ledger table must refuse to reopen"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("prototype mutation tables require quarantine"),
+            "{name}: {error}"
+        );
     }
 }
 
