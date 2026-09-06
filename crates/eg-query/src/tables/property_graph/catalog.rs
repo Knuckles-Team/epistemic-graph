@@ -197,6 +197,17 @@ pub struct PropertyGraphCatalogRecord {
 }
 
 impl PropertyGraphCatalogRecord {
+    /// Resolve one draft definition against an exact relational-catalog
+    /// snapshot. Checks run in a FIXED order and the FIRST failure is reported,
+    /// so a caller must expect the earliest applicable error: (1) revision
+    /// bounds; (2) draft shape, canonical order and digest; (3) temporary
+    /// rejection; (4) snapshot validity, tenant scope and duplicate relation
+    /// name/id; (5) graph-name namespace collision; (6) per element in
+    /// canonical alias order, vertices before edges: relation existence, then
+    /// key resolution and uniqueness, then label/property column existence;
+    /// (7) cross-element shared-label property type equality; (8) edge endpoint
+    /// reference, key width and column types; (9) dependency consistency and
+    /// record-digest binding.
     pub fn admit(
         object_id: PropertyGraphObjectId,
         owner: PropertyGraphOwner,

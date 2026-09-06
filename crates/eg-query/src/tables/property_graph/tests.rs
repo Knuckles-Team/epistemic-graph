@@ -344,7 +344,15 @@ fn shared_label_properties_require_exact_column_type_equality() {
         ),
     );
     let mut definition = draft("social", false);
-    definition.vertex_tables[1].labels = vec![LabelDefinition {
+    // `PropertyGraphDefinition::new` canonicalizes vertex tables by alias, so the
+    // element is selected by alias rather than by position: attaching a `cities`
+    // column to the `people` relation would fail earlier, on column resolution.
+    let city = definition
+        .vertex_tables
+        .iter_mut()
+        .find(|vertex| vertex.alias == id("city"))
+        .expect("city vertex table");
+    city.labels = vec![LabelDefinition {
         name: id("person"),
         properties: PropertySet::Explicit(vec![PropertyDefinition {
             source_column: id("city_name"),
@@ -466,9 +474,7 @@ fn rename_preserves_object_id_and_reverse_dependencies_remain_exact() {
     assert_eq!(renamed.name.object.value(), "community");
     let renamed_id = renamed.object_id.clone();
     assert_eq!(catalog.dependents_of(&people_id), vec![renamed_id.clone()]);
-    assert!(catalog
-        .rename(&renamed_id, &name("people"), 23, 3)
-        .is_err());
+    assert!(catalog.rename(&renamed_id, &name("people"), 23, 3).is_err());
 }
 
 #[test]

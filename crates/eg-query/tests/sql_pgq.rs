@@ -348,7 +348,12 @@ fn unresolved_catalog_defaults_and_inconsistent_properties_fail_closed() {
 #[test]
 fn undirected_self_loop_is_counted_once_but_directed_incoming_is_retained() {
     let definition = match parse_property_graph_ddl(
-        "CREATE PROPERTY GRAPH g VERTEX TABLES (v KEY (id)) EDGE TABLES (e KEY (eid) SOURCE KEY (src) REFERENCES v (id) DESTINATION KEY (dst) REFERENCES v (id))",
+        "CREATE PROPERTY GRAPH g \
+         VERTEX TABLES (v KEY (id) LABEL vertex_label PROPERTIES (id)) \
+         EDGE TABLES (e KEY (eid) \
+             SOURCE KEY (src) REFERENCES v (id) \
+             DESTINATION KEY (dst) REFERENCES v (id) \
+             LABEL edge_label NO PROPERTIES)",
         TENANT,
     )
     .unwrap()
