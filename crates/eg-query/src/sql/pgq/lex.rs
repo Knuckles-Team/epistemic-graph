@@ -9,6 +9,14 @@ pub(super) const MAX_GRAPH_TABLE_COLUMNS: usize = 256;
 pub(super) const MAX_GRAPH_TABLE_BRANCHES: usize = 64;
 pub(super) const MAX_GRAPH_EXPR_DEPTH: usize = 32;
 pub(super) const MAX_LABEL_EXPR_DEPTH: usize = 32;
+/// Total nodes in ONE label expression. `MAX_LABEL_EXPR_DEPTH` bounds only the
+/// nesting of `!` and parentheses; a flat `a|a|a|…` chain nests no deeper but
+/// still builds a left spine whose length would otherwise be bounded only by
+/// `MAX_PGQ_SQL_BYTES`. Every consumer of a `LabelExpr` walks that spine —
+/// including the DERIVED `Drop`, `Clone` and `PartialEq` on its boxes, which no
+/// amount of iterative traversal in this crate can make non-recursive — so the
+/// node count is the one bound that makes all of them safe.
+pub(super) const MAX_LABEL_EXPR_NODES: usize = 256;
 
 /// Whether `sql` starts with a property-graph DDL keyword sequence owned by this
 /// module. This deliberately recognizes only the current SQL/PGQ surface; once
