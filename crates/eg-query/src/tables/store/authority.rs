@@ -23,7 +23,7 @@ use eg_storage::{
 };
 use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernelV1};
 use eg_types::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationRequestContext,
+    MutationBatch, MutationBatchRecord, MutationDomain, MutationOperation, MutationRequestContext,
     MutationScopeIdentity, MutationSurface, VersionExpectation, COMPILED_BATCH_INCARNATION,
     MUTATION_BATCH_VERSION,
 };
@@ -156,6 +156,14 @@ fn unix_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// One bound serving scope: the ledger scope key plus the principal it was
+/// bound for. A SQL owner file binds a scope once per principal that writes it.
+type BoundScopeKey = (String, String);
+
+/// One bound handle, shared by `Arc` because `OwnedStoreHandle` is a capability
+/// and deliberately not `Clone`.
+type BoundScope = Arc<OwnedStoreHandle<SqlOwner>>;
+
 /// The SQL store's one physical authority plus its bound serving scopes.
 pub(crate) struct SqlAuthority {
     kernel: StorageKernelV1,
@@ -167,10 +175,20 @@ pub(crate) struct SqlAuthority {
     principal: String,
     proof: Vec<u8>,
     bootstrap: Arc<OwnedStoreHandle<SqlOwner>>,
-    /// Bound serving scopes, keyed by ledger scope key. `OwnedStoreHandle` is
-    /// deliberately not `Clone` -- a handle IS a capability -- so the cache
-    /// hands out `Arc` clones of the one bound handle rather than copies.
-    scopes: RwLock<BTreeMap<String, Arc<OwnedStoreHandle<SqlOwner>>>>,
+    /// Bound serving scopes, keyed by `(ledger scope key, principal)`.
+    ///
+    /// A SQL owner file is a tenant-shared catalog: one file legitimately serves
+    /// MANY principals, unlike a statechart or jobs file. The durable
+    /// `ScopeBinding` carries no principal -- it is an in-memory property of the
+    /// capability, decided by the composition root's verifier -- so a scope is
+    /// bound once per principal that writes it, and `AdmittedMutation::
+    /// owner_rows` then matches the batch's own actor instead of forcing every
+    /// caller's batch to be rewritten to one serving identity.
+    ///
+    /// `OwnedStoreHandle` is deliberately not `Clone` -- a handle IS a
+    /// capability -- so the cache hands out `Arc` clones of the one bound handle
+    /// rather than copies.
+    scopes: RwLock<BTreeMap<BoundScopeKey, BoundScope>>,
 }
 
 impl std::fmt::Debug for SqlAuthority {
@@ -227,24 +245,36 @@ impl SqlAuthority {
         })
     }
 
-    /// The bound handle for one served scope, binding it on first use.
+    /// The bound handle for one served scope and principal, binding it on first
+    /// use.
+    ///
+    /// The ledger scope key is the scope's BINDING digest, which covers tenant
+    /// and scope but not the lifecycle generation, so two incarnations of one
+    /// logical name cannot coexist on a file. `bind_scope_in` says so with
+    /// "mutation scope rebinding mismatch"; a cache hit would bypass that check,
+    /// so the generation is compared here too.
     pub(crate) fn scope_handle(
         &self,
         identity: &MutationScopeIdentity,
-    ) -> Result<Arc<OwnedStoreHandle<SqlOwner>>, String> {
-        let key = ledger_scope_key(identity);
-        if let Some(handle) = self
+        principal: &str,
+    ) -> Result<BoundScope, String> {
+        let key = (ledger_scope_key(identity), principal.to_string());
+        let cached = self
             .scopes
             .read()
             .map_err(|_| "SQL scope cache is poisoned".to_string())?
             .get(&key)
-        {
-            return Ok(Arc::clone(handle));
+            .map(Arc::clone);
+        if let Some(handle) = cached {
+            if handle.identity() != identity {
+                return Err("mutation scope rebinding mismatch".to_string());
+            }
+            return Ok(handle);
         }
         let handle = Arc::new(bind_serving_scope(
             &self.kernel,
             self.grants.as_ref(),
-            &self.principal,
+            principal,
             &self.proof,
             identity,
         )?);
@@ -253,6 +283,21 @@ impl SqlAuthority {
             .map_err(|_| "SQL scope cache is poisoned".to_string())?
             .insert(key, Arc::clone(&handle));
         Ok(handle)
+    }
+
+    /// The store's own serving principal -- the actor of every maintenance
+    /// mutation and the reader of every scoped read it takes on its own behalf.
+    pub(crate) fn principal(&self) -> &str {
+        &self.principal
+    }
+
+    /// One kernel-issued scoped read over an exact bound scope -- the only way
+    /// to reach that scope's ledger rows.
+    pub(crate) fn read_scope(
+        &self,
+        owner: &OwnedStoreHandle<SqlOwner>,
+    ) -> Result<SqlRead<'_>, String> {
+        self.kernel.read_scope(owner)
     }
 
     /// One kernel-issued scoped read over the bootstrap scope -- the catalog
@@ -276,7 +321,7 @@ impl SqlAuthority {
     /// has bound, which is exactly the set any write through it can have
     /// touched.
     pub(crate) fn bound_scope_versions(&self) -> Result<Vec<(String, u64)>, String> {
-        let handles: Vec<(String, Arc<OwnedStoreHandle<SqlOwner>>)> = {
+        let handles: Vec<(String, BoundScope)> = {
             let scopes = self
                 .scopes
                 .read()
@@ -288,7 +333,7 @@ impl SqlAuthority {
             .chain(
                 scopes
                     .iter()
-                    .map(|(key, handle)| (key.clone(), Arc::clone(handle))),
+                    .map(|((key, _principal), handle)| (key.clone(), Arc::clone(handle))),
             )
             .collect()
         };
@@ -317,25 +362,9 @@ impl SqlAuthority {
         self.begin_maintenance_on(Arc::clone(&self.bootstrap), kind, subject)
     }
 
-    /// Admit one owner-maintenance mutation on an exact bound scope.
-    ///
-    /// A `MutationBatch` reaching this store names its own `(tenant, resource)`
-    /// scope -- the graph a served statement ran against, or a fixed cross-graph
-    /// scope such as the sqlite importer's -- so its ledger evidence belongs
-    /// under that scope, not under the store's bootstrap one.
-    pub(crate) fn begin_maintenance_for(
-        &self,
-        identity: &MutationScopeIdentity,
-        kind: &str,
-        subject: &str,
-    ) -> Result<SqlMutation<'_>, String> {
-        let owner = self.scope_handle(identity)?;
-        self.begin_maintenance_on(owner, kind, subject)
-    }
-
     fn begin_maintenance_on(
         &self,
-        owner: Arc<OwnedStoreHandle<SqlOwner>>,
+        owner: BoundScope,
         kind: &str,
         subject: &str,
     ) -> Result<SqlMutation<'_>, String> {
@@ -368,6 +397,30 @@ impl SqlAuthority {
         })
     }
 
+    /// Admit one caller-originated SQL statement batch on the scope its own
+    /// identity names.
+    ///
+    /// This is `MutationClass::Operation`: the kernel's ledger decides
+    /// idempotency, OCC and route fencing for it, and writes its receipt, class
+    /// row, version bump, fence and outbox rows on `finish`. A returned
+    /// [`Begin::Replay`] means the idempotency key already names a terminally
+    /// committed receipt and the caller must abort rather than reapply.
+    pub(crate) fn begin_operation(
+        &self,
+        batch: &MutationBatch,
+    ) -> Result<(SqlMutation<'_>, Begin), String> {
+        let owner = self.scope_handle(&batch.identity, &batch.context.principal)?;
+        let (write, begun) = self.mutations.admit(owner.as_ref(), batch)?;
+        let mutation = SqlMutation {
+            authority: self,
+            owner,
+            write,
+            batch: batch.clone(),
+            source_version: None,
+        };
+        Ok((mutation, begun))
+    }
+
     /// One owner-maintenance mutation whose owner rows are the whole write.
     pub(crate) fn maintain<T, F>(&self, kind: &str, subject: &str, apply: F) -> Result<T, String>
     where
@@ -395,13 +448,22 @@ impl SqlAuthority {
 /// error, is what the caller sees.
 pub(crate) struct SqlMutation<'a> {
     authority: &'a SqlAuthority,
-    owner: Arc<OwnedStoreHandle<SqlOwner>>,
+    owner: BoundScope,
     write: AdmittedMutation<'a, SqlOwner>,
     batch: MutationBatch,
     source_version: Option<u64>,
 }
 
 impl SqlMutation<'_> {
+    /// Record the authoritative version this write was admitted against.
+    ///
+    /// A maintenance mutation reads it at admission; a caller-originated one
+    /// learns it from [`Begin::Apply`], which the caller must inspect anyway to
+    /// tell an apply from a replay.
+    pub(crate) fn set_source_version(&mut self, source_version: Option<u64>) {
+        self.source_version = source_version;
+    }
+
     pub(crate) fn owner_rows<T, F>(&self, apply: F) -> Result<T, String>
     where
         F: FnOnce(&SqlWrite<'_>) -> Result<T, String>,
@@ -412,16 +474,31 @@ impl SqlMutation<'_> {
         outcome
     }
 
-    /// Persist the batch's terminal metadata and commit the write.
-    pub(crate) fn commit(self) -> Result<(), String> {
+    /// Persist the batch's terminal metadata -- receipt, idempotency row, class
+    /// row, version bump, fence and outbox rows -- without committing.
+    pub(crate) fn finish(
+        &self,
+        result_msgpack: Option<Vec<u8>>,
+        committed_at_ms: u64,
+    ) -> Result<MutationBatchRecord, String> {
         self.authority.mutations.finish(
             &self.write,
             &self.batch,
-            None,
-            unix_ms(),
+            result_msgpack,
+            committed_at_ms,
             self.source_version,
-        )?;
+        )
+    }
+
+    /// Commit an already-finished write.
+    pub(crate) fn commit_finished(self) -> Result<(), String> {
         self.authority.mutations.commit(self.write, &self.batch)
+    }
+
+    /// Persist the batch's terminal metadata and commit the write.
+    pub(crate) fn commit(self) -> Result<(), String> {
+        self.finish(None, unix_ms())?;
+        self.commit_finished()
     }
 
     /// Discard every row written under this mutation.

@@ -43,10 +43,10 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use eg_storage::ScopeGrantVerifier;
+use eg_transaction::Begin;
 use eg_types::mutation_batch::{
-    CommittedVersion, MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus,
-    MutationDomain, MutationOutboxIntent, MutationOutboxRecord, MutationScope, VersionExpectation,
-    MUTATION_BATCH_VERSION,
+    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationDomain, MutationOutboxRecord,
+    MutationScope, MutationScopeIdentity,
 };
 use redb::{ReadableTable, TableDefinition};
 use serde_json::Value;
@@ -55,7 +55,7 @@ mod authority;
 #[cfg(any(test, feature = "dev-scope-grant"))]
 pub mod dev_scope_grant;
 
-use authority::{SqlAuthority, SqlMutation};
+use authority::{sql_scope_identity, SqlAuthority, SqlMutation};
 pub(crate) use authority::{SqlRead, SqlWrite};
 
 use super::index::{
@@ -123,21 +123,6 @@ const SECONDARY_INDEX_ENTRIES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("__sql_secondary_index_entries__");
 /// Timescale-compatible hypertable catalog: `table_name -> MessagePack(HypertablePlan)`.
 const HYPERTABLES: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_hypertables__");
-/// Universal SQL-domain mutation status/result rows.
-const MUTATION_BATCHES: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("__sql_mutation_batches__");
-/// `(tenant, graph, idempotency_key) -> batch_id`.
-const MUTATION_IDEMPOTENCY: TableDefinition<(&str, &str, &str), &str> =
-    TableDefinition::new("__sql_mutation_idempotency__");
-/// SQL catalog/data OCC version, independent from the graph-row version.
-const MUTATION_VERSION: TableDefinition<(&str, &str), u64> =
-    TableDefinition::new("__sql_mutation_version__");
-/// SQL-domain placement/worker fence.
-const MUTATION_FENCE: TableDefinition<(&str, &str), &[u8]> =
-    TableDefinition::new("__sql_mutation_fence__");
-/// Immutable transactional outbox rows.
-const MUTATION_OUTBOX: TableDefinition<(&str, u32), &[u8]> =
-    TableDefinition::new("__sql_mutation_outbox__");
 /// `(tenant_scope, table) -> current schema version`.  Kept separate from the
 /// SQL-domain DML OCC counter because a schema reader must not mistake a row
 /// write for a schema transition.
@@ -195,7 +180,6 @@ pub const ROW_SNAPSHOT_MAX_RECORDS: usize = 256;
 pub const ROW_SNAPSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
 /// Physical work remains bounded even when RLS makes every examined row hidden.
 pub const ROW_SNAPSHOT_MAX_SCAN_BYTES: usize = MAX_SQL_STORED_VALUE_BYTES;
-const INITIAL_SQL_DOMAIN_VERSION: u64 = 0;
 
 fn decode_stored<T: serde::de::DeserializeOwned>(
     bytes: &[u8],
@@ -210,59 +194,6 @@ fn decode_stored<T: serde::de::DeserializeOwned>(
         ),
     )
     .map_err(|_| format!("stored SQL {kind} is invalid or exceeds resource limits"))
-}
-
-fn decode_mutation_record(
-    bytes: &[u8],
-    expected_batch_id: &str,
-) -> Result<MutationBatchRecord, String> {
-    let record: MutationBatchRecord = decode_stored(bytes, "mutation record")?;
-    record.validate()?;
-    validate_sql_mutation_record_binding(&record, expected_batch_id)?;
-    Ok(record)
-}
-
-fn validate_sql_mutation_record_binding(
-    record: &MutationBatchRecord,
-    expected_batch_id: &str,
-) -> Result<(), String> {
-    match (
-        record.status,
-        record.identity.scope(),
-        record.committed_version,
-    ) {
-        (
-            MutationBatchStatus::Committed,
-            MutationScope::Native {
-                domain: MutationDomain::SqlCatalog,
-                ..
-            },
-            CommittedVersion::Native { .. },
-        ) => {}
-        _ => {
-            return Err("SQL mutation store contains a non-SqlCatalog committed record".to_string())
-        }
-    }
-    if record.batch.batch_id != expected_batch_id {
-        return Err("SQL mutation record does not match its physical lookup key".to_string());
-    }
-    Ok(())
-}
-
-fn decode_mutation_outbox(bytes: &[u8]) -> Result<MutationOutboxRecord, String> {
-    let record: MutationOutboxRecord = decode_stored(bytes, "mutation outbox record")?;
-    record.validate()?;
-    if !matches!(record.committed_version, CommittedVersion::Native { .. }) {
-        return Err("SQL mutation store contains a graph-scoped outbox record".to_string());
-    }
-    Ok(record)
-}
-
-fn validate_sql_mutation_record_size(bytes: &[u8]) -> Result<(), String> {
-    if bytes.len() > MAX_SQL_STORED_VALUE_BYTES {
-        return Err("SQL mutation record exceeds durable resource limits".to_string());
-    }
-    Ok(())
 }
 
 /// The `(tenant, resource)` version-key pair every SQL-domain mutation batch is
@@ -294,12 +225,6 @@ fn account_collection(count: &mut usize, bytes: &mut usize, added: usize) -> Res
         .filter(|bytes| *bytes <= MAX_SQL_SCAN_BYTES)
         .ok_or_else(|| "SQL collection byte limit exceeded".to_string())?;
     Ok(())
-}
-
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-struct SqlMutationFence {
-    placement_epoch: u64,
-    fencing_token: u64,
 }
 
 /// Failure-injection boundaries proving SQL rows/catalog and coordinator metadata
@@ -2055,6 +1980,24 @@ impl TableStore {
         self.commit_txn_batch_inner(txn, batch, committed_at_ms, None, Some(result_msgpack))
     }
 
+    /// Admit, apply and commit one SQL statement batch through the mutation
+    /// kernel (RF-RULING-006).
+    ///
+    /// Idempotency, OCC version fencing, route fencing, the durable receipt and
+    /// the outbox rows are all the kernel ledger's: this method admits the
+    /// batch, changes owner rows inside the admitted write, and finishes.
+    ///
+    /// **Replay identity.** RF-RULING-004's two-identity contract
+    /// (`OperationReplayIdentityV1` + `NonceReplayKeyV1`) is not reachable from
+    /// here: `MutationRequestContext` carries no attempt nonce, no canonical
+    /// payload digest, no `MethodIdV1`/`SchemaIdV1` and no policy epoch, so a
+    /// SQL statement cannot be mapped onto an operation replay identity from
+    /// what its batch holds. That is K2's blocker 1 and belongs to the
+    /// `MutationEnvelopeV1` cutover. Until then a SQL statement is admitted as
+    /// an operation with the identity its context CAN provide -- the batch's own
+    /// `idempotency_key` -- and the kernel's accepted `MutationBatch` replay
+    /// path decides it, byte-for-byte, exactly as the retired private ledger
+    /// did.
     fn commit_txn_batch_inner(
         &self,
         txn: &TableTxn,
@@ -2065,110 +2008,62 @@ impl TableStore {
     ) -> Result<MutationBatchCommit, String> {
         batch.validate_write_budget()?;
         verify_batch_is_sql_catalog_only(batch)?;
-        let (tenant, resource) = sql_scope_key(batch)?;
-        let mutation = self.authority.begin_maintenance_for(
-            &batch.identity,
-            "commit-txn-batch",
-            &format!("{tenant}/{resource}"),
-        )?;
-        let commit = match mutation.owner_rows(|wtx| {
-            self.commit_txn_batch_rows(
-                wtx,
-                txn,
-                batch,
-                committed_at_ms,
-                crashpoint,
-                result_override,
-            )
+        // Rejects a graph-scoped batch before anything is admitted; the kernel
+        // would bind the scope first and only then refuse the domain.
+        sql_scope_key(batch)?;
+        let (mut mutation, begun) = self.authority.begin_operation(batch)?;
+        let source_version = match begun {
+            Begin::Replay(record) => {
+                // The idempotency key already names a terminally committed
+                // receipt. Nothing is written, nothing is versioned, and the
+                // stored result is returned instead of re-executing the SQL.
+                mutation.abort()?;
+                return sql_batch_commit(*record, true);
+            }
+            Begin::Apply { source_version } => source_version,
+        };
+        mutation.set_source_version(source_version);
+        let affected = match mutation.owner_rows(|wtx| {
+            apply_mutation_txn_ops_with_crashpoints(wtx, self.index_scope(), txn, batch, crashpoint)
         }) {
-            Ok(commit) => commit,
+            Ok(affected) => affected,
             Err(error) => {
                 mutation.abort()?;
                 return Err(error);
             }
         };
-        if commit.replayed {
-            // An idempotent replay wrote nothing, so there is nothing to commit
-            // and no version to advance: the durable record already exists.
-            mutation.abort()?;
-            return Ok(commit);
-        }
+        let result_msgpack = match result_override {
+            Some(result) => result,
+            None => rmp_serde::to_vec_named(&affected).map_err(|e| e.to_string())?,
+        };
+        let record = match mutation.finish(Some(result_msgpack), committed_at_ms) {
+            Ok(record) => record,
+            Err(error) => {
+                mutation.abort()?;
+                return Err(error);
+            }
+        };
+        let commit = sql_batch_commit(record, false)?;
         commit_sql_mutation_with_crashpoints(mutation, batch, crashpoint)?;
         Ok(commit)
     }
 
-    /// Every owner row one SQL mutation batch changes, inside the admitted
-    /// write: the OCC/idempotency/fence prelude, the txn ops themselves, and the
-    /// durable batch/idempotency/version/fence/outbox metadata.
-    fn commit_txn_batch_rows(
-        &self,
-        wtx: &SqlWrite<'_>,
-        txn: &TableTxn,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-        crashpoint: Option<SqlMutationCrashpoint>,
-        result_override: Option<Vec<u8>>,
-    ) -> Result<MutationBatchCommit, String> {
-        // Capture the authoritative version once for both the OCC gate and the
-        // idempotency replay gate.  A retry reconstructed after an ack-loss may
-        // carry this current observation rather than the original version stored
-        // in its durable batch record; the record itself remains authoritative.
-        // Idempotency check and insertion share this write transaction, closing the
-        // concurrent double-execution race.
-        let version_key = sql_scope_key(batch)?;
-        let (current_version, proposed_fence) =
-            match prepare_mutation_commit_in(wtx, version_key, batch)? {
-                MutationCommitPrelude::Replay(replay) => return Ok(*replay),
-                MutationCommitPrelude::Fresh {
-                    current_version,
-                    proposed_fence,
-                } => (current_version, proposed_fence),
-            };
-
-        let affected = apply_mutation_txn_ops_with_crashpoints(
-            wtx,
-            self.index_scope(),
-            txn,
-            batch,
-            crashpoint,
-        )?;
-        let (record, record_bytes, next_version, committed_version) =
-            finalize_mutation_commit_metadata(
-                batch,
-                committed_at_ms,
-                result_override,
-                affected,
-                current_version,
-            )?;
-        let identity = record.identity.clone();
-        let commit = MutationBatchCommit {
-            record,
-            identity,
-            replayed: false,
-        };
-        commit.validate()?;
-        write_mutation_commit_tables_in(
-            wtx,
-            batch,
-            version_key,
-            next_version,
-            committed_version,
-            &proposed_fence,
-            &record_bytes,
-        )?;
-
-        Ok(commit)
-    }
-
-    /// Current authoritative SQL-domain OCC version for batch planning.
+    /// Current authoritative mutation version of one SQL scope, for batch
+    /// planning.
+    ///
+    /// The version is the mutation kernel's, keyed by the scope's binding
+    /// digest, so `(tenant, graph)` is resolved through
+    /// `COMPILED_BATCH_INCARNATION` -- the incarnation the server's batch
+    /// compiler stamps on every `SqlCatalog` batch, and therefore the only one a
+    /// served statement can carry. A scope reached for the first time is bound
+    /// here (idempotently) at version 0, which is what the retired counter
+    /// returned for an absent row.
     pub fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
-        let rtx = self.authority.read()?;
-        let table = rtx.open_owner_table(MUTATION_VERSION)?;
-        let version = match table.get((tenant, graph)).map_err(map_err)? {
-            Some(value) => value.value(),
-            None => INITIAL_SQL_DOMAIN_VERSION,
-        };
-        Ok(version)
+        let identity = sql_scope_identity(tenant, graph)?;
+        let owner = self
+            .authority
+            .scope_handle(&identity, self.authority.principal())?;
+        self.authority.scope_version(owner.as_ref())
     }
 
     /// A single fingerprint over EVERY SQL mutation scope this store has bound
@@ -2228,49 +2123,29 @@ impl TableStore {
     }
 
     /// Read durable SQL-domain batch status/result for retry and restart recovery.
-    pub fn mutation_batch(&self, batch_id: &str) -> Result<Option<MutationBatchRecord>, String> {
-        let rtx = self.authority.read()?;
-        let table = rtx.open_owner_table(MUTATION_BATCHES)?;
-        let record = table
-            .get(batch_id)
-            .map_err(map_err)?
-            .map(|value| decode_mutation_record(value.value(), batch_id))
-            .transpose()?;
-        Ok(record)
-    }
-
-    /// Compare a reconstructed SQL-domain retry with its validated durable
-    /// record using the same complete identity rule as the commit path.
-    pub fn mutation_batch_replay_matches(
+    pub fn mutation_batch(
         &self,
-        stored: &MutationBatch,
-        proposed: &MutationBatch,
-    ) -> Result<bool, String> {
-        stored.validate_write_budget()?;
-        proposed.validate_write_budget()?;
-        verify_batch_is_sql_catalog_only(stored)?;
-        verify_batch_is_sql_catalog_only(proposed)?;
-        let (tenant, resource) = sql_scope_key(proposed)?;
-        let current_version = self.mutation_version(tenant, resource)?;
-        same_batch_identity(stored, proposed, current_version)
+        identity: &MutationScopeIdentity,
+        batch_id: &str,
+    ) -> Result<Option<MutationBatchRecord>, String> {
+        let owner = self
+            .authority
+            .scope_handle(identity, self.authority.principal())?;
+        let read = self.authority.read_scope(owner.as_ref())?;
+        eg_transaction::read_ledger(&read, batch_id)
     }
 
     /// Read the SQL-domain transactional outbox for one committed batch.
-    pub fn mutation_outbox(&self, batch_id: &str) -> Result<Vec<MutationOutboxRecord>, String> {
-        let rtx = self.authority.read()?;
-        let table = rtx.open_owner_table(MUTATION_OUTBOX)?;
-        let mut rows = Vec::new();
-        let mut count = 0usize;
-        let mut bytes = 0usize;
-        for row in table
-            .range((batch_id, 0u32)..=(batch_id, u32::MAX))
-            .map_err(map_err)?
-        {
-            let (_, value) = row.map_err(map_err)?;
-            account_collection(&mut count, &mut bytes, value.value().len())?;
-            rows.push(decode_mutation_outbox(value.value())?);
-        }
-        Ok(rows)
+    pub fn mutation_outbox(
+        &self,
+        identity: &MutationScopeIdentity,
+        batch_id: &str,
+    ) -> Result<Vec<MutationOutboxRecord>, String> {
+        let owner = self
+            .authority
+            .scope_handle(identity, self.authority.principal())?;
+        let read = self.authority.read_scope(owner.as_ref())?;
+        eg_transaction::read_outbox(&read, batch_id)
     }
 }
 
@@ -2281,76 +2156,19 @@ impl TableStore {
 // durable MutationBatch record, commit (with crash-injection points). No
 // behaviour change: every helper's body is the original code verbatim.
 
-/// Result of the read-only "is this a replay, or should we proceed" prelude
-/// (`prepare_mutation_commit_in`): either the durably-committed replay
-/// result to return as-is, or the current version + verified fence a fresh
-/// commit proceeds with.
-enum MutationCommitPrelude {
-    /// Boxed: a `MutationBatchCommit` carries the whole durable
-    /// `MutationBatchRecord`, hundreds of bytes larger than `Fresh`, and this
-    /// enum is returned by value on the hot fresh-commit path.
-    Replay(Box<MutationBatchCommit>),
-    Fresh {
-        current_version: u64,
-        proposed_fence: SqlMutationFence,
-    },
-}
-
-/// The read-then-validate phase of `commit_txn_batch_inner`, before any
-/// write: resolve the current OCC version, check for an idempotent replay
-/// (short-circuiting the caller), and -- for a genuinely new batch -- the
-/// batch-id-not-taken / OCC-version / fence checks. Bundled into one enum
-/// return purely to keep `commit_txn_batch_inner`'s own CCN low.
-fn prepare_mutation_commit_in(
-    wtx: &SqlWrite<'_>,
-    version_key: (&str, &str),
-    batch: &MutationBatch,
-) -> Result<MutationCommitPrelude, String> {
-    let current_version = read_current_mutation_version_in(wtx, version_key)?;
-    if let Some(replay) =
-        check_mutation_idempotency_replay_in(wtx, version_key, batch, current_version)?
-    {
-        return Ok(MutationCommitPrelude::Replay(Box::new(replay)));
-    }
-    check_mutation_batch_id_not_exists_in(wtx, batch)?;
-    verify_mutation_occ_version(version_key, batch, current_version)?;
-    let proposed_fence = resolve_and_verify_mutation_fence_in(wtx, version_key, batch)?;
-    Ok(MutationCommitPrelude::Fresh {
-        current_version,
-        proposed_fence,
-    })
-}
-
-/// Builds the durable `MutationBatchRecord`, its encoded bytes, and the
-/// advanced OCC version -- the three pieces of write-side metadata
-/// `commit_txn_batch_inner` needs after applying the txn ops, bundled
-/// purely to keep its own CCN low.
-fn finalize_mutation_commit_metadata(
-    batch: &MutationBatch,
-    committed_at_ms: u64,
-    result_override: Option<Vec<u8>>,
-    affected: usize,
-    current_version: u64,
-) -> Result<(MutationBatchRecord, Vec<u8>, u64, CommittedVersion), String> {
-    // SQL-domain batches are always `MutationScope::Native` (see `sql_scope_key`);
-    // the committed transition is the real advancing SQL OCC counter, not a
-    // sentinel -- `checked_native` also closes the overflow case the OCC gate's
-    // `next_version` derivation below independently guards.
-    let committed_version = CommittedVersion::checked_native(current_version)?;
-    let record = build_mutation_batch_record(
-        batch,
-        committed_at_ms,
-        result_override,
-        affected,
-        committed_version,
-    )?;
-    record.validate_write_budget()?;
-    let record_bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
-    validate_sql_mutation_record_size(&record_bytes)?;
-    let next_version = current_version
-        .checked_add(1)
-        .ok_or_else(|| "SQL mutation domain version overflow".to_string())?;
-    Ok((record, record_bytes, next_version, committed_version))
+/// The caller-facing commit envelope around one durable kernel receipt.
+fn sql_batch_commit(
+    record: MutationBatchRecord,
+    replayed: bool,
+) -> Result<MutationBatchCommit, String> {
+    let identity = record.identity.clone();
+    let commit = MutationBatchCommit {
+        record,
+        identity,
+        replayed,
+    };
+    commit.validate()?;
+    Ok(commit)
 }
 
 fn verify_batch_is_sql_catalog_only(batch: &MutationBatch) -> Result<(), String> {
@@ -2362,134 +2180,6 @@ fn verify_batch_is_sql_catalog_only(batch: &MutationBatch) -> Result<(), String>
         return Err("SQL MutationBatch contains a non-SqlCatalog operation".to_string());
     }
     Ok(())
-}
-
-fn read_current_mutation_version_in(
-    wtx: &SqlWrite<'_>,
-    version_key: (&str, &str),
-) -> Result<u64, String> {
-    let versions = wtx.open_table(MUTATION_VERSION)?;
-    // Bind the guard: as a tail expression its temporary would outlive
-    // `versions` and borrow a dropped table handle.
-    let found = versions.get(version_key).map_err(map_err)?;
-    Ok(match found {
-        Some(value) => value.value(),
-        None => INITIAL_SQL_DOMAIN_VERSION,
-    })
-}
-
-/// `Some(commit)` when `batch.idempotency_key` was already committed and the
-/// resubmitted batch's identity matches (a safe idempotent replay); `None`
-/// for a genuinely new batch. Errs on IDEMPOTENCY_CONFLICT (same key,
-/// different identity).
-fn check_mutation_idempotency_replay_in(
-    wtx: &SqlWrite<'_>,
-    version_key: (&str, &str),
-    batch: &MutationBatch,
-    current_version: u64,
-) -> Result<Option<MutationBatchCommit>, String> {
-    let idem = wtx.open_table(MUTATION_IDEMPOTENCY)?;
-    let existing = idem
-        .get((version_key.0, version_key.1, batch.idempotency_key.as_str()))
-        .map_err(map_err)?
-        .map(|value| value.value().to_string());
-    let Some(existing) = existing else {
-        return Ok(None);
-    };
-    let records = wtx.open_table(MUTATION_BATCHES)?;
-    let bytes = records
-        .get(existing.as_str())
-        .map_err(map_err)?
-        .ok_or_else(|| {
-            format!("corrupt SQL mutation idempotency index: '{existing}' has no batch record")
-        })?
-        .value()
-        .to_vec();
-    let record = decode_mutation_record(&bytes, &existing)?;
-    if !same_batch_identity(&record.batch, batch, current_version)? {
-        return Err(format!(
-            "IDEMPOTENCY_CONFLICT: SQL key '{}' is already committed as batch '{}'",
-            batch.idempotency_key, record.batch.batch_id
-        ));
-    }
-    let identity = record.identity.clone();
-    let commit = MutationBatchCommit {
-        record,
-        identity,
-        replayed: true,
-    };
-    commit.validate()?;
-    Ok(Some(commit))
-}
-
-fn check_mutation_batch_id_not_exists_in(
-    wtx: &SqlWrite<'_>,
-    batch: &MutationBatch,
-) -> Result<(), String> {
-    let records = wtx.open_table(MUTATION_BATCHES)?;
-    if records
-        .get(batch.batch_id.as_str())
-        .map_err(map_err)?
-        .is_some()
-    {
-        return Err(format!(
-            "IDEMPOTENCY_CONFLICT: SQL batch_id '{}' already exists",
-            batch.batch_id
-        ));
-    }
-    Ok(())
-}
-
-fn verify_mutation_occ_version(
-    version_key: (&str, &str),
-    batch: &MutationBatch,
-    current_version: u64,
-) -> Result<(), String> {
-    let expected = match batch.version_expectation {
-        VersionExpectation::Native(expected) => expected,
-        _ => {
-            return Err(
-                "authoritative SQL MutationBatch requires a native version expectation".to_string(),
-            )
-        }
-    };
-    if expected != current_version {
-        return Err(format!(
-            "STALE_VERSION: SQL scope '{}/{}' expected {} but authoritative version is {}",
-            version_key.0, version_key.1, expected, current_version
-        ));
-    }
-    Ok(())
-}
-
-/// Reads the current fence and confirms `batch`'s proposed fence has not
-/// been superseded by a newer placement epoch / fencing token.
-fn resolve_and_verify_mutation_fence_in(
-    wtx: &SqlWrite<'_>,
-    version_key: (&str, &str),
-    batch: &MutationBatch,
-) -> Result<SqlMutationFence, String> {
-    let current_fence = {
-        let fences = wtx.open_table(MUTATION_FENCE)?;
-        let value = fences
-            .get(version_key)
-            .map_err(map_err)?
-            .map(|value| decode_stored::<SqlMutationFence>(value.value(), "mutation fence"))
-            .transpose()?
-            .unwrap_or_default();
-        value
-    };
-    let proposed_fence = SqlMutationFence {
-        placement_epoch: batch.placement_epoch,
-        fencing_token: batch.fencing_token.unwrap_or(0),
-    };
-    if proposed_fence.placement_epoch < current_fence.placement_epoch
-        || (proposed_fence.placement_epoch == current_fence.placement_epoch
-            && proposed_fence.fencing_token < current_fence.fencing_token)
-    {
-        return Err("STALE_FENCE: SQL mutation coordinator is superseded".to_string());
-    }
-    Ok(proposed_fence)
 }
 
 /// Applies every op in `txn` inside `wtx`, honoring the two crash-injection
@@ -2525,108 +2215,6 @@ fn apply_mutation_txn_ops_with_crashpoints(
     Ok(affected)
 }
 
-fn build_mutation_batch_record(
-    batch: &MutationBatch,
-    committed_at_ms: u64,
-    result_override: Option<Vec<u8>>,
-    affected: usize,
-    committed_version: CommittedVersion,
-) -> Result<MutationBatchRecord, String> {
-    let result_msgpack = match result_override {
-        Some(result) => result,
-        None => rmp_serde::to_vec_named(&affected).map_err(|e| e.to_string())?,
-    };
-    Ok(MutationBatchRecord {
-        batch: batch.clone(),
-        identity: batch.identity.clone(),
-        status: MutationBatchStatus::Committed,
-        committed_version,
-        result_msgpack: Some(result_msgpack),
-        committed_at_ms,
-    })
-}
-
-/// Writes every durable side-effect of a successfully-applied mutation
-/// batch: the batch record itself, the idempotency index entry, the
-/// advanced OCC version, the fence, and the outbox intents (one per
-/// operation, plus any explicit `batch.outbox` entries).
-fn write_mutation_commit_tables_in(
-    wtx: &SqlWrite<'_>,
-    batch: &MutationBatch,
-    version_key: (&str, &str),
-    next_version: u64,
-    committed_version: CommittedVersion,
-    proposed_fence: &SqlMutationFence,
-    record_bytes: &[u8],
-) -> Result<(), String> {
-    let mut records = wtx.open_table(MUTATION_BATCHES)?;
-    records
-        .insert(batch.batch_id.as_str(), record_bytes)
-        .map_err(map_err)?;
-    let mut idem = wtx.open_table(MUTATION_IDEMPOTENCY)?;
-    idem.insert(
-        (version_key.0, version_key.1, batch.idempotency_key.as_str()),
-        batch.batch_id.as_str(),
-    )
-    .map_err(map_err)?;
-    let mut versions = wtx.open_table(MUTATION_VERSION)?;
-    versions
-        .insert(version_key, next_version)
-        .map_err(map_err)?;
-    let fence_bytes = rmp_serde::to_vec_named(proposed_fence).map_err(|e| e.to_string())?;
-    let mut fences = wtx.open_table(MUTATION_FENCE)?;
-    fences
-        .insert(version_key, fence_bytes.as_slice())
-        .map_err(map_err)?;
-    append_mutation_outbox_intents_in(wtx, batch, committed_version)
-}
-
-fn append_mutation_outbox_intents_in(
-    wtx: &SqlWrite<'_>,
-    batch: &MutationBatch,
-    committed_version: CommittedVersion,
-) -> Result<(), String> {
-    let mut outbox = wtx.open_table(MUTATION_OUTBOX)?;
-    let ordinal = append_operation_outbox_intents_in(&mut outbox, batch, 0, committed_version)?;
-    append_explicit_outbox_intents_in(&mut outbox, batch, ordinal, committed_version)
-}
-
-fn append_operation_outbox_intents_in(
-    outbox: &mut redb::Table<(&str, u32), &[u8]>,
-    batch: &MutationBatch,
-    mut ordinal: u32,
-    committed_version: CommittedVersion,
-) -> Result<u32, String> {
-    for operation in &batch.operations {
-        let intent = MutationOutboxIntent {
-            topic: "engine.mutation.committed".to_string(),
-            key: batch.batch_id.clone(),
-            payload: rmp_serde::to_vec_named(operation).map_err(|e| e.to_string())?,
-            headers: Default::default(),
-        };
-        insert_sql_outbox(outbox, batch, ordinal, intent, committed_version)?;
-        ordinal = ordinal
-            .checked_add(1)
-            .ok_or_else(|| "SQL mutation outbox ordinal overflow".to_string())?;
-    }
-    Ok(ordinal)
-}
-
-fn append_explicit_outbox_intents_in(
-    outbox: &mut redb::Table<(&str, u32), &[u8]>,
-    batch: &MutationBatch,
-    mut ordinal: u32,
-    committed_version: CommittedVersion,
-) -> Result<(), String> {
-    for intent in &batch.outbox {
-        insert_sql_outbox(outbox, batch, ordinal, intent.clone(), committed_version)?;
-        ordinal = ordinal
-            .checked_add(1)
-            .ok_or_else(|| "SQL mutation outbox ordinal overflow".to_string())?;
-    }
-    Ok(())
-}
-
 /// Commits `mutation`, honoring the two crash-injection points either side of
 /// the actual kernel commit (CONCEPT: chaos/durability certification).
 ///
@@ -2645,7 +2233,7 @@ fn commit_sql_mutation_with_crashpoints(
         batch,
         eg_types::mutation_batch::MutationCommitPhase::BeforeCommit,
     )?;
-    mutation.commit()?;
+    mutation.commit_finished()?;
     if crashpoint == Some(SqlMutationCrashpoint::AfterCommitBeforeAck) {
         return Err("injected crash after SQL mutation commit before ack".to_string());
     }
@@ -3015,75 +2603,14 @@ fn apply_txn_op_drop_function(
     Ok(0)
 }
 
-fn apply_txn_op_put_ann_index(wtx: &SqlWrite<'_>, plan: &AnnIndexPlan) -> Result<usize, String> {
-    put_ann_index_in(wtx, plan)?;
-    Ok(0)
-}
-
 fn apply_txn_op_put_hypertable(wtx: &SqlWrite<'_>, plan: &HypertablePlan) -> Result<usize, String> {
     put_hypertable_in(wtx, plan)?;
     Ok(0)
 }
 
-fn same_batch_identity(
-    stored: &MutationBatch,
-    proposed: &MutationBatch,
-    current_version: u64,
-) -> Result<bool, String> {
-    let stored_ops = rmp_serde::to_vec_named(&stored.operations).map_err(|e| e.to_string())?;
-    let proposed_ops = rmp_serde::to_vec_named(&proposed.operations).map_err(|e| e.to_string())?;
-    // SQL callers may reconstruct an idempotent retry after the original commit
-    // and observe the incremented domain version.  Preserve the original value
-    // in the durable record, but accept the current observation only when every
-    // other request-identity field remains exact.
-    let expected_version_matches = stored.version_expectation == proposed.version_expectation
-        || proposed.version_expectation == VersionExpectation::Native(current_version);
-    Ok(same_batch_request_identity(stored, proposed)
-        && expected_version_matches
-        && same_batch_commit_identity(stored, proposed)
-        && stored_ops == proposed_ops)
-}
-
-/// The addressing half of a mutation batch's request identity — who/where the
-/// batch targets. Every field must match exactly for a retry to be the same call.
-fn same_batch_request_identity(stored: &MutationBatch, proposed: &MutationBatch) -> bool {
-    stored.batch_id == proposed.batch_id
-        && stored.context == proposed.context
-        && stored.identity == proposed.identity
-        && stored.placement_epoch == proposed.placement_epoch
-        && stored.idempotency_key == proposed.idempotency_key
-}
-
-/// The commit-control half of a mutation batch's request identity — fencing,
-/// authoritative state, and outbox intent.
-fn same_batch_commit_identity(stored: &MutationBatch, proposed: &MutationBatch) -> bool {
-    stored.fencing_token == proposed.fencing_token
-        && stored.authoritative_state == proposed.authoritative_state
-        && stored.outbox == proposed.outbox
-}
-
-fn insert_sql_outbox(
-    outbox: &mut redb::Table<(&str, u32), &[u8]>,
-    batch: &MutationBatch,
-    ordinal: u32,
-    intent: MutationOutboxIntent,
-    committed_version: CommittedVersion,
-) -> Result<(), String> {
-    let record = MutationOutboxRecord {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch.batch_id.clone(),
-        ordinal,
-        identity: batch.identity.clone(),
-        committed_version,
-        intent,
-        created_at_ms: batch.created_at_ms,
-    };
-    record.validate()?;
-    let bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
-    outbox
-        .insert((batch.batch_id.as_str(), ordinal), bytes.as_slice())
-        .map_err(map_err)?;
-    Ok(())
+fn apply_txn_op_put_ann_index(wtx: &SqlWrite<'_>, plan: &AnnIndexPlan) -> Result<usize, String> {
+    put_ann_index_in(wtx, plan)?;
+    Ok(0)
 }
 
 /// Read a table schema through an open write txn (sees staged CREATE/ALTER).
@@ -7263,7 +6790,6 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
 
 #[cfg(test)]
 mod tests {
-
     /// Reopen the store at `path` through the development composition root --
     /// the same grant `open_temp` opened it with. RF-RULING-004 makes the
     /// verifier the composition root's, so a reopen has to present it again.
@@ -7277,10 +6803,15 @@ mod tests {
         .unwrap()
     }
     use super::*;
+    // The mutation ledger is the kernel's now, so the store itself no longer
+    // imports these; the fixtures that build a `MutationBatch` still need them.
     use crate::tables::schema::{CmpOp, ColCheck, ColumnType};
+    // The mutation ledger is the kernel's now, so the store itself no longer
+    // imports these; the fixtures that build a `MutationBatch` still need them.
     use eg_types::mutation_batch::{
-        IncarnationId, LogicalName, MutationOperation, MutationRequestContext,
-        MutationScopeIdentity, MutationSurface, TenantId, MUTATION_BATCH_VERSION,
+        IncarnationId, LogicalName, MutationOperation, MutationOutboxIntent,
+        MutationRequestContext, MutationSurface, TenantId, VersionExpectation,
+        COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
     };
 
     #[test]
@@ -7986,7 +7517,7 @@ mod tests {
                 TenantId::new("tenant-a").unwrap(),
                 MutationDomain::SqlCatalog,
                 LogicalName::new("graph-a").unwrap(),
-                IncarnationId::new("incarnation-1").unwrap(),
+                IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
             )
             .unwrap(),
             placement_epoch: 0,
@@ -8015,104 +7546,124 @@ mod tests {
         }
     }
 
+    /// Successor of `sql_record_decoder_validates_native_receipt_semantics`.
+    ///
+    /// The retired private ledger decoded its own receipts and re-checked, on
+    /// every read, that each one named this store, a native SQL scope and a
+    /// terminal status. `MutationKernelV1` owns the receipt now, so those
+    /// properties move to where a batch is admitted: the SQL layout accepts only
+    /// `MutationDomain::SqlCatalog`, a graph-scoped batch has no native resource
+    /// name to bind, and a receipt is only ever written by `finish`, which is
+    /// only reachable for a terminally committing batch.
     #[test]
-    fn sql_record_decoder_validates_native_receipt_semantics() {
-        let batch = sql_batch("decode-record");
-        let mut record = MutationBatchRecord {
-            identity: batch.identity.clone(),
-            batch,
-            status: MutationBatchStatus::Committed,
-            committed_version: CommittedVersion::Native {
-                source: 0,
-                target: 1,
-            },
-            result_msgpack: None,
-            committed_at_ms: 101,
-        };
-        let encoded = rmp_serde::to_vec_named(&record).unwrap();
-        decode_mutation_record(&encoded, "decode-record").unwrap();
-        assert!(decode_mutation_record(&encoded, "moved-record").is_err());
+    fn a_batch_that_is_not_a_native_sql_catalog_mutation_is_refused_before_admission() {
+        let (store, _path) = TableStore::open_temp().unwrap();
 
-        for status in [MutationBatchStatus::Prepared, MutationBatchStatus::Aborted] {
-            record.status = status;
-            record.committed_version = CommittedVersion::None;
-            record.validate().unwrap();
-            let non_terminal = rmp_serde::to_vec_named(&record).unwrap();
-            assert!(decode_mutation_record(&non_terminal, "decode-record").is_err());
-        }
-
-        let graph_identity = MutationScopeIdentity::graph(
+        // A graph scope has no native resource, so there is no SQL scope to bind.
+        let mut graph_scoped = sql_batch("graph-scoped");
+        graph_scoped.identity = MutationScopeIdentity::graph(
             TenantId::new("tenant-a").unwrap(),
             LogicalName::new("graph-a").unwrap(),
-            IncarnationId::new("incarnation-1").unwrap(),
+            IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
         );
-        record.batch.identity = graph_identity.clone();
-        record.identity = graph_identity;
-        record.batch.version_expectation = VersionExpectation::Graph(0);
-        record.status = MutationBatchStatus::Committed;
-        record.committed_version = CommittedVersion::Graph {
-            source: 0,
-            target: 1,
-        };
-        record.validate().unwrap();
-        let wrong_store = rmp_serde::to_vec_named(&record).unwrap();
-        assert!(decode_mutation_record(&wrong_store, "decode-record").is_err());
+        graph_scoped.version_expectation = eg_types::mutation_batch::VersionExpectation::Graph(0);
+        let error = store
+            .commit_txn_batch(&create_metrics_txn(), &graph_scoped, 101)
+            .unwrap_err();
+        assert!(error.contains("native"), "{error}");
 
-        let wrong_domain = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
-            MutationDomain::KvStore,
-            LogicalName::new("graph-a").unwrap(),
-            IncarnationId::new("incarnation-1").unwrap(),
-        )
-        .unwrap();
-        record.batch.identity = wrong_domain.clone();
-        record.identity = wrong_domain;
-        record.batch.version_expectation = VersionExpectation::Native(0);
-        for operation in &mut record.batch.operations {
+        // A non-SqlCatalog operation is refused before anything is admitted.
+        let mut wrong_domain = sql_batch("wrong-domain");
+        for operation in &mut wrong_domain.operations {
             operation.domain = MutationDomain::KvStore;
         }
-        record.committed_version = CommittedVersion::Native {
-            source: 0,
-            target: 1,
-        };
-        record.validate().unwrap();
-        let wrong_domain_store = rmp_serde::to_vec_named(&record).unwrap();
-        assert!(decode_mutation_record(&wrong_domain_store, "decode-record").is_err());
+        // `MutationBatch::validate_write_budget` refuses it first: a native
+        // scope's domain must equal every operation's.
+        let error = store
+            .commit_txn_batch(&create_metrics_txn(), &wrong_domain, 102)
+            .unwrap_err();
+        assert!(
+            error.contains("native mutation scope domain does not match its operation"),
+            "{error}"
+        );
+
+        // Nothing above reached the ledger.
+        let batch = sql_batch("wrong-domain");
+        assert!(store
+            .mutation_batch(&batch.identity, &batch.batch_id)
+            .unwrap()
+            .is_none());
+        assert_eq!(store.mutation_version("tenant-a", "graph-a").unwrap(), 0);
     }
 
+    /// Successor of `sql_replay_comparator_covers_the_complete_batch_identity`.
+    ///
+    /// The store no longer owns a replay comparator of its own -- that was a
+    /// second replay authority, which RF-RULING-004 forbids. The kernel's
+    /// `MutationBatch` replay rule is byte-identity of the WHOLE batch, so the
+    /// same field-by-field coverage is asserted through the commit path: the
+    /// identical batch replays, and each single-field change under the same
+    /// idempotency key conflicts.
     #[test]
-    fn sql_replay_comparator_covers_the_complete_batch_identity() {
+    fn the_kernel_replay_rule_covers_the_complete_batch_identity() {
         let (store, _path) = TableStore::open_temp().unwrap();
         let stored = sql_batch("complete-replay-identity");
-        assert!(store
-            .mutation_batch_replay_matches(&stored, &stored)
-            .unwrap());
+        assert!(
+            !store
+                .commit_txn_batch(&create_metrics_txn(), &stored, 100)
+                .unwrap()
+                .replayed
+        );
+        // Reapplying CREATE TABLE would fail, so a successful replay proves the
+        // stored result was returned rather than the SQL re-executed.
+        assert!(
+            store
+                .commit_txn_batch(&create_metrics_txn(), &stored, 101)
+                .unwrap()
+                .replayed
+        );
 
-        let mut changed = stored.clone();
-        changed.idempotency_key = "different".to_string();
-        assert!(!store
-            .mutation_batch_replay_matches(&stored, &changed)
-            .unwrap());
+        for (label, mutate) in [
+            (
+                "purpose",
+                Box::new(|b: &mut MutationBatch| b.context.purpose = Some("different".to_string()))
+                    as Box<dyn Fn(&mut MutationBatch)>,
+            ),
+            (
+                "placement epoch and fencing token",
+                Box::new(|b: &mut MutationBatch| {
+                    b.placement_epoch = 1;
+                    b.fencing_token = Some(1);
+                }),
+            ),
+            (
+                "fencing token",
+                Box::new(|b: &mut MutationBatch| b.fencing_token = Some(1)),
+            ),
+            ("outbox", Box::new(|b: &mut MutationBatch| b.outbox.clear())),
+            (
+                "operations",
+                Box::new(|b: &mut MutationBatch| {
+                    b.operations[0].method = eg_types::protocol::Method::ApplyMutation {
+                        event_type: "sql_catalog_operation".to_string(),
+                        query: format!("sha256:{}", "1".repeat(64)),
+                    }
+                }),
+            ),
+        ] {
+            let mut changed = stored.clone();
+            mutate(&mut changed);
+            let error = store
+                .commit_txn_batch(&create_metrics_txn(), &changed, 102)
+                .unwrap_err();
+            assert!(
+                error.contains("IDEMPOTENCY_CONFLICT"),
+                "changing the {label} must conflict, got: {error}"
+            );
+        }
 
-        let mut changed = stored.clone();
-        changed.context.purpose = Some("different".to_string());
-        assert!(!store
-            .mutation_batch_replay_matches(&stored, &changed)
-            .unwrap());
-
-        let mut changed = stored.clone();
-        changed.placement_epoch = 1;
-        changed.fencing_token = Some(1);
-        assert!(!store
-            .mutation_batch_replay_matches(&stored, &changed)
-            .unwrap());
-
-        let mut changed = stored.clone();
-        changed.fencing_token = Some(1);
-        assert!(!store
-            .mutation_batch_replay_matches(&stored, &changed)
-            .unwrap());
-
+        // A SQL batch may not carry a graph state descriptor at all: it is
+        // rejected by the batch's own validation, before admission.
         let mut changed = stored.clone();
         changed.authoritative_state = Some(eg_types::mutation_batch::MutationStateDescriptor {
             algorithm: "sha256".to_string(),
@@ -8121,14 +7672,8 @@ mod tests {
             target_graph_version: 1,
         });
         assert!(store
-            .mutation_batch_replay_matches(&stored, &changed)
+            .commit_txn_batch(&create_metrics_txn(), &changed, 103)
             .is_err());
-
-        let mut changed = stored.clone();
-        changed.outbox.clear();
-        assert!(!store
-            .mutation_batch_replay_matches(&stored, &changed)
-            .unwrap());
     }
 
     fn create_metrics_txn() -> TableTxn {
@@ -8155,9 +7700,12 @@ mod tests {
             drop(store);
             let reopened = reopen(&path);
             assert!(reopened.get_schema("metrics").unwrap().is_none());
-            assert!(reopened.mutation_batch(&batch.batch_id).unwrap().is_none());
             assert!(reopened
-                .mutation_outbox(&batch.batch_id)
+                .mutation_batch(&batch.identity, &batch.batch_id)
+                .unwrap()
+                .is_none());
+            assert!(reopened
+                .mutation_outbox(&batch.identity, &batch.batch_id)
                 .unwrap()
                 .is_empty());
             assert_eq!(reopened.mutation_version("tenant-a", "graph-a").unwrap(), 0);
@@ -8175,9 +7723,12 @@ mod tests {
             .commit_txn_batch_result(&create_metrics_txn(), &oversized, result, 101)
             .is_err());
         assert!(store.get_schema("metrics").unwrap().is_none());
-        assert!(store.mutation_batch(&oversized.batch_id).unwrap().is_none());
         assert!(store
-            .mutation_outbox(&oversized.batch_id)
+            .mutation_batch(&oversized.identity, &oversized.batch_id)
+            .unwrap()
+            .is_none());
+        assert!(store
+            .mutation_outbox(&oversized.identity, &oversized.batch_id)
             .unwrap()
             .is_empty());
         assert_eq!(store.mutation_version("tenant-a", "graph-a").unwrap(), 0);
@@ -8189,7 +7740,10 @@ mod tests {
             .is_err());
         assert!(store.get_schema("metrics").unwrap().is_none());
         assert!(store
-            .mutation_batch(&excessive_collection.batch_id)
+            .mutation_batch(
+                &excessive_collection.identity,
+                &excessive_collection.batch_id
+            )
             .unwrap()
             .is_none());
         assert_eq!(store.mutation_version("tenant-a", "graph-a").unwrap(), 0);
@@ -8212,8 +7766,22 @@ mod tests {
 
         let reopened = reopen(&path);
         assert!(reopened.get_schema("metrics").unwrap().is_some());
-        assert!(reopened.mutation_batch(&batch.batch_id).unwrap().is_some());
-        assert_eq!(reopened.mutation_outbox(&batch.batch_id).unwrap().len(), 2);
+        assert!(reopened
+            .mutation_batch(&batch.identity, &batch.batch_id)
+            .unwrap()
+            .is_some());
+        // ONE row, not two. The retired private ledger synthesized an extra
+        // `engine.mutation.committed` intent per operation on top of the batch's
+        // declared `outbox`; `MutationKernelV1` emits exactly the intents the
+        // batch declares, which is the one outbox protocol RF-RULING-007 puts in
+        // `eg-transaction`.
+        assert_eq!(
+            reopened
+                .mutation_outbox(&batch.identity, &batch.batch_id)
+                .unwrap()
+                .len(),
+            1
+        );
         assert_eq!(reopened.mutation_version("tenant-a", "graph-a").unwrap(), 1);
 
         // Reapplying CREATE TABLE would fail. A successful replay therefore proves
@@ -8223,24 +7791,30 @@ mod tests {
             .unwrap();
         assert!(replay.replayed);
         assert_eq!(reopened.list_tables().unwrap(), vec!["metrics".to_string()]);
-        assert_eq!(reopened.mutation_outbox(&batch.batch_id).unwrap().len(), 2);
-
-        // A rebuilt retry commonly observes the incremented SQL-domain version.
-        // The durable record must retain the original observation while returning
-        // the stored result instead of executing CREATE TABLE a second time.
-        let mut rederived = batch.clone();
-        rederived.version_expectation = VersionExpectation::Native(1);
-        let replay = reopened
-            .commit_txn_batch(&create_metrics_txn(), &rederived, 103)
-            .unwrap();
-        assert!(replay.replayed);
         assert_eq!(
-            replay.record.batch.version_expectation,
-            VersionExpectation::Native(0)
+            reopened
+                .mutation_outbox(&batch.identity, &batch.batch_id)
+                .unwrap()
+                .len(),
+            1
         );
 
-        // Same key plus a changed operation is not a retry, even though its
-        // expected version is the current derived value.
+        // A rebuilt retry that observed the incremented version is now an
+        // IDEMPOTENCY_CONFLICT, not a replay. The retired private ledger
+        // tolerated exactly that one field differing; `MutationKernelV1`'s
+        // `MutationBatch` replay rule is byte-identity of the whole batch, and
+        // RF-RULING-006 makes the kernel's rule the SQL rule. The tolerance is
+        // what `OperationReplayIdentityV1` restores for free -- it excludes the
+        // version expectation -- and that path needs `MutationEnvelopeV1`
+        // (K2 blocker 1), which no SQL caller emits yet.
+        let mut rederived = batch.clone();
+        rederived.version_expectation = eg_types::mutation_batch::VersionExpectation::Native(1);
+        let error = reopened
+            .commit_txn_batch(&create_metrics_txn(), &rederived, 103)
+            .unwrap_err();
+        assert!(error.contains("IDEMPOTENCY_CONFLICT"), "{error}");
+
+        // Same key plus a changed operation is not a retry either.
         let mut conflict = rederived.clone();
         conflict.operations[0].method = eg_types::protocol::Method::ApplyMutation {
             event_type: "sql_catalog_operation".to_string(),
@@ -8293,7 +7867,7 @@ mod tests {
             eg_types::mutation_batch::TenantId::new("tenant-a").unwrap(),
             MutationDomain::SqlCatalog,
             eg_types::mutation_batch::LogicalName::new("graph-b").unwrap(),
-            eg_types::mutation_batch::IncarnationId::new("incarnation-1").unwrap(),
+            eg_types::mutation_batch::IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
         )
         .unwrap();
         batch_b.idempotency_key = "idem-fp-b".to_string();

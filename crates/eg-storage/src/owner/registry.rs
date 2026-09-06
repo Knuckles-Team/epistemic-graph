@@ -65,14 +65,18 @@ pub const ANN_CODES: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
 // RF-RULING-004 puts the complete physical table registry in the storage
 // kernel: a consumer crate that declares its own tables is a second physical
 // authority.
-const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 7] = [
+//
+// There is no `__sql_mutation_*__` table in this set. RF-RULING-006 retired
+// `eg-query`'s private admit/idempotency/OCC/fence/outbox ledger onto
+// `MutationKernelV1`'s: a second mutation ledger inside one kernel-owned file
+// is exactly what RF-RULING-004 forbids. The SQL layout is owner rows only.
+const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 6] = [
     TableDefinition::new("__sql_catalog__"),
     TableDefinition::new("__sql_functions__"),
     TableDefinition::new("__sql_ann_indexes__"),
     TableDefinition::new("__sql_secondary_indexes__"),
     TableDefinition::new("__sql_secondary_index_entries__"),
     TableDefinition::new("__sql_hypertables__"),
-    TableDefinition::new("__sql_mutation_batches__"),
 ];
 const SQL_STR_STR: [TableDefinition<'static, &str, &str>; 2] = [
     TableDefinition::new("__sql_views__"),
@@ -82,14 +86,6 @@ const SQL_ROWS: TableDefinition<'static, (&str, u64), &[u8]> = TableDefinition::
 const SQL_SEQ: TableDefinition<'static, &str, u64> = TableDefinition::new("__sql_seq__");
 const SQL_CATALOG_VERSIONS: TableDefinition<'static, &str, u64> =
     TableDefinition::new("__sql_schema_catalog_versions__");
-const SQL_MUTATION_IDEMPOTENCY: TableDefinition<'static, (&str, &str, &str), &str> =
-    TableDefinition::new("__sql_mutation_idempotency__");
-const SQL_MUTATION_VERSION: TableDefinition<'static, (&str, &str), u64> =
-    TableDefinition::new("__sql_mutation_version__");
-const SQL_MUTATION_FENCE: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("__sql_mutation_fence__");
-const SQL_MUTATION_OUTBOX: TableDefinition<'static, (&str, u32), &[u8]> =
-    TableDefinition::new("__sql_mutation_outbox__");
 const SQL_SCHEMA_VERSIONS: TableDefinition<'static, (&str, &str), u64> =
     TableDefinition::new("__sql_schema_versions__");
 const SQL_SCHEMA_MIGRATIONS: TableDefinition<'static, (&str, &str, &str), &[u8]> =
@@ -216,10 +212,6 @@ macro_rules! visit_owner_tables {
                 $visit!(SQL_ROWS);
                 $visit!(SQL_SEQ);
                 $visit!(SQL_CATALOG_VERSIONS);
-                $visit!(SQL_MUTATION_IDEMPOTENCY);
-                $visit!(SQL_MUTATION_VERSION);
-                $visit!(SQL_MUTATION_FENCE);
-                $visit!(SQL_MUTATION_OUTBOX);
                 $visit!(SQL_SCHEMA_VERSIONS);
                 $visit!(SQL_SCHEMA_MIGRATIONS);
                 $visit!(SQL_SCHEMA_MIGRATION_ORDER);
@@ -422,16 +414,11 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_secondary_indexes__",
             "__sql_secondary_index_entries__",
             "__sql_hypertables__",
-            "__sql_mutation_batches__",
             "__sql_views__",
             "__sql_extensions__",
             "__sql_rows__",
             "__sql_seq__",
             "__sql_schema_catalog_versions__",
-            "__sql_mutation_idempotency__",
-            "__sql_mutation_version__",
-            "__sql_mutation_fence__",
-            "__sql_mutation_outbox__",
             "__sql_schema_versions__",
             "__sql_schema_migrations__",
             "__sql_schema_migration_order__",

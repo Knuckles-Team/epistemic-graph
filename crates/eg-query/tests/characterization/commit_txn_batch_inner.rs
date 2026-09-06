@@ -26,7 +26,7 @@ use eg_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
 use eg_types::mutation_batch::{
     IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
     MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
-    VersionExpectation, MUTATION_BATCH_VERSION,
+    VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
 };
 
 const TENANT: &str = "tenant-commit-txn-batch";
@@ -77,8 +77,7 @@ fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationB
             TenantId::new(TENANT).expect("valid tenant id"),
             MutationDomain::SqlCatalog,
             LogicalName::new(GRAPH).expect("valid resource name"),
-            IncarnationId::new("incarnation:test:commit-txn-batch-inner")
-                .expect("valid incarnation id"),
+            IncarnationId::new(COMPILED_BATCH_INCARNATION).expect("valid incarnation id"),
         )
         .expect("sql-catalog native scope identity is valid"),
         placement_epoch: 0,

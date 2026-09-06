@@ -36,8 +36,8 @@ use eg_query::{
 };
 use eg_types::mutation_batch::{
     IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
-    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
-    TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
+    VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
 };
 use serde_json::json;
 
@@ -101,8 +101,7 @@ fn commit(store: &TableStore, tenant: &str, graph: &str, seq: &mut u64, txn: Tab
             TenantId::new(tenant).expect("valid tenant id"),
             MutationDomain::SqlCatalog,
             LogicalName::new(graph).expect("valid resource name"),
-            IncarnationId::new(format!("incarnation:test:sql-context-cache:{tenant}:{graph}"))
-                .expect("valid incarnation id"),
+            IncarnationId::new(COMPILED_BATCH_INCARNATION).expect("valid incarnation id"),
         )
         .expect("sql-catalog native scope identity is valid"),
         placement_epoch: 0,

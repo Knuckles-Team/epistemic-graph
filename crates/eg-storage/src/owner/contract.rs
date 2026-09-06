@@ -198,12 +198,9 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
 fn sql_key_type(name: &str) -> Option<&'static str> {
     match name {
         "__sql_rows__" | "__sql_schema_catalog_order__" => Some("(&str,u64)"),
-        "__sql_mutation_outbox__" => Some("(&str,u32)"),
-        "__sql_mutation_idempotency__" | "__sql_schema_migrations__" => Some("(&str,&str,&str)"),
+        "__sql_schema_migrations__" => Some("(&str,&str,&str)"),
         "__sql_schema_migration_order__" => Some("(&str,&str,u64)"),
-        "__sql_mutation_version__" | "__sql_mutation_fence__" | "__sql_schema_versions__" => {
-            Some("(&str,&str)")
-        }
+        "__sql_schema_versions__" => Some("(&str,&str)"),
         name if name.starts_with("__sql_") => Some("&str"),
         _ => None,
     }
@@ -312,12 +309,10 @@ fn sql_value_type(name: &str) -> Option<&'static str> {
     match name {
         "__sql_seq__"
         | "__sql_schema_catalog_versions__"
-        | "__sql_mutation_version__"
         | "__sql_schema_versions__"
         | "__sql_property_graph_seq__" => Some("u64"),
         "__sql_views__"
         | "__sql_extensions__"
-        | "__sql_mutation_idempotency__"
         | "__sql_schema_migration_order__"
         | "__sql_schema_catalog_order__" => Some("&str"),
         name if name.starts_with("__sql_") => Some("&[u8]"),

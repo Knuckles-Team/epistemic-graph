@@ -32,10 +32,11 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // (`AnnCodeRows`) and a generation-scoped key, but it was already declared
     // physically, so no table was added or removed by that change.
     assert_eq!(owner_table_names(OwnerLayout::SemanticIndex).len(), 16);
-    // 22, not 20: the SQL/PGQ property-graph catalog
-    // (`__sql_property_graphs__`, `__sql_property_graph_seq__`) was written by
-    // `eg-query` without being declared, so the SQL kernel cutover added it.
-    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 22);
+    // 17: the 20 the cutover inherited, PLUS the two SQL/PGQ property-graph
+    // catalog tables `eg-query` wrote without declaring, MINUS the five
+    // `__sql_mutation_*__` tables of the private ledger RF-RULING-006 retired
+    // onto `MutationKernelV1`'s.
+    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 17);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
     // Six root-binary sidecar layouts. Each is one physical file with one
     // fixed native ControlPlane scope, so each declares only its own table(s):
@@ -80,16 +81,17 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
         .iter()
         .filter(|name| owner_table_access(name) == OwnerTableAccess::SharedService)
         .count();
-    // 71 owner tables across the sixteen layouts: RF-RULING-004 puts the
+    // 66 owner tables across the sixteen layouts: RF-RULING-004 puts the
     // complete physical registry in the storage kernel, so the consumer-owned
-    // tables (`path_index_v1`, `eg_ann`, `eg_kvcache_cold`, and the 22
+    // tables (`path_index_v1`, `eg_ann`, `eg_kvcache_cold`, and the 17
     // `__sql_*`) are declared here rather than by the crates that read them.
     // +7 over the previous 62: the seven tables of the six root-binary
     // sidecar owner files, which stopped being raw `Database::create` sites.
     // `eg_ann` becoming typed and generation-keyed moved no table in or out.
     // +2 more: the two SQL/PGQ property-graph catalog tables, which `eg-query`
-    // wrote without ever declaring until the SQL kernel cutover.
-    assert_eq!((names.len(), service, shared), (71, 69, 2));
+    // wrote without ever declaring until the SQL kernel cutover. -5: the
+    // `__sql_mutation_*__` private ledger RF-RULING-006 retired.
+    assert_eq!((names.len(), service, shared), (66, 64, 2));
 }
 
 #[test]
@@ -673,13 +675,14 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     for layout in owner_layouts() {
         names.extend(owner_table_names(layout));
     }
-    // 18 ledger + 71 owner tables across the sixteen layouts. The
+    // 18 ledger + 66 owner tables across the sixteen layouts. The
     // consumer-owned tables `path_index_v1`, `eg_ann`, `eg_kvcache_cold` and
-    // the 22 `__sql_*` tables joined the registry because RF-RULING-004 puts
+    // the 17 `__sql_*` tables joined the registry because RF-RULING-004 puts
     // the complete physical table registry in the storage kernel; the seven
     // root-binary sidecar tables joined it when their raw opens were cut, and
-    // the two property-graph catalog tables when the SQL store was cut.
-    assert_eq!(names.len(), 89);
+    // the two property-graph catalog tables when the SQL store was cut, while
+    // the five `__sql_mutation_*__` tables of the retired private ledger left.
+    assert_eq!(names.len(), 84);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
