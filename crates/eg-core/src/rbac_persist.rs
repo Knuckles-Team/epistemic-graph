@@ -23,7 +23,12 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use eg_storage::{
+    backup_strict_recovery_store, OwnedStoreHandle, PhysicalStoreIdentity, RbacOwner, ScopedRead,
+    ScopeGrantVerifier, StorageKernelV1,
+};
+use eg_transaction::MutationKernelV1;
+use redb::TableDefinition;
 use sha2::{Digest, Sha256};
 
 use crate::acl::AgentIdentity;
@@ -49,8 +54,15 @@ const RBAC_SCOPE_RESOURCE: &str = "security-control";
 /// deleted and recreated with a new generation for the life of one
 /// `rbac.redb` file, so every `RbacStore::open` of the same physical file
 /// must bind (and re-validate against) the exact same identity or fail
-/// closed (`eg_mutation_store::bind_scope_in`'s idempotent-rebind check).
+/// closed (the storage kernel's idempotent scope-rebinding check).
 const RBAC_SCOPE_INCARNATION: &str = "rbac-security-control:v1";
+
+/// Operator-facing identity of the ONE physical `rbac.redb` owner file
+/// (`eg_storage::PhysicalStoreIdentity`). Deliberately independent of the
+/// logical serving scope above: it names the physical authority boundary the
+/// storage kernel stamps into the owner manifest, so a file created for some
+/// other owner can never be opened as this one.
+const RBAC_PHYSICAL_STORE: &str = "eg-core:rbac-security-control";
 
 /// Build the fixed [`eg_types::MutationScopeIdentity`] for this store's
 /// native RBAC/security-control mutation scope (see the `RBAC_SCOPE_*`
@@ -201,11 +213,9 @@ fn authority_identity_digest(
 }
 
 fn read_authority_image(
-    transaction: &redb::ReadTransaction,
+    read: &ScopedRead<'_, RbacOwner>,
 ) -> Result<(RbacPolicy, BTreeMap<String, AgentIdentity>), RbacPersistError> {
-    let state = transaction
-        .open_table(RBAC_TABLE)
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+    let state = read.open_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
     let policy = state
         .get(POLICY_KEY)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?
@@ -230,36 +240,21 @@ fn read_authority_image(
     Ok((policy, identities))
 }
 
-fn read_authority_revision(
-    transaction: &redb::ReadTransaction,
-    identity: &eg_types::MutationScopeIdentity,
-) -> Result<u64, RbacPersistError> {
-    let binding = identity.binding_digest().to_hex();
-    let table = transaction
-        .open_table(eg_mutation_store::VERSIONS)
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-    let revision = table
-        .get(binding.as_str())
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?
-        .map(|value| value.value())
-        .ok_or(RbacPersistError::IncompleteState(
-            "mutation scope binding is missing its version row",
-        ))?;
-    Ok(revision)
-}
-
-/// A durable, redb-backed snapshot of the RBAC policy + registered identities
-/// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Holds the
-/// [`eg_mutation_store::MutationStore`] that owns the underlying physical
-/// `rbac.redb` file (`RbacStore::db` before the MutationBatch v1 migration);
-/// the RBAC_TABLE itself is opened directly off `mutation_store.database()`,
-/// while every write-through also goes through the SAME store's mutation
-/// ledger for `security-control`'s version bookkeeping. `identity` is the
-/// fixed native scope identity (see `native_security_control_identity`)
-/// reused on every load/save so it is validated exactly once per open.
+/// A durable, kernel-backed image of the RBAC policy + registered identities
+/// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
+///
+/// RF-RULING-004: this domain crate owns no physical authority. The
+/// [`StorageKernelV1`] it holds is the sole owner of the physical `rbac.redb`
+/// file, opened under the declared [`eg_storage::OwnerLayout::Rbac`] whose only
+/// owner table is `rbac_v1`; every read is a kernel-issued
+/// [`ScopedRead`] and every write-through is admitted, ordered and committed by
+/// the [`MutationKernelV1`] that holds the file's single move-once mutation
+/// authority. `owner` is the one authenticated, bound serving scope (see
+/// `native_security_control_identity`), validated once at open.
 pub struct RbacStore {
-    mutation_store: eg_mutation_store::MutationStore,
-    identity: eg_types::MutationScopeIdentity,
+    kernel: StorageKernelV1,
+    mutations: MutationKernelV1,
+    owner: OwnedStoreHandle<RbacOwner>,
 }
 
 /// Adapter seam for durable identity/RBAC policy state.  Production uses
@@ -305,7 +300,7 @@ pub trait RbacPolicyStore: Send + Sync {
     }
 
     /// Audit/display-facing durable-policy epoch (GRAPH-POLICY-LEASE-CONTRACT.md
-    /// §2.4, R5) — reuses the SAME monotonic counter `eg_mutation_store`
+    /// §2.4, R5) — reuses the SAME monotonic counter the mutation kernel
     /// already bumps atomically with every [`RbacStore::save`] write, rather
     /// than adding a second, independently-maintained persisted counter.
     /// **Never the staleness ground truth**: `PolicyDecisionLease`'s fail-closed
@@ -333,6 +328,50 @@ mod memory_store;
 
 pub use memory_store::MemoryRbacStore;
 
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use eg_storage::OwnerLayout;
+
+    /// The one principal eg-core's own tests serve the fixed
+    /// `security-control` scope as.
+    pub(crate) const TEST_PRINCIPAL: &str =
+        "principal:sha256:d70d97fc35a6e2dfbef26a2bca76a96c6dd2c4142ae2a14850deaf61b478bba0";
+    pub(crate) const TEST_PROOF: &[u8] = b"eg-core-test-scope-grant";
+
+    /// Stand-in composition root. Production supplies the real proof authority;
+    /// this one still checks every field the kernel hands it, so a store opened
+    /// with the wrong layout, scope or principal fails closed in tests too.
+    pub(crate) struct TestScopeVerifier;
+
+    impl ScopeGrantVerifier for TestScopeVerifier {
+        fn verify(
+            &self,
+            _physical: &PhysicalStoreIdentity,
+            layout: OwnerLayout,
+            identity: &eg_types::MutationScopeIdentity,
+            principal: &str,
+            proof: &[u8],
+        ) -> Result<(), String> {
+            if layout != OwnerLayout::Rbac
+                || identity.tenant().as_str() != RBAC_SCOPE_TENANT
+                || principal != TEST_PRINCIPAL
+                || proof != TEST_PROOF
+            {
+                return Err("test scope authority rejected".to_string());
+            }
+            Ok(())
+        }
+    }
+
+    /// Open the durable RBAC store the way the composition root would.
+    pub(crate) fn open_test_store(
+        dir: impl AsRef<Path>,
+    ) -> Result<RbacStore, RbacPersistError> {
+        RbacStore::open(dir, &TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF)
+    }
+}
+
 impl fmt::Debug for RbacStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RbacStore").finish_non_exhaustive()
@@ -340,119 +379,97 @@ impl fmt::Debug for RbacStore {
 }
 
 impl RbacStore {
-    /// Open (or create) `{dir}/rbac.redb` and ensure the table exists
-    /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). The dir is created if absent. Opening validates that the
-    /// store is writable up front; subsequent fallible write-throughs still
-    /// propagate commit failures so callers can roll state back and fail closed.
-    pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, RbacPersistError> {
+    /// Open (or create) `{dir}/rbac.redb` through the storage kernel
+    /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). The dir is
+    /// created if absent.
+    ///
+    /// The kernel creates the file under [`eg_storage::OwnerLayout::Rbac`],
+    /// which declares `rbac_v1` as the layout's one owner table, so the
+    /// hand-written bootstrap closure the retired raw constructor needed is
+    /// gone: the declared census is opened atomically at create time and
+    /// re-validated on every later open.
+    ///
+    /// `verifier` is the composition root's proof authority: only it may decide
+    /// that `principal` is entitled to serve this store's fixed
+    /// `security-control` scope. The domain crate supplies the scope identity
+    /// and the layout; it never interprets the proof bytes.
+    pub fn open<P: AsRef<Path>>(
+        dir: P,
+        verifier: &dyn ScopeGrantVerifier,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<Self, RbacPersistError> {
         std::fs::create_dir_all(dir.as_ref())?;
         let path = dir.as_ref().join("rbac.redb");
         let identity = native_security_control_identity()?;
-        // `initialize` opens (or creates) the physical `rbac.redb`, establishes/
-        // validates its `StoreIncarnation` root, and binds the fixed
-        // `security-control` scope at `initial_version: 0` -- the SAME "brand
-        // new store starts at version 0" semantics `save`/`current_version`
-        // relied on via the old `eg_mutation_store::version(&db, "native",
-        // "security-control")` call. The bootstrap closure runs only on the
-        // FIRST-ever bind (a fresh file), and its only job is to make sure
-        // RBAC_TABLE exists so a later `begin_read()` + `open_table` in
-        // `load`/`bootstrap_current_state` never sees a "no such table" error;
-        // opening a redb table for write auto-creates it, and once created it
-        // persists across every later re-open of the same file.
-        let mutation_store = eg_mutation_store::initialize(&path, &identity, 0, None, |wtx| {
-            wtx.open_table(RBAC_TABLE).map_err(|e| e.to_string())?;
-            Ok(())
-        })
+        let physical =
+            PhysicalStoreIdentity::new(RBAC_PHYSICAL_STORE).map_err(RbacPersistError::Redb)?;
+        let kernel = if path.exists() {
+            StorageKernelV1::open_owner::<RbacOwner>(&path, physical, None)
+        } else {
+            StorageKernelV1::create_owner::<RbacOwner>(&path, physical, None)
+        }
         .map_err(RbacPersistError::Redb)?;
+        let (kernel, authority) = kernel
+            .into_read_and_mutation_authority()
+            .map_err(RbacPersistError::Redb)?;
+        let mutations = MutationKernelV1::new(authority);
+        let grant = kernel
+            .authenticate_scope::<RbacOwner>(verifier, identity, principal.to_string(), proof)
+            .map_err(RbacPersistError::Redb)?;
+        // `initial_version: 0` -- the SAME "a brand new store starts at version
+        // 0" semantics `save`/`current_version` rely on. Binding the identical
+        // grant again on a later open is idempotent; any generation, tenant,
+        // domain, resource or initial-version mismatch fails closed.
+        let owner = kernel
+            .bind_serving_scope(grant, 0)
+            .map_err(RbacPersistError::Redb)?;
+        mutations
+            .bootstrap_ledger(&owner)
+            .map_err(RbacPersistError::Redb)?;
         let store = Self {
-            mutation_store,
-            identity,
+            kernel,
+            mutations,
+            owner,
         };
         store.bootstrap_current_state()?;
         Ok(store)
     }
 
-    /// Copy the durable RBAC/identity image verbatim into a FRESH file at
-    /// `destination` (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
+    /// One kernel-issued scoped read over this store's bound serving scope.
+    pub(super) fn scoped_read(&self) -> Result<ScopedRead<'_, RbacOwner>, RbacPersistError> {
+        self.kernel
+            .read_scope(&self.owner)
+            .map_err(RbacPersistError::Redb)
+    }
+
+    /// Copy the durable RBAC/identity image into a FRESH file at `destination`
+    /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence), returning the
+    /// number of rows copied. Refuses to overwrite an existing file.
     ///
-    /// Taken off a `begin_read()` MVCC snapshot of the LIVE handle and streamed
-    /// table-by-table, exactly like the graph-shard bundle copy: value blobs move
-    /// byte-for-byte, so nothing is decoded and no key is needed. Refuses to
-    /// overwrite an existing file.
-    ///
-    /// The RBAC table AND the mutation-store bookkeeping that shares this file are
-    /// both copied — `RegisterIdentity`/`RbacAdmin` commit their MutationBatch
-    /// metadata in the same write txn as the identity snapshot, so restoring one
-    /// without the other would reopen an already-acknowledged admission.
-    /// Bundle this store into `destination`.
-    ///
-    /// The mutation-store half is delegated to
-    /// `eg_mutation_store::backup_recovery_store`, which owns the complete table
-    /// set and, crucially, re-stamps `SCOPE_BINDINGS` for the destination's own
-    /// incarnation via `copy_bindings`. Hand-copying the table list here is what
-    /// produced BUG-PE-054: `VERSIONS` was copied and `STORE_ROOT`/`SCOPE_BINDINGS`
-    /// were not, so a restored bundle reopened with "mutation version row exists
-    /// without a scope binding" the moment any version above zero existed. That
-    /// list could not be kept correct from outside the crate that defines it --
-    /// every table added to the mutation store would have had to be mirrored
-    /// here, and silently was not.
-    ///
-    /// Only `RBAC_TABLE`, which this store genuinely owns, is copied locally.
+    /// Delegated whole to [`backup_strict_recovery_store`], which owns the
+    /// complete table census: it copies the ledger rows, re-stamps
+    /// `SCOPE_BINDINGS` for the destination's own incarnation, copies every
+    /// declared owner table of the layout (here `rbac_v1`), and reopens the
+    /// destination to prove the per-table fingerprints match the source.
+    /// Hand-listing tables here is what produced BUG-PE-054, and appending
+    /// `rbac_v1` afterwards through a private `Database::create` made this
+    /// crate a second physical authority -- both are deleted.
     pub fn backup_into(&self, destination: &Path) -> Result<u64, String> {
         if destination.exists() {
             return Err("bundled store file already exists (refusing to overwrite)".to_string());
         }
-        let counts = eg_mutation_store::backup_recovery_store(&self.mutation_store, destination)
-            .map_err(|error| error.to_string())?;
-
-        // `RBAC_TABLE` is this store's own table, not part of the mutation
-        // store's contract, so it is appended with plain redb rather than
-        // requiring a second `MutationStore` handle. Adding a table does not
-        // disturb the incarnation, which binds (dev, ino).
-        let target = Database::create(destination).map_err(|e| e.to_string())?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        let mut rows = 0u64;
-        {
-            let mut destination_table = wtx.open_table(RBAC_TABLE).map_err(|e| e.to_string())?;
-            if let Ok(source_table) = rtx.open_table(RBAC_TABLE) {
-                for row in source_table.iter().map_err(|e| e.to_string())? {
-                    let (key, value) = row.map_err(|e| e.to_string())?;
-                    destination_table
-                        .insert(key.value(), value.value())
-                        .map_err(|e| e.to_string())?;
-                    rows += 1;
-                }
-            }
-        }
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(rows
-            .saturating_add(counts.batches)
-            .saturating_add(counts.idempotency)
-            .saturating_add(counts.versions)
-            .saturating_add(counts.fences)
-            .saturating_add(counts.outbox)
-            .saturating_add(counts.encrypted_private_payloads))
+        let identity = PhysicalStoreIdentity::new(RBAC_PHYSICAL_STORE)?;
+        let evidence = backup_strict_recovery_store(&self.kernel, destination, identity)?;
+        Ok(evidence.ledger_rows.saturating_add(evidence.owner_rows))
     }
 
     /// Atomically create the explicit current bootstrap image for a brand-new store.
     /// A partial image is never repaired because that could silently discard part
     /// of an authorization state transition.
     fn bootstrap_current_state(&self) -> Result<(), RbacPersistError> {
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
-        let table = rtx
-            .open_table(RBAC_TABLE)
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
+        let read = self.scoped_read()?;
+        let table = read.open_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
         let policy_present = table
             .get(POLICY_KEY)
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?
@@ -466,7 +483,7 @@ impl RbacStore {
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?
             .is_some();
         drop(table);
-        drop(rtx);
+        drop(read);
         match (policy_present, identities_present, bootstrap_present) {
             (true, true, true) => Ok(()),
             (false, false, false) => self.save(
@@ -493,14 +510,8 @@ impl RbacStore {
         ),
         RbacPersistError,
     > {
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
-        let t = rtx
-            .open_table(RBAC_TABLE)
-            .map_err(|e| RbacPersistError::Redb(e.to_string()))?;
+        let read = self.scoped_read()?;
+        let t = read.open_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
         let policy = match t
             .get(POLICY_KEY)
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?
@@ -541,13 +552,9 @@ impl RbacStore {
     /// one redb MVCC transaction. This prevents a lease from combining policy
     /// bytes from one commit with the revision or identities from another.
     pub fn authority_snapshot(&self) -> Result<RbacAuthoritySnapshot, RbacPersistError> {
-        let transaction = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-        let (policy, identities) = read_authority_image(&transaction)?;
-        let revision = read_authority_revision(&transaction, &self.identity)?;
+        let read = self.scoped_read()?;
+        let (policy, identities) = read_authority_image(&read)?;
+        let revision = eg_transaction::version(&read).map_err(RbacPersistError::Redb)?;
         RbacAuthoritySnapshot::from_parts(revision, policy, identities)
     }
 
@@ -564,14 +571,24 @@ impl RbacStore {
         durable_write::save_authority_state(self, policy, identities, bootstrap)
     }
 
-    /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): the SAME `eg_mutation_store`
-    /// counter [`RbacStore::save`] already bumps atomically (same `redb`
-    /// write transaction, above) with the policy/identity/bootstrap writes --
-    /// reused here rather than adding a second, independently-maintained
-    /// persisted counter.
+    /// Remove one mandatory durable record through the mutation kernel, so a
+    /// test can produce a known-bad partial image without opening a store.
+    #[cfg(test)]
+    pub(super) fn remove_mandatory_record_for_test(
+        &self,
+        key: &'static str,
+    ) -> Result<(), RbacPersistError> {
+        durable_write::remove_authority_record(self, key)
+    }
+
+    /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): the SAME mutation-ledger
+    /// counter [`RbacStore::save`] already bumps atomically (inside the one
+    /// admitted write transaction, above) with the policy/identity/bootstrap
+    /// writes -- reused here rather than adding a second, independently-
+    /// maintained persisted counter.
     pub fn current_version(&self) -> Result<u64, RbacPersistError> {
-        eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(RbacPersistError::Redb)
+        let read = self.scoped_read()?;
+        eg_transaction::version(&read).map_err(RbacPersistError::Redb)
     }
 }
 
@@ -619,9 +636,10 @@ impl RbacPolicyStore for RbacStore {
 mod tests {
     use std::collections::BTreeMap;
 
+    use super::test_support::open_test_store;
     use super::{
-        IdentityBootstrapState, MemoryRbacStore, RbacPersistError, RbacPolicyStore, RbacStore,
-        IDENTITIES_KEY, RBAC_TABLE,
+        IdentityBootstrapState, MemoryRbacStore, RbacPersistError, RbacPolicyStore,
+        IDENTITIES_KEY,
     };
     use crate::acl::{
         AgentIdentity, AgentRole, Grant, GrantEffect, RbacAction, ResourceContext,
@@ -666,13 +684,13 @@ mod tests {
         identities.insert("sam".to_string(), identity("sam", vec!["editor".into()]));
 
         {
-            let store = RbacStore::open(&dir).unwrap();
+            let store = open_test_store(&dir).unwrap();
             store
                 .save(&policy, &identities, IdentityBootstrapState::Consumed)
                 .unwrap();
         }
         // Reopen the SAME dir — the state is durable across "process" lifetimes.
-        let store = RbacStore::open(&dir).unwrap();
+        let store = open_test_store(&dir).unwrap();
         let (loaded_policy, loaded_ids, bootstrap) = store.load().unwrap();
         assert_eq!(loaded_policy.grants().len(), 1);
         assert!(loaded_policy.is_allowed(
@@ -724,7 +742,7 @@ mod tests {
     #[test]
     fn eg303_new_store_bootstraps_explicit_default_deny_state() {
         let dir = tmp_dir("absent");
-        let store = RbacStore::open(&dir).unwrap();
+        let store = open_test_store(&dir).unwrap();
         let (policy, ids, bootstrap) = store.load().unwrap();
         assert!(policy.grants().is_empty());
         assert!(ids.is_empty());
@@ -736,7 +754,7 @@ mod tests {
     fn consumed_bootstrap_never_reopens_when_identities_are_empty() {
         let dir = tmp_dir("bootstrap-consumed");
         {
-            let store = RbacStore::open(&dir).unwrap();
+            let store = open_test_store(&dir).unwrap();
             store
                 .save(
                     &RbacPolicy::new(),
@@ -745,7 +763,7 @@ mod tests {
                 )
                 .unwrap();
         }
-        let store = RbacStore::open(&dir).unwrap();
+        let store = open_test_store(&dir).unwrap();
         let (_, identities, bootstrap) = store.load().unwrap();
         assert!(identities.is_empty());
         assert_eq!(bootstrap, IdentityBootstrapState::Consumed);
@@ -755,20 +773,18 @@ mod tests {
     #[test]
     fn eg303_partial_current_state_fails_closed() {
         let dir = tmp_dir("partial");
-        let store = RbacStore::open(&dir).unwrap();
-        let wtx = store.mutation_store.database().begin_write().unwrap();
-        {
-            let mut table = wtx.open_table(RBAC_TABLE).unwrap();
-            table.remove(IDENTITIES_KEY).unwrap();
-        }
-        wtx.commit().unwrap();
+        let store = open_test_store(&dir).unwrap();
+        // A known-bad durable input, produced the ONLY way this crate can now
+        // write: an admitted mutation through the mutation kernel. The store
+        // must still refuse to serve, and refuse to reopen, a partial image.
+        store.remove_mandatory_record_for_test(IDENTITIES_KEY).unwrap();
         assert!(matches!(
             store.load(),
             Err(RbacPersistError::IncompleteState(_))
         ));
         drop(store);
         assert!(matches!(
-            RbacStore::open(&dir),
+            open_test_store(&dir),
             Err(RbacPersistError::IncompleteState(_))
         ));
         let _ = std::fs::remove_dir_all(&dir);

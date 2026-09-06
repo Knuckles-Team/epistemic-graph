@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use redb::ReadableDatabase;
+use eg_storage::RbacOwner;
+use eg_transaction::{AdmittedOwnerWrite, Begin};
 use sha2::{Digest, Sha256};
 
 use crate::acl::AgentIdentity;
@@ -28,8 +29,7 @@ pub(super) fn save_authority_state(
     if is_current(store, &encoded)? {
         return Ok(());
     }
-    let expected = eg_mutation_store::version(&store.mutation_store, &store.identity)
-        .map_err(RbacPersistError::Redb)?;
+    let expected = store.current_version()?;
     let target = expected.checked_add(1).ok_or_else(|| {
         RbacPersistError::Redb("identity/RBAC state version overflow".to_string())
     })?;
@@ -63,14 +63,8 @@ fn is_current(
     store: &RbacStore,
     encoded: &EncodedAuthorityState,
 ) -> Result<bool, RbacPersistError> {
-    let transaction = store
-        .mutation_store
-        .database()
-        .begin_read()
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-    let table = transaction
-        .open_table(RBAC_TABLE)
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+    let read = store.scoped_read()?;
+    let table = read.open_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
     let policy_matches = table
         .get(POLICY_KEY)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?
@@ -98,9 +92,10 @@ fn authority_batch(
         batch_id: batch_id.clone(),
         context: eg_types::MutationRequestContext {
             request_id: 0,
-            principal:
-                "principal:sha256:d70d97fc35a6e2dfbef26a2bca76a96c6dd2c4142ae2a14850deaf61b478bba0"
-                    .to_string(),
+            // The batch actor must be the principal the storage kernel
+            // authenticated this store's serving scope for; the mutation kernel
+            // rejects any batch whose context names a different one.
+            principal: store.owner.principal().to_string(),
             purpose: None,
             policy_fingerprint: None,
             trace_id: None,
@@ -108,7 +103,7 @@ fn authority_batch(
             // unversioned-system-mutation capability.
             verified_capabilities: BTreeSet::new(),
         },
-        identity: store.identity.clone(),
+        identity: store.owner.identity().clone(),
         placement_epoch: 0,
         idempotency_key: batch_id.clone(),
         version_expectation: eg_types::VersionExpectation::Native(expected),
@@ -138,20 +133,12 @@ fn persist_authority_state(
     batch: &eg_types::MutationBatch,
     encoded: &EncodedAuthorityState,
 ) -> Result<(), RbacPersistError> {
-    let write = store
-        .mutation_store
-        .write()
-        .map_err(RbacPersistError::Redb)?;
-    let source_version =
-        match eg_mutation_store::begin(&write, batch).map_err(RbacPersistError::Redb)? {
-            eg_mutation_store::Begin::Replay(_) => return Ok(()),
-            eg_mutation_store::Begin::Apply { source_version } => source_version,
-        };
-    {
-        let mut table = write
-            .owner_rows()
+    let outcome = rmp_serde::to_vec_named(&true)
+        .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+    commit_authority_mutation(store, batch, Some(outcome), |owner_write| {
+        let mut table = owner_write
             .open_table(RBAC_TABLE)
-            .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+            .map_err(RbacPersistError::Redb)?;
         table
             .insert(POLICY_KEY, encoded.policy.as_slice())
             .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
@@ -161,10 +148,69 @@ fn persist_authority_state(
         table
             .insert(BOOTSTRAP_KEY, encoded.bootstrap.as_slice())
             .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-    }
-    let outcome = rmp_serde::to_vec_named(&true)
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-    eg_mutation_store::finish(&write, batch, Some(outcome), 0, source_version)
+        Ok(())
+    })
+}
+
+/// Remove one mandatory record. The ONLY way this crate can write, so a test
+/// that needs a partial durable image still goes through admission, ordering
+/// and commit rather than becoming a second physical authority.
+#[cfg(test)]
+pub(super) fn remove_authority_record(
+    store: &RbacStore,
+    key: &'static str,
+) -> Result<(), RbacPersistError> {
+    let expected = store.current_version()?;
+    let target = expected
+        .checked_add(1)
+        .ok_or_else(|| RbacPersistError::Redb("identity/RBAC state version overflow".to_string()))?;
+    let batch = authority_batch(store, expected, target, &format!("remove-{key}"));
+    commit_authority_mutation(store, &batch, None, |owner_write| {
+        owner_write
+            .open_table(RBAC_TABLE)
+            .map_err(RbacPersistError::Redb)?
+            .remove(key)
+            .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+        Ok(())
+    })
+}
+
+/// Admit `batch`, apply `apply_rows` to the `rbac_v1` owner table inside that
+/// one admitted write, and commit. The write transaction is minted by the
+/// storage kernel's single mutation authority and is never reachable here: the
+/// only handle this crate is given is the layout-bounded
+/// [`AdmittedOwnerWrite`], valid between `owner_rows` and `finish_owner`.
+fn commit_authority_mutation<F>(
+    store: &RbacStore,
+    batch: &eg_types::MutationBatch,
+    result_msgpack: Option<Vec<u8>>,
+    apply_rows: F,
+) -> Result<(), RbacPersistError>
+where
+    F: FnOnce(&AdmittedOwnerWrite<'_, RbacOwner>) -> Result<(), RbacPersistError>,
+{
+    let (write, begun) = store
+        .mutations
+        .admit(&store.owner, batch)
         .map_err(RbacPersistError::Redb)?;
-    eg_mutation_store::commit(write, batch).map_err(RbacPersistError::Redb)
+    let source_version = match begun {
+        // The idempotency key already names a terminally committed receipt:
+        // this exact state was persisted by an earlier attempt, so the write is
+        // discarded rather than reapplied.
+        Begin::Replay(_) => return write.abort().map_err(RbacPersistError::Redb),
+        Begin::Apply { source_version } => source_version,
+    };
+    let owner_write = write
+        .owner_rows(&store.owner, batch)
+        .map_err(RbacPersistError::Redb)?;
+    apply_rows(&owner_write)?;
+    owner_write.finish_owner().map_err(RbacPersistError::Redb)?;
+    store
+        .mutations
+        .finish(&write, batch, result_msgpack, 0, source_version)
+        .map_err(RbacPersistError::Redb)?;
+    store
+        .mutations
+        .commit(write, batch)
+        .map_err(RbacPersistError::Redb)
 }

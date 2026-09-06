@@ -41,7 +41,7 @@ ann-gpu-cuda = ["ann-gpu", "eg-ann/gpu-cuda"]
 # evaluators are pure-Rust; EG-303 links `redb` (same 4.1 as the durable tiers) to
 # persist the RbacPolicy + registered AgentIdentities across restarts. Gated so a
 # non-security build links neither. redb is Pi-safe; `pi` does NOT enable security.
-security = ["dep:redb", "dep:sha2", "dep:hmac"]
+security = ["dep:redb", "dep:sha2", "dep:hmac", "dep:eg-storage", "dep:eg-transaction"]
 # Version-keyed query-RESULT cache (CONCEPT:KG-2.233) on `GraphCore`. Pure-Rust
 # bounded LRU + 128-bit query hash — no new dep — so the facade folds it into the
 # lean Pi tier as well as node/cluster/full.
@@ -96,6 +96,14 @@ fs4 = "0.8"
 # identities survive a restart. Same redb 4.1 the durable tiers link; only pulled in
 # under `security` (Pi builds do not enable eg-core/security).
 redb = { version = "4.1", optional = true }
+# CONCEPT:EG-303 durable RBAC persistence goes through the two kernels
+# (RF-RULING-004): `eg-storage` is the sole physical authority that opens
+# `rbac.redb` under the declared `OwnerLayout::Rbac`, and `eg-transaction` is the
+# sole mutation owner that admits and commits every write-through. Both are
+# gated behind the SAME `security` feature `eg-mutation-store` was gated behind,
+# so a default / Pi build links neither them nor redb.
+eg-storage = { path = "../eg-storage", optional = true }
+eg-transaction = { path = "../eg-transaction", optional = true }
 sha2 = { version = "0.10", optional = true }
 # `MintAuthorization` (isolation.rs): the constant-time HMAC verification gate in
 # front of `IsolationLayer::mint_policy_decision_lease` (GRAPH-POLICY-LEASE-CONTRACT.md

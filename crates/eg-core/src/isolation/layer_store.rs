@@ -21,12 +21,21 @@ impl IsolationLayer {
         }
     }
 
-    /// Open an [`IsolationLayer`] backed by a durable redb store at `dir`.
+    /// Open an [`IsolationLayer`] backed by the durable, kernel-owned RBAC
+    /// store at `dir`.
+    ///
+    /// `verifier` is the composition root's scope-grant proof authority
+    /// (RF-RULING-004): the storage kernel owns the physical file, and only the
+    /// root may decide that `principal` is entitled to serve its
+    /// `security-control` scope. This layer never interprets the proof bytes.
     #[cfg(feature = "security")]
     pub fn with_persist_dir<P: AsRef<std::path::Path>>(
         dir: P,
+        verifier: &dyn eg_storage::ScopeGrantVerifier,
+        principal: &str,
+        proof: &[u8],
     ) -> Result<Self, crate::rbac_persist::RbacPersistError> {
-        let store = crate::rbac_persist::RbacStore::open(dir)?;
+        let store = crate::rbac_persist::RbacStore::open(dir, verifier, principal, proof)?;
         let (rbac, identities, identity_bootstrap) = store.load()?;
         if identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending
             && (!identities.is_empty()

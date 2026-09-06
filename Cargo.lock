@@ -2771,6 +2771,8 @@ dependencies = [
  "dashmap",
  "eg-ann",
  "eg-modality",
+ "eg-storage",
+ "eg-transaction",
  "eg-types",
  "fs4 0.8.4",
  "hex",

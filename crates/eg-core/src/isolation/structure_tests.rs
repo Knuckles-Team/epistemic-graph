@@ -114,9 +114,14 @@ fn lease_decision_and_freshness_use_only_atomic_authority_snapshots() {
         .split_once("pub fn save(")
         .expect("durable snapshot reader has a bounded body")
         .0;
-    assert_eq!(durable_snapshot.matches(".begin_read()").count(), 1);
-    assert!(durable_snapshot.contains("read_authority_image(&transaction)"));
-    assert!(durable_snapshot.contains("read_authority_revision(&transaction"));
+    // The invariant is unchanged -- the image and its revision come from ONE
+    // store snapshot -- but the snapshot is now the storage kernel's scoped
+    // read rather than a private `Database::begin_read()`. Two `scoped_read()`
+    // calls in this body would be two snapshots, which is what this rejects.
+    assert_eq!(durable_snapshot.matches("self.scoped_read()").count(), 1);
+    assert!(!durable_snapshot.contains(".begin_read()"));
+    assert!(durable_snapshot.contains("read_authority_image(&read)"));
+    assert!(durable_snapshot.contains("eg_transaction::version(&read)"));
 
     let memory_source = include_str!("../rbac_persist/memory_store.rs");
     assert!(memory_source.contains("IdentityBootstrapState,\n        u64,"));

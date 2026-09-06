@@ -1739,8 +1739,14 @@ mod tests {
     mod eg303_persist {
         use super::*;
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, ResourceSelector, Role};
+        use crate::rbac_persist::test_support::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
         use crate::rbac_persist::{RbacPersistError, RbacPolicyStore};
         use std::collections::BTreeMap;
+
+        /// Open the durable layer the way the composition root would.
+        fn open_test_layer(dir: &std::path::Path) -> Result<IsolationLayer, RbacPersistError> {
+            IsolationLayer::with_persist_dir(dir, &TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF)
+        }
 
         struct FailingPolicyStore;
 
@@ -1795,7 +1801,7 @@ mod tests {
         fn eg303_roles_grants_and_identities_round_trip_through_redb_reopen() {
             let dir = tmp_dir("round-trip");
             {
-                let mut layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+                let mut layer = open_test_layer(&dir).unwrap();
                 layer.add_role(Role::new("reader"));
                 layer.add_role(Role::with_parents("editor", vec!["reader".into()]));
                 layer.add_grant(Grant {
@@ -1812,7 +1818,7 @@ mod tests {
                 });
             }
             // Reopen the SAME dir — a fresh layer restores policy + identities from redb.
-            let layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+            let layer = open_test_layer(&dir).unwrap();
             // Identity survived with its exact tenant-scoping inputs.
             assert!(layer.has_rules());
             let identity = layer.get_identity("sam").expect("identity survives reopen");
@@ -1836,7 +1842,7 @@ mod tests {
             let dir = tmp_dir("write-through");
             // 1) Add a grant, then reopen: the grant is present.
             {
-                let mut layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+                let mut layer = open_test_layer(&dir).unwrap();
                 layer.add_grant(Grant {
                     role: "r".into(),
                     resource: ResourceSelector::All,
@@ -1845,13 +1851,13 @@ mod tests {
                 });
             }
             {
-                let layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+                let layer = open_test_layer(&dir).unwrap();
                 assert_eq!(layer.rbac().grants().len(), 1);
             }
             // 2) Remove that grant + register/unregister an identity, then reopen: the
             //    removals are durable too (write-through fires on every mutation).
             {
-                let mut layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+                let mut layer = open_test_layer(&dir).unwrap();
                 assert!(layer.remove_grant(&Grant {
                     role: "r".into(),
                     resource: ResourceSelector::All,
@@ -1866,7 +1872,7 @@ mod tests {
                 });
                 layer.unregister_agent("tmp");
             }
-            let layer = IsolationLayer::with_persist_dir(&dir).unwrap();
+            let layer = open_test_layer(&dir).unwrap();
             assert_eq!(layer.rbac().grants().len(), 0);
             assert!(!layer.has_rules());
             assert!(!layer.identity_bootstrap_pending());

@@ -57,7 +57,7 @@ impl std::error::Error for PolicySnapshotError {}
 
 /// Durable-policy epoch + canonical digest captured at lease-mint time
 /// (contract §2.4). `version` is an audit/display-facing counter only —
-/// re-read from the existing `eg_mutation_store` version this crate already
+/// re-read from the existing mutation-ledger version this crate already
 /// bumps atomically with every `RbacStore::save` (R5), never a second
 /// persisted counter. `digest` is the actual staleness ground truth (§4):
 /// `SHA-256("eg/rbac-policy-snapshot/v1\0" || canonical(RbacPolicy))` over a

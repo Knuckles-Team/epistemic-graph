@@ -13,7 +13,7 @@ pub struct MemoryRbacStore {
     /// image from a different `save()`.
     ///
     /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): this store has no
-    /// `eg_mutation_store`/`db` to reuse an existing durable counter from
+    /// mutation ledger to reuse an existing durable counter from
     /// (unlike `RbacStore`), so the fourth slot is a genuinely new counter,
     /// incremented once per `save()` call -- the in-memory analogue of the
     /// same "monotonic, bumped once per successful save" property.
