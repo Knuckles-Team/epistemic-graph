@@ -331,44 +331,19 @@ pub use memory_store::MemoryRbacStore;
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::*;
+    use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
     use eg_storage::OwnerLayout;
 
-    /// The one principal eg-core's own tests serve the fixed
-    /// `security-control` scope as.
-    pub(crate) const TEST_PRINCIPAL: &str =
-        "principal:sha256:d70d97fc35a6e2dfbef26a2bca76a96c6dd2c4142ae2a14850deaf61b478bba0";
-    pub(crate) const TEST_PROOF: &[u8] = b"eg-core-test-scope-grant";
-
-    /// Stand-in composition root. Production supplies the real proof authority;
-    /// this one still checks every field the kernel hands it, so a store opened
-    /// with the wrong layout, scope or principal fails closed in tests too.
-    pub(crate) struct TestScopeVerifier;
-
-    impl ScopeGrantVerifier for TestScopeVerifier {
-        fn verify(
-            &self,
-            _physical: &PhysicalStoreIdentity,
-            layout: OwnerLayout,
-            identity: &eg_types::MutationScopeIdentity,
-            principal: &str,
-            proof: &[u8],
-        ) -> Result<(), String> {
-            if layout != OwnerLayout::Rbac
-                || identity.tenant().as_str() != RBAC_SCOPE_TENANT
-                || principal != TEST_PRINCIPAL
-                || proof != TEST_PROOF
-            {
-                return Err("test scope authority rejected".to_string());
-            }
-            Ok(())
-        }
-    }
-
     /// Open the durable RBAC store the way the composition root would.
-    pub(crate) fn open_test_store(
-        dir: impl AsRef<Path>,
-    ) -> Result<RbacStore, RbacPersistError> {
-        RbacStore::open(dir, &TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF)
+    pub(crate) fn open_test_store(dir: impl AsRef<Path>) -> Result<RbacStore, RbacPersistError> {
+        RbacStore::open(
+            dir,
+            &TestScopeVerifier {
+                layout: OwnerLayout::Rbac,
+            },
+            TEST_PRINCIPAL,
+            TEST_PROOF,
+        )
     }
 }
 

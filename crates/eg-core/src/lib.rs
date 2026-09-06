@@ -54,6 +54,11 @@ pub mod jsonpath;
 /// `PathIndexPersistence` seam + in-memory default are always compiled; the
 /// redb-backed `RedbPathIndexStore` is gated behind the `path-persist` feature.
 pub mod path_persist;
+
+// One test-only composition root for the kernel-owned stores this crate opens.
+// Never compiled outside `cfg(test)`.
+#[cfg(all(test, any(feature = "security", feature = "path-persist")))]
+pub(crate) mod test_scope_grant;
 /// Single-writer-per-persist-dir guard, hoisted down from the facade's
 /// `src/persist_lock.rs` (same `engine.lock` `flock` mechanism, unchanged) so a
 /// caller below the facade (`crates/eg-pyengine`) can take the SAME exclusive lock a

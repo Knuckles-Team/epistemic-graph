@@ -112,19 +112,94 @@ pub use redb_store::{PathPersistError, RedbPathIndexStore};
 /// table in `{persist_dir}/path_index.redb`, a single well-known key holding the
 /// serde-json bytes of the whole [`PersistedPathIndex`], written in one durable
 /// (immediate-fsync) transaction so a reopen restores the identical index.
+/// The batch for one durable path-index snapshot.
+///
+/// `batch_id` is `(kind, scope version)`: exactly one batch commits per version,
+/// so it is unique per attempt and stable across a crash-retry of that attempt,
+/// which makes a retry a replay rather than an `IDEMPOTENCY_CONFLICT`.
+#[cfg(feature = "path-persist")]
+fn path_index_batch(
+    identity: &eg_types::MutationScopeIdentity,
+    principal: &str,
+    expected_version: u64,
+) -> Result<eg_types::MutationBatch, redb_store::PathPersistError> {
+    let batch_id = format!("path-index-snapshot:v{expected_version}");
+    let operation = eg_types::MutationOperation {
+        ordinal: 0,
+        surface: eg_types::MutationSurface::Other,
+        domain: eg_types::mutation_batch::MutationDomain::ControlPlane,
+        method: eg_types::protocol::Method::ApplyMutation {
+            event_type: "path_index_snapshot".to_string(),
+            query: batch_id.clone(),
+        },
+    };
+    let batch = eg_types::MutationBatch {
+        schema_version: eg_types::MUTATION_BATCH_VERSION,
+        batch_id: batch_id.clone(),
+        context: eg_types::MutationRequestContext {
+            request_id: 0,
+            principal: principal.to_string(),
+            purpose: None,
+            policy_fingerprint: None,
+            trace_id: None,
+            // A maintenance mutation claims no capability: a plain
+            // `Native`-versioned write, not the reserved-system `Unversioned`
+            // path. Empty is the true fact here, not a placeholder.
+            verified_capabilities: std::collections::BTreeSet::new(),
+        },
+        identity: identity.clone(),
+        placement_epoch: 0,
+        idempotency_key: batch_id,
+        version_expectation: eg_types::VersionExpectation::Native(expected_version),
+        fencing_token: None,
+        authoritative_state: None,
+        operations: vec![operation],
+        outbox: Vec::new(),
+        created_at_ms: 0,
+    };
+    batch
+        .validate()
+        .map_err(redb_store::PathPersistError::Redb)?;
+    Ok(batch)
+}
+
 #[cfg(feature = "path-persist")]
 mod redb_store {
     use super::{PathIndexPersistence, PersistedPathIndex};
     use std::fmt;
     use std::path::Path;
-    use std::sync::Arc;
 
-    use redb::{Database, ReadableDatabase, TableDefinition};
+    use eg_storage::{
+        OwnedStoreHandle, PathIndexOwner, PhysicalStoreIdentity, ScopeGrantVerifier,
+        StorageKernelV1,
+    };
+    use eg_transaction::{Begin, MutationKernelV1};
+    use redb::TableDefinition;
 
     /// `key → serde_json bytes`. One table, one well-known key (`snapshot`), written
     /// in a single durable transaction (CONCEPT:EG-KG.storage.path-index-store).
     const PATH_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("path_index_v1");
     const SNAPSHOT_KEY: &str = "snapshot";
+
+    /// Operator-facing identity of the ONE physical `path_index.redb` owner file.
+    const PATH_PHYSICAL_STORE: &str = "eg-core:path-index";
+    /// The fixed native scope this store serves. `path_index.redb` is a separate
+    /// file from RBAC's, so it is its own `OwnerLayout::PathIndex` rather than an
+    /// extra table on `Rbac`, and it has exactly one lifecycle generation for the
+    /// life of that file.
+    const PATH_SCOPE_TENANT: &str = "native";
+    const PATH_SCOPE_RESOURCE: &str = "path-index";
+    const PATH_SCOPE_INCARNATION: &str = "path-index:v1";
+
+    fn path_scope_identity() -> Result<eg_types::MutationScopeIdentity, PathPersistError> {
+        eg_types::MutationScopeIdentity::fixed_native(
+            PATH_SCOPE_TENANT,
+            eg_types::mutation_batch::MutationDomain::ControlPlane,
+            PATH_SCOPE_RESOURCE,
+            PATH_SCOPE_INCARNATION,
+        )
+        .map_err(PathPersistError::Redb)
+    }
 
     /// Errors from the durable path-index store (CONCEPT:EG-KG.storage.path-index-store). Flattened to a
     /// message string (matching the EG-303 / cold-tier convention); io + serde carry
@@ -163,10 +238,16 @@ mod redb_store {
         }
     }
 
-    /// A durable, redb-backed JSONPath-index store (CONCEPT:EG-KG.storage.path-index-store). Cheap to `clone`
-    /// (shares one `Arc<Database>`).
+    /// A durable, kernel-owned JSONPath-index store (CONCEPT:EG-KG.storage.path-index-store).
+    ///
+    /// RF-RULING-004: `eg-storage` is the sole physical owner of
+    /// `path_index.redb` under `OwnerLayout::PathIndex`, whose one owner table is
+    /// `path_index_v1`; `eg-transaction` is the sole writer. This crate holds only
+    /// the capabilities they issue.
     pub struct RedbPathIndexStore {
-        db: Arc<Database>,
+        kernel: StorageKernelV1,
+        mutations: MutationKernelV1,
+        owner: OwnedStoreHandle<PathIndexOwner>,
     }
 
     impl fmt::Debug for RedbPathIndexStore {
@@ -179,29 +260,57 @@ mod redb_store {
         /// Open (or create) `{dir}/path_index.redb` and ensure the table exists
         /// (CONCEPT:EG-KG.storage.path-index-store). The dir is created if absent; opening validates the store
         /// is writable up front, so subsequent write-throughs are best-effort.
-        pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, PathPersistError> {
+        pub fn open<P: AsRef<Path>>(
+            dir: P,
+            verifier: &dyn ScopeGrantVerifier,
+            principal: &str,
+            proof: &[u8],
+        ) -> Result<Self, PathPersistError> {
             std::fs::create_dir_all(dir.as_ref())?;
             let path = dir.as_ref().join("path_index.redb");
-            let db = Database::create(&path).map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            let wtx = db
-                .begin_write()
-                .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            wtx.open_table(PATH_TABLE)
-                .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            wtx.commit()
-                .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            Ok(Self { db: Arc::new(db) })
+            let identity = path_scope_identity()?;
+            let physical = PhysicalStoreIdentity::new(PATH_PHYSICAL_STORE)
+                .map_err(PathPersistError::Redb)?;
+            let kernel = if path.exists() {
+                StorageKernelV1::open_owner::<PathIndexOwner>(&path, physical, None)
+            } else {
+                StorageKernelV1::create_owner::<PathIndexOwner>(&path, physical, None)
+            }
+            .map_err(PathPersistError::Redb)?;
+            let (kernel, authority) = kernel
+                .into_read_and_mutation_authority()
+                .map_err(PathPersistError::Redb)?;
+            let mutations = MutationKernelV1::new(authority);
+            let grant = kernel
+                .authenticate_scope::<PathIndexOwner>(
+                    verifier,
+                    identity,
+                    principal.to_string(),
+                    proof,
+                )
+                .map_err(PathPersistError::Redb)?;
+            let owner = kernel
+                .bind_serving_scope(grant, 0)
+                .map_err(PathPersistError::Redb)?;
+            mutations
+                .bootstrap_ledger(&owner)
+                .map_err(PathPersistError::Redb)?;
+            Ok(Self {
+                kernel,
+                mutations,
+                owner,
+            })
         }
 
         /// Fallible load — the typed backing of the trait's best-effort `load`.
         pub fn try_load(&self) -> Result<Option<PersistedPathIndex>, PathPersistError> {
-            let rtx = self
-                .db
-                .begin_read()
-                .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            let t = rtx
+            let read = self
+                .kernel
+                .read_scope(&self.owner)
+                .map_err(PathPersistError::Redb)?;
+            let t = read
                 .open_table(PATH_TABLE)
-                .map_err(|e| PathPersistError::Redb(e.to_string()))?;
+                .map_err(PathPersistError::Redb)?;
             match t
                 .get(SNAPSHOT_KEY)
                 .map_err(|e| PathPersistError::Redb(e.to_string()))?
@@ -211,26 +320,56 @@ mod redb_store {
             }
         }
 
+        /// The scope's authoritative mutation version.
+        fn version(&self) -> Result<u64, PathPersistError> {
+            let read = self
+                .kernel
+                .read_scope(&self.owner)
+                .map_err(PathPersistError::Redb)?;
+            eg_transaction::version(&read).map_err(PathPersistError::Redb)
+        }
+
         /// Fallible save — the typed backing of the trait's best-effort `save`. Writes
         /// the whole snapshot in ONE durable (immediate-fsync) transaction.
         pub fn try_save(&self, idx: &PersistedPathIndex) -> Result<(), PathPersistError> {
             let bytes = serde_json::to_vec(idx)?;
-            let mut wtx = self
-                .db
-                .begin_write()
+            let expected_version = self.version()?;
+            let batch = super::path_index_batch(
+                self.owner.identity(),
+                self.owner.principal(),
+                expected_version,
+            )?;
+            // A path-index snapshot carries no caller identity -- the index is a
+            // pure derivation of the graph -- so it is a MAINTENANCE mutation
+            // (RF-RULING-005): still ledgered, fenced and version-bumping, because
+            // an un-ledgered owner write would be a second authority.
+            let (write, begun) = self
+                .mutations
+                .admit_maintenance(&self.owner, &batch)
+                .map_err(PathPersistError::Redb)?;
+            let source_version = match begun {
+                Begin::Replay(_) => {
+                    return write.abort().map_err(PathPersistError::Redb);
+                }
+                Begin::Apply { source_version } => source_version,
+            };
+            let owner_write = write
+                .owner_rows(&self.owner, &batch)
+                .map_err(PathPersistError::Redb)?;
+            owner_write
+                .open_table(PATH_TABLE)
+                .map_err(PathPersistError::Redb)?
+                .insert(SNAPSHOT_KEY, bytes.as_slice())
                 .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            wtx.set_durability(redb::Durability::Immediate)
-                .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            {
-                let mut t = wtx
-                    .open_table(PATH_TABLE)
-                    .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-                t.insert(SNAPSHOT_KEY, bytes.as_slice())
-                    .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            }
-            wtx.commit()
-                .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            Ok(())
+            owner_write
+                .finish_owner()
+                .map_err(PathPersistError::Redb)?;
+            self.mutations
+                .finish(&write, &batch, None, 0, source_version)
+                .map_err(PathPersistError::Redb)?;
+            self.mutations
+                .commit(write, &batch)
+                .map_err(PathPersistError::Redb)
         }
     }
 
@@ -250,6 +389,22 @@ mod redb_store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Open the durable path-index store the way the composition root would.
+    #[cfg(feature = "path-persist")]
+    fn open_test_path_store(
+        dir: &std::path::Path,
+    ) -> Result<RedbPathIndexStore, redb_store::PathPersistError> {
+        use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
+        RedbPathIndexStore::open(
+            dir,
+            &TestScopeVerifier {
+                layout: eg_storage::OwnerLayout::PathIndex,
+            },
+            TEST_PRINCIPAL,
+            TEST_PROOF,
+        )
+    }
 
     fn sample() -> PersistedPathIndex {
         let mut by_value: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
@@ -320,12 +475,12 @@ mod tests {
         ));
         let snap = sample();
         {
-            let store = RedbPathIndexStore::open(&dir).unwrap();
+            let store = open_test_path_store(&dir).unwrap();
             assert!(store.load().is_none(), "cold redb store is empty");
             store.save(&snap);
         }
         // Reopen the SAME dir — durable across store lifetimes.
-        let store = RedbPathIndexStore::open(&dir).unwrap();
+        let store = open_test_path_store(&dir).unwrap();
         let got = store
             .load()
             .expect("loads the persisted snapshot from redb");
@@ -344,7 +499,7 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ));
-        let store = RedbPathIndexStore::open(&dir).unwrap();
+        let store = open_test_path_store(&dir).unwrap();
         assert!(store.load().is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }

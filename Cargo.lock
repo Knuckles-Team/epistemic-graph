@@ -2882,6 +2882,9 @@ version = "0.1.0"
 dependencies = [
  "eg-compute",
  "eg-modality",
+ "eg-storage",
+ "eg-transaction",
+ "eg-types",
  "lz4_flex",
  "redb",
  "serde",

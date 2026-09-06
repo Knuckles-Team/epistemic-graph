@@ -1739,13 +1739,20 @@ mod tests {
     mod eg303_persist {
         use super::*;
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, ResourceSelector, Role};
-        use crate::rbac_persist::test_support::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
         use crate::rbac_persist::{RbacPersistError, RbacPolicyStore};
+        use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
         use std::collections::BTreeMap;
 
         /// Open the durable layer the way the composition root would.
         fn open_test_layer(dir: &std::path::Path) -> Result<IsolationLayer, RbacPersistError> {
-            IsolationLayer::with_persist_dir(dir, &TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF)
+            IsolationLayer::with_persist_dir(
+                dir,
+                &TestScopeVerifier {
+                    layout: eg_storage::OwnerLayout::Rbac,
+                },
+                TEST_PRINCIPAL,
+                TEST_PROOF,
+            )
         }
 
         struct FailingPolicyStore;
