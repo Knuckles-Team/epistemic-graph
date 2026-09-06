@@ -27,6 +27,7 @@ pub enum SagaBegin {
 mod admission;
 mod admitted;
 mod commit;
+mod group;
 mod kernel;
 mod ledger;
 mod maintenance;
@@ -37,6 +38,7 @@ mod saga;
 mod tables;
 
 pub use admitted::{AdmittedMutation, AdmittedOwnerWrite};
+pub use group::{AdmittedGroup, ScopedIntent};
 pub use kernel::MutationKernelV1;
 pub use maintenance::MaintenanceBatch;
 pub use participant::{

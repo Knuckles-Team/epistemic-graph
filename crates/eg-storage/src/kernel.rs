@@ -1,6 +1,6 @@
 //! `StorageKernelV1` — the sole physical-state authority.
 
-use crate::capability::{PhysicalWriteCapability, ScopedRead, ScopedSnapshot};
+use crate::capability::{GroupRowClass, PhysicalWriteCapability, ScopedRead, ScopedSnapshot};
 use crate::owner::blob_shared::{
     BlobSharedRead, BlobSharedServiceHandle, BlobSharedServiceVerifier,
 };
@@ -21,6 +21,7 @@ use crate::physical::root::{initialize_strict_in, store_handle, validate_incarna
 use crate::recovery::validate::validate_recovery_content;
 use eg_types::MutationScopeIdentity;
 use redb::{Database, ReadableDatabase};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -357,6 +358,50 @@ impl MutationOwnerAuthority {
         owner: &OwnedStoreHandle<D>,
     ) -> Result<PhysicalWriteCapability<'_, D>, String> {
         PhysicalWriteCapability::open(&self.store, owner)
+    }
+
+    /// Mint one write capability per member of an admitted **scope group**,
+    /// all over ONE physical write transaction (RF-RULING-008).
+    ///
+    /// The graph shard's authoritative writer folds many scopes into one commit
+    /// by design: the adaptive linger coalesces N graph-scoped batches into one
+    /// fsync, and the Raft log and meta rows — keyed by Raft group, not by
+    /// graph — ride that same fsync so graph state and consensus state become
+    /// durable together. One transaction per scope would delete both. So the
+    /// group is a kernel primitive rather than a relaxation of the per-scope
+    /// bound: each returned capability binds exactly one serving scope, inside
+    /// this one transaction, by the same [`crate::physical::binding`] check a
+    /// sole writer runs, and each carries its own ledger row ACL. None of them
+    /// can commit or abort; only the group can, through
+    /// [`PhysicalWriteCapability::end_group_transaction`], which unwraps the
+    /// shared transaction and therefore succeeds only once every member is
+    /// gone.
+    ///
+    /// Fails closed on an empty group and on a repeated scope: two members on
+    /// one scope would each own that scope's version, fence and receipt rows
+    /// and would double-advance its authoritative version.
+    pub fn group_write_capabilities<D: OwnerDomain>(
+        &self,
+        control: &OwnedStoreHandle<D>,
+        members: &[&OwnedStoreHandle<D>],
+    ) -> Result<Vec<PhysicalWriteCapability<'_, D>>, String> {
+        let mut seen = BTreeSet::new();
+        let classed = std::iter::once((control, GroupRowClass::Control))
+            .chain(members.iter().map(|owner| (*owner, GroupRowClass::Scoped)));
+        let transaction = Arc::new(self.store.begin_write()?);
+        let mut capabilities = Vec::with_capacity(members.len() + 1);
+        for (owner, rows) in classed {
+            if !seen.insert(owner.identity().binding_digest().to_hex()) {
+                return Err("an admitted scope group may not repeat a scope".to_string());
+            }
+            capabilities.push(PhysicalWriteCapability::open_member(
+                &self.store,
+                Arc::clone(&transaction),
+                rows,
+                owner,
+            )?);
+        }
+        Ok(capabilities)
     }
 
     pub fn incarnation(&self) -> &StoreIncarnation {

@@ -7,6 +7,7 @@
 //! imports this crate, and neither kernel imports a domain consumer.
 
 use crate::admitted::AdmittedMutation;
+use crate::group::{AdmittedGroup, ScopedIntent};
 use crate::replay::{record_replay_in, resolve_replay_in, ReplayResolution};
 use crate::tables::ledger_table_names;
 use crate::{commit, saga, Begin, SagaBegin};
@@ -159,6 +160,69 @@ impl MutationKernelV1 {
         let write = AdmittedMutation::open(&self.authority, owner)?;
         let begun = commit::begin(&write, batch, class)?;
         Ok((write, begun))
+    }
+
+    /// Admit a **scope group**: N scoped batches plus the store's own control
+    /// scope, in ONE physical write transaction (RF-RULING-008).
+    ///
+    /// `control` is the store's file-wide member — for a graph shard, the scope
+    /// that owns the Raft log and meta rows, the cross-shard 2PC records and
+    /// the series and matview key spaces, none of which carry a graph
+    /// component. `members` are the scoped batches that ride the same fsync.
+    ///
+    /// Every member is admitted by the same [`commit::begin`] a sole writer
+    /// runs — binding, exact idempotency, OCC against its own authoritative
+    /// version, and route fencing — so a group weakens nothing; it repeats the
+    /// per-scope bound N times over one transaction. If any member fails
+    /// admission the whole group is discarded, because there is only one
+    /// transaction and no partial outcome to choose.
+    ///
+    /// The single-scope [`Self::admit`] and [`Self::admit_maintenance`] are
+    /// unchanged and remain the path for every other layout.
+    pub fn admit_group<'a, 'i, D: OwnerDomain>(
+        &'a self,
+        control: ScopedIntent<'i, D>,
+        members: impl IntoIterator<Item = ScopedIntent<'i, D>>,
+    ) -> Result<AdmittedGroup<'a, D>, String> {
+        let intents: Vec<ScopedIntent<'i, D>> =
+            std::iter::once(control).chain(members).collect();
+        let scoped: Vec<&OwnedStoreHandle<D>> =
+            intents.iter().skip(1).map(|intent| intent.owner).collect();
+        let admitted: Vec<AdmittedMutation<'a, D>> = self
+            .authority
+            .group_write_capabilities(intents[0].owner, &scoped)?
+            .into_iter()
+            .map(AdmittedMutation::from_group_member)
+            .collect();
+        let mut begins = Vec::with_capacity(intents.len());
+        for (write, intent) in admitted.iter().zip(intents.iter()) {
+            match commit::begin(write, intent.batch, intent.class) {
+                Ok(begun) => begins.push(begun),
+                Err(error) => {
+                    AdmittedGroup::new(admitted, begins).end(false)?;
+                    return Err(error);
+                }
+            }
+        }
+        Ok(AdmittedGroup::new(admitted, begins))
+    }
+
+    /// Commit a whole admitted scope group as one physical transaction.
+    ///
+    /// `batches[i]` is the batch member `i` was admitted with, control member
+    /// first. Every member is sealed by the same check a sole commit runs, and
+    /// a member that fails to seal aborts the group.
+    pub fn commit_group<D: OwnerDomain>(
+        &self,
+        group: AdmittedGroup<'_, D>,
+        batches: &[&MutationBatch],
+    ) -> Result<(), String> {
+        commit::commit_group(group, batches)
+    }
+
+    /// Discard a whole admitted scope group: no member's rows land.
+    pub fn abort_group<D: OwnerDomain>(&self, group: AdmittedGroup<'_, D>) -> Result<(), String> {
+        group.end(false)
     }
 
     /// Persist terminal metadata for one admitted batch, without committing.

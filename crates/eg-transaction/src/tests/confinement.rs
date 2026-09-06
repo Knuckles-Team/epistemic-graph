@@ -260,7 +260,6 @@ fn a_shared_chunk_and_its_refcount_commit_with_the_batch_or_not_at_all() {
         let shared = rows.blob_shared_write(&service, "blob-service").unwrap();
         assert!(shared.insert_chunk_if_absent(DIGEST, b"chunk").unwrap());
         assert_eq!(shared.adjust_refcount(DIGEST, 1).unwrap(), 1);
-        drop(shared);
         rows.finish_owner().unwrap();
     }
     write.abort().unwrap();

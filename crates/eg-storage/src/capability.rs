@@ -5,12 +5,14 @@
 //! the write capability additionally needs the single, move-once
 //! [`crate::MutationOwnerAuthority`] token.
 
+use crate::owner::contract::expected_owner_table_contract;
 use crate::owner::domain::OwnerDomain;
 use crate::owner::handle::OwnedStoreHandle;
 use crate::owner::registry::{declared_table_names, owner_table_names};
 use crate::physical::binding::{
     binding_for_read, binding_for_write, ledger_scope_key, retire_scope_in,
 };
+use crate::physical::manifest::TableScope;
 use crate::physical::root::PhysicalStore;
 use crate::recovery::evidence::{strict_snapshot_read, StrictRecoveryEvidence};
 use crate::tables::LedgerRowScope;
@@ -20,6 +22,7 @@ use redb::{
     TableDefinition, TableHandle, WriteTransaction,
 };
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 /// The three tables that ARE the file's physical identity. A capability never
 /// opens one: they are written only by the storage kernel's own create, bind,
@@ -43,9 +46,55 @@ fn permit_table(store: &PhysicalStore, name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// How one write capability holds its physical transaction.
+///
+/// `redb` permits one writer, so a transaction is either served by exactly one
+/// capability, which commits or aborts it, or shared by the members of one
+/// admitted scope group, in which case only the group may end it. The variant
+/// is not a flag a caller can set: [`PhysicalWriteCapability::open`] always
+/// produces `Sole` and only [`crate::MutationOwnerAuthority::group_write_capabilities`]
+/// produces `Member`.
+enum WriteTxn {
+    /// Boxed so the two variants are the same size: a `redb::WriteTransaction`
+    /// is ~600 bytes and a shared handle is two words, and one heap word per
+    /// physical write transaction is nothing beside the transaction itself.
+    Sole(Box<WriteTransaction>),
+    Member {
+        transaction: Arc<WriteTransaction>,
+        rows: GroupRowClass,
+    },
+}
+
+impl WriteTxn {
+    fn get(&self) -> &WriteTransaction {
+        match self {
+            Self::Sole(transaction) => transaction.as_ref(),
+            Self::Member { transaction, .. } => transaction,
+        }
+    }
+}
+
+/// Which owner tables one group member may reach.
+///
+/// A shard file's tables split two ways: most lead their key with the graph
+/// name and belong to one serving scope (`Serving`), while the Raft log and
+/// meta, the cross-shard 2PC records, the matview and canary rows and the
+/// series key spaces are keyed by Raft group, transaction id, view name or
+/// series id and belong to the FILE. Both kinds of scope are graph scopes
+/// under this layout, so the class cannot be read off the identity: it is the
+/// member's position in the group, decided by the mutation owner authority
+/// when the group is minted and not settable by a consumer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GroupRowClass {
+    /// The store's own file-wide member: control rows only.
+    Control,
+    /// A scoped member: its own layout's serving rows only.
+    Scoped,
+}
+
 /// The one mintable physical write authority for one owner file.
 pub struct PhysicalWriteCapability<'a, D: OwnerDomain> {
-    transaction: WriteTransaction,
+    transaction: WriteTxn,
     store: &'a PhysicalStore,
     identity: MutationScopeIdentity,
     principal: String,
@@ -57,14 +106,41 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         store: &'a PhysicalStore,
         owner: &OwnedStoreHandle<D>,
     ) -> Result<Self, String> {
+        let transaction = store.begin_write()?;
+        Self::bind(store, WriteTxn::Sole(Box::new(transaction)), owner)
+    }
+
+    /// Mint one member of an admitted scope group over an already-open shared
+    /// transaction.
+    ///
+    /// Crate-private, and reached only through the mutation owner authority, so
+    /// a domain crate cannot manufacture a member and cannot obtain a second
+    /// capability on a transaction it does not already hold.
+    pub(crate) fn open_member(
+        store: &'a PhysicalStore,
+        transaction: Arc<WriteTransaction>,
+        rows: GroupRowClass,
+        owner: &OwnedStoreHandle<D>,
+    ) -> Result<Self, String> {
+        Self::bind(store, WriteTxn::Member { transaction, rows }, owner)
+    }
+
+    /// Prove the store's layout and incarnation-anchored authority, then bind
+    /// this capability's one serving scope inside the transaction. Shared by
+    /// the sole and group-member paths so a member is bound exactly as
+    /// strictly as a sole writer is.
+    fn bind(
+        store: &'a PhysicalStore,
+        transaction: WriteTxn,
+        owner: &OwnedStoreHandle<D>,
+    ) -> Result<Self, String> {
         let manifest = store.manifest();
         if manifest.layout != D::LAYOUT
             || manifest.authority_digest(store.incarnation()) != *owner.authority_digest()
         {
             return Err("owner write capability does not match this store".to_string());
         }
-        let transaction = store.begin_write()?;
-        binding_for_write(store, &transaction, owner.identity())?;
+        binding_for_write(store, transaction.get(), owner.identity())?;
         Ok(Self {
             transaction,
             store,
@@ -72,6 +148,54 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
             principal: owner.principal().to_string(),
             _domain: PhantomData,
         })
+    }
+
+    /// Whether this capability is one member of an admitted scope group.
+    pub fn is_group_member(&self) -> bool {
+        matches!(self.transaction, WriteTxn::Member { .. })
+    }
+
+    /// Whether this capability is the group's file-wide control member.
+    pub fn is_group_control(&self) -> bool {
+        matches!(
+            self.transaction,
+            WriteTxn::Member {
+                rows: GroupRowClass::Control,
+                ..
+            }
+        )
+    }
+
+    /// A group member's owner-row class bound.
+    ///
+    /// Ledger rows are already confined per member by [`ScopedTableMut`], whose
+    /// scope key comes from this capability. Owner rows are layout-bounded
+    /// everywhere else in this crate, which is right for a single-scope write
+    /// but not for a group: the shard's control rows (Raft log and meta, the
+    /// cross-shard 2PC records, the matview, canary and series key spaces)
+    /// belong to the FILE and carry no graph component, while its graph rows
+    /// lead their key with the graph name. So a member admitted for a graph
+    /// scope reaches only `Serving` owner tables and the control member only
+    /// the file-wide ones. Without this, one member of a group could write
+    /// another member's owner rows even though it cannot touch its ledger.
+    ///
+    /// This applies to group members only. A sole capability is unchanged, so
+    /// no existing layout's behaviour moves.
+    fn permit_group_owner_table(&self, name: &str) -> Result<(), String> {
+        let WriteTxn::Member { rows, .. } = &self.transaction else {
+            return Ok(());
+        };
+        let serving = expected_owner_table_contract(name, D::LAYOUT).scope == TableScope::Serving;
+        let permitted = match rows {
+            GroupRowClass::Scoped => serving,
+            GroupRowClass::Control => !serving,
+        };
+        if !permitted {
+            return Err(
+                "group member may not open an owner table outside its row class".to_string(),
+            );
+        }
+        Ok(())
     }
 
     /// Open one declared, non-identity table of this owner file for writing.
@@ -91,6 +215,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     {
         permit_table(self.store, definition.name())?;
         self.transaction
+            .get()
             .open_table(definition)
             .map_err(|error| error.to_string())
     }
@@ -112,6 +237,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         if !owner_table_names(D::LAYOUT).contains(&name) {
             return Err("owner write may not open a table outside its layout".to_string());
         }
+        self.permit_group_owner_table(name)?;
         self.open_table(definition)
     }
 
@@ -164,9 +290,11 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         if !owner_table_names(D::LAYOUT).contains(&name) {
             return Err("owner read may not open a table outside its layout".to_string());
         }
+        self.permit_group_owner_table(name)?;
         Ok(OwnerReadTable {
             table: self
                 .transaction
+                .get()
                 .open_table(definition)
                 .map_err(|error| error.to_string())?,
         })
@@ -190,7 +318,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     {
         permit_table(self.store, definition.name())?;
         crate::tables::purge_scoped_rows(
-            &self.transaction,
+            self.transaction.get(),
             definition,
             &ledger_scope_key(&self.identity),
         )
@@ -205,7 +333,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     /// [`Self::purge_scoped_rows`], the scope comes from the capability and is
     /// not an argument.
     pub fn retire_scope_binding(&self) -> Result<(), String> {
-        retire_scope_in(self.store, &self.transaction, &self.identity)
+        retire_scope_in(self.store, self.transaction.get(), &self.identity)
     }
 
     /// The physical store this capability was minted over.
@@ -241,21 +369,58 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         if identity != &self.identity {
             return Err("mutation capability does not serve this scope".to_string());
         }
-        binding_for_write(self.store, &self.transaction, identity).map(|_| ())
+        binding_for_write(self.store, self.transaction.get(), identity).map(|_| ())
     }
 
     pub fn authenticate_private(&self, sealed: &[u8], digest: &str) -> Result<(), String> {
         self.store.authenticate_private(sealed, digest)
     }
 
+    /// Commit this capability's transaction. Refused for a group member: the
+    /// group's members share one transaction and committing from inside one of
+    /// them would commit the others' half-written work.
     pub fn commit(self) -> Result<(), String> {
-        self.transaction.commit().map_err(|error| error.to_string())
+        match self.transaction {
+            WriteTxn::Sole(transaction) => {
+                (*transaction).commit().map_err(|error| error.to_string())
+            }
+            WriteTxn::Member { .. } => Err(GROUP_MEMBER_CANNOT_END.to_string()),
+        }
     }
 
+    /// Discard this capability's transaction. Refused for a group member, for
+    /// the same reason [`Self::commit`] is.
     pub fn abort(self) -> Result<(), String> {
-        self.transaction.abort().map_err(|error| error.to_string())
+        match self.transaction {
+            WriteTxn::Sole(transaction) => {
+                (*transaction).abort().map_err(|error| error.to_string())
+            }
+            WriteTxn::Member { .. } => Err(GROUP_MEMBER_CANNOT_END.to_string()),
+        }
+    }
+
+    /// End the whole group's shared transaction from its **last** member.
+    ///
+    /// The `Arc` is the proof: it unwraps only when every other member has been
+    /// dropped, so a group cannot be committed while any member is still live
+    /// and able to write. Refused for a sole capability, which uses
+    /// [`Self::commit`] / [`Self::abort`].
+    pub fn end_group_transaction(self, commit: bool) -> Result<(), String> {
+        let WriteTxn::Member { transaction, .. } = self.transaction else {
+            return Err("a sole write capability is not a group member".to_string());
+        };
+        let transaction = Arc::try_unwrap(transaction)
+            .map_err(|_| "an admitted scope group member is still live".to_string())?;
+        if commit {
+            transaction.commit().map_err(|error| error.to_string())
+        } else {
+            transaction.abort().map_err(|error| error.to_string())
+        }
     }
 }
+
+const GROUP_MEMBER_CANNOT_END: &str =
+    "an admitted scope group member may not commit or abort its own transaction";
 
 impl<'w> PhysicalWriteCapability<'w, crate::owner::domain::BlobOwner> {
     /// Mint the blob layout's independent shared-service write over **this**

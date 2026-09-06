@@ -5,6 +5,7 @@ use crate::ledger::{
     source_version, verify_replay_identity,
 };
 use crate::admitted::AdmittedMutation;
+use crate::group::AdmittedGroup;
 use crate::tables::{visit_ledger_tables, BATCHES, CLASSES, FENCES, OUTBOX, VERSIONS};
 use crate::Begin;
 use eg_storage::{
@@ -272,11 +273,51 @@ pub(crate) fn commit<D: OwnerDomain>(
     write: AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<(), String> {
-    write.verify_scope(&batch.identity)?;
-    write.validate_commit_admission(batch)?;
-    certification_fault(batch, MutationCommitPhase::BeforeCommit)?;
+    seal(&write, batch)?;
     write.commit()?;
     certification_fault(batch, MutationCommitPhase::AfterCommitBeforeAck)
+}
+
+/// Everything one admitted write must prove before its transaction commits:
+/// it still serves the batch's scope, its admission reached a finished state,
+/// and the pre-commit certification fault point has passed.
+///
+/// Split out of [`commit`] rather than duplicated so a scope group's members
+/// are sealed by exactly the code that seals a sole writer.
+fn seal<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+) -> Result<(), String> {
+    write.verify_scope(&batch.identity)?;
+    write.validate_commit_admission(batch)?;
+    certification_fault(batch, MutationCommitPhase::BeforeCommit)
+}
+
+/// Seal every member of a scope group and commit the one transaction they
+/// share (RF-RULING-008).
+///
+/// `batches` is positional: `batches[i]` is the batch member `i` was admitted
+/// with, control member first. A member that fails to seal aborts the whole
+/// group — its transaction is the others' transaction, so there is no partial
+/// outcome to choose.
+pub(crate) fn commit_group<D: OwnerDomain>(
+    group: AdmittedGroup<'_, D>,
+    batches: &[&MutationBatch],
+) -> Result<(), String> {
+    if batches.len() != group.len() {
+        return Err("scope group commit does not name every admitted member".to_string());
+    }
+    for (index, batch) in batches.iter().enumerate() {
+        if let Err(error) = seal(group.member(index)?, batch) {
+            group.end(false)?;
+            return Err(error);
+        }
+    }
+    group.end(true)?;
+    for batch in batches {
+        certification_fault(batch, MutationCommitPhase::AfterCommitBeforeAck)?;
+    }
+    Ok(())
 }
 
 /// Atomically remove authority for one exact logical generation.

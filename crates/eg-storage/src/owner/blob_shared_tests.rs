@@ -239,7 +239,6 @@ fn a_failed_batch_cannot_orphan_a_shared_chunk_row() {
     let shared = committed.blob_shared_write(&cas.service, SERVICE).unwrap();
     shared.insert_chunk_if_absent(DIGEST_A, b"kept").unwrap();
     shared.adjust_refcount(DIGEST_A, 1).unwrap();
-    drop(shared);
     committed.commit().unwrap();
 
     // A second write inserts a chunk, bumps both refcounts, then fails.
@@ -249,7 +248,6 @@ fn a_failed_batch_cannot_orphan_a_shared_chunk_row() {
     shared.adjust_refcount(DIGEST_B, 1).unwrap();
     shared.adjust_refcount(DIGEST_A, 1).unwrap();
     assert_eq!(shared.chunk_rows().unwrap(), 2);
-    drop(shared);
     failing.abort().unwrap();
 
     let read = cas.kernel.read_blob_shared(&cas.service, SERVICE).unwrap();
@@ -347,7 +345,6 @@ fn the_shared_service_write_is_confined_to_the_blob_layout() {
         assert!(shared.remove_refcount(bad).is_err());
     }
     assert_eq!(shared.chunk_rows().unwrap(), 0);
-    drop(shared);
 
     // A handle authenticated for another actor, or against another store, is
     // refused against this one.
@@ -392,7 +389,6 @@ fn open_options_bound_the_handle_without_entering_the_store_identity() {
     let write = cas.write();
     let shared = write.blob_shared_write(&cas.service, SERVICE).unwrap();
     shared.insert_chunk_if_absent(DIGEST_A, &big).unwrap();
-    drop(shared);
     write.commit().unwrap();
     drop(cas);
 
@@ -466,7 +462,6 @@ fn a_read_only_open_has_no_write_authority_at_either_bound() {
     let write = cas.write();
     let shared = write.blob_shared_write(&cas.service, SERVICE).unwrap();
     shared.insert_chunk_if_absent(DIGEST_A, b"durable").unwrap();
-    drop(shared);
     write.commit().unwrap();
     drop(cas);
 
@@ -534,7 +529,6 @@ fn durability_defaults_to_immediate_and_is_explicit_otherwise() {
     let write = cas.write();
     let shared = write.blob_shared_write(&cas.service, SERVICE).unwrap();
     shared.insert_chunk_if_absent(DIGEST_A, b"deferred").unwrap();
-    drop(shared);
     write.commit().unwrap();
     // Deferred durability changes when the write reaches the disk, not what the
     // store reads back in this process.

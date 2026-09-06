@@ -36,6 +36,25 @@ impl<'a, D: OwnerDomain> AdmittedMutation<'a, D> {
         })
     }
 
+    /// Wrap one already-minted group-member capability as an admitted
+    /// mutation.
+    ///
+    /// The member is an ordinary `AdmittedMutation` in every respect: it has
+    /// its own admission state machine, its own scope, and its own ledger row
+    /// ACL. Only the capability underneath differs — it shares the group's one
+    /// transaction and cannot end it.
+    pub(crate) fn from_group_member(capability: PhysicalWriteCapability<'a, D>) -> Self {
+        Self {
+            capability,
+            admission: RefCell::new(AdmissionState::Idle),
+        }
+    }
+
+    /// End the group's shared transaction from this, its last live member.
+    pub(crate) fn end_group_transaction(self, commit: bool) -> Result<(), String> {
+        self.capability.end_group_transaction(commit)
+    }
+
     /// Open one ledger table bounded to this write's own serving scope.
     ///
     /// Every ledger read and write this crate performs goes through here, so a
