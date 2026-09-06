@@ -2297,7 +2297,7 @@ mod copy_tests {
         );
 
         // Ingest into a real store: SERIAL id auto-fills, all 3 rows land.
-        let (store, _p) = eg_query::TableStore::open_temp().unwrap();
+        let (store, _p) = crate::store_authority::open_ephemeral_sql_store().unwrap();
         store.create_table(&schema, false).unwrap();
         let n = store.insert_rows("items", st.columns(), &rows).unwrap();
         assert_eq!(n, 3, "COPY ingested 3 rows");

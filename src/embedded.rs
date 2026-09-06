@@ -239,9 +239,22 @@ impl EmbeddedEngine {
         match (persist_dir, durable) {
             (Some(dir), true) => {
                 std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-                eg_query::TableStore::open(dir.join("sql_tables.redb"))
+                // RF-RULING-004: the storage kernel never interprets proof
+                // bytes -- the composition root decides which principal may
+                // serve this file's scopes, and for the embedded API this
+                // library IS that root.
+                let authority = crate::store_authority::process_authority();
+                eg_query::TableStore::open(
+                    dir.join("sql_tables.redb"),
+                    crate::store_authority::process_verifier(),
+                    authority.principal(),
+                    &authority.proof(),
+                )
             }
-            _ => eg_query::TableStore::open_temp().map(|(s, _path)| s),
+            // The `:memory:` analogue is still opened by the composition root,
+            // not by `eg-query`'s `dev-scope-grant` stand-in: ephemeral is a
+            // lifetime, not a weaker authority.
+            _ => crate::store_authority::open_ephemeral_sql_store().map(|(store, _path)| store),
         }
     }
 

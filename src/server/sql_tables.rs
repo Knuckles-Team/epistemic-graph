@@ -140,8 +140,19 @@ fn open_or_get(path: &Path) -> Result<TableStore, String> {
     if let Some(store) = stores.get(&key) {
         return Ok(store.clone());
     }
-    let store = TableStore::open(path)
-        .map_err(|_| "owner-scoped SQL catalog could not be opened".to_string())?;
+    // RF-RULING-004: the storage kernel never interprets proof bytes; the
+    // composition root decides which principal may serve this file's scopes.
+    // This binary is that root, so the SQL catalog authenticates against the
+    // SAME `EngineScopeAuthority` every other kernel-owned store here uses --
+    // there is exactly one grant authority per process, not one per store.
+    let authority = crate::store_authority::process_authority();
+    let store = TableStore::open(
+        path,
+        crate::store_authority::process_verifier(),
+        authority.principal(),
+        &authority.proof(),
+    )
+    .map_err(|_| "owner-scoped SQL catalog could not be opened".to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

@@ -761,7 +761,20 @@ fn committed_sql_replay_receipt(
 ) -> Result<Option<eg_types::mutation_batch::MutationBatchRecord>, String> {
     use sha2::{Digest, Sha256};
 
-    let Some(record) = store.mutation_batch(batch_id)? else {
+    // RF-RULING-006 moved the SQL receipt into the mutation kernel's ledger,
+    // which is scope-partitioned: a receipt is only readable through the scope
+    // it was committed under. That scope is the one `compile_opaque_method`
+    // below stamps on this very batch -- native `SqlCatalog`, keyed by
+    // `(tenant, graph)` at `COMPILED_BATCH_INCARNATION` -- so it is rebuilt
+    // here from the SAME two values the exactness check compares against, not
+    // from a second source that could drift from the committing path.
+    let scope = eg_types::mutation_batch::MutationScopeIdentity::fixed_native(
+        authority.tenant_scope(),
+        eg_types::mutation_batch::MutationDomain::SqlCatalog,
+        graph,
+        eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
+    )?;
+    let Some(record) = store.mutation_batch(&scope, batch_id)? else {
         return Ok(None);
     };
     let principal = crate::server::mutation_batch::principal_fingerprint(authority.actor_scope())?;
@@ -998,7 +1011,8 @@ pub(crate) fn single_text_result(col: &str, val: &str) -> TypedQueryResult {
 }
 
 /// RAII cleanup for the ephemeral, per-call authorized-projection [`TableStore`]
-/// [`WireSession::authorized_read_store`] builds on disk via `TableStore::open_temp`
+/// [`WireSession::authorized_read_store`] builds on disk via
+/// `store_authority::open_ephemeral_sql_store`
 /// (CONCEPT:NE-046 — EG-WIRE-CATALOG). Removes the backing temp file when the read
 /// completes (success OR error) so a request never leaks a physical redb file per
 /// SQL read.
@@ -1815,7 +1829,7 @@ impl WireSession {
             move || -> Result<(TableStore, std::path::PathBuf), String> {
                 let names =
                     crate::server::sql_catalog_acl::selectable_tables(&authority, &persist_dir)?;
-                let (ephemeral, path) = TableStore::open_temp()?;
+                let (ephemeral, path) = crate::store_authority::open_ephemeral_sql_store()?;
                 for name in names {
                     let authorized = crate::server::sql_catalog_acl::open_authorized_table(
                         &authority,

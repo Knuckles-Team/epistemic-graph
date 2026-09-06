@@ -525,7 +525,13 @@ modality-serving = [
 asr-whisper = ["server", "dep:eg-asr-whisper", "eg-audio/asr", "eg-types/asr-native", "eg-capabilities/asr-native"]
 # Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
 # and is included in the one main build.
-query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
+# `redb` is REQUIRED, not incidental: RF-RULING-006 opens the SQL catalog through
+# the storage kernel, so `TableStore::open` now takes this binary's
+# `eg_storage::ScopeGrantVerifier` (`store_authority`) -- a type that only exists
+# when `dep:eg-storage` is linked, which is what the `redb` feature does. A
+# `--features query` build without it cannot name the composition root's
+# verifier, so the edge is stated here rather than left to fail at link time.
+query = ["redb", "dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
 # The one native streaming query/job result currency. Every served family adapts to
 # governed, bounded KnowledgeBatch envelopes with stable Arrow schemas.
 knowledge-batch = [

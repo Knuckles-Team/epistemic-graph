@@ -194,22 +194,18 @@ fn import_sqlite_lifecycle(
         let store =
             crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
         let batch = compile_import_batch(&store, req_id, authority, method, now)?;
-        if let Some(record) = store.mutation_batch(&batch.batch_id)? {
-            if !store.mutation_batch_replay_matches(&record.batch, &batch)? {
-                return Err(
-                    "IDEMPOTENCY_CONFLICT: SQLite import request identity changed".to_string(),
-                );
-            }
-            let bytes = record
-                .result_msgpack
-                .as_deref()
-                .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
-            let report = eg_types::msgpack::decode_property_value(bytes)
-                .map_err(|_| "committed SQLite import batch has an invalid result".to_string())?;
-            register_import_owners(source, &batch.batch_id, &report)?;
-            return Ok(report);
-        }
-
+        // No pre-check for an already-committed receipt. RF-RULING-006 retired
+        // the SQL store's private ledger onto the mutation kernel, and the
+        // kernel is now the ONE authority on whether a retry is a replay or an
+        // `IDEMPOTENCY_CONFLICT`: `commit_txn_batch_result` returns the stored
+        // receipt untouched for a byte-identical batch and refuses a changed
+        // one. Re-deriving that answer here would be a second replay authority
+        // over the same ledger, which is exactly what the ruling removed.
+        //
+        // The cost, stated rather than hidden: a retry re-opens and re-parses
+        // the source `.db` before the kernel short-circuits it. Nothing durable
+        // is re-applied and the returned report is the stored one, so the only
+        // loss is repeated read work on the ack-loss path.
         let reader = transfer_fs::open_import(logical_path, sqlite_limits()?.0)?;
         let (txn, report) = prepare_sqlite_import(&reader)?;
         let result = rmp_serde::to_vec_named(&report).map_err(|e| e.to_string())?;
@@ -785,7 +781,7 @@ mod tests {
         );
 
         // 2. Import into an ISOLATED user-table store (pure-Rust Reader).
-        let (store, store_path) = TableStore::open_temp().unwrap();
+        let (store, store_path) = crate::store_authority::open_ephemeral_sql_store().unwrap();
         let reader = Reader::open(&src).unwrap();
         let (txn, report) = prepare_sqlite_import(&reader).unwrap();
         store.commit_txn(&txn).unwrap();

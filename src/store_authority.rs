@@ -153,6 +153,41 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
             == 0
 }
 
+/// Open an EPHEMERAL SQL catalog at a fresh temp path under THIS process's own
+/// grant authority, returning the store and the file it owns.
+///
+/// `eg_query::TableStore::open_temp` is compiled only under that crate's
+/// `cfg(test)` or its off-by-default `dev-scope-grant` feature, because
+/// RF-RULING-004 forbids a domain crate from carrying a scope-grant verifier of
+/// its own. This binary IS a composition root, so its ephemeral SQL stores are
+/// authenticated by the same [`EngineScopeAuthority`] as its durable ones and no
+/// build of this binary -- test or production -- links a development stand-in.
+///
+/// The caller owns the returned path: an ephemeral store is a real redb file and
+/// nothing else removes it (see `server::wire::EphemeralStoreGuard`).
+#[cfg(feature = "query")]
+pub fn open_ephemeral_sql_store() -> Result<(eg_query::TableStore, std::path::PathBuf), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static EPHEMERAL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let ordinal = EPHEMERAL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "eg_root_sql_tables_{}_{}_{ordinal}.redb",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0),
+    ));
+    let authority = process_authority();
+    let store = eg_query::TableStore::open(
+        &path,
+        process_verifier(),
+        authority.principal(),
+        &authority.proof(),
+    )?;
+    Ok((store, path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
