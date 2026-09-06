@@ -1311,18 +1311,6 @@ async fn dispatch_preamble_checks(
         }
     }
 
-    // NodeInfoUpsert is an engine-owned self-report emitted by the Raft
-    // startup path.  Do not let a verified external caller turn the endpoint
-    // fields in this method into cluster authority, even when that caller has
-    // an administrative scope.  The replicated-apply path is the only route
-    // allowed to reach the topology handler.
-    if !state_machine_authorized && matches!(&req.method, Method::NodeInfoUpsert { .. }) {
-        return Err(Response::err(
-            req.id,
-            "ACCESS_DENIED: NodeInfoUpsert is reserved for the engine Raft self-report path",
-        ));
-    }
-
     check_submit_work_item_context(
         &req,
         verified_context,

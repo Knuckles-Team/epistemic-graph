@@ -24,7 +24,7 @@
 //!   fair share)` once the global ceiling is under pressure.
 //!
 //! * **Autoscale signals.** [`collect_resource_stats`] gathers a [`ResourceSnapshot`]
-//!   (per-graph + per-tenant + process aggregate) for the `ResourceStats` Method and the
+//!   (per-graph + per-tenant + process aggregate) for `ResourceStatsPage` and the
 //!   Prometheus metrics endpoint — the signals an external autoscaler (agent-utilities
 //!   OS-5.27) consumes.
 //!
@@ -358,7 +358,7 @@ pub struct TenantResourceStats {
     pub over_budget: bool,
 }
 
-/// The full resource snapshot returned by `Method::ResourceStats` (CONCEPT:EG-KG.compute.lane-v) and
+/// The full resource snapshot returned by `Method::ResourceStatsPage` (CONCEPT:EG-KG.compute.lane-v) and
 /// scraped into Prometheus. The signals an autoscaler (OS-5.27) needs in ONE round-trip.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceSnapshot {

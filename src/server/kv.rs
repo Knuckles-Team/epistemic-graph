@@ -94,12 +94,20 @@ fn kv_bootstrap_identity() -> Result<eg_types::MutationScopeIdentity, String> {
 /// validator rejects any mismatch (`binding.identity != *identity`), so drifting
 /// from any one of those three fields here would make every KV write on that
 /// namespace fail closed with "mutation scope binding identity mismatch".
-fn kv_scope_identity(tenant: &str, resource: &str) -> Result<eg_types::MutationScopeIdentity, String> {
+fn kv_scope_identity(
+    tenant: &str,
+    resource: &str,
+) -> Result<eg_types::MutationScopeIdentity, String> {
     let tenant = eg_types::TenantId::new(tenant)?;
     let resource = eg_types::LogicalName::new(resource)?;
     let incarnation_id = eg_types::IncarnationId::new(COMPILED_BATCH_INCARNATION)
         .map_err(|e| format!("invalid KV scope incarnation id: {e}"))?;
-    eg_types::MutationScopeIdentity::native(tenant, MutationDomain::KvStore, resource, incarnation_id)
+    eg_types::MutationScopeIdentity::native(
+        tenant,
+        MutationDomain::KvStore,
+        resource,
+        incarnation_id,
+    )
 }
 
 /// A namespaced key→bytes store. Durable (redb) when a persist dir is configured,
@@ -659,7 +667,7 @@ pub(crate) async fn try_handle(
         Method::KvGet { namespace, key } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
             match store.get(&namespace, &key) {
-                Ok(Some(v)) => Response::ok(req_id, ResultPayload::PropertiesMsgpack(v)),
+                Ok(Some(v)) => Response::ok(req_id, ResultPayload::Raw(v)),
                 Ok(None) => Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null)),
                 Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
             }
@@ -941,7 +949,7 @@ mod dispatch_tests {
             r.error
         );
 
-        // KvGet → the bytes (PropertiesMsgpack carries the opaque value verbatim).
+        // KvGet → the opaque bytes verbatim.
         let r = dispatch_on_heap(
             &state,
             req(
@@ -954,7 +962,7 @@ mod dispatch_tests {
         )
         .await;
         match r.result {
-            Some(ResultPayload::PropertiesMsgpack(v)) => assert_eq!(v, b"v1"),
+            Some(ResultPayload::Raw(v)) => assert_eq!(v, b"v1"),
             other => panic!("KvGet: {other:?} / {:?}", r.error),
         }
 

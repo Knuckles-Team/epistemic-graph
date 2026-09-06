@@ -254,11 +254,10 @@ mod resource_status_privacy_tests {
 
     #[test]
     fn ordinary_reader_cannot_probe_unrelated_host_telemetry() {
-        let redacted = decode(redact_resource_status_result(
-            result("other-host"),
-            &request("host-secret"),
-            false,
-        ));
+        let redacted = decode(
+            redact_resource_status_result(result("other-host"), &request("host-secret"), false)
+                .unwrap(),
+        );
         assert!(redacted.host_snapshot.is_none());
         assert!(redacted.host_ref.is_none());
         assert_eq!(redacted.host_revision, 0);
@@ -270,11 +269,10 @@ mod resource_status_privacy_tests {
 
     #[test]
     fn aggregate_reader_keeps_shared_host_totals_and_ordinary_relation_is_redacted() {
-        let aggregate = decode(redact_resource_status_result(
-            result("other-host"),
-            &request("host-secret"),
-            true,
-        ));
+        let aggregate = decode(
+            redact_resource_status_result(result("other-host"), &request("host-secret"), true)
+                .unwrap(),
+        );
         assert!(aggregate.host_snapshot.is_some());
         assert_eq!(aggregate.held_cpu_weight, 7);
         assert_eq!(
@@ -286,11 +284,10 @@ mod resource_status_privacy_tests {
             7
         );
 
-        let related = decode(redact_resource_status_result(
-            result("host-secret"),
-            &request("host-secret"),
-            false,
-        ));
+        let related = decode(
+            redact_resource_status_result(result("host-secret"), &request("host-secret"), false)
+                .unwrap(),
+        );
         assert!(related.host_snapshot.is_none());
         assert_eq!(related.held_cpu_weight, 0);
         assert_eq!(related.host_ref.as_deref(), Some("host-secret"));
@@ -335,7 +332,7 @@ fn redact_resource_status_result(
     mut result: crate::epistemic_operations::ResourceReservationStatusResult,
     request: &crate::epistemic_operations::ResourceReservationStatusRequest,
     aggregate_allowed: bool,
-) -> ResultPayload {
+) -> Result<ResultPayload, String> {
     if !aggregate_allowed {
         let host_visible = request.host_ref.as_deref().is_some_and(|host_ref| {
             result

@@ -81,7 +81,7 @@ pub(super) async fn dispatch_service_control_methods(
                         "KnowledgeStream",
                     ];
                     #[cfg(feature = "cost")]
-                    served_ops.extend(["ResourceStats", "ResourceStatsPage"]);
+                    served_ops.push("ResourceStatsPage");
                     append_native_resource_ops(&mut served_ops, native_resource_ops_available);
                     append_native_capacity_ops(&mut served_ops, native_capacity_ops_available);
                     append_native_work_item_ops(&mut served_ops, native_work_item_ops_available);

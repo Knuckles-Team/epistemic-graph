@@ -582,11 +582,9 @@ async fn dispatch_cluster_admin_methods(
         // Self-routing, NOT graph-scoped (cluster-wide, like the raft-admin block
         // above): `ClusterMembers` answers from ANY node's local `NodeInfoStore` +
         // live `MultiRaft` membership (no leader redirect, unlike `PlacementRoute` —
-        // ADR-1's client resolves via any healthy seed); `NodeInfoUpsert` is the
-        // internal per-node self-report `raft::node::start` issues, reaching this
-        // arm only via the replicated-apply re-entry (its live proposal is
-        // intercepted earlier by the `ConsensusNative` branch above).
-                method @ (Method::ClusterMembers | Method::NodeInfoUpsert { .. }) => {
+        // ADR-1's client resolves via any healthy seed). Node self-reports use a
+        // typed internal Raft command and never enter public dispatch.
+                method @ Method::ClusterMembers => {
             dispatch_boxed(
                 async {
     let state = state;
@@ -595,7 +593,7 @@ async fn dispatch_cluster_admin_methods(
     {
             match handlers::topology::try_handle(state, req_id, method, verified_context).await {
                 Ok(resp) => resp,
-                // Unreachable: both variants matched above are topology methods.
+                // Unreachable: the matched variant is the topology method.
                 Err(_) => Response::err(req_id, "cluster topology dispatch routing error"),
             }
         }
@@ -605,7 +603,7 @@ async fn dispatch_cluster_admin_methods(
         }
 
         // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────
-        // Self-routing, like `ClusterMembers`/`NodeInfoUpsert` above, but for the
+        // Self-routing, like `ClusterMembers` above, but for the
         // OPPOSITE reason: those are cluster-wide and NOT graph nodes, while this
         // writes a REAL `:Server` graph node into `__commons__` -- self-routes
         // here (rather than resolving `req.graph`) because a fleet server's

@@ -84,7 +84,7 @@ sqlite-file = []
 # the variants (→ the dispatch "not available in this build" catch-all).
 streaming = []
 # Per-tenant memory budget + autoscale signals (CONCEPT:KG-2.234, Lane V): gates the
-# `ResourceStats` Method variant. PURE serde — no heavy dep — so it folds into
+# `ResourceStatsPage` Method variant. PURE serde — no heavy dep — so it folds into
 # pi/node/cluster/full; a build without it drops the variant (→ the dispatch "not
 # available in this build" catch-all).
 cost = []
@@ -130,13 +130,6 @@ matview = ["query"]
 # Engine-level security (CONCEPT:KG-2.231): gates the `AuditVerify` Method variant +
 # the `AuditReport` wire DTO. Pure serde — no dep.
 security = []
-# CA-16 RLS/marking predicate export (DEC-CA-04): gates the `PolicyExport` Method
-# variant. Pure serde — no heavy dep — mirrors the `jobs`/`viz`/`quantum`/`asr-native`
-# lockstep pattern: the root `epistemic-graph` package's `policy_export` facade
-# feature enables this AND `eg-capabilities?/policy_export` together (see root
-# Cargo.toml), so `eg-capabilities::policy()`'s exhaustive Method match and this
-# variant can never drift out of sync.
-policy_export = []
 # Query federation / foreign sources (CONCEPT:KG-2.232, Lane P): gates the
 # `ForeignSourceSpec`/`HttpFieldMap` wire DTOs + the `Op::ForeignScan` variant of the
 # cross-modal plan AST + the `RegisterForeignSource` Method. The `ForeignScan` op lives
@@ -237,13 +230,6 @@ asr-native = []
 # features, deliberately EXCLUDED from `full` (see root `Cargo.toml`) since it is
 # not yet an operator-facing default.
 viz = []
-# GOC-34 (`OWNER-VOICE-TTS`): gates `Method::TtsSynthesize` alone. Pure serde/
-# enum-variant gate, same shape as `viz`/`jobs`/`statechart` — the real Piper/ONNX
-# inference engine (`eg-tts-piper`, a separate leaf crate) is wired by the facade
-# through its own `tts-piper` feature, deliberately EXCLUDED from `full` (see root
-# `Cargo.toml`) so the default listener links no ORT/eSpeak-ng.
-tts-piper = []
-
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"

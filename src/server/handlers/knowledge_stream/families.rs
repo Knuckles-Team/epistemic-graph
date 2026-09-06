@@ -361,7 +361,7 @@ async fn execute_job(
                 native_row(authority, "job_result", &encoded, confidence, score)
             })
             .collect();
-        let source_result = ResultPayload::raw(&result);
+        let source_result = ResultPayload::raw(&result)?;
         Ok(FamilyExecution {
             rows,
             source_result,

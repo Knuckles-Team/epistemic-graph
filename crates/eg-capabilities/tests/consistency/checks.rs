@@ -242,16 +242,14 @@ fn generated_ledger_is_not_stale() {
 /// protocol edit that adds or removes variants is visible in the same policy parity check.
 #[test]
 fn method_policy_registry_has_the_expected_variant_count() {
-    // 403 unconditional rows plus one row for each optional feature surface.
-    let expected = 403
+    // 401 unconditional rows plus one row for each optional feature surface.
+    let expected = 401
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))
         + usize::from(cfg!(feature = "quantum"))
         + usize::from(cfg!(feature = "viz"))
-        + usize::from(cfg!(feature = "asr-native"))
-        + usize::from(cfg!(feature = "tts-piper"))
-        + usize::from(cfg!(feature = "policy_export"));
+        + usize::from(cfg!(feature = "asr-native"));
     assert_eq!(eg_capabilities::method_policy_entries().count(), expected);
 }

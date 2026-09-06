@@ -769,8 +769,7 @@ mod admission_tests {
     #[cfg(feature = "security")]
     fn raw_result(response: &crate::protocol::Response) -> Vec<u8> {
         match &response.result {
-            Some(crate::protocol::ResultPayload::Raw(bytes))
-            | Some(crate::protocol::ResultPayload::PropertiesMsgpack(bytes)) => bytes.clone(),
+            Some(crate::protocol::ResultPayload::Raw(bytes)) => bytes.clone(),
             other => panic!("expected a raw result, got {other:?}"),
         }
     }

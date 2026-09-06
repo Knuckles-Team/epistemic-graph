@@ -672,6 +672,16 @@ impl EgStore {
                     .await;
                     return Ok(Some(Self::native_result_outcome_to_response(outcome)));
                 }
+                NativeMutationCommand::NodeInfo { .. } => {
+                    let info = command.open_node_info(server_secret)?;
+                    let outcome = crate::server::apply_replicated_node_info(
+                        &self.ctx.state,
+                        req.mutation.request_id,
+                        info,
+                    )
+                    .await;
+                    return Ok(Some(Self::native_bool_outcome_to_response(outcome)));
+                }
                 _ => {}
             }
             if let Some(method) = command.open_public_method(server_secret)? {

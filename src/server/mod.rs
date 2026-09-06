@@ -635,6 +635,8 @@ pub(crate) use dispatch::{
     apply_replicated_transaction_finalize, apply_replicated_transaction_participant,
     apply_replicated_transaction_prepare, ReplicatedParticipantRef,
 };
+#[cfg(feature = "raft")]
+pub(crate) use handlers::topology::apply_replicated_node_info;
 // NL planner injection (CONCEPT:EG-KG.query.fence-stripper): an embedder opts into engine-driven NL→query.
 #[cfg(feature = "nl-query")]
 pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
@@ -737,19 +739,9 @@ mod ca17_feature_stub_contract {
         ("obda-wire", "[\"obda\"]"),
         ("federation-opensearch", "[\"federation-search\"]"),
         ("lineage-transport", "[\"lake\"]"),
-        // Declared parent change (this table IS the declaration this test demands).
-        // `23107613 feat(ca-16): export the M1 row-visibility policy bundle (DEC-CA-04)`
-        // propagated the feature to its dependency crates -- `eg-types/policy_export`
-        // (crates/eg-types/Cargo.toml:139) and the optional
-        // `eg-capabilities?/policy_export` (crates/eg-capabilities/Cargo.toml:115) -- but
-        // did not update this table, so the contract test correctly failed on first run.
-        // The safety property is unaffected and separately asserted by
-        // `no_reserved_feature_leaks_into_a_release_bundle`: policy_export appears in none
-        // of default/full/all/full-extras/cluster.
-        (
-            "policy_export",
-            "[\"security\", \"eg-types/policy_export\", \"eg-capabilities?/policy_export\"]",
-        ),
+        // HTTP-only policy export shares the verified security authority. It has
+        // no Method or capability-ledger feature to propagate.
+        ("policy_export", "[\"security\"]"),
     ];
 
     /// Release/aggregate bundles a reserved feature must not appear in. Each is an
@@ -1267,7 +1259,7 @@ mod tests {
         .await;
         assert_ok(&up);
         assert!(
-            matches!(up.result, Some(ResultPayload::PropertiesMsgpack(_))),
+            matches!(up.result, Some(ResultPayload::Raw(_))),
             "union point read must find B across graphs, got {:?}",
             up.result
         );
@@ -1320,10 +1312,7 @@ mod tests {
         )
         .await;
         assert_ok(&um);
-        assert!(matches!(
-            um.result,
-            Some(ResultPayload::PropertiesMsgpack(_))
-        ));
+        assert!(matches!(um.result, Some(ResultPayload::Raw(_))));
     }
 
     // ── SQL query surface (CONCEPT:EG-KG.query.read-only-sql-query) ────────────────────────────

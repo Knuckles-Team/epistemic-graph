@@ -8,7 +8,7 @@
 This maps the engine's footprint from a single Raspberry Pi 4+ node up to an HA `cluster` onto resource footprints so an
 operator can plan capacity: *given N tenants with an average working set, how much RAM /
 how many shards do I need?* It pairs with the runtime **per-tenant memory budget** + the
-**autoscale signals** (`Method::ResourceStats`) that drive the agent-utilities autoscaler
+**autoscale signals** (`Method::ResourceStatsPage`) that drive the agent-utilities autoscaler
 (AU-OS.config.health-gated-deploy-rollback).
 
 ## How the engine spends memory
@@ -62,7 +62,7 @@ budgets sensibly with no tuning. Budgeting cannot be disabled by an environment 
 
 ## Autoscale signals
 
-`Method::ResourceStats` returns a `ResourceSnapshot` in one round-trip — the structured
+`Method::ResourceStatsPage` returns a `ResourceSnapshot` in one round-trip — the structured
 signals an autoscaler needs (also exported on the Prometheus `/metrics` endpoint):
 
 | Signal | Per-graph | Per-tenant | Aggregate |

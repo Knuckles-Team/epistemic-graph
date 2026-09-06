@@ -40,6 +40,10 @@ _PROTOCOL = _ROOT / "crates" / "eg-types" / "src" / "protocol.rs"
 _CLIENT = _ROOT / "epistemic_graph" / "client.py"
 _KNOWLEDGE_STREAM = _ROOT / "crates" / "eg-types" / "src" / "knowledge_stream.rs"
 _BASELINE = Path(__file__).parent / "protocol_unbound_baseline.txt"
+_QUERY_HANDLER = _ROOT / "src" / "server" / "handlers" / "query.rs"
+_RDF_HANDLER = _ROOT / "src" / "server" / "handlers" / "rdf.rs"
+_REDB_STORE = _ROOT / "src" / "redb_store.rs"
+_AMQP_WIRE = _ROOT / "src" / "server" / "amqp_wire" / "mod.rs"
 
 _RETIRED_METHODS = {
     "BatchCosineSimilarity",
@@ -443,6 +447,37 @@ def test_missing_baseline_file_fails_closed_not_crashes(tmp_path, monkeypatch):
     this_module = sys.modules[__name__]
     monkeypatch.setattr(this_module, "_BASELINE", missing)
     assert _baseline_entries() == []
+
+
+def test_raw_result_encoding_has_no_empty_or_panic_fallback():
+    """Every current typed Raw response propagates serializer failures.
+
+    ``unwrap_or_default`` previously converted an encoding error into a
+    successful empty byte string, while ``expect`` converted the same boundary
+    failure into a process panic. Both violate the one fallible Raw contract.
+    """
+    handlers = "\n".join(
+        path.read_text(encoding="utf-8") for path in (_QUERY_HANDLER, _RDF_HANDLER)
+    )
+    assert not re.search(
+        r"rmp_serde::to_vec_named\([^;]*?\)\.unwrap_or_default\(\)",
+        handlers,
+        re.DOTALL,
+    )
+
+    store = _REDB_STORE.read_text(encoding="utf-8")
+    assert not re.search(
+        r"ResultPayload::raw\([^;]+?\)\s*\.(?:expect|unwrap)\(",
+        store,
+        re.DOTALL,
+    )
+
+
+def test_amqp_connection_spawn_is_not_unwrapped():
+    """``tokio::spawn`` returns a JoinHandle directly, never a Result."""
+    source = _AMQP_WIRE.read_text(encoding="utf-8")
+    serve = source[source.index("pub async fn serve(") : source.index("async fn claim_one(")]
+    assert not re.search(r"tokio::spawn\([\s\S]*?\)\s*\.unwrap\(\)", serve)
 
 
 @pytest.mark.skip(reason="diagnostic helper, run manually")

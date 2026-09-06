@@ -56,7 +56,7 @@ async fn handle_union_get_node_properties(
     };
     for c in &cores {
         if let Some(props) = c.get_node_properties(&node_id) {
-            return Response::ok(req_id, ResultPayload::PropertiesMsgpack(props));
+            return Response::ok(req_id, ResultPayload::Raw(props));
         }
     }
     Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null))

@@ -176,7 +176,6 @@ pub(crate) const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("JoinChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("LeaveChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("MultiGraphBatchUpdate", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
-    ("NodeInfoUpsert", "UNASSIGNED", "self-contained ClusterAdmin-domain write (ADR-1/W1.1, like CatalogAssign above); mutates per policy/semantics, but absent from access.rs::requires_write entirely -- it is not graph-scoped and never reaches dispatch_graph_op"),
     ("ObserveDevelopmentLane", "UNASSIGNED", "routes via handlers::development_lane::try_handle to the native development_lane_* redb tables under the raft placement-leader gate"),
     ("PlanMatViewDefine", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("PlanMatViewDrop", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),

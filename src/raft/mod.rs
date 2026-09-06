@@ -342,14 +342,11 @@ impl SanitizedModalityResult {
             ),
         )
         .map_err(|_| "sanitized modality Raft result is malformed".to_string())?;
-        // `ResultPayload` is intentionally untagged and its two byte variants
-        // (`Raw` and `PropertiesMsgpack`) are wire-identical. Serde therefore
-        // may select either name when decoding a committed bin. The canonical
-        // modality contract is the bounded inner outcome schema below, not the
-        // non-existent enum discriminant; all non-byte payloads remain invalid.
+        // `ResultPayload` is intentionally untagged. The canonical modality
+        // contract is the bounded inner outcome schema below; all non-byte
+        // payloads remain invalid.
         let outcome_bytes = match payload {
-            crate::protocol::ResultPayload::Raw(bytes)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(bytes) => bytes,
+            crate::protocol::ResultPayload::Raw(bytes) => bytes,
             _ => {
                 return Err("sanitized modality Raft result has the wrong payload type".to_string())
             }
@@ -393,13 +390,13 @@ impl SanitizedModalityResult {
 
     fn to_wire(&self) -> Result<Vec<u8>, String> {
         self.validate()?;
-        let payload = self.response_payload();
+        let payload = self.response_payload()?;
         rmp_serde::to_vec_named(&payload).map_err(|_| {
             "sanitized modality Raft result could not be canonically encoded".to_string()
         })
     }
 
-    fn response_payload(&self) -> crate::protocol::ResultPayload {
+    fn response_payload(&self) -> Result<crate::protocol::ResultPayload, String> {
         match self.kind {
             SanitizedModalityResultKind::Single => {
                 crate::protocol::ResultPayload::raw(&self.outcomes[0])
@@ -433,7 +430,7 @@ pub(crate) fn decode_sanitized_modality_result(
     result_msgpack: &[u8],
 ) -> Result<crate::protocol::ResultPayload, String> {
     let result = SanitizedModalityResult::from_wire(modality, operation, result_msgpack)?;
-    Ok(result.response_payload())
+    result.response_payload()
 }
 
 /// A Raft-log-safe modality command. Native decoding and policy checks happen on
@@ -662,7 +659,7 @@ mod sanitized_modality_command_tests {
             observation_version: 1,
             event_sequence: 1,
         };
-        rmp_serde::to_vec_named(&crate::protocol::ResultPayload::raw(&outcome)).unwrap()
+        rmp_serde::to_vec_named(&crate::protocol::ResultPayload::raw(&outcome).unwrap()).unwrap()
     }
 
     fn stream_result() -> Vec<u8> {
@@ -678,7 +675,7 @@ mod sanitized_modality_command_tests {
                 event_sequence: 2,
             },
         ];
-        rmp_serde::to_vec_named(&crate::protocol::ResultPayload::raw(&outcomes)).unwrap()
+        rmp_serde::to_vec_named(&crate::protocol::ResultPayload::raw(&outcomes).unwrap()).unwrap()
     }
 
     #[test]

@@ -37,6 +37,19 @@ use crate::server::access::GraphReadAuthority;
 #[cfg(feature = "result-cache")]
 use eg_core::result_cache::ResultCache;
 
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+fn raw_result_bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, String> {
+    let ResultPayload::Raw(bytes) = ResultPayload::raw(value)? else {
+        unreachable!("ResultPayload::raw always constructs the Raw variant")
+    };
+    Ok(bytes)
+}
+
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+fn raw_response<T: serde::Serialize>(req_id: u64, value: &T) -> Response {
+    Response::ok(req_id, ResultPayload::raw(value))
+}
+
 /// Verify that Cypher's explicit wire mode agrees with the native parser.
 ///
 /// The mode is an authorization and durability claim, not a parser hint. Callers
@@ -578,18 +591,16 @@ async fn handle_sql_with_lease(
     })
     .await
     {
-        Ok(Ok(typed)) => {
-            let result = crate::protocol::QueryResult {
-                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                rows: typed
-                    .rows
-                    .iter()
-                    .map(|r| rmp_serde::to_vec_named(r).unwrap_or_default())
-                    .collect(),
-            };
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
+            Ok(rows) => raw_response(
+                req_id,
+                &crate::protocol::QueryResult {
+                    columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                    rows,
+                },
+            ),
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
         Err(resp) => resp,
     };
@@ -631,10 +642,7 @@ async fn handle_unified_query_text_with_lease(
     )
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(rows)) => raw_response(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -805,18 +813,16 @@ async fn handle_sql(
             })
             .await
             {
-                Ok(Ok(typed)) => {
-                    let result = crate::protocol::QueryResult {
-                        columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                        rows: typed
-                            .rows
-                            .iter()
-                            .map(|r| rmp_serde::to_vec_named(r).unwrap_or_default())
-                            .collect(),
-                    };
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
+                Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
+                    Ok(rows) => raw_response(
+                        req_id,
+                        &crate::protocol::QueryResult {
+                            columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                            rows,
+                        },
+                    ),
+                    Err(error) => Response::err(req_id, error),
+                },
                 Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
                 Err(resp) => resp,
             };
@@ -863,7 +869,10 @@ async fn handle_unified_query(
     let dep = plan_dependency_set(&plan);
     #[cfg(feature = "result-cache")]
     let (snap, version, hash) = {
-        let mut payload = rmp_serde::to_vec_named(&plan).unwrap_or_default();
+        let mut payload = match raw_result_bytes(&plan) {
+            Ok(payload) => payload,
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
         #[cfg(feature = "tsdb")]
         if let Some((tenant, graph)) = tsdb_scope.as_ref() {
             payload.extend_from_slice(tenant.as_bytes());
@@ -937,20 +946,22 @@ async fn handle_unified_query(
     )
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            #[cfg(feature = "result-cache")]
-            match &dep {
-                // Dependency-scoped store: computed against `version`, tagged with the
-                // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
-                Some(deps) => {
-                    core.result_cache()
-                        .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+        Ok(Ok(rows)) => match raw_result_bytes(&rows) {
+            Ok(bytes) => {
+                #[cfg(feature = "result-cache")]
+                match &dep {
+                    // Dependency-scoped store: computed against `version`, tagged with the
+                    // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
+                    Some(deps) => {
+                        core.result_cache()
+                            .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+                    }
+                    None => core.result_cache().put(hash, version, bytes.clone()),
                 }
-                None => core.result_cache().put(hash, version, bytes.clone()),
+                Response::ok(req_id, ResultPayload::Raw(bytes))
             }
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -1052,20 +1063,22 @@ async fn handle_unified_query_text(
     )
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            #[cfg(feature = "result-cache")]
-            match &dep {
-                // Dependency-scoped store: computed against `version`, tagged with the
-                // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
-                Some(deps) => {
-                    core.result_cache()
-                        .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+        Ok(Ok(rows)) => match raw_result_bytes(&rows) {
+            Ok(bytes) => {
+                #[cfg(feature = "result-cache")]
+                match &dep {
+                    // Dependency-scoped store: computed against `version`, tagged with the
+                    // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
+                    Some(deps) => {
+                        core.result_cache()
+                            .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+                    }
+                    None => core.result_cache().put(hash, version, bytes.clone()),
                 }
-                None => core.result_cache().put(hash, version, bytes.clone()),
+                Response::ok(req_id, ResultPayload::Raw(bytes))
             }
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -1103,10 +1116,7 @@ async fn handle_explain_plan(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainPlan error: {msg}")),
         Err(resp) => resp,
     };
@@ -1140,10 +1150,7 @@ async fn handle_explain_provenance(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenance error: {msg}")),
         Err(resp) => resp,
     };
@@ -1176,10 +1183,7 @@ async fn handle_explain_provenance_by_ids(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenanceByIds error: {msg}")),
         Err(resp) => resp,
     };
@@ -1217,10 +1221,7 @@ async fn handle_explain_policy(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainPolicy error: {msg}")),
         Err(resp) => resp,
     };
@@ -1248,10 +1249,7 @@ async fn handle_explain_belief(
     let rls = rls.clone();
     let resp = match disclosure_level {
         None => match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-            Ok(result) => {
-                let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                Response::ok(req_id, ResultPayload::Raw(bytes))
-            }
+            Ok(result) => raw_response(req_id, &result),
             Err(resp) => resp,
         },
         Some(cap) => {
@@ -1260,10 +1258,7 @@ async fn handle_explain_belief(
             })
             .await
             {
-                Ok(result) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
+                Ok(result) => raw_response(req_id, &result),
                 Err(resp) => resp,
             }
         }
@@ -1293,10 +1288,7 @@ async fn handle_explain_belief(
     }
     let snap = core.analysis_snapshot();
     let resp = match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1313,10 +1305,7 @@ async fn handle_epistemic_status(
     let snap = core.analysis_snapshot();
     let resp = match compute_off_lock(req_id, move || epistemic_status_wire(&node_id, &snap)).await
     {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1335,10 +1324,7 @@ async fn handle_what_changed(
     let snap = core.analysis_snapshot();
     let resp =
         match compute_off_lock(req_id, move || what_changed_wire(&snap, tx_from, tx_to)).await {
-            Ok(result) => {
-                let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                Response::ok(req_id, ResultPayload::Raw(bytes))
-            }
+            Ok(result) => raw_response(req_id, &result),
             Err(resp) => resp,
         };
     Ok(resp)
@@ -1410,8 +1396,10 @@ async fn handle_recompute_materialization(
             fence_epoch: 0,
             projection_pending: true,
         };
-        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-        let payload = ResultPayload::Raw(bytes.clone());
+        let payload = match ResultPayload::raw(&result) {
+            Ok(payload) => payload,
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
         let batch_id = crate::server::mutation_batch::opaque_request_key(
             "reasoning-recompute",
             graph_name,
@@ -1432,7 +1420,7 @@ async fn handle_recompute_materialization(
         {
             return Ok(Response::err(req_id, error));
         }
-        return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+        return Ok(Response::ok(req_id, payload));
     }
     let authoritative_graph_version = core.version();
     let snap = core.analysis_snapshot();
@@ -1460,8 +1448,7 @@ async fn handle_recompute_materialization(
         fence_epoch,
         projection_pending: false,
     };
-    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+    Ok(raw_response(req_id, &result))
 }
 
 // Read-only status lookup on the durable per-graph projection.
@@ -1489,8 +1476,7 @@ async fn handle_materialization_status(
         status: status.map(|status| format!("{status:?}")),
         source_graph_version,
     };
-    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+    Ok(raw_response(req_id, &result))
 }
 
 // Bulk "what's stale" read on the same durable per-graph projection.
@@ -1514,8 +1500,7 @@ async fn handle_stale_materializations(ctx: &QueryHandlerCtx<'_>) -> Result<Resp
         ids,
         source_graph_version,
     };
-    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+    Ok(raw_response(req_id, &result))
 }
 
 // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
@@ -1549,10 +1534,7 @@ async fn handle_resolve_conflict(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ResolveConflict error: {msg}")),
         Err(resp) => resp,
     };
@@ -1595,10 +1577,7 @@ async fn handle_explain_evidence(
     })
     .await
     {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1620,10 +1599,7 @@ async fn handle_explain_evidence(
     rls.filter_view(caller, &mut snap);
     let resp = match compute_off_lock(req_id, move || explain_evidence_wire(&node_id, &snap)).await
     {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1646,10 +1622,7 @@ async fn handle_causal_estimate(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
         Err(resp) => resp,
     };
@@ -1673,10 +1646,7 @@ async fn handle_causal_counterfactual(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("CausalCounterfactual error: {msg}")),
         Err(resp) => resp,
     };
@@ -1698,10 +1668,7 @@ async fn handle_rank_by_provenance(
     })
     .await
     {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1889,10 +1856,7 @@ async fn handle_nl_query(
     })
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(rows)) => raw_response(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -1970,14 +1934,11 @@ async fn handle_graphql_commit_txn(
     )
     .await;
     let resp = match committed {
-        Ok(committed) => Response::ok(
+        Ok(committed) => raw_response(
             req_id,
-            ResultPayload::Raw(
-                rmp_serde::to_vec_named(&serde_json::json!({
-                    "data": {"commitTransaction": {"committed": committed}}
-                }))
-                .unwrap_or_default(),
-            ),
+            &serde_json::json!({
+                "data": {"commitTransaction": {"committed": committed}}
+            }),
         ),
         Err(msg) => Response::err(req_id, format!("GraphQL commitTransaction error: {msg}")),
     };
@@ -2006,10 +1967,7 @@ async fn handle_graphql_staging_mutation(
     })
     .await
     {
-        Ok(Ok(value)) => Response::ok(
-            req_id,
-            ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
-        ),
+        Ok(Ok(value)) => raw_response(req_id, &value),
         Ok(Err(msg)) => Response::err(req_id, format!("GraphQL cross-modal error: {msg}")),
         Err(resp) => resp,
     };
@@ -2030,10 +1988,7 @@ async fn handle_graphql_plain_mutation(
     })
     .await
     {
-        Ok(Ok(value)) => Response::ok(
-            req_id,
-            ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
-        ),
+        Ok(Ok(value)) => raw_response(req_id, &value),
         Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
         Err(resp) => resp,
     };
@@ -2135,12 +2090,14 @@ async fn handle_graphql(
     })
     .await
     {
-        Ok(Ok(value)) => {
-            let bytes = rmp_serde::to_vec_named(&value).unwrap_or_default();
-            #[cfg(feature = "result-cache")]
-            core.result_cache().put(hash, version, bytes.clone());
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(value)) => match raw_result_bytes(&value) {
+            Ok(bytes) => {
+                #[cfg(feature = "result-cache")]
+                core.result_cache().put(hash, version, bytes.clone());
+                Response::ok(req_id, ResultPayload::Raw(bytes))
+            }
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
         Err(resp) => resp,
     };
@@ -2157,10 +2114,7 @@ async fn handle_graphql(
 async fn handle_cypher_write(req_id: u64, core: Arc<GraphCore>, query: String) -> Response {
     let core_w = core.clone();
     match compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query)).await {
-        Ok(Ok(result)) => Response::ok(
-            req_id,
-            ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-        ),
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     }
@@ -2307,20 +2261,19 @@ async fn handle_cypher_query(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            core.result_cache().put(hash, version, bytes.clone());
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => match raw_result_bytes(&result) {
+            Ok(bytes) => {
+                core.result_cache().put(hash, version, bytes.clone());
+                Response::ok(req_id, ResultPayload::Raw(bytes))
+            }
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     };
     #[cfg(not(feature = "result-cache"))]
     let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query)).await {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     };
@@ -4493,10 +4446,7 @@ async fn run_unified_overlaid(
     })
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(rows)) => raw_response(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     }
@@ -5349,17 +5299,15 @@ fn sql_write_ack(
 ) -> Response {
     match outcome {
         Ok(Ok(n)) => {
+            let row = match raw_result_bytes(&vec![serde_json::Value::from(n as u64)]) {
+                Ok(row) => row,
+                Err(error) => return Response::err(req_id, error),
+            };
             let result = crate::protocol::QueryResult {
                 columns: vec![tag.to_string()],
-                rows: vec![
-                    rmp_serde::to_vec_named(&vec![serde_json::Value::from(n as u64)])
-                        .unwrap_or_default(),
-                ],
+                rows: vec![row],
             };
-            Response::ok(
-                req_id,
-                ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-            )
+            raw_response(req_id, &result)
         }
         Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
         Err(resp) => resp,

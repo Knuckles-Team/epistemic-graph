@@ -521,6 +521,7 @@ fn native_route_target(
         }
         // Ordered by the placement group, not by any data graph.
         NativeMutationCommand::ClusterAdmin { .. }
+        | NativeMutationCommand::NodeInfo { .. }
         | NativeMutationCommand::Transaction { .. }
         | NativeMutationCommand::SessionControl { .. } => {
             crate::raft::placement::PLACEMENT_GRAPH.to_string()

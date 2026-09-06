@@ -102,7 +102,7 @@ fn decode_raw<T: serde::de::DeserializeOwned>(response: &Response, label: &str) 
         "{label} returned an error: {response:?}"
     );
     let bytes = match response.result.as_ref() {
-        Some(ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) => bytes,
+        Some(ResultPayload::Raw(bytes)) => bytes,
         other => panic!("{label} did not return a typed byte result: {other:?}"),
     };
     eg_types::msgpack::decode_bounded(

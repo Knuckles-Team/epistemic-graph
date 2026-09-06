@@ -529,7 +529,7 @@ mod modality_replay_receipt_tests {
             observation_version: 11,
             event_sequence: 17,
         };
-        rmp_serde::to_vec_named(&ResultPayload::raw(&outcome)).unwrap()
+        rmp_serde::to_vec_named(&ResultPayload::raw(&outcome).unwrap()).unwrap()
     }
 
     fn stream_wire() -> Vec<u8> {
@@ -545,7 +545,7 @@ mod modality_replay_receipt_tests {
                 event_sequence: 18,
             },
         ];
-        rmp_serde::to_vec_named(&ResultPayload::raw(&outcomes)).unwrap()
+        rmp_serde::to_vec_named(&ResultPayload::raw(&outcomes).unwrap()).unwrap()
     }
 
     #[test]
@@ -556,7 +556,7 @@ mod modality_replay_receipt_tests {
             &single_wire(),
         )
         .unwrap();
-        let (ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) = payload else {
+        let ResultPayload::Raw(bytes) = payload else {
             panic!("typed replay receipt must remain a compact byte payload");
         };
         let outcome: eg_modality::ApplyOutcome = rmp_serde::from_slice(&bytes).unwrap();
@@ -572,7 +572,7 @@ mod modality_replay_receipt_tests {
             &stream_wire(),
         )
         .unwrap();
-        let (ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) = payload else {
+        let ResultPayload::Raw(bytes) = payload else {
             panic!("typed replay receipt must remain a compact byte payload");
         };
         let outcomes: Vec<eg_modality::ApplyOutcome> = rmp_serde::from_slice(&bytes).unwrap();
@@ -608,7 +608,8 @@ mod modality_replay_receipt_tests {
             event_sequence: 1,
         };
         let oversized = vec![outcome; 65];
-        let oversized_wire = rmp_serde::to_vec_named(&ResultPayload::raw(&oversized)).unwrap();
+        let oversized_wire =
+            rmp_serde::to_vec_named(&ResultPayload::raw(&oversized).unwrap()).unwrap();
         assert!(crate::raft::decode_sanitized_modality_result(
             eg_types::ServedModalityKind::Document,
             crate::raft::SanitizedModalityMutation::IngestStream,
@@ -2340,15 +2341,6 @@ async fn route_gateway_and_stateless_domains(
     // straight through to graph_ops (whose catch-all reports "not available").
     #[cfg(feature = "finance")]
     let method = match handlers::finance::try_handle(req_id, method) {
-        Ok(r) => return Ok(r),
-        Err(m) => m,
-    };
-    // Native TTS synthesis (GOC-34, `OWNER-VOICE-TTS`): stateless, like finance
-    // above. `caller` is already the verified eg2-authenticated principal in
-    // scope at this point — see `handlers::tts`'s own doc for exactly how (and
-    // how far) that maps to the frozen contract's `PolicyDecision`.
-    #[cfg(feature = "tts-piper")]
-    let method = match handlers::tts::try_handle(req_id, caller, method) {
         Ok(r) => return Ok(r),
         Err(m) => m,
     };

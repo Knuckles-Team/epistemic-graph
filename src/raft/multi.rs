@@ -416,7 +416,7 @@ fn loopback_endpoint(endpoint: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// One node's self-report for `Method::NodeInfoUpsert` (ADR-1 / W1.1).
+/// One node's engine-owned topology self-report (ADR-1 / W1.1).
 ///
 /// A struct, not eleven positional parameters. Four of them are `Option<String>`
 /// or `Option<u64>` and three are plain `String` addresses, so any two adjacent
@@ -1689,7 +1689,7 @@ impl MultiRaft {
         } = info;
         self.ensure_group(DEFAULT_GROUP).await?;
         let server_secret = self.ctx.state.read().await.auth_secret.clone();
-        let method = Method::NodeInfoUpsert {
+        let info = crate::server::persistence::node_info_store::NodeInfo {
             cluster_id,
             node_id,
             member_identity,
@@ -1701,9 +1701,7 @@ impl MultiRaft {
             certificate_not_before_ms,
             certificate_not_after_ms,
         };
-        let command =
-            crate::raft::NativeMutationCommand::from_public_method(method, &server_secret)
-                .map_err(|_| "node info command has no bounded native domain".to_string())?;
+        let command = crate::raft::NativeMutationCommand::node_info(&info, &server_secret)?;
         let req = RaftRequest {
             graph_fname: crate::persist::sanitize(placement::PLACEMENT_GRAPH),
             graph_name: placement::PLACEMENT_GRAPH.to_string(),

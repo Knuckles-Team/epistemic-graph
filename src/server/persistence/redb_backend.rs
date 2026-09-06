@@ -6268,7 +6268,7 @@ mod tests {
         // RAM-miss read of the recreated graph.
         let r = dispatch_on_heap(&state, get(8, "stale")).await;
         let stale = match r.result {
-            Some(ResultPayload::PropertiesMsgpack(b)) => Some(b),
+            Some(ResultPayload::Raw(b)) => Some(b),
             Some(ResultPayload::Json(serde_json::Value::Null)) | None => None,
             other => panic!("unexpected get result: {other:?}"),
         };
@@ -6280,7 +6280,7 @@ mod tests {
         // And n1 reads back as the NEW write {v:2}.
         let r = dispatch_on_heap(&state, get(9, "n1")).await;
         let got = match r.result {
-            Some(ResultPayload::PropertiesMsgpack(b)) => Some(b),
+            Some(ResultPayload::Raw(b)) => Some(b),
             Some(ResultPayload::Json(serde_json::Value::Null)) | None => None,
             other => panic!("unexpected get result: {other:?}"),
         };
@@ -6455,7 +6455,7 @@ mod tests {
                 )
                 .await;
                 let got = match r.result {
-                    Some(ResultPayload::PropertiesMsgpack(b)) => Some(b),
+                    Some(ResultPayload::Raw(b)) => Some(b),
                     Some(ResultPayload::Json(serde_json::Value::Null)) | None => None,
                     other => panic!("cycle {cycle} unexpected get result: {other:?}"),
                 };

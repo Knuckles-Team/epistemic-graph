@@ -83,7 +83,7 @@ fn handle_get_node_properties(
 ) -> Response {
     let g = &**core;
     let val = match g.get_node_properties(node_id) {
-        Some(props_msgpack) => ResultPayload::PropertiesMsgpack(props_msgpack),
+        Some(props_msgpack) => ResultPayload::Raw(props_msgpack),
         // The RLS projection is RAM-topology-only and can never see a node
         // `EvictLRU` fully evicted from the live topology (see `raw_core`'s
         // doc comment above) — fall back to the RAW core, whose
@@ -99,7 +99,7 @@ fn handle_get_node_properties(
                 if read_authority
                     .can_see_node(&props_msgpack, raw_core.is_schema_node(node_id)) =>
             {
-                ResultPayload::PropertiesMsgpack(props_msgpack)
+                ResultPayload::Raw(props_msgpack)
             }
             _ => ResultPayload::Json(serde_json::Value::Null),
         },

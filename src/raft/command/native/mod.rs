@@ -70,6 +70,11 @@ pub enum NativeMutationCommand {
         coordinator_id: String,
         sealed_receipt: SealedNativeMethod,
     },
+    /// Engine-owned cluster-node self-report. This is intentionally not a public
+    /// wire [`Method`]: only Raft startup can construct the typed command.
+    NodeInfo {
+        sealed_info: SealedNativeMethod,
+    },
     /// Graph-adjacent state whose deterministic kernel is not `GraphCore` alone
     /// (query catalogs, ICV policy, or an explicitly materialized state image).
     GraphState {
@@ -157,6 +162,7 @@ macro_rules! native_command_layout {
                 JobPublicationCommit => Some(NativeMutationDomain::AnalyticsJob);
                 #[cfg(feature = "jobs")]
                 JobPublicationFinalize => Some(NativeMutationDomain::AnalyticsJob);
+                NodeInfo => Some(NativeMutationDomain::ClusterAdmin);
             }
             sealed {
                 GraphState => NativeMutationDomain::GraphState;
@@ -272,6 +278,7 @@ fn validate_command_shape(command: &NativeMutationCommand) -> Result<(), String>
             validate_coordinator(coordinator_id, "job publication coordinator is invalid")?;
             sealed_plan.validate_shape()
         }
+        NativeMutationCommand::NodeInfo { sealed_info } => sealed_info.validate_shape(),
         _ => sealed_method(command).map_or(Ok(()), SealedNativeMethod::validate_shape),
     }
 }
@@ -329,6 +336,9 @@ impl NativeMutationCommand {
             Self::JobPublicationCommit { .. } | Self::JobPublicationFinalize { .. } => {
                 self.open_job_publication_payload(server_secret)?;
             }
+            Self::NodeInfo { .. } => {
+                self.open_node_info(server_secret)?;
+            }
             _ => {
                 self.open_public_method(server_secret)?
                     .ok_or_else(|| "native history command is not replayable".to_string())?;
@@ -359,6 +369,27 @@ impl NativeMutationCommand {
         };
         validate_command_shape(&command)?;
         Ok(command)
+    }
+
+    pub(crate) fn node_info(
+        info: &crate::server::persistence::node_info_store::NodeInfo,
+        server_secret: &str,
+    ) -> Result<Self, String> {
+        let command = Self::NodeInfo {
+            sealed_info: SealedNativeMethod::seal_value(server_secret, info)?,
+        };
+        command.validate_shape()?;
+        Ok(command)
+    }
+
+    pub(crate) fn open_node_info(
+        &self,
+        server_secret: &str,
+    ) -> Result<crate::server::persistence::node_info_store::NodeInfo, String> {
+        match self {
+            Self::NodeInfo { sealed_info } => sealed_info.open_value(server_secret),
+            _ => Err("command is not a cluster node-info self-report".to_string()),
+        }
     }
 
     pub(crate) fn open_transaction_plan(

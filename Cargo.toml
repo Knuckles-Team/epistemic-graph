@@ -432,16 +432,11 @@ viz-gpu-export = ["viz"]
 # (acceptance gate: "the default EG listener builds and starts without ORT, eSpeak,
 # decoder, or other heavy native worker dependencies"). So, like `viz`/`durable`/
 # `quantum` above, `tts-piper` is deliberately EXCLUDED from `full` -- confirmed by
-# `cargo tree` (no ort/espeak-rs-sys hit without `--features tts-piper`). Unlike bare
-# `viz` (contracts only, no handler yet), this DOES wire a real `Method::TtsSynthesize`
-# handler (`src/server/handlers/tts.rs`), so it pulls `server` directly rather than
-# needing a separate `-static-export`-style second tier. `eg-capabilities?/tts-piper`
-# is the same WEAK-dep lockstep edge `viz` uses (Cargo `pkg?/feature` syntax), keeping
-# `policy()`'s exhaustive `Method` match in sync whenever both happen to be linked.
+# `cargo tree` (no ort/espeak-rs-sys hit without `--features tts-piper`). This feature
+# exposes only the internal provider library. No public synthesis method is served
+# until the accepted CAS-backed job/consent contract exists.
 tts-piper = [
-    "server",
     "dep:eg-tts-piper", "dep:eg-audio", "eg-audio/tts",
-    "eg-types/tts-piper", "eg-capabilities?/tts-piper",
 ]
 # D-VZ-1 lane V1: the ColumnStore (canonical columns, zone maps, content-addressed
 # chunks, validity bitmaps, dictionary categoricals) implementing `eg-viz-core`'s
@@ -760,12 +755,12 @@ cold-tier-s3 = ["cold-tier", "blob-s3"]
 # (durability-gated LRU, reusing the KG-2.191 path) and hibernated (KG-2.224) until it
 # is back under cap, with a global memory ceiling + fair per-tenant caps so one hot
 # tenant cannot starve others. Surfaces the autoscaler-facing signals an external
-# autoscaler (agent-utilities OS-5.27) consumes via a `ResourceStats` Method + the
+# autoscaler (agent-utilities OS-5.27) consumes via `ResourceStatsPage` + the
 # Prometheus metrics endpoint. PURE-RUST (no DataFusion/openraft/object_store — the
 # enforcer is a periodic sweep over the registry + the existing evict/hibernate ops),
 # included in the one main build. Needs `server` (the
-# budget enforcer + ResourceStats handler live on ServerState + the dispatch path);
-# `eg-types/cost` carries the `ResourceStats` Method + the snapshot wire DTOs.
+# budget enforcer + ResourceStatsPage handler live on ServerState + the dispatch path);
+# `eg-types/cost` carries `ResourceStatsPage` + the snapshot wire DTOs.
 cost = ["server", "eg-types/cost"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
 # HA cluster replicating its AUTHORITATIVE state via openraft. It is included only in
@@ -1226,14 +1221,12 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # Security is mandatory in the one main `full` build and remains present in both
 # source-built layers.
 security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-# RLS marking-predicate export (CA-16), off by default. Declared EMPTY here by CA-17's
-# single feature-stub commit; CA-16 extends this ONE line (never any other line in this
-# table) to thread its `Method::PolicyExport` variant through in lockstep, the same
-# `eg-types/eg-capabilities` weak-dep pattern `viz`/`quantum-agent-api`/`asr-whisper`
-# already use -- see those crates' own Cargo.toml comments. Implies `security`.
+# RLS marking-predicate export (CA-16), off by default. This is one authenticated
+# HTTP implementation (`/policy/export`), not a duplicate unbound MessagePack method.
+# Implies `security` for the shared verified-identity authority.
 # Underscore, not hyphen, so the feature name and its module path
 # `src/server/policy_export/` are the same identifier.
-policy_export = ["security", "eg-types/policy_export", "eg-capabilities?/policy_export"]
+policy_export = ["security"]
 # Shared OIDC/JWKS bearer-token verification core (`src/server/oidc.rs`):
 # RSA-signature-against-JWKS, issuer/audience/expiry, Keycloak-compatible. A small,
 # dependency-bounded feature so the RSA/JWT crates are linked exactly once and reused

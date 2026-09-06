@@ -109,11 +109,7 @@ fn work_item_result_bytes_preserve_projection_refresh_ids() {
     let expected = vec!["work:one".to_string(), "work:two".to_string()];
 
     assert_eq!(
-        changed_work_item_ids(&ResultPayload::Raw(bytes.clone()), true).unwrap(),
-        expected
-    );
-    assert_eq!(
-        changed_work_item_ids(&ResultPayload::PropertiesMsgpack(bytes), true).unwrap(),
+        changed_work_item_ids(&ResultPayload::Raw(bytes), true).unwrap(),
         expected
     );
     assert_eq!(

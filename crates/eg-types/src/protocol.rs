@@ -18,9 +18,7 @@ where
     Option::<T>::deserialize(deserializer)
 }
 
-/// Default page size for the bounded ResourceStats extension.  The legacy
-/// unit variant remains a compatibility entry point, but it now has this same
-/// finite page bound rather than silently materializing every resident graph.
+/// Default page size for the bounded ResourceStats surface.
 #[cfg(feature = "cost")]
 fn default_resource_stats_limit() -> usize {
     128
@@ -1537,7 +1535,7 @@ pub enum Method {
     // Engine-authoritative client-side cluster discovery, replacing the static
     // hand-maintained `GRAPH_RAFT_GROUP_ENDPOINTS` map (`reports/wave1/ADR-scale-trio.md`
     // §ADR-1). Each node self-reports its own `{node_id, raft_addr,
-    // advertised_client_addr, tls_server_name}` via `NodeInfoUpsert`; every node's
+    // advertised_client_addr, tls_server_name}` via an internal typed Raft command; every node's
     // durable copy converges because the SAME committed log entry applies
     // deterministically on every replica (see
     // `server::persistence::node_info_store` docs) -- the SAME replication story
@@ -1559,34 +1557,9 @@ pub enum Method {
     /// well-formed empty topology rather than an error. The Python client rejects
     /// unsigned, wrong-cluster, stale, or differently bound snapshots.
     ClusterMembers,
-    /// Self-report this node's identity into the durable, Raft-replicated cluster
-    /// topology (CONCEPT:EG-KG.sharding.cluster-topology). Issued by each node at Raft startup
-    /// (`raft::node::start`), never by an ordinary client. `advertised_client_addr`
-    /// is this node's client-reachable address for the served wire protocol
-    /// (`EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR`); `tls_server_name` is the
-    /// optional TLS SNI/cert hostname a client should verify when connecting to it.
-    /// Idempotent (a repeat upsert for the same `node_id` simply overwrites its
-    /// row). Raft/cluster only; a non-raft build returns a typed "not available"
-    /// error. Returns `Bool` on success.
-    NodeInfoUpsert {
-        /// Stable cluster identity derived from the configured Raft authority.
-        cluster_id: String,
-        node_id: u64,
-        /// Stable, cluster-scoped identity for this node. Endpoint/certificate
-        /// rotation must never change it.
-        member_identity: String,
-        raft_addr: String,
-        advertised_client_addr: String,
-        tls_server_name: Option<String>,
-        certificate_id: Option<String>,
-        certificate_rotation_epoch: u64,
-        certificate_not_before_ms: Option<u64>,
-        certificate_not_after_ms: Option<u64>,
-    },
-
     // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────
     // Push-registration + lease-TTL heartbeat for fleet MCP/agent servers, writing
-    // REAL, queryable knowledge-graph `:Server` nodes -- unlike `NodeInfoUpsert`
+    // REAL, queryable knowledge-graph `:Server` nodes -- unlike the internal topology rows
     // above (deliberately NOT graph nodes, the placement O(N)-scan lesson), a
     // `:Server` node IS a first-class KG entity the fleet queries (`MATCH
     // (s:Server)-[:PROVIDES]->(r:CallableResource)`), the SAME shape
@@ -1614,7 +1587,7 @@ pub enum Method {
     /// `lease_expires_at_ms`/`last_heartbeat_ms` from its own clock — it never
     /// trusts a caller-supplied timestamp. Re-calling with the SAME `name`
     /// renews the lease (a heartbeat is just a repeat `RegisterServer` call) and
-    /// refreshes every other field, exactly like `NodeInfoUpsert`'s self-report
+    /// refreshes every other field, exactly like the internal topology self-report
     /// semantics; `registered_at_ms` is preserved from the prior row if one
     /// exists. A periodic engine sweep expires (removes) a `:Server` node whose
     /// lease has lapsed, emitting a CDC `RemoveNode` event. Returns `Bool` on
@@ -1742,23 +1715,11 @@ pub enum Method {
     },
 
     // ── Cost / Efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────────
-    /// Return a structured resource snapshot for autoscaling: per-graph + per-tenant
-    /// resident memory, node/edge counts, queue depth / in-flight, hibernated-vs-
-    /// resident counts, eviction rate, plus a process-wide aggregate. The signals an
-    /// external autoscaler (agent-utilities OS-5.27) consumes to scale shards. Read
-    /// via `ResultPayload::Json` (a `ResourceSnapshot`). The response is always
-    /// bounded to the protocol's default page size; use `ResourceStatsPage` for an
-    /// explicit keyset cursor, finite limit, or summary-only response. Gated by
-    /// `cost`; a build without it falls to the dispatch "not available" catch-all.
-    #[cfg(feature = "cost")]
-    ResourceStats,
     /// Return one bounded, ACL-filtered ResourceStats page. `cursor` is an opaque
     /// exclusive graph-name key from the previous response's `next_cursor`; `limit`
     /// must be between one and the server's finite maximum; `summary` suppresses all
     /// per-graph/per-tenant arrays while retaining aggregate counters.  The body is
-    /// deliberately separate from the legacy unit `ResourceStats` variant so older
-    /// clients keep their exact request/MAC wire shape while receiving the bounded
-    /// default rather than an unbounded result.
+    /// the only current resource-statistics request shape.
     #[cfg(feature = "cost")]
     ResourceStatsPage {
         #[serde(default)]
@@ -2458,28 +2419,6 @@ pub enum Method {
     #[cfg(feature = "viz")]
     Viz {
         op: crate::viz::VizOp,
-    },
-
-    // ── Native TTS synthesis (GOC-34, `OWNER-VOICE-TTS`) ───────────────
-    /// Native Piper-ONNX text-to-speech synthesis. `request_msgpack` is a governed
-    /// `tts.request.v1` (`eg_audio::tts::TtsRequest`, MessagePack-encoded), validated
-    /// via `eg_audio::tts::validate_request` before any model/audio byte is touched;
-    /// `input_bytes` is the raw UTF-8 text/phoneme payload the request's
-    /// `SensitiveInput.input_digest` describes — the handler independently re-hashes
-    /// it and refuses a mismatch. Wire DTOs live in `eg-types` per the "wire DTOs
-    /// live in eg-types, behavior lives upstream" workspace convention, but the rich
-    /// `tts.*` DTO family is deliberately owned ONLY by `eg-audio::tts` (this crate
-    /// stays at the bottom of the DAG and links no `eg-audio`), so this variant
-    /// carries opaque bytes rather than a duplicated typed field — the facade
-    /// handler (which DOES depend on `eg-audio`) decodes them. `input_bytes` is an
-    /// explicit interim carrier for the sensitive text/phoneme bytes: GOC-05's real
-    /// CAS-backed `SensitiveInputRef` resolution is a follow-up, not yet built.
-    #[cfg(feature = "tts-piper")]
-    TtsSynthesize {
-        #[serde(with = "serde_bytes")]
-        request_msgpack: Vec<u8>,
-        #[serde(with = "serde_bytes")]
-        input_bytes: Vec<u8>,
     },
 
     // ── Query (SQL + Cypher) ──────────────────────────────────────────
@@ -4803,43 +4742,6 @@ pub enum Method {
         #[serde(default)]
         as_claim: bool,
     },
-
-    /// Export the M1 (row-visibility) policy bundle (CA-16, DEC-CA-04,
-    /// feature `policy_export`, off by default). Renders
-    /// `crate_eg_core::isolation::IsolationLayer`'s live `_owner`/`_visibility`/
-    /// `_grants` row-visibility predicate set (and ONLY that mechanism -- see
-    /// `plans/company-architecture/decisions/DEC-CA-04-*.md`'s mechanism table,
-    /// M2-M9 are out of scope) plus a caller-supplied Marking->predicate bridge
-    /// as one JSON bundle scoped to `tenant`. `marking_names` is a
-    /// caller-supplied input (eg has no native Marking registry -- see
-    /// `server::policy_export`'s module doc). The bundle's `caller` block is
-    /// NOT caller-supplied: the handler derives it from the calling principal's
-    /// OWN live-token-verified claims, so an exported bundle describes exactly
-    /// one subject and never a population a caller named. `graphs` MUST be
-    /// sourced by the caller from au's `tenant_sharing.accessible_graphs`,
-    /// never from this crate's dead `IsolationLayer::accessible_graphs`
-    /// (DEC-CA-04 A3's named trap -- that function's `agent:<id>`/`team:<t>`
-    /// naming matches no live graph on this deployment).
-    #[cfg(feature = "policy_export")]
-    PolicyExport {
-        /// The tenant this bundle is scoped to (DEC-CA-04 A3: one bundle per
-        /// tenant, never per graph).
-        tenant: String,
-        /// Every graph this tenant may read, in `tenant_sharing.accessible_graphs`
-        /// order (tenant graph first, then ancestors, `__commons__` always last).
-        /// GOC-61: union READ, never a merge -- this list is read scope, not a
-        /// write target.
-        graphs: Vec<String>,
-        /// The set of Marking names currently defined in au's `MARKING_REGISTRY`
-        /// (names only, not the per-`(tenant, node_id)` assignment -- that stays
-        /// in au, keyed data this bundle does not carry). Each name is rendered
-        /// as a `requires_role` predicate over the reserved `_markings` row
-        /// column convention this module defines (DEC-CA-04 A4: eg has no native
-        /// Marking concept, so this is a bridge this lane defines, not a
-        /// pre-existing mechanism).
-        #[serde(default)]
-        marking_names: Vec<String>,
-    },
 }
 
 impl Method {
@@ -6479,16 +6381,14 @@ pub enum ResultPayload {
     Ids(Vec<String>),
     NodeList(Vec<(String, serde_json::Value)>),
     EdgeList(Vec<(String, String, Vec<u8>)>),
-    PropertiesMsgpack(#[serde(with = "serde_bytes")] Vec<u8>),
-    Rows(Vec<Vec<u8>>),
     /// A typed result serialized STRAIGHT to MessagePack (Phase C-D — compact
     /// result encoding). Skips building a `serde_json::Value` tree on the server —
     /// the dominant allocator for large algorithm results (PageRank/centrality/
-    /// communities over the whole graph). On the wire it is a MessagePack `bin`
-    /// (identical shape to `PropertiesMsgpack`); the Python client decodes any
+    /// communities over the whole graph). On the wire it is a MessagePack `bin`.
+    /// The Python client decodes any
     /// top-level `bytes` result with a second `unpackb`, recovering the exact same
-    /// structure the `Json` path produced. Lives after `PropertiesMsgpack` so the
-    /// untagged decoder is unaffected.
+    /// structure the `Json` path produced. Opaque-byte methods are explicitly
+    /// identified by method at the client boundary and never decoded a second time.
     Raw(#[serde(with = "serde_bytes")] Vec<u8>),
     Json(serde_json::Value),
 }
@@ -6499,8 +6399,31 @@ impl ResultPayload {
     /// algorithm results). The compact encoding is the ONE wire contract — clients
     /// decode a top-level `bytes` result with a second `unpackb`; there is no
     /// alternate encoding flag. (Phase C-D)
-    pub fn raw<T: Serialize>(value: &T) -> Self {
-        ResultPayload::Raw(rmp_serde::to_vec_named(value).unwrap_or_default())
+    pub fn raw<T: Serialize>(value: &T) -> Result<Self, String> {
+        rmp_serde::to_vec_named(value)
+            .map(ResultPayload::Raw)
+            .map_err(|error| format!("result serialization failed: {error}"))
+    }
+}
+
+/// Input accepted by [`Response::ok`].
+///
+/// Compact encoding is deliberately fallible: a serializer failure becomes an
+/// error response and can never masquerade as a successful empty byte string.
+#[doc(hidden)]
+pub trait IntoResponsePayload {
+    fn into_response_payload(self) -> Result<ResultPayload, String>;
+}
+
+impl IntoResponsePayload for ResultPayload {
+    fn into_response_payload(self) -> Result<ResultPayload, String> {
+        Ok(self)
+    }
+}
+
+impl IntoResponsePayload for Result<ResultPayload, String> {
+    fn into_response_payload(self) -> Result<ResultPayload, String> {
+        self
     }
 }
 
@@ -6519,11 +6442,14 @@ pub struct Response {
 
 impl Response {
     /// Create a successful response.
-    pub fn ok(id: u64, result: ResultPayload) -> Self {
-        Response {
-            id,
-            result: Some(result),
-            error: None,
+    pub fn ok(id: u64, result: impl IntoResponsePayload) -> Self {
+        match result.into_response_payload() {
+            Ok(result) => Response {
+                id,
+                result: Some(result),
+                error: None,
+            },
+            Err(error) => Response::err(id, error),
         }
     }
 
@@ -6567,10 +6493,13 @@ impl Response {
                 leader_ref: leader.map(|node| format!("node:{node}")),
             }),
         };
-        Response {
-            id,
-            result: Some(ResultPayload::raw(&detail)),
-            error: Some("OPERATION_REDIRECTED".to_string()),
+        match ResultPayload::raw(&detail) {
+            Ok(result) => Response {
+                id,
+                result: Some(result),
+                error: Some("OPERATION_REDIRECTED".to_string()),
+            },
+            Err(error) => Response::err(id, error),
         }
     }
 }
@@ -7085,14 +7014,34 @@ mod tests {
         let resp = Response::ok(7, ResultPayload::raw(&scores));
         let wire = rmp_serde::to_vec_named(&resp).unwrap();
         let decoded: Response = rmp_serde::from_slice(&wire).unwrap();
-        // Untagged: a bin result decodes as the first bin-shaped variant; the inner
-        // bytes are identical regardless of the variant name.
         let inner = match decoded.result {
-            Some(ResultPayload::Raw(b)) | Some(ResultPayload::PropertiesMsgpack(b)) => b,
+            Some(ResultPayload::Raw(b)) => b,
             other => panic!("expected a bin result payload, got {:?}", other),
         };
         let back: Vec<(String, f64)> = rmp_serde::from_slice(&inner).unwrap();
         assert_eq!(back, scores);
+    }
+
+    #[test]
+    fn raw_result_serialization_failure_is_an_error_response() {
+        struct RejectSerialization;
+
+        impl Serialize for RejectSerialization {
+            fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                Err(serde::ser::Error::custom("fixture rejection"))
+            }
+        }
+
+        assert!(ResultPayload::raw(&RejectSerialization).is_err());
+        let response = Response::ok(11, ResultPayload::raw(&RejectSerialization));
+        assert!(response.result.is_none());
+        assert!(response
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("result serialization failed")));
     }
 
     #[test]

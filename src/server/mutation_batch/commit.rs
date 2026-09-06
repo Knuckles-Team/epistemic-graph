@@ -460,16 +460,6 @@ fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayl
             let bytes = rmp_serde::to_vec_named(&value).map_err(|e| e.to_string())?;
             Ok(ResultPayload::Raw(bytes))
         }
-        ResultPayload::PropertiesMsgpack(bytes) => {
-            let mut value: serde_json::Value = eg_types::msgpack::decode_bounded(
-                &bytes,
-                eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
-            )
-            .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string())?;
-            set_flags(&mut value, batch)?;
-            let bytes = rmp_serde::to_vec_named(&value).map_err(|e| e.to_string())?;
-            Ok(ResultPayload::PropertiesMsgpack(bytes))
-        }
         ResultPayload::Json(mut value) => {
             set_flags(&mut value, batch)?;
             Ok(ResultPayload::Json(value))
@@ -567,11 +557,10 @@ pub(super) fn changed_work_item_ids(
 
     match result {
         ResultPayload::Json(value) => from_json(value, publishes_work_item_rows),
-        // ``ResultPayload::raw`` is wire-identical to ``PropertiesMsgpack``.
-        // Because ResultPayload is untagged, decoding the durable outer payload
-        // can legitimately select either byte variant. Both carry the same
-        // typed WorkItem result and must refresh the resident graph projection.
-        ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes) => {
+        // ``ResultPayload::raw`` is the one canonical binary result representation.
+        // The durable outer payload decodes to it and carries the typed WorkItem
+        // result that must refresh the resident graph projection.
+        ResultPayload::Raw(bytes) => {
             let value: serde_json::Value = eg_types::msgpack::decode_bounded(
                 bytes,
                 eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 10_000, 32),

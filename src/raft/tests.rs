@@ -881,7 +881,7 @@ mod placement_admin_wire_rpc {
             resp.error
         );
         match resp.result {
-            Some(ResultPayload::PropertiesMsgpack(bytes)) => {
+            Some(ResultPayload::Raw(bytes)) => {
                 Some(rmp_serde::from_slice(&bytes).expect("typed node properties"))
             }
             _ => None,

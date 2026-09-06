@@ -3353,7 +3353,7 @@ class VizClient:
 
         ``_send`` already decodes the wire's compact MessagePack `Raw` payload
         (the same "second unpackb over a top-level bytes result" every other
-        ``Raw``/``PropertiesMsgpack`` result goes through) — no special-cased
+        structured ``Raw`` result goes through) — no special-cased
         decoding needed here.
         """
         return await self._client._send("Viz", {"op": "CapabilityMatrix"})
@@ -7033,7 +7033,6 @@ class ClusterTopologyClient:
         if set(answer) != {
             "schema_version",
             "cluster_id",
-            "epoch",
             "membership_epoch",
             "placement_epoch",
             "leader",
@@ -7078,15 +7077,10 @@ class ClusterTopologyClient:
                 )
             return value
 
-        epoch = non_negative_int(answer["epoch"], "epoch")
         membership_epoch = non_negative_int(
             answer["membership_epoch"], "membership_epoch"
         )
         placement_epoch = non_negative_int(answer["placement_epoch"], "placement_epoch")
-        if epoch != membership_epoch:
-            raise ValueError(
-                "ClusterMembers epoch alias does not match membership_epoch"
-            )
         if min_membership_epoch is not None and membership_epoch < min_membership_epoch:
             raise ValueError("ClusterMembers membership snapshot is stale")
         if min_placement_epoch is not None and placement_epoch < min_placement_epoch:
@@ -10252,15 +10246,21 @@ def _validate_resource_stats_arrays(
         raise RuntimeError("summary ResourceStats response must omit detail arrays")
 
 
-def _decode_send_result(result: Any) -> Any:
+_OPAQUE_BINARY_RESULT_METHODS = frozenset({"RunUdf", "KvGet"})
+
+
+def _decode_send_result(method: str, result: Any) -> Any:
     """Decode the compact result encoding (engine Phase C-D).
 
     Heavy algorithm results and node/edge property blobs come back as a
-    top-level MessagePack ``bin`` (the ``Raw``/``PropertiesMsgpack`` payloads) —
-    the server skips building a JSON tree. Decode that second layer here so
-    every caller receives the method's declared result structure.
+    top-level MessagePack ``bin`` (the ``Raw`` payload) — the server skips
+    building a JSON tree. Decode that second layer for structured methods.
+    ``RunUdf`` and ``KvGet`` declare opaque bytes, so their payload is returned
+    exactly and is never interpreted as another MessagePack document.
     """
-    if isinstance(result, (bytes, bytearray)):
+    if method not in _OPAQUE_BINARY_RESULT_METHODS and isinstance(
+        result, (bytes, bytearray)
+    ):
         return msgpack.unpackb(result, raw=False)
     return result
 
@@ -14453,7 +14453,7 @@ class EpistemicGraphClient:
 
         if resp.get("error") is not None:
             _raise_send_error(resp)
-        return _decode_send_result(resp.get("result"))
+        return _decode_send_result(method, resp.get("result"))
 
     # ── Connection Management ─────────────────────────────────────────────
 
@@ -14571,8 +14571,8 @@ class EpistemicGraphClient:
         consumes in ONE round-trip: per-graph + per-tenant resident memory, node/edge
         counts, in-flight admission depth, hibernated-vs-resident counts, effective
         cgroup capacity, coalescer queue gauges, and cumulative budget totals, plus a
-        process aggregate.  The legacy no-argument call is intentionally preserved,
-        but now receives the same finite default page as ``ResourceStatsPage``.
+        process aggregate. Every call uses the one bounded
+        ``ResourceStatsPage`` request shape.
 
         ``cursor`` is the exclusive ``next_cursor`` from a prior page.  ``summary``
         suppresses both detail arrays while retaining aggregate signals; it cannot be
@@ -14582,15 +14582,10 @@ class EpistemicGraphClient:
         """
         _validate_resource_stats_page(cursor, limit=limit, summary=summary)
 
-        # Keep the exact legacy unit request/MAC shape for the default call.  A
-        # caller asking for any non-default behavior uses the typed page variant.
-        if cursor is None and not summary and limit == _DEFAULT_RESOURCE_STATS_LIMIT:
-            result = await self._send("ResourceStats")
-        else:
-            result = await self._send(
-                "ResourceStatsPage",
-                {"cursor": cursor, "limit": limit, "summary": summary},
-            )
+        result = await self._send(
+            "ResourceStatsPage",
+            {"cursor": cursor, "limit": limit, "summary": summary},
+        )
         return self._validate_resource_stats_response(
             result, limit=limit, summary=summary
         )

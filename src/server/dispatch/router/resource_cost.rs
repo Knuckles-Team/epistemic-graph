@@ -28,24 +28,6 @@ pub(super) async fn dispatch_resource_cost_methods(
         ControlFlow::Break(match method {
             // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
             #[cfg(feature = "cost")]
-            Method::ResourceStats => {
-                dispatch_boxed(async {
-                    let state = state;
-                    let req_id = req.id;
-                    let verified_context = verified_context;
-                    {
-                        dispatch_resource_stats(
-                            state,
-                            req_id,
-                            verified_context,
-                            crate::cost::ResourceStatsRequest::bounded_default(),
-                        )
-                        .await
-                    }
-                })
-                .await
-            }
-            #[cfg(feature = "cost")]
             Method::ResourceStatsPage {
                 cursor,
                 limit,

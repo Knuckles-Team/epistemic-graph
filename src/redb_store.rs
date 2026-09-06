@@ -2967,7 +2967,7 @@ fn apply_native_submit_work_item_operation(
                 .to_string(),
         );
     }
-    let payload = crate::protocol::ResultPayload::raw(&result);
+    let payload = crate::protocol::ResultPayload::raw(&result)?;
     *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
     Ok(())
 }
@@ -3004,7 +3004,7 @@ fn apply_native_submit_work_items_operation(
                 .to_string(),
         );
     }
-    let payload = crate::protocol::ResultPayload::raw(&result);
+    let payload = crate::protocol::ResultPayload::raw(&result)?;
     *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
     Ok(())
 }
@@ -4843,7 +4843,7 @@ fn resource_result_payload(
     host: Option<&DurableResourceHost>,
     fairness_debt: u64,
     changed: Vec<String>,
-) -> crate::protocol::ResultPayload {
+) -> Result<crate::protocol::ResultPayload, String> {
     let (state, lifecycle_revision, tombstone, held) = match record.as_ref() {
         Some(record) => {
             let held = if record.state == ResourceReservationRecordState::Reserved {
@@ -4917,22 +4917,20 @@ fn resource_host_result(
     let host_snapshot = host
         .map(|host| resource_host_update_snapshot(host, policies))
         .transpose()?;
-    Ok(crate::protocol::ResultPayload::raw(
-        &ResourceHostUpdateResult {
-            schema_version: ResourceHostUpdateResultSchemaVersion::V1,
-            accepted,
-            reason,
-            host_ref: request.host_ref.clone(),
-            host_snapshot,
-            revision: host.map_or(request.revision, |host| host.revision),
-            held_cpu_weight: host.map_or(0, |host| host.held_cpu_weight),
-            held_memory_mib: host.map_or(0, |host| host.held_memory_mib),
-            held_disk_mib: host.map_or(0, |host| host.held_disk_mib),
-            held_process_slots: host.map_or(0, |host| host.held_process_slots),
-            draining: host.is_some_and(|host| host.draining),
-            quarantined: host.is_some_and(|host| host.quarantined),
-        },
-    ))
+    crate::protocol::ResultPayload::raw(&ResourceHostUpdateResult {
+        schema_version: ResourceHostUpdateResultSchemaVersion::V1,
+        accepted,
+        reason,
+        host_ref: request.host_ref.clone(),
+        host_snapshot,
+        revision: host.map_or(request.revision, |host| host.revision),
+        held_cpu_weight: host.map_or(0, |host| host.held_cpu_weight),
+        held_memory_mib: host.map_or(0, |host| host.held_memory_mib),
+        held_disk_mib: host.map_or(0, |host| host.held_disk_mib),
+        held_process_slots: host.map_or(0, |host| host.held_process_slots),
+        draining: host.is_some_and(|host| host.draining),
+        quarantined: host.is_some_and(|host| host.quarantined),
+    })
 }
 
 fn resource_b64_urlsafe(value: &str) -> String {
@@ -6723,7 +6721,7 @@ fn resource_commit_release_or_reclaim_or_reserve_gate(
             None,
             0,
             vec![],
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -6771,31 +6769,31 @@ fn resource_admit_reserve_host_with_winner_check(
 /// must also contain `now`.
 fn resource_reserve_window_precheck(
     request: &ResourceReservationRequest,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     if request
         .expected_lifecycle_revision
         .is_some_and(|revision| revision != 0)
     {
-        return Some(resource_result_payload(
+        return Ok(Some(resource_result_payload(
             ResourceReservationResultDecision::InputConflict,
             request,
             None,
             None,
             0,
             vec![],
-        ));
+        )?));
     }
     if request.now_ms < request.reserved_at_ms || request.now_ms >= request.expires_at_ms {
-        return Some(resource_result_payload(
+        return Ok(Some(resource_result_payload(
             ResourceReservationResultDecision::Policy,
             request,
             None,
             None,
             0,
             vec![],
-        ));
+        )?));
     }
-    None
+    Ok(None)
 }
 
 /// The `expected_lifecycle_revision` precondition of a release/reclaim.
@@ -6808,7 +6806,7 @@ fn resource_reserve_window_precheck(
 fn resource_lifecycle_revision_precheck(
     request: &ResourceReservationRequest,
     stored: &DurableResourceReservation,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let reserved = stored.record.state == ResourceReservationRecordState::Reserved;
     let lifecycle_matches = if reserved {
         request.expected_lifecycle_revision == Some(stored.record.lifecycle_revision)
@@ -6816,9 +6814,9 @@ fn resource_lifecycle_revision_precheck(
         request.expected_lifecycle_revision == stored.record.expected_lifecycle_revision
     };
     if lifecycle_matches {
-        return None;
+        return Ok(None);
     }
-    Some(resource_result_payload(
+    Ok(Some(resource_result_payload(
         if reserved {
             ResourceReservationResultDecision::Stale
         } else {
@@ -6829,7 +6827,7 @@ fn resource_lifecycle_revision_precheck(
         None,
         stored.fairness_debt,
         vec![],
-    ))
+    )?))
 }
 
 /// The idempotency-precondition pass over an existing reservation row: tenant
@@ -6852,7 +6850,7 @@ fn resource_existing_reservation_precheck(
             None,
             0,
             vec![],
-        )));
+        )?));
     }
     if !resource_request_matches_record(request, &stored.record) {
         return Ok(Some(resource_result_payload(
@@ -6862,10 +6860,10 @@ fn resource_existing_reservation_precheck(
             None,
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     }
     if !is_reserve {
-        if let Some(payload) = resource_lifecycle_revision_precheck(request, stored) {
+        if let Some(payload) = resource_lifecycle_revision_precheck(request, stored)? {
             return Ok(Some(payload));
         }
     }
@@ -6878,7 +6876,7 @@ fn resource_existing_reservation_precheck(
             host.as_ref(),
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -6905,7 +6903,7 @@ fn resource_lifecycle_precheck(
     let is_reserve = matches!(method, Method::ReserveWorkItemResources { .. });
     let is_reclaim = matches!(method, Method::ReclaimWorkItemResources { .. });
     if is_reserve {
-        if let Some(payload) = resource_reserve_window_precheck(request) {
+        if let Some(payload) = resource_reserve_window_precheck(request)? {
             return Ok(ReservationLifecycleStep::Return(payload));
         }
     }
@@ -6959,7 +6957,7 @@ fn resource_load_and_validate_work_item(
             None,
             0,
             vec![],
-        )));
+        )?));
     };
     let props: serde_json::Map<String, serde_json::Value> = decode_durable(&item_bytes)?;
     let work_item_fence = match resource_validate_work_item(&props, request, is_reclaim) {
@@ -6972,7 +6970,7 @@ fn resource_load_and_validate_work_item(
                 None,
                 0,
                 vec![],
-            )));
+            )?));
         }
     };
     Ok(ReservationLifecycleStep::Continue((props, work_item_fence)))
@@ -7001,7 +6999,7 @@ fn resource_validate_work_item_status_and_extension<'p>(
                 None,
                 0,
                 vec![],
-            )));
+            )?));
         }
     } else if (!is_reclaim || !work_item_fence.superseded)
         && !matches!(
@@ -7022,7 +7020,7 @@ fn resource_validate_work_item_status_and_extension<'p>(
             None,
             0,
             vec![],
-        )));
+        )?));
     }
     let (_repository, extension) = resource_metadata_maps(props)
         .map_err(|_| "WorkItem resource admission extension is invalid".to_string())?;
@@ -7036,7 +7034,7 @@ fn resource_validate_work_item_status_and_extension<'p>(
                 None,
                 0,
                 vec![],
-            )));
+            )?));
         }
     }
     Ok(ReservationLifecycleStep::Continue(extension))
@@ -7061,7 +7059,7 @@ fn resource_release_row_precheck(
             None,
             0,
             vec![],
-        )));
+        )?));
     }
     if !resource_request_matches_record(request, &stored.record) {
         return Ok(Some(resource_result_payload(
@@ -7071,7 +7069,7 @@ fn resource_release_row_precheck(
             None,
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     }
     if stored.record.state != ResourceReservationRecordState::Reserved || is_reserve {
         let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)?;
@@ -7082,7 +7080,7 @@ fn resource_release_row_precheck(
             host.as_ref(),
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -7093,16 +7091,17 @@ fn resource_reclaim_policy_precheck(
     request: &ResourceReservationRequest,
     stored: &DurableResourceReservation,
     props: &serde_json::Map<String, serde_json::Value>,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let refuse = || {
-        Some(resource_result_payload(
+        resource_result_payload(
             ResourceReservationResultDecision::Policy,
             request,
             Some(stored.record.clone()),
             None,
             stored.fairness_debt,
             vec![],
-        ))
+        )
+        .map(Some)
     };
     if request.now_ms < stored.record.expires_at_ms {
         return refuse();
@@ -7112,7 +7111,7 @@ fn resource_reclaim_policy_precheck(
     if matches!(status, "leased" | "running") && lease_expires_at_ms > request.now_ms {
         return refuse();
     }
-    None
+    Ok(None)
 }
 
 /// Give the reservation's held capacity back to its host.  Any underflow is a
@@ -7258,7 +7257,7 @@ fn resource_commit_release_or_reclaim(
         return Ok(Some(payload));
     }
     if is_reclaim {
-        if let Some(payload) = resource_reclaim_policy_precheck(request, stored, props) {
+        if let Some(payload) = resource_reclaim_policy_precheck(request, stored, props)? {
             return Ok(Some(payload));
         }
     }
@@ -7270,7 +7269,7 @@ fn resource_commit_release_or_reclaim(
             None,
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     };
     resource_release_host_capacity(&mut host, stored)?;
     resource_put_host(hosts, graph, &host, crypto)?;
@@ -7304,7 +7303,7 @@ fn resource_commit_release_or_reclaim(
         Some(&host),
         debt,
         vec![request.work_item_id.clone()],
-    )))
+    )?))
 }
 
 /// Phase 5 (reserve-only path): the attempt-index winner check. Literal relocation.
@@ -7335,7 +7334,7 @@ fn resource_check_attempt_winner_conflict(
                 None,
                 0,
                 vec![],
-            )));
+            )?));
         }
     }
     Ok(None)
@@ -7345,7 +7344,7 @@ fn resource_admission_refusal(
     decision: ResourceReservationResultDecision,
     request: &ResourceReservationRequest,
     host: &DurableResourceHost,
-) -> crate::protocol::ResultPayload {
+) -> Result<crate::protocol::ResultPayload, String> {
     resource_result_payload(decision, request, None, Some(host), 0, vec![])
 }
 
@@ -7369,12 +7368,12 @@ fn resource_admit_check_host_eligibility(
                 ResourceReservationResultDecision::StaleHost,
                 request,
                 host,
-            )));
+            )?));
         }
     }
     let host_state = resource_validate_host_freshness(host, request.now_ms);
     if host_state != ResourceReservationResultDecision::Accepted {
-        return Ok(Some(resource_admission_refusal(host_state, request, host)));
+        return Ok(Some(resource_admission_refusal(host_state, request, host)?));
     }
     if !request
         .required_labels
@@ -7385,21 +7384,21 @@ fn resource_admit_check_host_eligibility(
             ResourceReservationResultDecision::Labels,
             request,
             host,
-        )));
+        )?));
     }
     if !resource_target_selection_matches(extension, host)? {
         return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Policy,
             request,
             host,
-        )));
+        )?));
     }
     if !resource_selected_target_matches_request(request, host) {
         return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Policy,
             request,
             host,
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -7425,7 +7424,7 @@ fn resource_admit_check_index_gates(
                 ResourceReservationResultDecision::AntiAffinity,
                 request,
                 host,
-            )));
+            )?));
         }
     }
     let concurrency_key = resource_concurrency_scope_key(&request.concurrency_key);
@@ -7442,7 +7441,7 @@ fn resource_admit_check_index_gates(
             ResourceReservationResultDecision::Concurrency,
             request,
             host,
-        )));
+        )?));
     }
     for key in resource_exclusivity_keys(request) {
         if exclusivity
@@ -7454,7 +7453,7 @@ fn resource_admit_check_index_gates(
                 ResourceReservationResultDecision::Exclusivity,
                 request,
                 host,
-            )));
+            )?));
         }
     }
     if !resource_capacity_sum(host, &request.requirement) {
@@ -7462,7 +7461,7 @@ fn resource_admit_check_index_gates(
             ResourceReservationResultDecision::Capacity,
             request,
             host,
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -7475,23 +7474,23 @@ fn resource_admit_check_disk(
     host: &DurableResourceHost,
     existing_policy: Option<&DurableResourceDiskPolicy>,
     policy_row_count: usize,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     if existing_policy.is_none() && policy_row_count >= MAX_RESOURCE_HOST_DISK_POLICIES {
-        return Some(resource_admission_refusal(
+        return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Policy,
             request,
             host,
-        ));
+        )?));
     }
     if let Some(policy) = existing_policy {
         if policy.low_watermark_mib != request.disk_low_watermark_mib
             || policy.high_watermark_mib != request.disk_high_watermark_mib
         {
-            return Some(resource_admission_refusal(
+            return Ok(Some(resource_admission_refusal(
                 ResourceReservationResultDecision::Policy,
                 request,
                 host,
-            ));
+            )?));
         }
     }
     let available_disk = host
@@ -7500,13 +7499,13 @@ fn resource_admit_check_disk(
         .and_then(|value| value.checked_sub(host.held_disk_mib))
         .unwrap_or(0);
     if request.requirement.disk_mib > available_disk {
-        return Some(resource_admission_refusal(
+        return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Disk,
             request,
             host,
-        ));
+        )?));
     }
-    None
+    Ok(None)
 }
 
 /// Persist one disk-policy row for `disk_key`.
@@ -7565,7 +7564,7 @@ fn resource_admit_apply_disk_policy(
             ResourceReservationResultDecision::Disk,
             request,
             host,
-        )));
+        )?));
     }
     if existing_policy.is_some_and(|policy| policy.blocked != blocked) {
         resource_put_disk_policy(
@@ -7620,7 +7619,7 @@ fn resource_admit_reserve_host(
             None,
             0,
             vec![],
-        )));
+        )?));
     };
     // Admission and host snapshots share the schema's 128-policy
     // bound.  Enumerating this exact host prefix is part of the same
@@ -7648,7 +7647,7 @@ fn resource_admit_reserve_host(
         .map(|value| resource_decode::<DurableResourceDiskPolicy>(value.value(), crypto))
         .transpose()?;
     if let Some(payload) =
-        resource_admit_check_disk(request, &host, existing_policy.as_ref(), policy_rows.len())
+        resource_admit_check_disk(request, &host, existing_policy.as_ref(), policy_rows.len())?
     {
         return Ok(ReservationLifecycleStep::Return(payload));
     }
@@ -7765,7 +7764,7 @@ fn resource_commit_reserve_admission(
         Some(&host),
         debt,
         vec![request.work_item_id.clone()],
-    )))
+    )?))
 }
 
 fn resource_request_from_record(
@@ -7821,7 +7820,7 @@ fn resource_request_from_record(
 fn resource_no_reservation_query_result(
     request: &ResourceReservationStatusRequest,
     decision: ResourceReservationResultDecision,
-) -> crate::protocol::ResultPayload {
+) -> Result<crate::protocol::ResultPayload, String> {
     let work_item_id = request.work_item_id.clone().unwrap_or_default();
     crate::protocol::ResultPayload::raw(&ResourceReservationResult {
         schema_version: ResourceReservationResultSchemaVersion::V1,
@@ -7933,8 +7932,7 @@ fn resource_decode_result_payload(
     payload: crate::protocol::ResultPayload,
 ) -> Result<ResourceReservationResult, String> {
     let bytes = match payload {
-        crate::protocol::ResultPayload::Raw(bytes)
-        | crate::protocol::ResultPayload::PropertiesMsgpack(bytes) => bytes,
+        crate::protocol::ResultPayload::Raw(bytes) => bytes,
         _ => return Err("resource query result encoding failed".into()),
     };
     eg_types::msgpack::decode_bounded(
@@ -8047,7 +8045,7 @@ fn read_resource_reservation_current_work_item_query(
         return resource_decode_result_payload(resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        ));
+        )?);
     };
     let props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
     let current = current_work_item_query_matches(
@@ -8064,7 +8062,7 @@ fn read_resource_reservation_current_work_item_query(
     } else {
         ResourceReservationResultDecision::Stale
     };
-    resource_decode_result_payload(resource_no_reservation_query_result(request, decision))
+    resource_decode_result_payload(resource_no_reservation_query_result(request, decision)?)
 }
 
 // RM's mirrorless retry query intentionally omits the fingerprint: the
@@ -8152,7 +8150,7 @@ fn build_resource_reservation_query_result(
         host.as_ref(),
         stored.fairness_debt,
         Vec::new(),
-    );
+    )?;
     resource_decode_result_payload(bytes)
 }
 
@@ -8179,7 +8177,7 @@ fn read_resource_reservation_by_id(
         return resource_decode_result_payload(resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        ));
+        )?);
     };
     let stored: DurableResourceReservation = resource_decode(row.value(), crypto)?;
     if stored.record.tenant_ref != request.tenant_ref {
@@ -8189,7 +8187,7 @@ fn read_resource_reservation_by_id(
         return resource_decode_result_payload(resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        ));
+        )?);
     }
     if !resource_reservation_query_correlates(request, &stored.record) {
         return Err("resource reservation correlation does not match".into());
@@ -9723,7 +9721,7 @@ fn claim_not_claimed_payload(
     reason: ClaimWorkItemResultReason,
     inflight: u32,
     changed_work_item_ids: Vec<String>,
-) -> crate::protocol::ResultPayload {
+) -> Result<crate::protocol::ResultPayload, String> {
     crate::protocol::ResultPayload::raw(&ClaimWorkItemResult {
         schema_version: ClaimWorkItemResultSchemaVersion::V1,
         claimed: false,
@@ -9819,7 +9817,7 @@ fn apply_claim_work_item_row(
             ClaimWorkItemResultReason::TenantQuota,
             inflight,
             changed_work_item_ids,
-        )));
+        )?));
     }
     candidates.sort_by(|left, right| {
         (&left.0, &left.1, &left.2, &left.3).cmp(&(&right.0, &right.1, &right.2, &right.3))
@@ -9829,7 +9827,7 @@ fn apply_claim_work_item_row(
             ClaimWorkItemResultReason::Empty,
             inflight,
             changed_work_item_ids,
-        )));
+        )?));
     };
     let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s);
     let kind = property_string(&props, "kind").to_string();
@@ -9876,7 +9874,7 @@ fn apply_claim_work_item_row(
                 changed_work_item_ids
             },
         },
-    )))
+    )?))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -10098,7 +10096,7 @@ fn apply_cas_work_item_metadata_row(
                 work_item_id: work_item_id.clone(),
                 changed_work_item_ids: changed,
             },
-        )))
+        )?))
     };
 
     let current = nodes
@@ -17211,8 +17209,7 @@ mod mutation_batch_tests {
         )
         .unwrap();
         let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            crate::protocol::ResultPayload::Raw(inner) => inner,
             other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
         };
         decode_durable(&bytes).unwrap()
@@ -18449,16 +18446,9 @@ mod mutation_batch_tests {
                 .expect("claim result"),
         )
         .unwrap();
-        // `ResultPayload` is `#[serde(untagged)]` with `PropertiesMsgpack` declared BEFORE
-        // `Raw` (both are `serde_bytes` bins), so a round-tripped bin decodes as the FIRST
-        // matching bin variant (`PropertiesMsgpack`) — the enum's own doc notes this is by
-        // design (the client re-`unpackb`s any top-level bin regardless of variant name).
-        // The claim result is therefore the inner bytes under whichever bin variant serde
-        // picked; accept either. (Pre-W2.2 rot: this assertion named only `Raw`, which the
-        // untagged decoder can never yield for a bin.)
+        // `Raw` is the one canonical MessagePack-bin result representation.
         let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            crate::protocol::ResultPayload::Raw(inner) => inner,
             other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
         };
         let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
@@ -18543,8 +18533,7 @@ mod mutation_batch_tests {
         )
         .unwrap();
         let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            crate::protocol::ResultPayload::Raw(inner) => inner,
             other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
         };
         let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
@@ -19052,8 +19041,7 @@ mod mutation_batch_tests {
             )
             .unwrap();
             let bytes = match payload {
-                crate::protocol::ResultPayload::Raw(inner)
-                | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+                crate::protocol::ResultPayload::Raw(inner) => inner,
                 other => {
                     panic!(
                         "CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}"
@@ -19210,8 +19198,7 @@ mod mutation_batch_tests {
             )
             .unwrap();
             let bytes = match payload {
-                crate::protocol::ResultPayload::Raw(inner)
-                | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+                crate::protocol::ResultPayload::Raw(inner) => inner,
                 other => {
                     panic!(
                         "CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}"
@@ -19312,8 +19299,7 @@ mod mutation_batch_tests {
         )
         .unwrap();
         let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            crate::protocol::ResultPayload::Raw(inner) => inner,
             other => {
                 panic!("CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}")
             }

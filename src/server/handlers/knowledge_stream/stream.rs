@@ -196,7 +196,7 @@ pub(super) fn raw_payload<'a>(
     family: &str,
 ) -> Result<&'a [u8], String> {
     match payload {
-        ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes) => Ok(bytes),
+        ResultPayload::Raw(bytes) => Ok(bytes),
         _ => Err(format!("invalid {family} result encoding")),
     }
 }

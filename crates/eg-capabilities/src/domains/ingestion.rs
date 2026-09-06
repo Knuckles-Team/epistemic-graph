@@ -20,6 +20,4 @@ pub(crate) const ROWS: &[PolicyRow] = &[
     ("Asr", make_policy(false, DurabilityDomain::None, "asr:transcribe", PolicyFlags { idempotent: false, audited: false, emits_cdc: false }, TxnParticipation::None), "self-routes before dispatch_graph_op like Quantum/Viz; direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06)"),
     #[cfg(feature = "viz")]
     ("Viz", make_policy(false, DurabilityDomain::None, "viz:render", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::None), "pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6)"),
-    #[cfg(feature = "tts-piper")]
-    ("TtsSynthesize", make_policy(false, DurabilityDomain::None, "tts:synthesize", PolicyFlags { idempotent: false, audited: false, emits_cdc: false }, TxnParticipation::None), "pure compute: native Piper-ONNX synthesis runs inline and returns audio, no durable graph write or audit-chain commit (GOC-34, no CAS/rendition publication exists yet)"),
 ];

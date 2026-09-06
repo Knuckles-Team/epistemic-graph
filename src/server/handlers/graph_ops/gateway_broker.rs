@@ -182,7 +182,7 @@ pub(super) async fn try_handle(
                 let claimed = crate::broker::broker_consume(
                     core, &queue, &group, &consumer, now_ms, lease_ms, prefetch,
                 );
-                Ok(ResultPayload::raw(&claimed))
+                ResultPayload::raw(&claimed)
             })
             .await
         }
@@ -301,7 +301,7 @@ pub(super) async fn try_handle(
                     ttl_ms,
                     now_ms,
                 );
-                Ok(ResultPayload::raw(&token))
+                ResultPayload::raw(&token)
             })
             .await
         }
@@ -351,7 +351,7 @@ pub(super) async fn try_handle(
                     ttl_ms,
                     now_ms,
                 );
-                Ok(ResultPayload::raw(&result))
+                ResultPayload::raw(&result)
             })
             .await
         }

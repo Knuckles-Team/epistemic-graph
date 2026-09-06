@@ -8,9 +8,9 @@
 //! tenant/principal/agent context.  A client therefore cannot accept a stale,
 //! cross-cluster, unsigned, or differently scoped endpoint snapshot.
 //!
-//! `Method::NodeInfoUpsert` is an engine-internal self-report write issued by
-//! `raft::node::start`.  External callers are rejected in `dispatch.rs` before
-//! consensus so caller-supplied endpoints can never become cluster authority.
+//! Node-info writes are engine-owned typed Raft commands issued by
+//! `raft::node::start`; there is no public method that accepts caller-supplied
+//! endpoint authority.
 
 use std::sync::Arc;
 
@@ -103,9 +103,6 @@ fn signed_snapshot(
     Ok(serde_json::json!({
         "schema_version": DISCOVERY_SCHEMA_VERSION,
         "cluster_id": cluster_id,
-        // `epoch` is retained as a compatibility alias for older clients; it
-        // is the membership epoch, never a response-local member count.
-        "epoch": membership_epoch,
         "membership_epoch": membership_epoch,
         "placement_epoch": placement_epoch,
         "leader": leader,
@@ -117,21 +114,14 @@ fn signed_snapshot(
 }
 
 #[cfg(feature = "raft")]
-#[allow(clippy::too_many_arguments)]
-async fn handle_node_info_upsert(
+pub(crate) async fn apply_replicated_node_info(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
-    cluster_id: String,
-    node_id: u64,
-    member_identity: String,
-    raft_addr: String,
-    advertised_client_addr: String,
-    tls_server_name: Option<String>,
-    certificate_id: Option<String>,
-    certificate_rotation_epoch: u64,
-    certificate_not_before_ms: Option<u64>,
-    certificate_not_after_ms: Option<u64>,
-) -> Response {
+    info: crate::server::persistence::node_info_store::NodeInfo,
+) -> Result<bool, String> {
+    let node_id = info.node_id;
+    let raft_addr = info.raft_addr.clone();
+    let advertised_client_addr = info.advertised_client_addr.clone();
     let backend = { state.read().await.persistence.clone() };
     let Some(store) = backend
         .as_ref()
@@ -141,21 +131,9 @@ async fn handle_node_info_upsert(
         tracing::warn!(
             req_id,
             node_id,
-            "NodeInfoUpsert applied with no durable redb backend attached; self-report dropped"
+            "typed node self-report applied with no durable redb backend attached; self-report dropped"
         );
-        return node_info_unavailable(req_id);
-    };
-    let info = crate::server::persistence::node_info_store::NodeInfo {
-        cluster_id,
-        node_id,
-        member_identity,
-        raft_addr: raft_addr.clone(),
-        advertised_client_addr: advertised_client_addr.clone(),
-        tls_server_name,
-        certificate_id,
-        certificate_rotation_epoch,
-        certificate_not_before_ms,
-        certificate_not_after_ms,
+        return Err("cluster topology requires a durable redb backend".to_string());
     };
     match store.upsert(info) {
         Ok(()) => {
@@ -165,13 +143,13 @@ async fn handle_node_info_upsert(
                 raft_addr,
                 advertised_client_addr,
                 generation = store.generation(),
-                "applied cluster-topology NodeInfoUpsert (ADR-1 / W1.1)"
+                "applied typed cluster-topology node self-report (ADR-1 / W1.1)"
             );
-            Response::ok(req_id, ResultPayload::Bool(true))
+            Ok(true)
         }
         Err(error) => {
-            tracing::warn!(req_id, node_id, %error, "cluster-topology NodeInfoUpsert rejected");
-            Response::err(req_id, format!("node info upsert failed: {error}"))
+            tracing::warn!(req_id, node_id, %error, "cluster-topology node self-report rejected");
+            Err(format!("node info upsert failed: {error}"))
         }
     }
 }
@@ -410,32 +388,6 @@ pub(crate) async fn try_handle(
 ) -> Result<Response, Method> {
     match method {
         Method::ClusterMembers => Ok(handle_cluster_members(state, req_id, verified_context).await),
-        Method::NodeInfoUpsert {
-            cluster_id,
-            node_id,
-            member_identity,
-            raft_addr,
-            advertised_client_addr,
-            tls_server_name,
-            certificate_id,
-            certificate_rotation_epoch,
-            certificate_not_before_ms,
-            certificate_not_after_ms,
-        } => Ok(handle_node_info_upsert(
-            state,
-            req_id,
-            cluster_id,
-            node_id,
-            member_identity,
-            raft_addr,
-            advertised_client_addr,
-            tls_server_name,
-            certificate_id,
-            certificate_rotation_epoch,
-            certificate_not_before_ms,
-            certificate_not_after_ms,
-        )
-        .await),
         other => Err(other),
     }
 }
@@ -467,11 +419,6 @@ pub(crate) async fn try_handle(
                 Err(error) => Response::err(req_id, error),
             })
         }
-        Method::NodeInfoUpsert { .. } => Ok(Response::err(
-            req_id,
-            "CLUSTER_CONFIGURATION_INVALID: cluster topology self-report requires a \
-             `raft`-feature cluster build",
-        )),
         other => Err(other),
     }
 }

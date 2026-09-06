@@ -22,20 +22,18 @@ fn method_policy_registry_has_no_duplicates() {
         // classifier comparisons live in `tests/consistency.rs`.
         let _ = table_policy;
     }
-    // The ledger currently contains 412 rows: 403 unconditional rows plus one
-    // row for each of the nine feature-gated surfaces below. Keep this formula
+    // The ledger currently contains 408 rows: 401 unconditional rows plus one
+    // row for each of the seven feature-gated surfaces below. Keep this formula
     // aligned with the cfg rows in the domain row inventory so every supported
     // feature combination checks the same coverage invariant.
-    let expected = 403
+    let expected = 401
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))
         + usize::from(cfg!(feature = "quantum"))
         + usize::from(cfg!(feature = "viz"))
-        + usize::from(cfg!(feature = "asr-native"))
-        + usize::from(cfg!(feature = "tts-piper"))
-        + usize::from(cfg!(feature = "policy_export"));
+        + usize::from(cfg!(feature = "asr-native"));
     assert_eq!(
         seen.len(),
         expected,
@@ -148,18 +146,6 @@ fn generated_protocol_policy_inventory_covers_every_primitive() {
         // TsRange/TsAsofJoin/TsWindow/TsGapFill, plus TsListSeries.
         5
     );
-}
-
-#[cfg(feature = "policy_export")]
-#[test]
-fn policy_export_uses_its_dedicated_read_action() {
-    let (_, policy, _) = method_policy_entries()
-        .find(|(name, _, _)| *name == "PolicyExport")
-        .expect("PolicyExport must have a current policy declaration");
-    assert_eq!(policy.authz_action, "policy:export");
-    assert!(!policy.mutates);
-    assert_eq!(policy.durability_domain, DurabilityDomain::None);
-    assert!(!policy.audited);
 }
 
 #[test]

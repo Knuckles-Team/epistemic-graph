@@ -265,14 +265,10 @@ fn apply_claim_next(
 ) -> Result<ResultPayload, String> {
     let updates = match eg_types::msgpack::decode_property_object(updates_msgpack) {
         Ok(m) => m,
-        Err(_) => {
-            return Ok(ResultPayload::raw(
-                &Option::<(String, serde_json::Value)>::None,
-            ))
-        }
+        Err(_) => return ResultPayload::raw(&Option::<(String, serde_json::Value)>::None),
     };
     let claimed = core.claim_next_fields(label, &updates);
-    Ok(ResultPayload::raw(&claimed))
+    ResultPayload::raw(&claimed)
 }
 
 /// `AddSceneObject`: pure extract-method from `try_handle_gateway`'s closure,
@@ -536,7 +532,7 @@ pub(super) async fn try_handle(
             );
             commit_gateway(ctx, plan, method, move |core| {
                 let out = core.maintain(&ids, now_ms, half_life_ms, evict_threshold, delete);
-                Ok(ResultPayload::raw(&out))
+                ResultPayload::raw(&out)
             })
             .await
         }
@@ -607,7 +603,7 @@ pub(super) async fn try_handle(
                     next_state_ref.as_deref(),
                     t,
                 );
-                Ok(ResultPayload::raw(&step_id))
+                ResultPayload::raw(&step_id)
             })
             .await
         }

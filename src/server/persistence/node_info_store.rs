@@ -8,8 +8,7 @@
 //! `Method::ClusterMembers` and `PlacementRoute`'s `endpoints` field need every
 //! cluster node's client-reachable address to hand back to a discovering client,
 //! replacing the static hand-maintained `GRAPH_RAFT_GROUP_ENDPOINTS` map. Each node
-//! self-reports its own identity through `Method::NodeInfoUpsert`, a
-//! `ClusterAdmin`-domain native Raft command (mirrors `CatalogAssign`): the SAME
+//! self-reports its own identity through an engine-owned typed Raft command: the SAME
 //! committed log entry applies deterministically on every replica (every node runs
 //! the identical apply-time write with the identical field values), so every
 //! node's LOCAL copy of this store converges to hold every OTHER node's row too —
@@ -243,10 +242,10 @@ pub struct NodeInfoStore {
     cluster_id: RwLock<Option<String>>,
     /// Local monotonic generation counter, bumped on every successful `upsert`
     /// (CONCEPT:EG-KG.sharding.cluster-topology). Since an upsert replicates identically to every
-    /// node (see module docs), this counter converges cluster-wide too. Exposed
-    /// as `Method::ClusterMembers`' `epoch` — a cheap "has the known member set
-    /// changed" freshness signal for a discovering client's cache; it is NOT a
-    /// per-partition routing fence (that remains `PlacementCatalog`'s epoch).
+    /// node (see module docs), this counter converges cluster-wide too. It is an
+    /// internal cache-invalidation signal, not part of the `ClusterMembers` wire
+    /// result and not a per-partition routing fence (that remains
+    /// `PlacementCatalog`'s epoch).
     generation: AtomicU64,
 }
 

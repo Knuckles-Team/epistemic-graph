@@ -769,7 +769,7 @@ fn decode_raw<T: serde::de::DeserializeOwned>(
     let bytes = match response.result.as_ref() {
         // These two untagged byte variants are wire-identical and either may be
         // selected when the durable outer ResultPayload is decoded.
-        Some(ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) => bytes,
+        Some(ResultPayload::Raw(bytes)) => bytes,
         _ => panic!("{label} did not return a typed byte result: {response:?}"),
     };
     eg_types::msgpack::decode_bounded(
@@ -896,7 +896,7 @@ fn assert_released_status(status: &ResourceReservationStatusResult) {
 fn assert_redirect(response: crate::protocol::Response, expected_leader: NodeId) {
     assert_eq!(response.error.as_deref(), Some("OPERATION_REDIRECTED"));
     let bytes = match response.result.as_ref() {
-        Some(ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) => bytes,
+        Some(ResultPayload::Raw(bytes)) => bytes,
         _ => panic!("redirect did not carry the structured operation result: {response:?}"),
     };
     let detail: OperationResult = eg_types::msgpack::decode_bounded(
@@ -969,7 +969,7 @@ async fn wait_for_public_active_status(
             last_error = error.to_string();
         } else {
             match response.result {
-                Some(ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes)) => {
+                Some(ResultPayload::Raw(bytes)) => {
                     match eg_types::msgpack::decode_bounded::<ResourceReservationStatusResult>(
                         &bytes,
                         eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),

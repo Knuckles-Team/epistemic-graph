@@ -228,6 +228,40 @@ fn work_item_native_inventory_excludes_read_only_reservation_queries() {
     }
 }
 
+#[test]
+fn node_info_is_typed_internal_and_sealed() {
+    let info = crate::server::persistence::node_info_store::NodeInfo {
+        cluster_id: "cluster-authority".to_string(),
+        node_id: 7,
+        member_identity: crate::server::persistence::node_info_store::member_identity_for(
+            "cluster-authority",
+            7,
+        ),
+        raft_addr: "127.0.0.1:9100".to_string(),
+        advertised_client_addr: "tcp://127.0.0.1:9101".to_string(),
+        tls_server_name: None,
+        certificate_id: None,
+        certificate_rotation_epoch: 0,
+        certificate_not_before_ms: None,
+        certificate_not_after_ms: None,
+    };
+    let command = NativeMutationCommand::node_info(&info, "cluster-node-info-key").unwrap();
+    assert_eq!(command.domain(), Some(NativeMutationDomain::ClusterAdmin));
+    assert!(command
+        .open_public_method("cluster-node-info-key")
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        command.open_node_info("cluster-node-info-key").unwrap(),
+        info
+    );
+    let wire = rmp_serde::to_vec_named(&command).unwrap();
+    assert!(!wire
+        .windows(b"tcp://127.0.0.1:9101".len())
+        .any(|window| window == b"tcp://127.0.0.1:9101"));
+    assert!(command.open_node_info("wrong-key").is_err());
+}
+
 fn assert_native_round_trip(method: Method, expected_domain: NativeMutationDomain) {
     let expected = rmp_serde::to_vec_named(&method).unwrap();
     let command = NativeMutationCommand::from_public_method(method, "native-domain-test-key")

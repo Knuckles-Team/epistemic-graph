@@ -385,14 +385,9 @@ fn read_remote_response(stream: &mut std::net::TcpStream) -> Result<Vec<u8>, Str
     if resp.error.is_some() {
         return Err("federation: remote engine returned an error".to_string());
     }
-    // `ResultPayload::raw()` and `PropertiesMsgpack` are the SAME msgpack `bin` on
-    // the wire; the untagged decoder picks `PropertiesMsgpack` (it is declared
-    // first), so accept either — both carry the msgpack body we re-decode.
+    // `ResultPayload::raw()` is the one MessagePack-bin result representation.
     match resp.result {
-        Some(
-            eg_types::protocol::ResultPayload::Raw(bytes)
-            | eg_types::protocol::ResultPayload::PropertiesMsgpack(bytes),
-        ) => Ok(bytes),
+        Some(eg_types::protocol::ResultPayload::Raw(bytes)) => Ok(bytes),
         _ => Err("federation: remote engine returned an unexpected result".to_string()),
     }
 }

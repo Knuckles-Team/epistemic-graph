@@ -1,7 +1,7 @@
 """End-to-end proof of the cost/efficiency autoscale surface (CONCEPT:EG-KG.compute.lane-v).
 
 The session server is built `--features full`, which includes `cost`, so the
-`ResourceStats` Method is served. This drives it through the real transport and asserts
+`ResourceStatsPage` Method is served. This drives it through the real transport and asserts
 the snapshot's per-graph / aggregate counts are accurate.
 """
 

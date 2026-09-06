@@ -69,7 +69,7 @@
 //!
 //! **Why a singular `caller` and not a `principals` map.** Until 2026-09-04
 //! this module exported `principals: BTreeMap<subject, roles>`, seeded from a
-//! caller-supplied `Method::PolicyExport.principals` field with the calling
+//! caller-supplied principal list with the calling
 //! principal's own claims folded in. Two defects, one contract:
 //!
 //! 1. the map was **forgeable** — a caller named the subjects and the roles it
@@ -98,7 +98,7 @@
 //! `scope_index.contains("*")` first. au's `permissioning.py` only ever
 //! checks `_PRIVILEGED_ROLES = frozenset({"kg:admin"})` — `"*"` alone is NOT
 //! privileged to au. **This module picks eg's own definition (`"*"` OR
-//! `kg:admin`) for gating `/policy/export` and `Method::PolicyExport`**,
+//! `kg:admin`) for gating `/policy/export`**,
 //! because that is the definition every OTHER admin-tier decision in this
 //! crate already uses (self-consistency), and documents it here rather than
 //! resolving the asymmetry (out of scope — DEC-CA-04 leaves it open,
@@ -115,13 +115,8 @@
 //! an `"admin:"`-prefixed action) additionally requires
 //! `IsolationLayer::has_admin_capability` — a **pre-registered agent** in
 //! `agents: HashMap` with an explicit RBAC `Admin` grant, i.e. `rbac.redb`
-//! (M7), NOT the token's own claims. `Method::PolicyExport` is therefore
-//! deliberately given the fresh, non-admin-tier `authz_action = "policy:export"`
-//! (see `eg_capabilities::policy`'s entry) so it is gated ONLY through
-//! `VerifiedRequestContext::allows_method`'s unconditional, claims-derived
-//! `kg:admin` fallback — never through `rbac.redb`. Naming it `"security:admin"`
-//! (the obvious first choice, matching `GetIdentity`/`RegisterIdentity`) would
-//! have silently reproduced the exact mistake DEC-CA-04 A2 corrected.
+//! (M7), NOT the token's own claims. The HTTP surface performs its own
+//! claims-derived `"*"`/`"kg:admin"` check and never consults `rbac.redb`.
 //!
 //! # Bundle scope: one bundle per tenant, `graphs: [...]` (DEC-CA-04 A3)
 //!
@@ -248,8 +243,8 @@ pub struct BundleCaller {
 impl BundleCaller {
     /// Build the caller block from an identity the server has ALREADY
     /// verified. There is no constructor from method-body data: the wire
-    /// contract (`Method::PolicyExport`) carries no principal field at all, so
-    /// this is the only shape a bundle's subject can come from.
+    /// HTTP request carries no principal field at all, so this is the only
+    /// shape a bundle's subject can come from.
     pub(crate) fn from_verified<'a>(
         subject: &str,
         roles: impl IntoIterator<Item = &'a String>,
@@ -317,7 +312,7 @@ pub struct MarkingDef {
     /// Mirrors au's `Marking.requires_audit` — carried through for CA-26's own
     /// audit-trail decisions; this lane does not itself audit anything on the
     /// strength of this flag (see `eg_capabilities::policy`'s `audited: false`
-    /// on `Method::PolicyExport`).
+    /// on the authenticated HTTP export surface).
     pub requires_audit: bool,
 }
 
@@ -481,8 +476,7 @@ fn compute_epoch(
 /// `"*"` OR `"kg:admin"` present in either the token's roles or its scopes.
 /// Used ONLY by the standalone `/policy/export` HTTP surface, which bypasses
 /// `server::dispatch`'s generic `Method` gate entirely and therefore needs its
-/// own explicit check; `Method::PolicyExport` relies on that generic gate
-/// (`policy:export` authz_action, see this module's doc) instead.
+/// own explicit check.
 fn is_admin_claims(
     roles: &std::collections::HashSet<String>,
     scopes: &std::collections::HashSet<String>,
@@ -520,8 +514,7 @@ mod http {
     /// this admin-only, JWT-gated surface where every legal value (a tenant
     /// id, a graph name, a marking name) is already restricted to the opaque
     /// identifier charset [`super::generate_bundle`] validates; a caller
-    /// needing a value outside that charset should use `Method::PolicyExport`
-    /// over the primary msgpack protocol instead.
+    /// needing a value outside that charset is rejected by this current surface.
     async fn read_request(stream: &mut TcpStream) -> Option<ParsedRequest> {
         let mut buf = Vec::new();
         let mut tmp = [0u8; 4096];
@@ -663,11 +656,8 @@ mod http {
         // DEC-CA-04 A2: the bundle's caller block is derived from the token
         // this request already proved, never from the query string. There is
         // no `?principal=` parameter and there never was one.
-        let caller = BundleCaller::from_verified(
-            &claims.subject,
-            claims.roles.iter(),
-            claims.scopes.iter(),
-        );
+        let caller =
+            BundleCaller::from_verified(&claims.subject, claims.roles.iter(), claims.scopes.iter());
 
         let input = GenerateBundleInput {
             tenant,
@@ -876,8 +866,7 @@ mod tests {
     #[test]
     fn marking_appears_only_in_the_next_epoch() {
         let caller = caller_fixture();
-        let before =
-            generate_bundle(&caller, &input_with_one_marking()).expect("valid input");
+        let before = generate_bundle(&caller, &input_with_one_marking()).expect("valid input");
         assert!(!before.markings.contains_key("restricted"));
 
         let mut input_after = input_with_one_marking();
@@ -925,42 +914,23 @@ mod tests {
         );
     }
 
-    /// The deleted contract, proven deleted at the WIRE, not just in the
-    /// struct: a `Method::PolicyExport` body carrying the old `principals`
-    /// field is REJECTED, never silently truncated. `Method` is
-    /// `#[serde(tag = "method", content = "params", deny_unknown_fields)]`, so
-    /// a client that keeps sending it fails loudly.
+    /// The duplicate MessagePack contract is deleted at the wire, so callers
+    /// must use the one authenticated HTTP implementation.
     #[test]
-    fn a_wire_body_carrying_the_deleted_principals_field_is_rejected() {
-        let legal = serde_json::json!({
+    fn policy_export_msgpack_method_is_rejected() {
+        let removed = serde_json::json!({
             "method": "PolicyExport",
             "params": {
                 "tenant": "tenant-a",
                 "graphs": ["tenant:tenant-a"],
-                "marking_names": ["confidential"],
-            }
-        });
-        serde_json::from_value::<eg_types::protocol::Method>(legal)
-            .expect("a body without `principals` still decodes");
-
-        let forged = serde_json::json!({
-            "method": "PolicyExport",
-            "params": {
-                "tenant": "tenant-a",
-                "graphs": ["tenant:tenant-a"],
-                "principals": {"svc:someone-else": ["marking:confidential"]},
                 "marking_names": ["confidential"],
             }
         });
         assert!(
-            serde_json::from_value::<eg_types::protocol::Method>(forged.clone()).is_err(),
-            "a caller-supplied `principals` map must be REJECTED, not ignored"
+            serde_json::from_value::<eg_types::protocol::Method>(removed.clone()).is_err(),
+            "the duplicate PolicyExport MessagePack method must stay deleted"
         );
-
-        // Same proof against the codec the live wire actually uses
-        // (`server::transport` decodes with `rmp_serde`), not just serde_json:
-        // a named-map msgpack body carrying the deleted field must fail too.
-        let packed = rmp_serde::to_vec_named(&forged).expect("encode forged body");
+        let packed = rmp_serde::to_vec_named(&removed).expect("encode removed body");
         assert!(
             rmp_serde::from_slice::<eg_types::protocol::Method>(&packed).is_err(),
             "the msgpack path must reject the deleted field as well as the JSON path"
@@ -1086,8 +1056,8 @@ mod tests {
             );
 
             // The bundle's `caller` block is built the SAME way
-            // `server::dispatch`'s `Method::PolicyExport` arm builds it: the
-            // union of the VERIFIED token's roles and scopes, sorted -- through
+            // the HTTP surface builds it: the union of the VERIFIED token's
+            // roles and scopes, sorted -- through
             // the one shared constructor, so there is no second definition.
             let caller = BundleCaller::from_verified(
                 &verified_claims.subject,

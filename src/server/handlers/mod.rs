@@ -20,13 +20,6 @@ pub(crate) mod work_item;
 // are enumerated in the handler; dispatch does not classify this domain or use
 // a wildcard commit arm.
 pub(crate) mod development_lane;
-// Native Piper-ONNX text-to-speech synthesis (GOC-34, `OWNER-VOICE-TTS`, feature
-// `tts-piper`). Stateless — no graph core, runs inline, mirroring finance's
-// pure-compute shape. A build without `tts-piper` omits the module and
-// `Method::TtsSynthesize` itself does not exist in that build's enum (see
-// `eg-types/src/protocol.rs`'s `#[cfg(feature = "tts-piper")]` on the variant).
-#[cfg(feature = "tts-piper")]
-pub(crate) mod tts;
 // Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining, feature `mining`).
 // Association-rule mining. GRAPH-SCOPED (unlike finance/datascience): the
 // graph-derived source + write-back need the live graph core, so the handler takes
@@ -194,11 +187,11 @@ pub(crate) mod placement;
 // answers a clean typed error.
 pub(crate) mod raft_admin;
 // Cluster topology discovery (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1):
-// `Method::ClusterMembers`/`Method::NodeInfoUpsert` over the durable
+// public `Method::ClusterMembers` plus typed internal node self-reports over the durable
 // `server::persistence::node_info_store::NodeInfoStore`, replacing the static
 // `GRAPH_RAFT_GROUP_ENDPOINTS` client map. Always declared (like `placement`/
 // `raft_admin`); the real cross-referenced answer is `raft`-gated, and a
-// non-raft build answers a well-formed empty topology / a clean typed error.
+// non-raft build answers a well-formed empty topology.
 pub(crate) mod topology;
 
 /// The caller/isolation-scoping fields shared by the graph-scoped read handlers'

@@ -134,7 +134,6 @@ macro_rules! native_method_catalog {
             record CatalogRemove => ClusterAdmin,
             record RebalanceExecute => ClusterAdmin,
             record Restore => ClusterAdmin,
-            record NodeInfoUpsert => ClusterAdmin,
             #[cfg(feature = "compute-dist")]
             record CreateMatView => ClusterAdmin,
             #[cfg(feature = "compute-dist")]

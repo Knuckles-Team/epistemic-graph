@@ -33,7 +33,7 @@ class MethodPolicyRow:
     domain: str = ""
 
 
-EXPECTED_METHOD_POLICY_ROWS = 412
+EXPECTED_METHOD_POLICY_ROWS = 408
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
@@ -54,9 +54,7 @@ EXPECTED_CFG_ROWS = (
     ("Quantum", "quantum"),
     ("Asr", "asr-native"),
     ("Viz", "viz"),
-    ("TtsSynthesize", "tts-piper"),
     ("KnowledgeStream", "knowledge-batch"),
-    ("PolicyExport", "policy_export"),
 )
 
 _SOURCE_MARKER = re.compile(r"(?m)^// method-policy source: (?P<path>\S+)\s*$")

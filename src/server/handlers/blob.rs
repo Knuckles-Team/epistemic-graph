@@ -217,7 +217,7 @@ pub(crate) async fn try_handle(
             let got = run_blocking(req_id, move || store.get_chunk(&digest)).await;
             match got {
                 // A chunk is ARBITRARY binary (raw media bytes), NOT a packed map,
-                // so it must NOT travel as `PropertiesMsgpack` — the Python `_send`
+                // so it must NOT travel as a structured binary result — the Python `_send`
                 // blindly `unpackb`s any top-level `bytes` result, which corrupts /
                 // fails on non-MessagePack content. Wrap it as a `Raw` MessagePack
                 // `bin` (serde_bytes) so the client's second `unpackb` recovers the
