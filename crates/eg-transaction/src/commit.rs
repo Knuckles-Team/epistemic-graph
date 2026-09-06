@@ -18,6 +18,9 @@ use eg_types::{
 };
 use redb::ReadableTable;
 
+/// Greatest batch id in redb's byte order, for a scope-bounded range scan.
+pub(crate) const MAX_BATCH_ID_SENTINEL: &str = "\u{10FFFF}";
+
 /// Validate binding, exact idempotency, OCC, and route fencing before owner rows change.
 pub(crate) fn begin<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
@@ -183,18 +186,33 @@ pub(crate) fn write_class<D: OwnerDomain>(
     Ok(())
 }
 
+/// Advance the scope's authoritative version by exactly one.
+///
+/// Every admitted batch bumps it, operation or maintenance: RF-RULING-005 makes
+/// an owner-maintenance write a real mutation, and a mutation that leaves the
+/// version untouched is invisible to any reader doing OCC. An unversioned batch
+/// therefore still advances the counter; only a *versioned* batch additionally
+/// has to agree with the value its `VersionExpectation` implies.
 fn write_version<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
     committed: CommittedVersion,
 ) -> Result<(), String> {
-    let Some(target) = committed.target() else {
-        return Ok(());
-    };
     let binding_key = ledger_scope_key(&batch.identity);
-    write
-        .open_table(VERSIONS)?
-        .insert(binding_key.as_str(), target)
+    let mut versions = write.open_table(VERSIONS)?;
+    let current = versions
+        .get(binding_key.as_str())
+        .map_err(|error| error.to_string())?
+        .map(|value| value.value())
+        .ok_or_else(|| "mutation scope binding is missing its authoritative version".to_string())?;
+    let next = current
+        .checked_add(1)
+        .ok_or_else(|| "mutation scope version overflow".to_string())?;
+    if committed.target().is_some_and(|target| target != next) {
+        return Err("mutation committed version does not advance its scope by one".to_string());
+    }
+    versions
+        .insert(binding_key.as_str(), next)
         .map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -280,11 +298,11 @@ pub(crate) fn purge_scope<D: OwnerDomain>(
     validate_batch_keys(write, identity, &identity_key)?;
     macro_rules! purge {
         ($table:expr) => {{
-            write.purge_scoped_rows($table, identity_key.as_str())?;
+            write.purge_scoped_rows($table)?;
         }};
     }
     visit_ledger_tables!(purge);
-    write.retire_scope_binding(identity)
+    write.retire_scope_binding()
 }
 
 /// Every batch row under this scope key must bind its own exact identity
@@ -296,11 +314,14 @@ fn validate_batch_keys<D: OwnerDomain>(
     identity_key: &str,
 ) -> Result<(), String> {
     let table = write.open_table(BATCHES)?;
-    for row in table.iter().map_err(|error| error.to_string())? {
+    let rows = table
+        .range((identity_key, "")..=(identity_key, MAX_BATCH_ID_SENTINEL))
+        .map_err(|error| error.to_string())?;
+    for row in rows {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (row_identity, batch_id) = key.value();
         if row_identity != identity_key {
-            continue;
+            return Err("mutation batch range escaped its scope prefix".to_string());
         }
         let record = decode_batch_record(value.value())?;
         if record.identity != *identity || record.batch.batch_id != batch_id {

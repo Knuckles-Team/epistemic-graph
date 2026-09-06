@@ -1,6 +1,6 @@
 //! Typed ledger row handles.
 //!
-//! These name the same fourteen durable ledger tables the storage kernel
+//! These name the same fifteen durable ledger tables the storage kernel
 //! declares, censuses and validates. They carry no authority: opening one still
 //! requires a kernel-issued read or write transaction. `ledger_table_names` is
 //! cross-checked against [`eg_storage::declared_table_names`] so a divergent

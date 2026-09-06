@@ -727,3 +727,29 @@ fn staged_adoption_token_rejects_post_inspection_change() {
 
     assert!(adopt_staged_mutation_store(staged).is_err());
 }
+
+/// A store whose declared owner table is gone is not recoverable, however
+/// consistent its ledger is. Before the owner census joined recovery
+/// validation, a backup that had dropped every owner row validated as good.
+#[test]
+fn a_missing_owner_table_fails_recovery_validation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("missing-owner.redb");
+    let physical = PhysicalStoreIdentity::new("physical:test:missing-owner").unwrap();
+    let store = create_physical(&path, physical.clone(), None, OwnerLayout::Kv).unwrap();
+    validate_live_recovery_store(&store).expect("a complete store validates");
+    drop(store);
+
+    let database = redb::Database::open(&path).unwrap();
+    let write = database.begin_write().unwrap();
+    write
+        .delete_table(redb::TableDefinition::<(&str, &str), &[u8]>::new("kv"))
+        .unwrap();
+    write.commit().unwrap();
+    drop(database);
+
+    match open_physical(&path, physical, None, OwnerLayout::Kv) {
+        Ok(_) => panic!("a store missing a declared owner table must not open"),
+        Err(error) => assert!(error.contains("census") || error.contains("kv"), "{error}"),
+    }
+}

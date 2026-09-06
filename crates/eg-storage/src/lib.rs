@@ -20,7 +20,9 @@ mod physical;
 mod recovery;
 mod tables;
 
-pub use capability::{PhysicalWriteCapability, ScopedRead, ScopedSnapshot};
+pub use capability::{
+    OwnerReadTable, PhysicalWriteCapability, ScopedRead, ScopedSnapshot, ScopedTable,
+};
 pub use codec::{
     decode_batch_record, decode_ledger_record, decode_outbox_record, encode_bounded,
     CollectionBudget,

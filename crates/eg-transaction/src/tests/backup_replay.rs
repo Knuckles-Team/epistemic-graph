@@ -11,7 +11,10 @@ use super::*;
 use crate::admitted::AdmittedMutation;
 use crate::tables::REPLAY_NONCES;
 use crate::ReplayResolution;
-use eg_storage::{backup_recovery_store, backup_strict_recovery_store, recovery_store_fingerprint};
+use eg_storage::{
+    backup_recovery_store, backup_strict_recovery_store, recovery_store_fingerprint, BlobOwner,
+};
+use redb::TableDefinition;
 
 struct Attempt {
     operation: OperationReplayIdentityV1,
@@ -158,4 +161,53 @@ fn the_recovery_fingerprint_covers_the_replay_ledger() {
 
     let after = recovery_store_fingerprint(&fixture.kernel).unwrap();
     assert_ne!(before, after, "a removed nonce must change the fingerprint");
+}
+
+/// The coordinator backup must carry the domain payload, not just the ledger.
+/// It copied no owner tables at all, so a backup of an Rbac or Kv store came
+/// back with every domain row missing and validated as good.
+#[test]
+fn a_coordinator_backup_round_trips_every_owner_row() {
+    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("owner-source.redb");
+    let destination = dir.path().join("owner-backup.redb");
+    let identity = native_identity("tenant-a", "incarnation:blob:a");
+    let scope = eg_storage::ledger_scope_key(&identity);
+    {
+        let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:test", None);
+        let owner =
+            fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+        let owner_batch = batch(identity.clone(), "owner-payload");
+        let (write, begun) = fixture.mutations.admit(&owner, &owner_batch).unwrap();
+        let source_version = match begun {
+            Begin::Apply { source_version } => source_version,
+            Begin::Replay(_) => panic!("unexpected replay"),
+        };
+        let rows = write.owner_rows(&owner, &owner_batch).unwrap();
+        rows.open_table(BLOB_ROWS)
+            .unwrap()
+            .insert((scope.as_str(), "object"), b"domain-row".as_slice())
+            .unwrap();
+        rows.finish_owner().unwrap();
+        fixture
+            .mutations
+            .finish(&write, &owner_batch, None, 2, source_version)
+            .unwrap();
+        fixture.mutations.commit(write, &owner_batch).unwrap();
+        backup_recovery_store(&fixture.kernel, &destination).unwrap();
+    }
+    let copy = Fixture::open::<BlobOwner>(&destination, "physical:blob:test", None);
+    let owner = copy.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity);
+    let read = copy.kernel.read_scope(&owner).unwrap();
+    assert!(read_ledger(&read, "owner-payload").unwrap().is_some());
+    let table = read.open_owner_table(BLOB_ROWS).unwrap();
+    assert_eq!(
+        table
+            .get((scope.as_str(), "object"))
+            .unwrap()
+            .expect("the backup must carry the owner row")
+            .value(),
+        b"domain-row"
+    );
 }

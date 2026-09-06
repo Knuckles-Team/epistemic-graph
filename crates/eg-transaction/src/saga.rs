@@ -127,6 +127,12 @@ pub(crate) fn commit_saga<D: OwnerDomain>(
         .ok_or_else(|| format!("mutation saga '{}' was not prepared", batch.batch_id))?;
     verify_replay_identity(batch, &record.batch)?;
     if record.status == MutationBatchStatus::Committed {
+        // Documented exception to "every owner write is an admitted mutation":
+        // the saga already committed, and this commit only drops the sealed
+        // private recovery payload that its terminal receipt made redundant.
+        // It writes no owner row, produces no receipt and bumps no version --
+        // deleting recovery state for an already-terminal batch is cleanup, not
+        // a mutation, and re-running it is a no-op.
         let identity_key = ledger_scope_key(&batch.identity);
         remove_private(&write, &identity_key, &batch.batch_id)?;
         write.commit()?;

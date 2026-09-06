@@ -1,6 +1,7 @@
 //! Scoped ledger reads. Every entry point needs a kernel-issued
 //! [`ScopedRead`], which already proved the scope is bound to this store.
 
+use crate::commit::MAX_BATCH_ID_SENTINEL;
 use crate::tables::{BATCHES, CLASSES, FENCES, OUTBOX, PRIVATE_PAYLOADS, VERSIONS};
 use eg_storage::{
     decode_batch_record, decode_ledger_record, decode_outbox_record, ledger_scope_key,
@@ -9,16 +10,11 @@ use eg_storage::{
 };
 use eg_types::{MutationBatchRecord, MutationOutboxRecord};
 
-/// Greatest batch id in redb's byte order, for a scope-bounded range scan.
-const MAX_BATCH_ID_SENTINEL: &str = "\u{10FFFF}";
-
 /// Authoritative version of the read's bound scope.
 pub fn version<D: OwnerDomain>(read: &ScopedRead<'_, D>) -> Result<u64, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read.open_table(VERSIONS)?;
-    table
-        .get(key.as_str())
-        .map_err(|error| error.to_string())?
+    read.scoped_table(VERSIONS)?
+        .get(key.as_str())?
         .map(|value| value.value())
         .ok_or_else(|| "mutation scope binding is missing its version row".to_string())
 }
@@ -29,10 +25,8 @@ pub fn read_ledger<D: OwnerDomain>(
     batch_id: &str,
 ) -> Result<Option<MutationBatchRecord>, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read.open_table(BATCHES)?;
-    table
-        .get((key.as_str(), batch_id))
-        .map_err(|error| error.to_string())?
+    read.scoped_table(BATCHES)?
+        .get((key.as_str(), batch_id))?
         .map(|value| decode_batch_record(value.value()))
         .transpose()
 }
@@ -43,13 +37,13 @@ pub fn read_outbox<D: OwnerDomain>(
     batch_id: &str,
 ) -> Result<Vec<MutationOutboxRecord>, String> {
     let identity_key = ledger_scope_key(read.scope());
-    let table = read.open_table(OUTBOX)?;
+    let table = read.scoped_table(OUTBOX)?;
     let mut rows = Vec::new();
     let mut budget = CollectionBudget::default();
-    for row in table
-        .range((identity_key.as_str(), batch_id, 0)..=(identity_key.as_str(), batch_id, u32::MAX))
-        .map_err(|error| error.to_string())?
-    {
+    for row in table.range_inclusive(
+        (identity_key.as_str(), batch_id, 0),
+        (identity_key.as_str(), batch_id, u32::MAX),
+    )? {
         let (_, value) = row.map_err(|error| error.to_string())?;
         budget.account(value.value().len())?;
         rows.push(decode_outbox_record(value.value())?);
@@ -66,10 +60,9 @@ pub fn read_private_payload<D: OwnerDomain>(
     let identity_key = ledger_scope_key(read.scope());
     let record = read_ledger(read, batch_id)?
         .ok_or_else(|| "private recovery plan has no parent receipt".to_string())?;
-    let table = read.open_table(PRIVATE_PAYLOADS)?;
-    let sealed = table
-        .get((identity_key.as_str(), batch_id))
-        .map_err(|error| error.to_string())?
+    let sealed = read
+        .scoped_table(PRIVATE_PAYLOADS)?
+        .get((identity_key.as_str(), batch_id))?
         .map(|value| value.value().to_vec());
     if let Some(bytes) = &sealed {
         let digest = private_payload_digest(&record)
@@ -84,12 +77,11 @@ pub fn read_batches<D: OwnerDomain>(
     read: &ScopedRead<'_, D>,
 ) -> Result<Vec<MutationBatchRecord>, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read.open_table(BATCHES)?;
+    let table = read.scoped_table(BATCHES)?;
     let mut records = Vec::new();
     let mut budget = CollectionBudget::default();
-    for row in table
-        .range((key.as_str(), "")..=(key.as_str(), MAX_BATCH_ID_SENTINEL))
-        .map_err(|error| error.to_string())?
+    for row in
+        table.range_inclusive((key.as_str(), ""), (key.as_str(), MAX_BATCH_ID_SENTINEL))?
     {
         let (_, value) = row.map_err(|error| error.to_string())?;
         budget.account(value.value().len())?;
@@ -103,10 +95,9 @@ pub fn read_fences<D: OwnerDomain>(
     read: &ScopedRead<'_, D>,
 ) -> Result<Option<ScopeFence>, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read.open_table(FENCES)?;
-    let fence = table
-        .get(key.as_str())
-        .map_err(|error| error.to_string())?
+    let fence = read
+        .scoped_table(FENCES)?
+        .get(key.as_str())?
         .map(|value| decode_ledger_record::<ScopeFence>(value.value()))
         .transpose()?;
     Ok(fence)
@@ -162,10 +153,9 @@ pub fn read_class<D: OwnerDomain>(
     batch_id: &str,
 ) -> Result<Option<MutationClass>, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read.open_table(CLASSES)?;
-    let row = table
-        .get((key.as_str(), batch_id))
-        .map_err(|error| error.to_string())?
+    let row = read
+        .scoped_table(CLASSES)?
+        .get((key.as_str(), batch_id))?
         .map(|value| decode_ledger_record::<MutationClassRow>(value.value()))
         .transpose()?;
     Ok(row.map(|row| row.class))

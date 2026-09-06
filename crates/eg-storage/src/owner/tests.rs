@@ -643,3 +643,10 @@ fn plain_recovery_rejects_every_retired_mutation_table_marker() {
         assert!(classify_recovery_store(&path, RecoveryExpectation::Plain, None).is_err());
     }
 }
+
+/// Every ledger table's declared contract types must equal its real redb K/V,
+/// the same guarantee `validate_owner_registry_equality` gives owner tables.
+#[test]
+fn ledger_contract_types_match_their_real_redb_types() {
+    crate::owner::registry::validate_ledger_registry_types().unwrap();
+}

@@ -1,6 +1,7 @@
 //! Shared fixtures for the mutation-kernel test modules.
 
 mod backup_replay;
+mod confinement;
 mod fault_restart;
 mod ledger;
 mod recovery_binding;

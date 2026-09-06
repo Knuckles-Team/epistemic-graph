@@ -7,13 +7,18 @@
 
 use crate::owner::domain::OwnerDomain;
 use crate::owner::handle::OwnedStoreHandle;
-use crate::owner::registry::declared_table_names;
-use crate::physical::binding::{binding_for_read, binding_for_write, retire_scope_in};
+use crate::owner::registry::{declared_table_names, owner_table_names};
+use crate::physical::binding::{
+    binding_for_read, binding_for_write, ledger_scope_key, retire_scope_in,
+};
 use crate::physical::root::PhysicalStore;
 use crate::recovery::evidence::{strict_snapshot_read, StrictRecoveryEvidence};
 use crate::tables::LedgerRowScope;
 use eg_types::MutationScopeIdentity;
-use redb::{ReadOnlyTable, ReadTransaction, Table, TableDefinition, TableHandle, WriteTransaction};
+use redb::{
+    AccessGuard, Range, ReadOnlyTable, ReadTransaction, ReadableTable, ReadableTableMetadata, Table,
+    TableDefinition, TableHandle, WriteTransaction,
+};
 use std::marker::PhantomData;
 
 /// The three tables that ARE the file's physical identity. A capability never
@@ -90,11 +95,51 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
             .map_err(|error| error.to_string())
     }
 
-    /// Remove every row of one declared scoped table belonging to `scope_key`.
+    /// Open one owner table of this capability's layout for **reading only**,
+    /// inside the admitted write transaction.
+    ///
+    /// A domain that decides what to write by first reading its own rows --
+    /// picking the next claimable job out of six index tables, say -- must do
+    /// that read in the same transaction as the write, or the decision is not
+    /// serialized against a concurrent writer. A separate read snapshot would
+    /// lose exactly that. This is strictly weaker than [`Self::open_table`]:
+    /// the returned view exposes lookups and ranges and no mutation, and no
+    /// raw transaction is reachable through it.
+    ///
+    /// The bound is the layout, as on the owner write path. Several owner
+    /// tables (the jobs scheduler indexes, for instance) carry no scope
+    /// component in their key at all, so the ledger's scope bound
+    /// ([`ScopedTable`]) cannot be applied to them.
+    pub fn open_owner_read<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<OwnerReadTable<'_, K, V>, String>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        let name = definition.name();
+        if !owner_table_names(D::LAYOUT).contains(&name) {
+            return Err("owner read may not open a table outside its layout".to_string());
+        }
+        Ok(OwnerReadTable {
+            table: self
+                .transaction
+                .open_table(definition)
+                .map_err(|error| error.to_string())?,
+        })
+    }
+
+    /// Remove every row of one declared scoped table belonging to **this
+    /// capability's own** serving scope.
+    ///
+    /// The scope is read from the capability, never taken as an argument: a
+    /// capability minted for one scope must not be able to name another, or
+    /// holding tenant A's handle would be enough to wipe tenant B's ledger on
+    /// the same physical file.
     pub fn purge_scoped_rows<K, V>(
         &self,
         definition: TableDefinition<'static, K, V>,
-        scope_key: &str,
     ) -> Result<(), String>
     where
         K: redb::Key + 'static,
@@ -102,16 +147,23 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         V: redb::Value + 'static,
     {
         permit_table(self.store, definition.name())?;
-        crate::tables::purge_scoped_rows(&self.transaction, definition, scope_key)
+        crate::tables::purge_scoped_rows(
+            &self.transaction,
+            definition,
+            &ledger_scope_key(&self.identity),
+        )
     }
 
-    /// Retire one logical scope's binding and its authoritative version row.
+    /// Retire **this capability's own** scope: its binding and its
+    /// authoritative version row.
     ///
     /// `mutation_scope_bindings_v1` is physical identity, so the storage kernel
     /// owns this write; the mutation owner clears its own ledger rows and then
-    /// asks for retirement inside the same transaction.
-    pub fn retire_scope_binding(&self, identity: &MutationScopeIdentity) -> Result<(), String> {
-        retire_scope_in(self.store, &self.transaction, identity)
+    /// asks for retirement inside the same transaction. Like
+    /// [`Self::purge_scoped_rows`], the scope comes from the capability and is
+    /// not an argument.
+    pub fn retire_scope_binding(&self) -> Result<(), String> {
+        retire_scope_in(self.store, &self.transaction, &self.identity)
     }
 
     /// The exact serving scope this capability was issued for.
@@ -124,9 +176,17 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         &self.principal
     }
 
-    /// Reprove that one logical scope is bound to this store under the current
-    /// manifest and declared table census, inside this write transaction.
+    /// Reprove that `identity` is **this capability's own** scope and is still
+    /// bound to this store under the current manifest and declared table
+    /// census, inside this write transaction.
+    ///
+    /// Boundness alone is not enough: every scope served by one physical file
+    /// is bound to it, so a boundness-only check would let a capability for one
+    /// tenant act on another.
     pub fn verify_scope(&self, identity: &MutationScopeIdentity) -> Result<(), String> {
+        if identity != &self.identity {
+            return Err("mutation capability does not serve this scope".to_string());
+        }
         binding_for_write(self.store, &self.transaction, identity).map(|_| ())
     }
 
@@ -186,7 +246,12 @@ impl<'a, D: OwnerDomain> ScopedRead<'a, D> {
     }
 
     /// Open one declared, non-identity table of this owner file for reading.
-    pub fn open_table<K, V>(
+    ///
+    /// Crate-private: a whole ledger table spans every scope the file serves,
+    /// so handing one to a domain crate would let a reader bound to one tenant
+    /// iterate another's receipts. External readers use [`Self::scoped_table`]
+    /// for ledger rows and [`Self::open_owner_table`] for their own layout.
+    pub(crate) fn open_table<K, V>(
         &self,
         definition: TableDefinition<'static, K, V>,
     ) -> Result<ReadOnlyTable<K, V>, String>
@@ -198,6 +263,47 @@ impl<'a, D: OwnerDomain> ScopedRead<'a, D> {
         self.transaction
             .open_table(definition)
             .map_err(|error| error.to_string())
+    }
+
+    /// Open one declared table bounded to this read's own serving scope.
+    ///
+    /// Every key [`ScopedTable`] accepts must name that scope, so a reader for
+    /// one tenant cannot address another's rows even though both live in the
+    /// same physical table.
+    pub fn scoped_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ScopedTable<K, V>, String>
+    where
+        K: redb::Key + 'static,
+        for<'k> K::SelfType<'k>: LedgerRowScope,
+        V: redb::Value + 'static,
+    {
+        Ok(ScopedTable {
+            table: self.open_table(definition)?,
+            scope_key: ledger_scope_key(&self.identity),
+        })
+    }
+
+    /// Open one owner table of this read's own layout.
+    ///
+    /// Owner tables are the domain's own rows and several of them (the jobs
+    /// scheduler indexes, for instance) carry no scope component in their key
+    /// at all, so they cannot be scope-bound the way a ledger table can. The
+    /// bound here is the layout, exactly as on the write side.
+    pub fn open_owner_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ReadOnlyTable<K, V>, String>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        let name = definition.name();
+        if !owner_table_names(D::LAYOUT).contains(&name) {
+            return Err("scoped read may not open a table outside its layout".to_string());
+        }
+        self.open_table(definition)
     }
 
     pub fn scope(&self) -> &MutationScopeIdentity {
@@ -237,5 +343,95 @@ impl<D: OwnerDomain> ScopedSnapshot<D> {
 
     pub fn scope(&self) -> &MutationScopeIdentity {
         &self.identity
+    }
+}
+
+/// A declared table restricted to one serving scope.
+///
+/// It is the read counterpart of the write capability's confinement: the scope
+/// key comes from the [`ScopedRead`] that issued it, and every key presented to
+/// it must carry that same key in its first position.
+pub struct ScopedTable<K: redb::Key + 'static, V: redb::Value + 'static> {
+    table: ReadOnlyTable<K, V>,
+    scope_key: String,
+}
+
+impl<K, V> ScopedTable<K, V>
+where
+    K: redb::Key + 'static,
+    for<'k> K::SelfType<'k>: LedgerRowScope,
+    V: redb::Value + 'static,
+{
+    /// The one scope every key of this table must name.
+    pub fn scope_key(&self) -> &str {
+        &self.scope_key
+    }
+
+    /// One row of this read's own scope. A key naming another scope is refused.
+    pub fn get<'k>(&self, key: K::SelfType<'k>) -> Result<Option<AccessGuard<'static, V>>, String> {
+        self.permit(&key)?;
+        self.table.get(&key).map_err(|error| error.to_string())
+    }
+
+    /// Every row between two inclusive bounds, both of which must name this
+    /// read's own scope.
+    pub fn range_inclusive<'k>(
+        &self,
+        start: K::SelfType<'k>,
+        end: K::SelfType<'k>,
+    ) -> Result<Range<'static, K, V>, String> {
+        self.permit(&start)?;
+        self.permit(&end)?;
+        self.table
+            .range(start..=end)
+            .map_err(|error| error.to_string())
+    }
+
+    fn permit(&self, key: &K::SelfType<'_>) -> Result<(), String> {
+        if key.ledger_scope() != self.scope_key {
+            return Err("scoped read may not address another scope's rows".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// A read-only view of one owner table inside an admitted write transaction.
+///
+/// It exists so a domain can read its own rows and write in one serialized
+/// transaction without ever holding something that can mutate or that exposes
+/// the transaction. Every method here is a read.
+pub struct OwnerReadTable<'a, K: redb::Key + 'static, V: redb::Value + 'static> {
+    table: Table<'a, K, V>,
+}
+
+impl<K, V> OwnerReadTable<'_, K, V>
+where
+    K: redb::Key + 'static,
+    V: redb::Value + 'static,
+{
+    pub fn get<'k>(&self, key: K::SelfType<'k>) -> Result<Option<AccessGuard<'_, V>>, String> {
+        self.table.get(&key).map_err(|error| error.to_string())
+    }
+
+    pub fn range_inclusive<'k>(
+        &self,
+        start: K::SelfType<'k>,
+        end: K::SelfType<'k>,
+    ) -> Result<Range<'_, K, V>, String> {
+        self.table
+            .range(start..=end)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn iter(&self) -> Result<Range<'_, K, V>, String> {
+        self.table.iter().map_err(|error| error.to_string())
+    }
+
+    pub fn len(&self) -> Result<u64, String> {
+        self.table.len().map_err(|error| error.to_string())
+    }
+
+    pub fn is_empty(&self) -> Result<bool, String> {
+        self.len().map(|len| len == 0)
     }
 }

@@ -412,6 +412,7 @@ pub(crate) fn is_known_mutation_table(name: &str) -> bool {
 }
 
 fn validate_owner_registry_equality() -> Result<(), String> {
+    validate_ledger_registry_types()?;
     for layout in owner_layouts() {
         let mut declared = Vec::new();
         macro_rules! record {
@@ -432,6 +433,36 @@ fn validate_owner_registry_equality() -> Result<(), String> {
         if declared != canonical {
             return Err("owner table definitions differ from the canonical registry".to_string());
         }
+    }
+    Ok(())
+}
+
+/// The ledger tables get the same K/V-vs-contract cross-check the owner tables
+/// already had. Without it, a wrong `key_type_id`/`value_type_id` string in
+/// `contract.rs` silently shifts the layout digest instead of failing.
+pub(crate) fn validate_ledger_registry_types() -> Result<(), String> {
+    macro_rules! check {
+        ($table:expr) => {{
+            validate_ledger_type($table)?;
+        }};
+    }
+    crate::tables::visit_ledger_tables!(check);
+    Ok(())
+}
+
+fn validate_ledger_type<K, V>(table: TableDefinition<'static, K, V>) -> Result<(), String>
+where
+    K: Key + 'static,
+    V: Value + 'static,
+{
+    let contract = crate::owner::contract::ledger_table_contract(table.name());
+    if contract.key_type_id != K::type_name().name()
+        || contract.value_type_id != V::type_name().name()
+    {
+        return Err(format!(
+            "ledger table {} Redb type differs from its manifest contract",
+            table.name()
+        ));
     }
     Ok(())
 }

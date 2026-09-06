@@ -6,6 +6,7 @@
 //! never half.
 
 use super::*;
+use crate::admitted::AdmittedMutation;
 use crate::ReplayResolution;
 
 /// Reopen the same owner file and rebind its serving scope.
@@ -257,4 +258,104 @@ fn a_maintenance_write_is_ledgered_and_outside_operation_replay() {
         crate::read::read_class(&read, "caller-op").unwrap(),
         Some(eg_storage::MutationClass::Operation)
     );
+}
+
+/// RF-RULING-005: a maintenance write is a real mutation, so it advances the
+/// scope version like any other. The bump is now unconditional rather than
+/// driven by `VersionExpectation`, so a batch cannot be ledgered while leaving
+/// the counter untouched and the write invisible to any reader doing OCC.
+///
+/// `VersionExpectation::Unversioned` — the case that previously skipped the
+/// bump entirely — is not exercised here because `MutationBatch` validation
+/// restricts it to a reserved-system tenant on a control-plane/lifecycle scope
+/// with a verified capability, which this fixture is not. The bump no longer
+/// consults the expectation at all, so that path is closed by construction.
+#[test]
+fn every_admitted_batch_advances_the_scope_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.redb");
+    let identity = native_identity("tenant-a", "incarnation:versions");
+    let (fixture, owner) = ledger_fixture(&path, identity.clone());
+    assert_eq!(version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(), 0);
+
+    let maintenance = batch(identity.clone(), "compaction");
+    let (write, begun) = fixture
+        .mutations
+        .admit_maintenance(&owner, &maintenance)
+        .unwrap();
+    let source_version = match begun {
+        Begin::Apply { source_version } => source_version,
+        Begin::Replay(_) => panic!("unexpected replay"),
+    };
+    fixture
+        .mutations
+        .finish(&write, &maintenance, None, 2, source_version)
+        .unwrap();
+    fixture.mutations.commit(write, &maintenance).unwrap();
+    assert_eq!(version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(), 1);
+
+    let mut versioned = batch(identity, "caller-operation");
+    versioned.version_expectation = VersionExpectation::Native(1);
+    apply_batch(&fixture, &owner, &versioned);
+    assert_eq!(version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(), 2);
+}
+
+/// A maintenance label and a recorded operation identity are contradictory, so
+/// a store carrying both refuses to reopen. This is what makes the label
+/// checkable rather than merely asserted.
+#[test]
+fn a_maintenance_batch_carrying_an_operation_identity_fails_to_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.redb");
+    let identity = native_identity("tenant-a", "incarnation:mislabel");
+    let maintenance = batch(identity.clone(), "mislabelled");
+    let attempt = context(1, "request-1", &maintenance.idempotency_key);
+    let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
+    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let recorded = receipt("receipt-1", &operation, &nonce);
+    {
+        let (fixture, owner) = ledger_fixture(&path, identity.clone());
+        let (write, begun) = fixture
+            .mutations
+            .admit_maintenance(&owner, &maintenance)
+            .unwrap();
+        let source_version = match begun {
+            Begin::Apply { source_version } => source_version,
+            Begin::Replay(_) => panic!("unexpected replay"),
+        };
+        fixture
+            .mutations
+            .finish(&write, &maintenance, None, 2, source_version)
+            .unwrap();
+        fixture.mutations.commit(write, &maintenance).unwrap();
+
+        // Plant the contradiction the kernel's own write path refuses to make.
+        let write = AdmittedMutation::open(fixture.mutations_authority(), &owner).unwrap();
+        let row = eg_storage::OperationReplayRow {
+            identity: identity.clone(),
+            idempotency_key: maintenance.idempotency_key.clone(),
+            operation_replay_digest: operation.digest().unwrap(),
+            nonce_replay_digest: nonce.digest().unwrap(),
+            receipt: recorded,
+        };
+        let bytes = eg_storage::encode_bounded(&row, "planted replay row").unwrap();
+        let scope = eg_storage::ledger_scope_key(&identity);
+        write
+            .open_table(crate::tables::REPLAY_OPERATIONS)
+            .unwrap()
+            .insert(
+                (scope.as_str(), maintenance.idempotency_key.as_str()),
+                bytes.as_slice(),
+            )
+            .unwrap();
+        write.commit().unwrap();
+    }
+    match StorageKernelV1::open_owner::<LedgerOnlyOwner>(
+        &path,
+        PhysicalStoreIdentity::new("physical:test:ledger-only").unwrap(),
+        None,
+    ) {
+        Ok(_) => panic!("a contradictory maintenance label must not reopen"),
+        Err(error) => assert!(error.contains("recorded operation replay identity"), "{error}"),
+    }
 }

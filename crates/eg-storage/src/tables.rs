@@ -1,8 +1,8 @@
 //! The closed physical table set every storage-kernel owner file carries.
 //!
 //! Three tables are the physical identity of the file itself; the remaining
-//! fourteen are the durable mutation ledger. The kernel opens, censuses,
-//! hashes, copies and validates all seventeen. Row-level ledger reads and
+//! fifteen are the durable mutation ledger. The kernel opens, censuses,
+//! hashes, copies and validates all eighteen. Row-level ledger reads and
 //! writes belong to the mutation owner, which declares its own typed handles
 //! for the same names and is cross-checked against
 //! [`crate::declared_table_names`].
@@ -99,10 +99,18 @@ pub enum MutationClass {
     /// [`eg_types::authority::OperationReplayIdentityV1`] and participates in
     /// operation-replay resolution.
     Operation,
-    /// An owner-maintenance write with no caller idempotency identity. It is
-    /// durable and ledgered, but it can never consume an attempt nonce or
-    /// record an operation receipt, so it is outside operation-replay conflict
-    /// semantics entirely.
+    /// An owner-maintenance write with no caller operation identity. It is
+    /// durable, ledgered and version-bumping, but it can never consume an
+    /// attempt nonce or record an operation receipt, so it is outside
+    /// operation-replay conflict semantics entirely.
+    ///
+    /// The label is chosen by the admission path
+    /// (`MutationKernelV1::admit_maintenance`), not derived from the batch, so
+    /// it is an assertion the kernel then *holds the caller to*: recording
+    /// replay evidence inside a maintenance write is refused, and recovery
+    /// rejects a maintenance batch whose idempotency key names a recorded
+    /// operation. A caller may still choose the maintenance path for work that
+    /// deserved an operation identity; what it cannot do is have both.
     Maintenance,
 }
 

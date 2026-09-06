@@ -9,7 +9,7 @@
 use crate::admission::AdmissionState;
 use eg_storage::{
     owner_table_names, LedgerRowScope, MutationClass, MutationOwnerAuthority, OwnedStoreHandle,
-    OwnerDomain, OwnerLayout, PhysicalWriteCapability,
+    OwnerDomain, OwnerLayout, OwnerReadTable, PhysicalWriteCapability,
 };
 use eg_types::{MutationBatch, MutationScopeIdentity};
 use redb::{Table, TableDefinition, TableHandle};
@@ -49,24 +49,41 @@ impl<'a, D: OwnerDomain> AdmittedMutation<'a, D> {
         self.capability.open_table(definition)
     }
 
+    /// Open one owner table of this domain's layout for **reading only**,
+    /// inside this admitted write.
+    ///
+    /// Available before a batch exists, because a domain that content-addresses
+    /// its batch from the rows it is about to change must read them in the same
+    /// serialized transaction. Strictly weaker than an owner write: no mutation
+    /// and no transaction is reachable through the returned view, and the
+    /// ledger, the identity tables and every other layout's tables fail closed.
+    pub fn open_read_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<OwnerReadTable<'_, K, V>, String>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        self.capability.open_owner_read(definition)
+    }
+
+    /// Remove every row of one ledger table belonging to this write's own
+    /// serving scope. The scope is the capability's, never an argument.
     pub(crate) fn purge_scoped_rows<K, V>(
         &self,
         definition: TableDefinition<'static, K, V>,
-        scope_key: &str,
     ) -> Result<(), String>
     where
         K: redb::Key + 'static,
         for<'k> K::SelfType<'k>: LedgerRowScope,
         V: redb::Value + 'static,
     {
-        self.capability.purge_scoped_rows(definition, scope_key)
+        self.capability.purge_scoped_rows(definition)
     }
 
-    pub(crate) fn retire_scope_binding(
-        &self,
-        identity: &MutationScopeIdentity,
-    ) -> Result<(), String> {
-        self.capability.retire_scope_binding(identity)
+    pub(crate) fn retire_scope_binding(&self) -> Result<(), String> {
+        self.capability.retire_scope_binding()
     }
 
     pub(crate) fn verify_scope(&self, identity: &MutationScopeIdentity) -> Result<(), String> {

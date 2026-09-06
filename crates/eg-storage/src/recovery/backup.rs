@@ -3,6 +3,7 @@ use crate::kernel::create_physical;
 use crate::physical::binding::ScopeBinding;
 use crate::physical::incarnation::StoreIncarnation;
 use crate::physical::root::PhysicalStore;
+use crate::owner::registry::copy_declared_owner_tables;
 use crate::recovery::evidence::{copy_table, HashSnapshot};
 use crate::recovery::validate::{validate_live_recovery_store, RecoveryStoreCounts};
 use crate::tables::{visit_ledger_content_tables, visit_ledger_tables, SCOPE_BINDINGS};
@@ -72,6 +73,11 @@ pub(crate) fn backup_recovery_store_of(
         }};
     }
     visit_ledger_content_tables!(copy);
+    // The owner tables ARE the domain payload. `create_physical` materialises
+    // them empty, so omitting this copied a backup with every domain row
+    // missing that then validated as good, because recovery validation walked
+    // only the ledger.
+    copy_declared_owner_tables(&rtx, &wtx, manifest.layout)?;
     wtx.commit().map_err(|error| error.to_string())?;
     validate_live_recovery_store(&target)
 }

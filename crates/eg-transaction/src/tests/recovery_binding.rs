@@ -127,7 +127,18 @@ fn a_capability_cannot_open_an_identity_or_undeclared_table() {
     }
     write.abort().unwrap();
 
+    // The read side's owner-table accessor is bounded to the layout, so the
+    // identity tables and an invented name are equally unreachable.
     let read = fixture.kernel.read_scope(&owner).unwrap();
-    assert!(read.open_table(ROOT).unwrap_err().contains("physical-identity table"));
-    assert!(read.open_table(INVENTED).unwrap_err().contains("undeclared table"));
+    for table in [ROOT, MANIFEST, BINDINGS, FOREIGN, INVENTED] {
+        assert!(read
+            .open_owner_table(table)
+            .unwrap_err()
+            .contains("outside its layout"));
+    }
+    // And a scope-bound ledger read still cannot name an identity table.
+    match read.scoped_table(ROOT) {
+        Ok(_) => panic!("a scoped read must not open a physical-identity table"),
+        Err(error) => assert!(error.contains("physical-identity table"), "{error}"),
+    }
 }

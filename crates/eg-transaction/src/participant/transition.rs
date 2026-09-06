@@ -22,6 +22,12 @@ pub fn validate_key_matches_record(
     Ok(())
 }
 
+/// Validate one compare-and-swap between two durable record states.
+///
+/// Split into the four truthful phases the original single function ran in
+/// sequence: exact replay, first write, identity invariance, and the legal
+/// state step. Behaviour is unchanged -- each phase is the original code of
+/// that phase, in the original order.
 pub fn validate_transition(
     current: Option<&ConsensusTransactionRecord>,
     replacement: &ConsensusTransactionRecord,
@@ -31,18 +37,37 @@ pub fn validate_transition(
         return Ok(ConsensusTransactionCasOutcome::Replayed);
     }
     let Some(current) = current else {
-        return match replacement {
-            ConsensusTransactionRecord::Parent {
-                state: ConsensusTransactionParentState::Prepared { .. },
-                ..
-            }
-            | ConsensusTransactionRecord::Participant {
-                state: ConsensusTransactionParticipantState::Prepared { .. },
-                ..
-            } => Ok(ConsensusTransactionCasOutcome::Applied),
-            _ => Err("consensus transaction record must begin prepared".to_string()),
-        };
+        return validate_first_write(replacement);
     };
+    validate_invariant_identity(current, replacement)?;
+    validate_state_step(current, replacement)
+        .then_some(ConsensusTransactionCasOutcome::Applied)
+        .ok_or_else(|| "invalid consensus transaction state transition".to_string())
+}
+
+/// A record may only enter the store prepared.
+fn validate_first_write(
+    replacement: &ConsensusTransactionRecord,
+) -> Result<ConsensusTransactionCasOutcome, String> {
+    match replacement {
+        ConsensusTransactionRecord::Parent {
+            state: ConsensusTransactionParentState::Prepared { .. },
+            ..
+        }
+        | ConsensusTransactionRecord::Participant {
+            state: ConsensusTransactionParticipantState::Prepared { .. },
+            ..
+        } => Ok(ConsensusTransactionCasOutcome::Applied),
+        _ => Err("consensus transaction record must begin prepared".to_string()),
+    }
+}
+
+/// Key, group, retention key and (for a parent) the logical binding are the
+/// record's identity and may never change across a transition.
+fn validate_invariant_identity(
+    current: &ConsensusTransactionRecord,
+    replacement: &ConsensusTransactionRecord,
+) -> Result<(), String> {
     if current.key() != replacement.key() || current.group_id() != replacement.group_id() {
         return Err("consensus transaction transition changed identity".to_string());
     }
@@ -66,49 +91,69 @@ pub fn validate_transition(
             );
         }
     }
-    let valid = match (current, replacement) {
+    Ok(())
+}
+
+/// Is this an accepted state step, with every field the step must carry forward
+/// carried forward exactly?
+fn validate_state_step(
+    current: &ConsensusTransactionRecord,
+    replacement: &ConsensusTransactionRecord,
+) -> bool {
+    match (current, replacement) {
         (
             ConsensusTransactionRecord::Parent {
-                state:
-                    ConsensusTransactionParentState::Prepared {
-                        sealed_parent_authority,
-                    },
+                state: current_state,
                 ..
             },
             ConsensusTransactionRecord::Parent {
-                state:
-                    ConsensusTransactionParentState::Decided {
-                        sealed_parent_authority: next_parent_authority,
-                        pending_finalization: None,
-                        ..
-                    },
+                state: next_state, ..
+            },
+        ) => validate_parent_step(current_state, next_state),
+        (
+            ConsensusTransactionRecord::Participant {
+                state: current_state,
+                ..
+            },
+            ConsensusTransactionRecord::Participant {
+                state: next_state, ..
+            },
+        ) => validate_participant_step(current_state, next_state),
+        _ => false,
+    }
+}
+
+fn validate_parent_step(
+    current: &ConsensusTransactionParentState,
+    replacement: &ConsensusTransactionParentState,
+) -> bool {
+    match (current, replacement) {
+        (
+            ConsensusTransactionParentState::Prepared {
+                sealed_parent_authority,
+            },
+            ConsensusTransactionParentState::Decided {
+                sealed_parent_authority: next_parent_authority,
+                pending_finalization: None,
                 ..
             },
         ) => sealed_parent_authority == next_parent_authority,
         (
-            ConsensusTransactionRecord::Parent {
-                state:
-                    ConsensusTransactionParentState::Decided {
-                        sealed_parent_authority,
-                        parent_authority_sha256,
-                        decision,
-                        sealed_decision_certificate,
-                        decision_certificate_sha256,
-                        pending_finalization: None,
-                    },
-                ..
+            ConsensusTransactionParentState::Decided {
+                sealed_parent_authority,
+                parent_authority_sha256,
+                decision,
+                sealed_decision_certificate,
+                decision_certificate_sha256,
+                pending_finalization: None,
             },
-            ConsensusTransactionRecord::Parent {
-                state:
-                    ConsensusTransactionParentState::Decided {
-                        decision: next_decision,
-                        sealed_parent_authority: next_parent_authority,
-                        parent_authority_sha256: next_parent_authority_sha256,
-                        sealed_decision_certificate: next_certificate,
-                        decision_certificate_sha256: next_certificate_sha256,
-                        pending_finalization: Some(_),
-                    },
-                ..
+            ConsensusTransactionParentState::Decided {
+                decision: next_decision,
+                sealed_parent_authority: next_parent_authority,
+                parent_authority_sha256: next_parent_authority_sha256,
+                sealed_decision_certificate: next_certificate,
+                decision_certificate_sha256: next_certificate_sha256,
+                pending_finalization: Some(_),
             },
         ) => {
             decision == next_decision
@@ -118,72 +163,53 @@ pub fn validate_transition(
                 && decision_certificate_sha256 == next_certificate_sha256
         }
         (
-            ConsensusTransactionRecord::Parent {
-                state:
-                    ConsensusTransactionParentState::Decided {
-                        decision,
-                        decision_certificate_sha256,
-                        pending_finalization: Some(pending),
-                        ..
-                    },
+            ConsensusTransactionParentState::Decided {
+                decision,
+                decision_certificate_sha256,
+                pending_finalization: Some(pending),
                 ..
             },
-            ConsensusTransactionRecord::Parent {
-                state:
-                    ConsensusTransactionParentState::Finalized {
-                        decision: next_decision,
-                        sealed_terminal_proof,
-                        terminal_proof_sha256,
-                        retention_fence,
-                        ..
-                    },
-                ..
+            ConsensusTransactionParentState::Finalized {
+                decision: next_decision,
+                sealed_terminal_proof,
+                terminal_proof_sha256,
+                retention_fence,
             },
         ) => {
             decision == next_decision
                 && !decision_certificate_sha256.iter().all(|byte| *byte == 0)
-                && pending.sealed_terminal_proof.as_slice()
-                    == sealed_terminal_proof.as_slice()
+                && pending.sealed_terminal_proof.as_slice() == sealed_terminal_proof.as_slice()
                 && pending.terminal_proof_sha256 == *terminal_proof_sha256
                 && pending.retention_fence == *retention_fence
         }
+        _ => false,
+    }
+}
+
+fn validate_participant_step(
+    current: &ConsensusTransactionParticipantState,
+    replacement: &ConsensusTransactionParticipantState,
+) -> bool {
+    match (current, replacement) {
         (
-            ConsensusTransactionRecord::Participant {
-                state: ConsensusTransactionParticipantState::Prepared { sealed_plan },
-                ..
-            },
-            ConsensusTransactionRecord::Participant {
-                state:
-                    ConsensusTransactionParticipantState::Resolved {
-                        sealed_plan: next_plan,
-                        ..
-                    },
+            ConsensusTransactionParticipantState::Prepared { sealed_plan },
+            ConsensusTransactionParticipantState::Resolved {
+                sealed_plan: next_plan,
                 ..
             },
         ) => sealed_plan == next_plan,
         (
-            ConsensusTransactionRecord::Participant {
-                state:
-                    ConsensusTransactionParticipantState::Resolved {
-                        decision,
-                        sealed_terminal_proof,
-                        ..
-                    },
+            ConsensusTransactionParticipantState::Resolved {
+                decision,
+                sealed_terminal_proof,
                 ..
             },
-            ConsensusTransactionRecord::Participant {
-                state:
-                    ConsensusTransactionParticipantState::Collected {
-                        decision: next_decision,
-                        sealed_terminal_proof: next_proof,
-                        ..
-                    },
+            ConsensusTransactionParticipantState::Collected {
+                decision: next_decision,
+                sealed_terminal_proof: next_proof,
                 ..
             },
         ) => decision == next_decision && sealed_terminal_proof == next_proof,
         _ => false,
-    };
-    valid
-        .then_some(ConsensusTransactionCasOutcome::Applied)
-        .ok_or_else(|| "invalid consensus transaction state transition".to_string())
+    }
 }

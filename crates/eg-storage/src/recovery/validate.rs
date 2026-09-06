@@ -53,6 +53,9 @@ pub(crate) fn validate_live_recovery_store(
         .database()
         .begin_read()
         .map_err(|error| error.to_string())?;
+    // The declared owner census is part of "is this store recoverable": a file
+    // whose domain tables are missing is not, however consistent its ledger is.
+    crate::owner::validate_declared_owner_tables(&rtx, store.manifest().layout)?;
     let authenticate = |sealed: &[u8], digest: &str| store.authenticate_private(sealed, digest);
     validate_recovery_content(store.incarnation(), &rtx, &authenticate)
 }
@@ -378,8 +381,23 @@ fn validate_classes(
         if class.identity != binding.identity || class.batch_id != batch_id {
             return Err("mutation class row is not bound to its exact batch".to_string());
         }
-        read_batch(rtx, identity_key, batch_id)?;
+        let record = read_batch(rtx, identity_key, batch_id)?;
         if class.class == crate::tables::MutationClass::Maintenance {
+            // A maintenance write carries no caller operation identity by
+            // construction (`record_replay` refuses inside one), so a
+            // maintenance batch whose idempotency key also names a recorded
+            // operation is a contradictory label, not a valid store.
+            if rtx
+                .open_table(REPLAY_OPERATIONS)
+                .map_err(|error| error.to_string())?
+                .get((identity_key, record.batch.idempotency_key.as_str()))
+                .map_err(|error| error.to_string())?
+                .is_some()
+            {
+                return Err(
+                    "maintenance batch carries a recorded operation replay identity".to_string(),
+                );
+            }
             increment(&mut counts.maintenance, "maintenance count")?;
         }
     }

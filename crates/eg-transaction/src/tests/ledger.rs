@@ -280,7 +280,7 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
     let adopted = Fixture::split(adopted);
     let owner = adopted.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity);
     let read = adopted.kernel.read_scope(&owner).unwrap();
-    let table = read.open_table(BLOB_ROWS).unwrap();
+    let table = read.open_owner_table(BLOB_ROWS).unwrap();
     assert_eq!(
         table
             .get((owner_scope.as_str(), "staged-object"))
@@ -390,9 +390,117 @@ fn an_owner_write_reaches_only_its_own_layouts_tables() {
     let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
     let read = fixture.kernel.read_scope(&owner).unwrap();
     let scope = eg_storage::ledger_scope_key(&identity);
-    let table = read.open_table(BLOB_ROWS).unwrap();
+    let table = read.open_owner_table(BLOB_ROWS).unwrap();
     assert_eq!(
         table.get((scope.as_str(), "object")).unwrap().unwrap().value(),
         b"domain-row"
+    );
+}
+
+/// A domain that decides what to write from what it reads must do both in one
+/// admitted write, or the decision is not serialized. `open_read_table` gives
+/// that read before any batch exists, and no wider: the ledger, another
+/// layout's tables and the identity tables all fail closed.
+#[test]
+fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
+    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+    const LEDGER: TableDefinition<(&str, &str), &[u8]> =
+        TableDefinition::new("mutation_batches_v1");
+    const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
+    const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root_v1");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("decide-then-write.redb");
+    let identity = native_identity("tenant-a", "incarnation:blob:a");
+    let scope = eg_storage::ledger_scope_key(&identity);
+    let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:test", None);
+    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+
+    // Seed one row through a normal admitted mutation.
+    let seed = batch(identity.clone(), "seed");
+    let (write, begun) = fixture.mutations.admit(&owner, &seed).unwrap();
+    let source_version = match begun {
+        Begin::Apply { source_version } => source_version,
+        Begin::Replay(_) => panic!("unexpected replay"),
+    };
+    let rows = write.owner_rows(&owner, &seed).unwrap();
+    rows.open_table(BLOB_ROWS)
+        .unwrap()
+        .insert((scope.as_str(), "object"), b"v1".as_slice())
+        .unwrap();
+    rows.finish_owner().unwrap();
+    fixture
+        .mutations
+        .finish(&write, &seed, None, 2, source_version)
+        .unwrap();
+    fixture.mutations.commit(write, &seed).unwrap();
+
+    // Decide-then-write: open the write first, read inside it, and only then
+    // build the batch from what was read.
+    let write = crate::admitted::AdmittedMutation::open(fixture.mutations_authority(), &owner)
+        .unwrap();
+    match write.open_read_table(LEDGER) {
+        Ok(_) => panic!("an owner read must not reach the ledger"),
+        Err(error) => assert!(error.contains("outside its layout"), "{error}"),
+    }
+    match write.open_read_table(OTHER_LAYOUT) {
+        Ok(_) => panic!("an owner read must not reach another layout"),
+        Err(error) => assert!(error.contains("outside its layout"), "{error}"),
+    }
+    match write.open_read_table(IDENTITY) {
+        Ok(_) => panic!("an owner read must not reach a physical-identity table"),
+        Err(error) => assert!(error.contains("outside its layout"), "{error}"),
+    }
+
+    let view = write.open_read_table(BLOB_ROWS).unwrap();
+    assert_eq!(view.len().unwrap(), 1);
+    let observed = view
+        .get((scope.as_str(), "object"))
+        .unwrap()
+        .unwrap()
+        .value()
+        .to_vec();
+    drop(view);
+    assert_eq!(observed, b"v1");
+
+    let mut derived = batch(identity.clone(), "derived-from-read");
+    derived.version_expectation = VersionExpectation::Native(1);
+    let begun = write.begin(&derived).unwrap();
+    assert!(matches!(begun, Begin::Apply { .. }));
+    let source_version = match begun {
+        Begin::Apply { source_version } => source_version,
+        Begin::Replay(_) => unreachable!(),
+    };
+    let rows = write.owner_rows(&owner, &derived).unwrap();
+    rows.open_table(BLOB_ROWS)
+        .unwrap()
+        .insert((scope.as_str(), "object"), b"v2".as_slice())
+        .unwrap();
+    // The uncommitted write is visible to this same transaction's read view.
+    let view = write.open_read_table(BLOB_ROWS).unwrap();
+    let seen = view
+        .get((scope.as_str(), "object"))
+        .unwrap()
+        .unwrap()
+        .value()
+        .to_vec();
+    drop(view);
+    assert_eq!(seen, b"v2");
+    rows.finish_owner().unwrap();
+    fixture
+        .mutations
+        .finish(&write, &derived, None, 3, source_version)
+        .unwrap();
+    fixture.mutations.commit(write, &derived).unwrap();
+
+    let read = fixture.kernel.read_scope(&owner).unwrap();
+    assert_eq!(
+        read.open_owner_table(BLOB_ROWS)
+            .unwrap()
+            .get((scope.as_str(), "object"))
+            .unwrap()
+            .unwrap()
+            .value(),
+        b"v2"
     );
 }
