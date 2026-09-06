@@ -150,8 +150,7 @@ fn read_binding_error(store: &PhysicalStore, identity: &MutationScopeIdentity) -
         Err(error) => return error,
     };
     binding_for_read(store, &transaction, identity)
-        .err()
-        .expect("scoped read must reject a tampered root")
+        .expect_err("scoped read must reject a tampered root")
 }
 
 #[test]
