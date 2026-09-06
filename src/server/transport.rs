@@ -53,102 +53,118 @@ pub struct TcpTlsConfig {
     pub client_ca_path: Option<String>,
 }
 
-#[cfg(feature = "server-tls")]
-fn tls_acceptor(config: &TcpTlsConfig) -> std::io::Result<tokio_rustls::TlsAcceptor> {
-    use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
-    use std::io::{BufReader, Error, ErrorKind};
-    use std::sync::Arc;
-
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let cert_file = std::fs::File::open(&config.cert_path).map_err(|_| {
-        Error::new(
-            ErrorKind::InvalidInput,
-            "server TLS certificate unavailable",
-        )
-    })?;
-    let certs = CertificateDer::pem_reader_iter(BufReader::new(cert_file))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS certificate invalid"))?;
-    if certs.is_empty() {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "server TLS certificate invalid",
-        ));
-    }
-    let key_file = std::fs::File::open(&config.key_path).map_err(|_| {
-        Error::new(
-            ErrorKind::InvalidInput,
-            "server TLS private key unavailable",
-        )
-    })?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = key_file
-            .metadata()
-            .map_err(|_| {
-                Error::new(
-                    ErrorKind::InvalidInput,
-                    "server TLS private key unavailable",
-                )
-            })?
-            .permissions()
-            .mode();
-        if mode & 0o077 != 0 {
-            return Err(Error::new(
-                ErrorKind::PermissionDenied,
-                "server TLS private key permissions are too broad",
-            ));
-        }
-    }
-    let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_file))
-        .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS private key invalid"))?;
-
-    let builder = rustls::ServerConfig::builder();
-    let server_config = if let Some(client_ca_path) = &config.client_ca_path {
-        let ca_file = std::fs::File::open(client_ca_path)
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle unavailable"))?;
-        let mut roots = rustls::RootCertStore::empty();
-        for cert in CertificateDer::pem_reader_iter(BufReader::new(ca_file)) {
-            let cert =
-                cert.map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
-            roots
-                .add(cert)
-                .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
-        }
-        if roots.is_empty() {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "client CA bundle invalid",
-            ));
-        }
-        let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
-            .build()
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
-        builder
-            .with_client_cert_verifier(verifier)
-            .with_single_cert(certs, key)
-    } else {
-        builder.with_no_client_auth().with_single_cert(certs, key)
-    }
-    .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS identity invalid"))?;
-
-    Ok(tokio_rustls::TlsAcceptor::from(Arc::new(server_config)))
-}
-
-#[cfg(not(feature = "server-tls"))]
-fn tls_acceptor(_config: &TcpTlsConfig) -> std::io::Result<()> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "native TCP TLS is unavailable in this build",
-    ))
+/// A completely loaded and validated native-TCP identity. Filesystem access and
+/// parsing stay inside [`prepare_tcp_tls`]'s blocking job; the accept loop only
+/// receives the ready async acceptor and the non-secret mTLS posture.
+#[derive(Clone)]
+pub struct PreparedTcpTls {
+    #[cfg(feature = "server-tls")]
+    acceptor: tokio_rustls::TlsAcceptor,
+    mutual_tls: bool,
 }
 
 /// Validate configured native-TCP identity before background listeners spawn.
 /// This makes missing/invalid TLS material a startup failure rather than leaving
-/// an otherwise healthy UDS process with a silently absent remote listener.
-pub fn validate_tcp_tls_config(config: &TcpTlsConfig) -> std::io::Result<()> {
-    tls_acceptor(config).map(|_| ())
+/// an otherwise healthy UDS process with a silently absent remote listener. The
+/// complete read, parse, permission check, and rustls build happen once off the
+/// async executor; the resulting acceptor is reused by the live listener.
+#[cfg(feature = "server-tls")]
+pub async fn prepare_tcp_tls(config: TcpTlsConfig) -> std::io::Result<PreparedTcpTls> {
+    let mutual_tls = config.client_ca_path.is_some();
+    let server_config = ::tokio::task::spawn_blocking(move || {
+        use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
+        use std::io::{BufReader, Error, ErrorKind};
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let cert_file = std::fs::File::open(&config.cert_path).map_err(|_| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "server TLS certificate unavailable",
+            )
+        })?;
+        let certs = CertificateDer::pem_reader_iter(BufReader::new(cert_file))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS certificate invalid"))?;
+        if certs.is_empty() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "server TLS certificate invalid",
+            ));
+        }
+        let key_file = std::fs::File::open(&config.key_path).map_err(|_| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                "server TLS private key unavailable",
+            )
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = key_file
+                .metadata()
+                .map_err(|_| {
+                    Error::new(
+                        ErrorKind::InvalidInput,
+                        "server TLS private key unavailable",
+                    )
+                })?
+                .permissions()
+                .mode();
+            if mode & 0o077 != 0 {
+                return Err(Error::new(
+                    ErrorKind::PermissionDenied,
+                    "server TLS private key permissions are too broad",
+                ));
+            }
+        }
+        let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_file))
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS private key invalid"))?;
+
+        let builder = rustls::ServerConfig::builder();
+        let server_config = if let Some(client_ca_path) = &config.client_ca_path {
+            let ca_file = std::fs::File::open(client_ca_path)
+                .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle unavailable"))?;
+            let mut roots = rustls::RootCertStore::empty();
+            for cert in CertificateDer::pem_reader_iter(BufReader::new(ca_file)) {
+                let cert = cert
+                    .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
+                roots
+                    .add(cert)
+                    .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
+            }
+            if roots.is_empty() {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    "client CA bundle invalid",
+                ));
+            }
+            let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
+                .build()
+                .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
+            builder
+                .with_client_cert_verifier(verifier)
+                .with_single_cert(certs, key)
+        } else {
+            builder.with_no_client_auth().with_single_cert(certs, key)
+        }
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS identity invalid"))?;
+        Ok::<_, std::io::Error>(server_config)
+    })
+    .await
+    .map_err(|_| std::io::Error::other("native TCP TLS preparation worker failed"))??;
+
+    Ok(PreparedTcpTls {
+        acceptor: tokio_rustls::TlsAcceptor::from(Arc::new(server_config)),
+        mutual_tls,
+    })
+}
+
+#[cfg(not(feature = "server-tls"))]
+pub async fn prepare_tcp_tls(_config: TcpTlsConfig) -> std::io::Result<PreparedTcpTls> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "native TCP TLS is unavailable in this build",
+    ))
 }
 
 /// Coordinates reference-counted graceful shutdown across the listeners and the
@@ -950,11 +966,21 @@ pub async fn serve_uds(
     state: Arc<RwLock<ServerState>>,
     coord: Arc<ShutdownCoordinator>,
 ) -> std::io::Result<()> {
-    // Remove stale socket file.
-    let _ = std::fs::remove_file(socket_path);
-    let listener = UnixListener::bind(socket_path)?;
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(mode))?;
+    let owned_socket_path = socket_path.to_owned();
+    let listener = ::tokio::task::spawn_blocking(move || {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Preserve the existing best-effort stale-file cleanup. Binding below
+        // remains the authority for whether this path can become a listener.
+        let _ = std::fs::remove_file(&owned_socket_path);
+        let listener = std::os::unix::net::UnixListener::bind(&owned_socket_path)?;
+        std::fs::set_permissions(&owned_socket_path, std::fs::Permissions::from_mode(mode))?;
+        listener.set_nonblocking(true)?;
+        Ok::<_, std::io::Error>(listener)
+    })
+    .await
+    .map_err(|_| std::io::Error::other("UDS setup worker failed"))??;
+    let listener = UnixListener::from_std(listener)?;
     let mode_octal = format!("{mode:#o}");
     info!(mode = %mode_octal, "Listening on a private Unix domain socket");
 
@@ -999,17 +1025,12 @@ pub async fn serve_tcp(
     addr: &str,
     state: Arc<RwLock<ServerState>>,
     coord: Arc<ShutdownCoordinator>,
-    tls: Option<TcpTlsConfig>,
+    tls: Option<PreparedTcpTls>,
 ) -> std::io::Result<()> {
     #[cfg(feature = "server-tls")]
-    let acceptor = tls.as_ref().map(tls_acceptor).transpose()?;
+    let acceptor = tls.as_ref().map(|value| value.acceptor.clone());
     #[cfg(not(feature = "server-tls"))]
-    let acceptor = {
-        if let Some(config) = tls.as_ref() {
-            tls_acceptor(config)?;
-        }
-        None::<()>
-    };
+    let acceptor = None::<()>;
     let listener = TcpListener::bind(addr).await?;
     if !listener.local_addr()?.ip().is_loopback() && acceptor.is_none() {
         return Err(std::io::Error::new(
@@ -1020,9 +1041,7 @@ pub async fn serve_tcp(
     info!(
         "Listening on native TCP (tls={}, mtls={})",
         acceptor.is_some(),
-        tls.as_ref()
-            .and_then(|value| value.client_ca_path.as_ref())
-            .is_some()
+        tls.as_ref().map(|value| value.mutual_tls).unwrap_or(false)
     );
 
     loop {
@@ -1143,6 +1162,198 @@ mod tests {
             parse_unix_socket_mode("07777").is_err(),
             "exceeds a file mode's 0777 range"
         );
+    }
+
+    #[cfg(any(unix, feature = "server-tls"))]
+    fn unique_socket_path(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "epistemic-graph-{label}-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ))
+    }
+
+    #[cfg(unix)]
+    fn uds_test_state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState::new_for_test(
+            "transport-test-secret",
+            ServerState::test_isolation("transport-test-agent"),
+        )))
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = unique_socket_path("responsive");
+        std::fs::write(&path, b"stale socket placeholder").expect("write stale path");
+        let socket_path = path.to_string_lossy().into_owned();
+        let coord = ShutdownCoordinator::new();
+        let server_coord = coord.clone();
+        let server_socket_path = socket_path.clone();
+        let server = tokio::spawn(async move {
+            serve_uds(&server_socket_path, 0o640, uds_test_state(), server_coord).await
+        });
+
+        let stream = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                match tokio::net::UnixStream::connect(&socket_path).await {
+                    Ok(stream) => break stream,
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                        ) =>
+                    {
+                        tokio::task::yield_now().await;
+                    }
+                    Err(error) => panic!("unexpected UDS setup failure: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("UDS setup must not block the current-thread executor");
+        assert_eq!(
+            std::fs::metadata(&path)
+                .expect("socket metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o640
+        );
+
+        drop(stream);
+        coord.trigger();
+        tokio::time::timeout(std::time::Duration::from_secs(5), server)
+            .await
+            .expect("shutdown must cancel the pending accept")
+            .expect("server task")
+            .expect("serve UDS");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
+        let missing_parent = unique_socket_path("missing-parent");
+        let socket_path = missing_parent.join("graph.sock");
+        let socket_path_text = socket_path.to_string_lossy().into_owned();
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            serve_uds(
+                &socket_path_text,
+                0o600,
+                uds_test_state(),
+                ShutdownCoordinator::new(),
+            ),
+        )
+        .await
+        .expect("failed setup must return without blocking")
+        .expect_err("binding below a missing parent must fail");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert!(!socket_path.exists());
+    }
+
+    #[cfg(all(unix, feature = "server-tls"))]
+    #[test]
+    fn tls_prepare_keeps_a_current_thread_runtime_responsive() {
+        let root = unique_socket_path("tls-offload");
+        std::fs::create_dir(&root).expect("create TLS test directory");
+        let cert_path = root.join("certificate.pipe");
+        let key_path = root.join("private-key.pem");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&cert_path)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo must create the blocking fixture");
+
+        let progress = Arc::new(AtomicUsize::new(0));
+        let rendezvous = Arc::new(std::sync::Barrier::new(2));
+        let watchdog_released = Arc::new(AtomicBool::new(false));
+        let runtime_progress = progress.clone();
+        let runtime_rendezvous = rendezvous.clone();
+        let runtime_cert_path = cert_path.clone();
+        let runtime_key_path = key_path.clone();
+        let runtime = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build current-thread runtime")
+                .block_on(async move {
+                    let preparation = tokio::spawn(prepare_tcp_tls(TcpTlsConfig {
+                        cert_path: runtime_cert_path.to_string_lossy().into_owned(),
+                        key_path: runtime_key_path.to_string_lossy().into_owned(),
+                        client_ca_path: None,
+                    }));
+                    tokio::task::yield_now().await;
+                    runtime_progress.fetch_add(1, Ordering::SeqCst);
+                    runtime_rendezvous.wait();
+                    preparation.await.expect("TLS preparation task")
+                })
+        });
+
+        // If the FIFO read regresses onto the current-thread runtime, release it
+        // after a bounded interval so this proof fails instead of hanging CI.
+        let watchdog_cert_path = cert_path.clone();
+        let watchdog_progress = progress.clone();
+        let watchdog_flag = watchdog_released.clone();
+        let (watchdog_cancel, watchdog_cancelled) = std::sync::mpsc::sync_channel(1);
+        let watchdog = std::thread::spawn(move || {
+            if watchdog_cancelled
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .is_err()
+                && watchdog_progress.load(Ordering::SeqCst) == 0
+            {
+                watchdog_flag.store(true, Ordering::SeqCst);
+                std::fs::write(watchdog_cert_path, b"invalid certificate")
+                    .expect("release blocked certificate read");
+            }
+        });
+
+        rendezvous.wait();
+        let _ = watchdog_cancel.send(());
+        if !watchdog_released.load(Ordering::SeqCst) {
+            std::fs::write(&cert_path, b"invalid certificate").expect("complete certificate read");
+        }
+        let error = match runtime.join().expect("current-thread runtime") {
+            Ok(_) => panic!("invalid certificate must fail closed"),
+            Err(error) => error,
+        };
+        watchdog.join().expect("watchdog");
+
+        assert_eq!(progress.load(Ordering::SeqCst), 1);
+        assert!(
+            !watchdog_released.load(Ordering::SeqCst),
+            "TLS material read blocked the current-thread runtime"
+        );
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "server TLS certificate invalid");
+        assert!(!error.to_string().contains(root.to_string_lossy().as_ref()));
+        std::fs::remove_dir_all(root).expect("remove TLS test directory");
+    }
+
+    #[cfg(feature = "server-tls")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn tls_prepare_keeps_missing_material_errors_private() {
+        let missing = unique_socket_path("private-tls-error");
+        let missing_text = missing.to_string_lossy().into_owned();
+        let error = match prepare_tcp_tls(TcpTlsConfig {
+            cert_path: missing_text.clone(),
+            key_path: missing_text.clone(),
+            client_ca_path: None,
+        })
+        .await
+        {
+            Ok(_) => panic!("missing TLS material must fail closed"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "server TLS certificate unavailable");
+        assert!(!error.to_string().contains(&missing_text));
     }
 
     #[test]

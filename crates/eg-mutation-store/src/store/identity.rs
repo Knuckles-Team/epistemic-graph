@@ -92,6 +92,16 @@ impl StoreIncarnation {
         }
         Ok(())
     }
+
+    fn from_wire(wire: StoreIncarnationWire) -> Result<Self, String> {
+        let incarnation = Self {
+            schema_version: wire.schema_version,
+            root_id: wire.root_id,
+            identity_digest: wire.identity_digest,
+        };
+        incarnation.validate_digest()?;
+        Ok(incarnation)
+    }
 }
 
 impl<'de> Deserialize<'de> for StoreIncarnation {
@@ -100,14 +110,40 @@ impl<'de> Deserialize<'de> for StoreIncarnation {
         D: Deserializer<'de>,
     {
         let wire = StoreIncarnationWire::deserialize(deserializer)?;
-        let value = Self {
-            schema_version: wire.schema_version,
-            root_id: wire.root_id,
-            identity_digest: wire.identity_digest,
-        };
-        value.validate_digest().map_err(serde::de::Error::custom)?;
-        Ok(value)
+        Self::from_wire(wire).map_err(serde::de::Error::custom)
     }
+}
+
+fn decode_incarnation(bytes: &[u8]) -> Result<StoreIncarnation, String> {
+    let wire: StoreIncarnationWire = decode_record(bytes)?;
+    StoreIncarnation::from_wire(wire)
+}
+
+fn persisted_root<T>(table: &T) -> Result<Option<StoreIncarnation>, String>
+where
+    T: redb::ReadableTable<&'static str, &'static [u8]>,
+{
+    let mut rows = table.iter().map_err(|error| error.to_string())?;
+    let Some(first) = rows.next() else {
+        return Ok(None);
+    };
+    let (key, value) = first.map_err(|error| error.to_string())?;
+    let has_extra_row = rows
+        .next()
+        .transpose()
+        .map_err(|error| error.to_string())?
+        .is_some();
+    if key.value() != STORE_ROOT_KEY || has_extra_row {
+        return Err("mutation store must contain exactly one canonical root".to_string());
+    }
+    decode_incarnation(value.value()).map(Some)
+}
+
+pub(super) fn require_persisted_root<T>(table: &T) -> Result<StoreIncarnation, String>
+where
+    T: redb::ReadableTable<&'static str, &'static [u8]>,
+{
+    persisted_root(table)?.ok_or_else(|| "mutation store root is missing".to_string())
 }
 
 /// Existing canonical AEAD/integrity authority supplied by the composition
@@ -340,17 +376,7 @@ pub fn adopt_restored_store(
             let table = rtx
                 .open_table(STORE_ROOT)
                 .map_err(|error| error.to_string())?;
-            let mut rows = table.iter().map_err(|error| error.to_string())?;
-            let (key, value) = rows
-                .next()
-                .ok_or_else(|| "mutation store root is missing".to_string())?
-                .map_err(|error| error.to_string())?;
-            if key.value() != STORE_ROOT_KEY || rows.next().is_some() {
-                return Err("mutation store must contain exactly one canonical root".to_string());
-            }
-            let recorded: StoreIncarnation = decode_record(value.value())?;
-            recorded.validate_digest()?;
-            recorded
+            require_persisted_root(&table)?
         };
         let authenticate = |sealed: &[u8], digest: &str| {
             authenticate_private(private_integrity.as_deref(), sealed, digest)
@@ -496,7 +522,7 @@ where
 }
 
 /// Transactional initialization seam for owner bootstrap rows.
-pub(crate) fn initialize_in(
+fn initialize_in(
     wtx: &WriteTransaction,
     expected: &StoreIncarnation,
 ) -> Result<StoreHandle, String> {
@@ -510,14 +536,9 @@ pub(crate) fn initialize_in(
     let mut table = wtx
         .open_table(STORE_ROOT)
         .map_err(|error| error.to_string())?;
-    let stored = table
-        .get(STORE_ROOT_KEY)
-        .map_err(|error| error.to_string())?
-        .map(|bytes| decode_record::<StoreIncarnation>(bytes.value()))
-        .transpose()?;
-    match stored {
+    match persisted_root(&table)? {
         Some(stored) => {
-            if &stored != expected {
+            if stored != *expected {
                 return Err("mutation store root incarnation mismatch".to_string());
             }
         }
@@ -535,7 +556,7 @@ pub(crate) fn initialize_in(
 
 /// Bind a logical scope once. Exact re-entry is idempotent; any generation,
 /// tenant, domain, resource, store-root, or initial-version mismatch fails closed.
-pub(crate) fn bind_scope_in(
+fn bind_scope_in(
     handle: &StoreHandle,
     wtx: &WriteTransaction,
     identity: &MutationScopeIdentity,
@@ -615,10 +636,7 @@ fn persist_new_binding(
     Ok(())
 }
 
-pub(crate) fn validate_handle_write(
-    handle: &StoreHandle,
-    wtx: &WriteTransaction,
-) -> Result<(), String> {
+fn validate_handle_write(handle: &StoreHandle, wtx: &WriteTransaction) -> Result<(), String> {
     reject_prototype_names(
         wtx.list_tables()
             .map_err(|error| error.to_string())?
@@ -627,11 +645,7 @@ pub(crate) fn validate_handle_write(
     let table = wtx
         .open_table(STORE_ROOT)
         .map_err(|error| error.to_string())?;
-    let stored = table
-        .get(STORE_ROOT_KEY)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "mutation store root is not initialized".to_string())?;
-    let stored: StoreIncarnation = decode_record(stored.value())?;
+    let stored = require_persisted_root(&table)?;
     if stored != handle.incarnation {
         return Err("mutation store handle does not match persisted root".to_string());
     }
@@ -672,11 +686,7 @@ pub(crate) fn binding_for_read(
     let table = rtx
         .open_table(STORE_ROOT)
         .map_err(|error| error.to_string())?;
-    let stored = table
-        .get(STORE_ROOT_KEY)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "mutation store root is not initialized".to_string())?;
-    let stored: StoreIncarnation = decode_record(stored.value())?;
+    let stored = require_persisted_root(&table)?;
     if stored != handle.incarnation {
         return Err("mutation store handle does not match persisted root".to_string());
     }

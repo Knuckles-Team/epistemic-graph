@@ -410,7 +410,7 @@ fn fit_svc_binary(
     // SVC: minimize (lambda/2)||w||^2 + (1/n) Σ hinge(s_i (w·x+b)).
     let lambda = 1.0 / (c.max(1e-6) * n);
     for _ in 0..epochs {
-        let (mut gw, gb) = svc_gradient(x, y, cls, dim, n, &w, b, lambda);
+        let (gw, gb) = svc_gradient(x, y, cls, dim, n, &w, b, lambda);
         for d in 0..dim {
             w[d] -= lr * gw[d];
         }

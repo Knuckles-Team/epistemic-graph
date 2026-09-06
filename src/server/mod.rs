@@ -693,8 +693,8 @@ pub(crate) fn test_state_with_services(
 }
 
 pub use transport::{
-    handle_connection, run_idle_watcher, serve_tcp, validate_tcp_tls_config, ShutdownCoordinator,
-    TcpTlsConfig,
+    handle_connection, prepare_tcp_tls, run_idle_watcher, serve_tcp, PreparedTcpTls,
+    ShutdownCoordinator, TcpTlsConfig,
 };
 // serve_uds is Unix-only (UnixListener); on Windows the server uses serve_tcp,
 // so gate the re-export to keep the windows-msvc wheel building (main.rs already

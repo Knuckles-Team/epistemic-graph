@@ -5,15 +5,14 @@
 //! are the v1 pilots; everything else is future work).
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    decode_staged, encode_staged, ConformanceTestable, IngestReport, ModalityContract,
+    ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::geometry::{Geometry, Point};
 use crate::wkb::{from_wkb, to_wkb};
 
-const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "a geometry is an immutable spatial literal — change-capture/delete/GC is a store-layer concern, not a modality-value capability",
@@ -49,20 +48,6 @@ impl ModalityContract for Geometry {
 
     /// Geometries are not (yet) on the CDC/streaming surface.
     fn cdc_topic(&self) -> Option<&'static str> {
-        None
-    }
-
-    /// A geometry has no derivation history of its own — default `None` is correct
-    /// as-is; no override needed (distinct from a future `eg-rdf` GeoSPARQL
-    /// individual, which WOULD have OWL provenance — that lives in `eg-rdf`, not
-    /// here).
-    fn provenance(&self, _id: &str) -> Option<Provenance> {
-        None
-    }
-
-    /// No located-evidence concept applies to a bare geometry value — default
-    /// `None`.
-    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 

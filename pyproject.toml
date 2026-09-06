@@ -162,6 +162,7 @@ jscpd_mode = "mild"
 dependency_cruiser_version = "18.2.0"
 import_linter_version = "2.13"
 arch_lint_version = "0.5.0"
+cargo_deny_version = "0.20.2"
 
 # jscpd is intentionally the wide-net sensor.  It sees Rust/Python/JS/TS
 # blocks as well as the config/template formats dupehound cannot parse.

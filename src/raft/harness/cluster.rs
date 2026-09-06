@@ -128,22 +128,72 @@ fn free_ports(n: usize) -> Result<Vec<u16>, String> {
     Err(format!("unable to reserve {n} localhost Raft port(s)"))
 }
 
-fn allocate_root(tag: &str) -> Result<std::path::PathBuf, String> {
-    for _attempt in 0..PORT_ALLOCATION_ATTEMPTS {
-        let sequence = HARNESS_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "eg-harness-{tag}-{}-{sequence}",
-            std::process::id(),
-        ));
-        match std::fs::create_dir(&root) {
-            Ok(()) => return Ok(root),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(format!("create harness root {}: {error}", root.display())),
+async fn allocate_root(
+    tag: &str,
+    on_allocated: impl FnOnce(&std::path::Path) + Send + 'static,
+) -> Result<std::path::PathBuf, String> {
+    let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
+    let (claim_sender, claim_receiver) = std::sync::mpsc::channel();
+    let tag = tag.to_string();
+    let _allocation_task = ::tokio::task::spawn_blocking(move || {
+        let result = 'allocate: {
+            for _attempt in 0..PORT_ALLOCATION_ATTEMPTS {
+                let sequence = HARNESS_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let root = std::env::temp_dir().join(format!(
+                    "eg-harness-{tag}-{}-{sequence}",
+                    std::process::id(),
+                ));
+                match std::fs::create_dir(&root) {
+                    Ok(()) => {
+                        let callback =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                on_allocated(&root);
+                            }));
+                        if let Err(panic) = callback {
+                            if let Err(error) = std::fs::remove_dir_all(&root) {
+                                tracing::error!(
+                                    root = %root.display(),
+                                    %error,
+                                    "remove abandoned harness root after callback panic failed"
+                                );
+                            }
+                            std::panic::resume_unwind(panic);
+                        }
+                        break 'allocate Ok(root);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => {
+                        break 'allocate Err(format!(
+                            "create harness root {}: {error}",
+                            root.display()
+                        ));
+                    }
+                }
+            }
+            Err(format!(
+                "unable to allocate a unique harness root for tag {tag:?}"
+            ))
+        };
+        let abandoned_root = result.as_ref().ok().cloned();
+        if result_sender.send(result).is_err() || claim_receiver.recv().is_err() {
+            if let Some(root) = abandoned_root {
+                if let Err(error) = std::fs::remove_dir_all(&root) {
+                    tracing::error!(
+                        root = %root.display(),
+                        %error,
+                        "remove abandoned harness root failed"
+                    );
+                }
+            }
         }
-    }
-    Err(format!(
-        "unable to allocate a unique harness root for tag {tag:?}"
-    ))
+    });
+    let root = result_receiver
+        .await
+        .map_err(|error| format!("allocate harness root task failed: {error}"))??;
+    claim_sender
+        .send(())
+        .map_err(|error| format!("claim allocated harness root failed: {error}"))?;
+    Ok(root)
 }
 
 fn port_is_free(port: u16) -> bool {
@@ -216,6 +266,12 @@ async fn cleanup_unstarted_state(
     result
 }
 
+fn blocking_fs_result(
+    result: Result<std::io::Result<()>, tokio::task::JoinError>,
+) -> std::io::Result<()> {
+    result.map_err(|error| std::io::Error::other(format!("filesystem task failed: {error}")))?
+}
+
 impl Cluster {
     /// Start an `n`-node cluster (n should be odd: 3/5). `tag` namespaces the temp
     /// dir. Returns once every node is up; the caller waits for a leader.
@@ -225,7 +281,7 @@ impl Cluster {
         }
         let _startup_guard = cluster_start_lock().lock().await;
         let ports = free_ports(n)?;
-        let root = allocate_root(tag)?;
+        let root = allocate_root(tag, |_| {}).await?;
         let mut cluster = Self {
             members: BTreeMap::new(),
             ports,
@@ -234,7 +290,11 @@ impl Cluster {
         };
         for i in 1..=n as u64 {
             let dir = cluster.root.join(format!("node{i}"));
-            if let Err(error) = std::fs::create_dir_all(&dir) {
+            let create_dir = dir.clone();
+            let create_result =
+                ::tokio::task::spawn_blocking(move || std::fs::create_dir_all(create_dir)).await;
+            let create_result = blocking_fs_result(create_result);
+            if let Err(error) = create_result {
                 return Err(cluster
                     .fail_start(format!("mkdir node {i}: {error}"), false)
                     .await);
@@ -291,11 +351,17 @@ impl Cluster {
                 "harness root retained at {} because live member handles remain",
                 self.root.display()
             ));
-        } else if let Err(error) = std::fs::remove_dir_all(&self.root) {
-            errors.push(format!(
-                "remove failed-start harness root {}: {error}",
-                self.root.display()
-            ));
+        } else {
+            let root = self.root.clone();
+            let remove_result =
+                ::tokio::task::spawn_blocking(move || std::fs::remove_dir_all(root)).await;
+            let remove_result = blocking_fs_result(remove_result);
+            if let Err(error) = remove_result {
+                errors.push(format!(
+                    "remove failed-start harness root {}: {error}",
+                    self.root.display()
+                ));
+            }
         }
         errors.join("; ")
     }
@@ -751,7 +817,12 @@ impl Cluster {
                 }
             }
             if errors.is_empty() && ports.iter().copied().all(port_is_free) {
-                if let Err(error) = std::fs::remove_dir_all(&root) {
+                let remove_root = root.clone();
+                let remove_result =
+                    ::tokio::task::spawn_blocking(move || std::fs::remove_dir_all(remove_root))
+                        .await;
+                let remove_result = blocking_fs_result(remove_result);
+                if let Err(error) = remove_result {
                     errors.push(format!(
                         "remove aborted harness root {}: {error}",
                         root.display()
@@ -796,7 +867,11 @@ impl Cluster {
             .collect();
         errors.extend(unfinished);
         if errors.is_empty() && self.ports.iter().copied().all(port_is_free) {
-            if let Err(error) = std::fs::remove_dir_all(&self.root) {
+            let root = self.root.clone();
+            let remove_result =
+                ::tokio::task::spawn_blocking(move || std::fs::remove_dir_all(root)).await;
+            let remove_result = blocking_fs_result(remove_result);
+            if let Err(error) = remove_result {
                 if error.kind() != std::io::ErrorKind::NotFound {
                     errors.push(format!(
                         "remove harness root {} failed: {error}",
@@ -822,6 +897,85 @@ impl Cluster {
         if let Err(error) = self.shutdown_in_place().await {
             panic!("{error}");
         }
+    }
+}
+
+#[cfg(test)]
+mod filesystem_boundary_tests {
+    use super::allocate_root;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    async fn wait_for(counter: &AtomicUsize, expected: usize) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while counter.load(Ordering::SeqCst) != expected {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("blocking filesystem test counter reached its barrier");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn abandoned_allocated_root_is_removed_off_the_executor() {
+        let (path_sender, path_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let worker_started = Arc::new(AtomicUsize::new(0));
+        let worker_finished = Arc::new(AtomicUsize::new(0));
+        let allocation = {
+            let worker_started = worker_started.clone();
+            let worker_finished = worker_finished.clone();
+            tokio::spawn(async move {
+                allocate_root("abandoned-root-test", move |root| {
+                    path_sender
+                        .send(root.to_path_buf())
+                        .expect("publish allocated root path");
+                    worker_started.store(1, Ordering::SeqCst);
+                    let _ = release_receiver.recv_timeout(Duration::from_secs(2));
+                    worker_finished.store(1, Ordering::SeqCst);
+                })
+                .await
+            })
+        };
+
+        wait_for(&worker_started, 1).await;
+        let root = path_receiver
+            .try_recv()
+            .expect("allocated root path was published before worker barrier");
+        allocation.abort();
+        let executor_progress = Arc::new(AtomicUsize::new(0));
+        let progress = executor_progress.clone();
+        tokio::spawn(async move {
+            progress.store(1, Ordering::SeqCst);
+        })
+        .await
+        .expect("current-thread progress task completed");
+        assert_eq!(executor_progress.load(Ordering::SeqCst), 1);
+        assert_eq!(worker_finished.load(Ordering::SeqCst), 0);
+
+        release_sender
+            .send(())
+            .expect("release abandoned-root allocation");
+        assert!(allocation
+            .await
+            .expect_err("allocation task was cancelled")
+            .is_cancelled());
+        wait_for(&worker_finished, 1).await;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let root = root.clone();
+                let exists = ::tokio::task::spawn_blocking(move || root.exists())
+                    .await
+                    .expect("root existence task completed");
+                if !exists {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("abandoned root was removed");
     }
 }
 

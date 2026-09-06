@@ -55,6 +55,7 @@ def test_exclusions_match_root_and_nested_junk_without_erasing_dot_names(contrac
 
 
 def test_scanner_source_manifest_uses_only_supported_census_inputs(contract):
+    assert contract.cargo_deny_version == "0.20.2"
     manifest = _load_script("list_scanner_sources")
     paths = [
         "src/main.rs",

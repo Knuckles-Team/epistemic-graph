@@ -1,0 +1,14 @@
+async unsafe fn unsafe_async() {
+    let _ = std::fs::read("unsafe-async.redb");
+}
+
+pub async unsafe fn public_unsafe_async() {
+    let _ = std::fs::read("public-unsafe-async.redb");
+}
+
+fn closures() {
+    let _without_move = async || {
+        std::fs::read("async-closure.redb")
+    };
+    let _with_move = async move || std::fs::read("async-move-closure.redb");
+}

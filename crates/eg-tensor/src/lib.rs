@@ -35,15 +35,6 @@ pub mod gpu;
 mod store;
 mod tensor;
 
-// CONCEPT:EG-KG.query.multi-rate-sensor-stream — multimodal sensor fusion (robotics/IoT): stack a time-aligned
-// multi-rate frame (aligned by `eg_tsdb::fusion`) into a `[timesteps × channels]`
-// `Tensor` frame + validity mask, and a windowed variant emitting one fused tensor per
-// EG-067 tumbling window. The tensor-building half lives here; the time-alignment half
-// lives in eg-tsdb (kept pure-Rust / Pi-lean). Folded into node/full with the tensor
-// tier, kept OUT of `pi`.
-pub mod fusion;
-
-pub use fusion::{fuse_aligned, fuse_on_grid, windowed_fusion, FusedFrame, WindowFrame};
 pub use gpu::{active_backend_name, elementwise_dispatch, CpuBackend, TensorBackend};
 pub use store::{content_hash, TensorStore};
 pub use tensor::{Buffer, DType, ElementwiseOp, ReduceKind, Tensor};

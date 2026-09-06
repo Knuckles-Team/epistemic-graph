@@ -1,0 +1,10 @@
+fn spawn_blocking<F, T>(work: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    work()
+}
+
+async fn still_on_executor() {
+    let _ = spawn_blocking(|| std::fs::read("not-offloaded.redb"));
+}

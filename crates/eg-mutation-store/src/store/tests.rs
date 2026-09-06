@@ -205,6 +205,48 @@ fn persisted_root_digest_tampering_is_rejected_on_read() {
 }
 
 #[test]
+fn extra_root_rows_are_rejected_by_every_store_entry_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.redb");
+    let identity = native_identity("tenant-a", "incarnation:blob:1");
+    let store = open_store(&path, &identity);
+    let bytes = encode_bounded(store.incarnation(), "test root").unwrap();
+    let wtx = store.database().begin_write().unwrap();
+    wtx.open_table(STORE_ROOT)
+        .unwrap()
+        .insert("shadow-root", bytes.as_slice())
+        .unwrap();
+    wtx.commit().unwrap();
+
+    for error in [
+        version(&store, &identity).unwrap_err(),
+        store
+            .write()
+            .err()
+            .expect("write must reject an extra root"),
+        validate_recovery_store(&store).unwrap_err(),
+    ] {
+        assert!(error.contains("exactly one canonical root"), "{error}");
+    }
+    drop(store);
+
+    let read_only = open_read_only(&path, None).unwrap();
+    let error = validate_recovery_store_read_only(&read_only).unwrap_err();
+    assert!(error.contains("exactly one canonical root"), "{error}");
+    drop(read_only);
+
+    let error = initialize(&path, &identity, 0, None, |_| Ok(()))
+        .err()
+        .expect("reopen must reject an extra root");
+    assert!(error.contains("exactly one canonical root"), "{error}");
+
+    let error = adopt_restored_store(&path, None)
+        .err()
+        .expect("adoption must reject an extra root");
+    assert!(error.contains("exactly one canonical root"), "{error}");
+}
+
+#[test]
 fn backup_derives_a_distinct_physical_root_and_rebinds_scopes() {
     let dir = tempfile::tempdir().unwrap();
     let identity = native_identity("tenant-a", "incarnation:blob:1");

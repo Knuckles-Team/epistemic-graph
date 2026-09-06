@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Fail CI when `mint_graph_policy_lease` grows a second production call site.
+"""Fail CI when `mint_policy_decision_lease` grows a second production call site.
 
 GRAPH-POLICY-LEASE-CONTRACT.md §3 hardening (`MintAuthorization`,
 `crates/eg-core/src/isolation.rs`) closes the caller-supplied-claims gap by
 requiring a cryptographic capability token instead of a raw
 `RequestContextClaims` reference. That control is only as good as the claim
 that exactly one production code path ever calls
-`IsolationLayer::mint_graph_policy_lease` — `authorize_and_route_knowledge_stream`
+`IsolationLayer::mint_policy_decision_lease` — `authorize_and_route_knowledge_stream`
 in `src/server/dispatch.rs`, which already holds the server auth secret at the
 point it has verified claims in hand. A second production call site (a future
 internal tool, an admin surface, a copy-pasted handler) would be a NEW place
@@ -28,12 +28,12 @@ ROOT = Path(__file__).resolve().parents[1]
 # The one and only permitted production call site.
 ALLOWED_PRODUCTION_CALL_SITE = "src/server/dispatch.rs"
 
-# A real method call: `<receiver>.mint_graph_policy_lease(`. This deliberately
-# does NOT match the method's own `pub fn mint_graph_policy_lease(` definition
+# A real method call: `<receiver>.mint_policy_decision_lease(`. This deliberately
+# does NOT match the method's own `pub fn mint_policy_decision_lease(` definition
 # (no leading `.`) nor a doc/prose reference like
-# "[`IsolationLayer::mint_graph_policy_lease`]" (`::`, not `.`, and no `(`
+# "[`IsolationLayer::mint_policy_decision_lease`]" (`::`, not `.`, and no `(`
 # immediately after the identifier in that form).
-_CALL_SITE = re.compile(r"\.mint_graph_policy_lease\s*\(")
+_CALL_SITE = re.compile(r"\.mint_policy_decision_lease\s*\(")
 
 # Directories this repo's own Rust sources live under (mirrors what `cargo
 # check -p epistemic-graph` / `-p eg-core` actually compile — see
@@ -65,7 +65,7 @@ def _is_commented_out(line: str) -> bool:
 
 
 def find_call_sites(root: Path) -> list[tuple[str, int]]:
-    """Every real `.mint_graph_policy_lease(` call under `root`'s Rust sources.
+    """Every real `.mint_policy_decision_lease(` call under `root`'s Rust sources.
 
     Returns `(path-relative-to-root-as-posix, 1-based line number)` pairs,
     sorted for deterministic output.
@@ -90,7 +90,7 @@ def check(root: Path) -> None:
     if not sites:
         raise SystemExit(
             "mint-lease call-site gate failed: found ZERO calls to "
-            "mint_graph_policy_lease — either the scan paths drifted or the "
+            "mint_policy_decision_lease — either the scan paths drifted or the "
             "feature was deleted; update this gate deliberately if so, don't "
             "let it go quietly blind"
         )
@@ -104,7 +104,7 @@ def check(root: Path) -> None:
             "mint-lease call-site gate failed: expected exactly ONE production "
             f"call site ({ALLOWED_PRODUCTION_CALL_SITE}), found "
             f"{len(production)}: [{rendered or 'none'}]. A second production "
-            "caller of mint_graph_policy_lease means a second place that must "
+            "caller of mint_policy_decision_lease means a second place that must "
             "independently get MintAuthorization construction right — audit it "
             "before letting this pass."
         )

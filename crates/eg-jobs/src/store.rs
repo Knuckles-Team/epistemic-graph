@@ -35,9 +35,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, MutationBatchRecord, MutationDomain,
-    MutationOperation, MutationOutboxIntent, MutationRequestContext, MutationScope,
-    MutationScopeIdentity, MutationSurface, TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    MutationBatch, MutationBatchRecord, MutationDomain, MutationOperation, MutationOutboxIntent,
+    MutationRequestContext, MutationScope, MutationScopeIdentity, MutationSurface,
+    VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction};

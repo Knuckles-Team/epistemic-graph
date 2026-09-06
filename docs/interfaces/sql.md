@@ -14,8 +14,9 @@ epistemic-graph speaks SQL two ways:
 > CONSTRAINT` (EG-KG.query.rename-table-moves-catalog). Compound-WHERE DML, `INSERT … SELECT` into `nodes`, multi-table DML
 > (`UPDATE…FROM`/`DELETE…USING`), `ON CONFLICT` upsert, user-table `RETURNING`, and mixed-store wire
 > transactions are **shipped** (EG-045..049, EG-072). Postgres-extension surfaces
-> (`pg_catalog`/`information_schema`, arrays/ranges, pgvector with **real ANN pushdown** (EG-KG.query.real-pgvector-ann-top), AGE
-> `cypher()`, TimescaleDB, ParadeDB with **real BM25** (EG-311)) light up via `CREATE EXTENSION`. The same
+> (`pg_catalog`/`information_schema`, arrays/ranges, pgvector with **real ANN pushdown**
+> (EG-KG.query.real-pgvector-ann-top), TimescaleDB, and ParadeDB with **real BM25** (EG-311))
+> light up via `CREATE EXTENSION`. The same
 > tables are also readable as an open **Parquet + Delta + Iceberg** lakehouse with zero ETL — see
 > [lakehouse-ltap](../architecture/lakehouse_ltap.md) (EG-KG.storage.lsn-as-snapshot-returns). See the
 > [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
@@ -165,7 +166,6 @@ are recorded in a durable catalog:
 | Extension | Surfaces | Concept |
 |-----------|----------|---------|
 | `vector` (pgvector) | `vector(n)` column type + `<->` (L2) / `<=>` (cosine) / `<#>` (neg-inner) operators; `CREATE INDEX … USING hnsw/ivfflat` pushes `ORDER BY emb <-> $1 LIMIT k` down to the eg-ann index — a **real ANN top-k** (HNSW/IVF) + exact re-rank, not the brute-force fallback (which stays as the no-index path) | EG-115 / EG-KG.query.real-ann-top-k / EG-KG.query.real-pgvector-ann-top |
-| `pg_age` (Apache AGE) | `SELECT * FROM cypher('graph', $$ MATCH … RETURN … $$) AS (a agtype)` routes the inner Cypher to the eg-query Cypher engine | EG-KG.query.postgres-family-extension-plan |
 | `timescaledb` | `create_hypertable()`, `time_bucket()` gap-fill, and `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` continuous aggregates over the eg-tsdb store | EG-117 |
 | `pg_search` (ParadeDB) | the `@@@` BM25 search operator + `paradedb.*` `score()`/`snippet()` over the eg-text index — **real BM25 relevance scoring + highlighted snippets** (not a placeholder `1.0`) | EG-KG.query.paradedb-bm25 / EG-311 |
 
@@ -175,8 +175,6 @@ CREATE TABLE items (id text, emb vector(384));
 CREATE INDEX ON items USING hnsw (emb vector_cosine_ops);
 SELECT id FROM items ORDER BY emb <=> $1 LIMIT 10;   -- pushed to eg-ann (EG-KG.query.real-ann-top-k)
 
-CREATE EXTENSION pg_age;
-SELECT * FROM cypher('social', $$ MATCH (a)-[:KNOWS]->(b) RETURN a.id, b.id $$) AS (a agtype, b agtype);
 ```
 
 ## System-catalog compatibility — `pg_catalog` / `information_schema` (EG-KG.query.route-create-view-create)

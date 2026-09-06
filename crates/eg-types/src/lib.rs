@@ -93,6 +93,10 @@ pub mod protocol;
 #[cfg(feature = "quantum")]
 pub mod quantum;
 pub mod row_predicate;
+// RF-019 — the sole transport-neutral semantic-index contract.  Runtime
+// storage, queues, handlers, and surface projections live in crates above this
+// bottom-of-DAG owner and must consume these exact operation and identity DTOs.
+pub mod semantic_index;
 #[cfg(feature = "statechart")]
 pub mod statechart;
 pub mod types;

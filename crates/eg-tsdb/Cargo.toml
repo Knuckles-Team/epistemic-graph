@@ -26,7 +26,7 @@ redb-store = ["dep:redb", "dep:eg-mutation-store", "dep:eg-types"]
 # Arrow columnar segment + DataFusion `time_bucket = GROUP BY (ts/w)*w` scan path.
 # Heavy (Arrow + DataFusion); OFF in the lean build, folded only into node/cluster/
 # full via the facade `query` feature.
-arrow-seg = ["dep:arrow", "dep:datafusion", "dep:tokio", "dep:async-trait"]
+arrow-seg = ["dep:arrow", "dep:datafusion", "datafusion/sql", "dep:tokio", "dep:async-trait"]
 # CONCEPT:EG-172 — the pure-Rust PromQL parser + evaluator (`promql` module). A
 # hand-rolled recursive-descent parser + an evaluator over a `SeriesSource` trait,
 # with a dependency-free anchored regex matcher for `=~`/`!~`. NO new deps (the Pi

@@ -107,7 +107,7 @@ async fn execute_sql(
     #[cfg(feature = "security")]
     let policy_lease = authority
         .policy_lease()
-        .ok_or_else(|| "KnowledgeStream requires a durable graph policy lease".to_string())?;
+        .ok_or_else(|| "KnowledgeStream requires a durable policy decision lease".to_string())?;
     if crate::server::access::sql_is_write(query) {
         return Err("KnowledgeStream SQL accepts read-only statements".to_string());
     }
@@ -390,7 +390,7 @@ async fn execute_cross_modal(
     #[cfg(feature = "security")]
     let policy_lease = authority
         .policy_lease()
-        .ok_or_else(|| "KnowledgeStream requires a durable graph policy lease".to_string())?;
+        .ok_or_else(|| "KnowledgeStream requires a durable policy decision lease".to_string())?;
     let response = super::super::query::try_handle_with_policy(
         state,
         super::super::TryHandleContext {

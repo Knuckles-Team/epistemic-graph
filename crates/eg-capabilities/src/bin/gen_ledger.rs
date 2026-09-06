@@ -1,6 +1,6 @@
 //! Regenerate `docs/capabilities.generated.md` from the [`eg_capabilities::policy`] table.
 //!
-//! Run with: `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving,statechart --bin gen_ledger`
+//! Run with: `cargo run -p eg-capabilities --features canonical-ledger --bin gen_ledger`
 //!
 //! `tests/consistency.rs`'s `generated_ledger_is_not_stale` test fails CI-style if this
 //! file's checked-in content doesn't match what this binary would (re)generate, so the
@@ -9,6 +9,12 @@
 use std::path::PathBuf;
 
 fn main() {
+    if !cfg!(feature = "canonical-ledger") {
+        eprintln!(
+            "refusing to overwrite the canonical capability ledger from a partial feature profile; rerun with `--features canonical-ledger`"
+        );
+        std::process::exit(2);
+    }
     let ledger = eg_capabilities::gen_ledger();
     // `crates/eg-capabilities/` -> repo root is two levels up.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

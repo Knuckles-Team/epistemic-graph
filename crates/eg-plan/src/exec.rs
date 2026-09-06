@@ -949,12 +949,7 @@ fn rank_embed_op(ctx: &PlanCtx, text: &str, input: RowSet) -> Result<RowSet, Str
         )
     })?;
     let query = embedder.embed(text)?;
-    let candidates = input.id_set();
-    let k = candidates.len().max(1);
-    let scored = ctx
-        .semantic
-        .semantic_search_filtered(&query, k, |id| candidates.contains(id));
-    Ok(RowSet::from_scored(scored))
+    rank_op(ctx, &query, input)
 }
 
 /// SOURCE (federation): read rows from an EXTERNAL source — a remote epistemic-graph

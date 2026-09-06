@@ -26,6 +26,7 @@
 pub mod embedding_binding;
 pub mod index;
 pub mod migration;
+pub mod property_graph;
 pub mod provider;
 pub mod schema;
 pub mod store;
@@ -40,6 +41,13 @@ pub use embedding_binding::{
 pub use index::{
     SecondaryIndexColumn, SecondaryIndexKind, SecondaryIndexLookup, SecondaryIndexOrder,
     SecondaryIndexSpec,
+};
+pub use property_graph::{
+    decode_property_graph, AlterElementAction, AlterPropertyGraphAction, DropBehavior,
+    EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution, ElementKind, EndpointResolution,
+    GraphOwner, LabelDefinition, PropertyDefinition, PropertyGraphDefinition,
+    PropertyGraphStatement, PropertySet, SqlIdentifier, SqlName, VertexTableDefinition,
+    PROPERTY_GRAPH_SCHEMA_VERSION,
 };
 pub use schema::{
     Cell, CmpOp, ColCheck, Column, ColumnType, FunctionArg, FunctionLanguage, FunctionReturns,

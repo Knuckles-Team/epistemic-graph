@@ -17,10 +17,15 @@ from method_policy_inventory import (
     load_capability_sources,
     parse_method_policy_table,
 )
+from rust_module_tree import read_module_tree
 
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def read_sources(paths: tuple[str, ...]) -> str:
+    return "\n".join(map(read, paths))
 
 
 def require(condition: bool, message: str) -> None:
@@ -804,7 +809,17 @@ def main() -> None:
     rdf_handler = read("src/server/handlers/rdf.rs")
     rbac = read("crates/eg-core/src/rbac.rs")
     rbac_persist = read("crates/eg-core/src/rbac_persist.rs")
-    isolation = read("crates/eg-core/src/isolation.rs")
+    isolation = read_sources(
+        (
+            "crates/eg-core/src/isolation.rs",
+            "crates/eg-core/src/isolation/access_policy.rs",
+            "crates/eg-core/src/isolation/identity_admin.rs",
+            "crates/eg-core/src/isolation/identity_query.rs",
+            "crates/eg-core/src/isolation/layer_store.rs",
+            "crates/eg-core/src/isolation/policy_admin.rs",
+            "crates/eg-core/src/isolation/policy_lease.rs",
+        )
+    )
     acl = read("crates/eg-types/src/acl.rs")
     graph = read("crates/eg-core/src/graph.rs")
     registry = read("crates/eg-core/src/registry.rs")
@@ -813,7 +828,7 @@ def main() -> None:
     mysql_packets = read("src/server/mysql_wire/packets.rs")
     mysql_wire = read("src/server/mysql_wire/mod.rs")
     auth = read("src/server/auth.rs")
-    dispatch = read("src/server/dispatch.rs")
+    dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
     raft = read("src/raft/mod.rs")
     raft_store = read("src/raft/store.rs")
     raw_rows = read("src/server/persistence/online_reshard.rs")
@@ -831,7 +846,9 @@ def main() -> None:
     # via its `_` arm. A check that reads only src/mutation_apply.rs therefore
     # measures a partial universe post-hoist (BUG-CX-112) -- union both.
     mutation_apply += "\n" + read("crates/eg-core/src/durable_apply.rs")
-    graph_handler = read("src/server/handlers/graph_ops.rs")
+    graph_handler = read_module_tree(
+        "src/server/handlers/graph_ops.rs", root_dir=ROOT
+    )
     access = read("src/server/access.rs")
     broker = read("crates/eg-core/src/broker.rs")
     cdc = read("src/server/cdc.rs")

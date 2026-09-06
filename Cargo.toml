@@ -853,7 +853,15 @@ harness = ["raft"]
 # NO pgwire/postgres-types. `pgwire` and the other SQL adapters reuse it; those adapters
 # are collected by the one main `full` build.
 wire = ["query", "server"]
-pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
+pgwire = [
+    "dep:pgwire",
+    "dep:futures",
+    "dep:rustix",
+    "dep:windows-sys",
+    "query",
+    "server",
+    "wire",
+]
 # SQLite-compatible served surface (CONCEPT:EG-075) — Phase J of the multi-wire program.
 # SQLite has NO client/server wire protocol (embedded library + file format), so this is
 # a lightweight dependency-free NDJSON-over-TCP endpoint (the same hand-rolled tokio idiom
@@ -875,7 +883,13 @@ sqlite-wire = ["wire"]
 # "a spec-correct pure-Rust writer is infeasible" blocker; proved by a real-`sqlite3`
 # `PRAGMA integrity_check` differential test). Needs `query` (the TableStore) + `server`
 # (the dispatch handler); `eg-types/sqlite-file` gates the two `Method` variants.
-sqlite-file = ["query", "server", "dep:eg-sqlite-format", "eg-types/sqlite-file"]
+sqlite-file = [
+    "query",
+    "server",
+    "dep:eg-sqlite-format",
+    "dep:rustix",
+    "eg-types/sqlite-file",
+]
 # MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
 # adapter (CONCEPT:EG-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
 # `mysql_native_password` auth, `COM_QUERY`/`COM_PING`/`COM_QUIT`/`COM_INIT_DB`,
@@ -1760,6 +1774,11 @@ pgwire = { version = "0.40", optional = true, default-features = false, features
     "server-api",
     "_ring",
 ] }
+# Race-safe TLS material opens for pgwire. `rustix` supplies typed
+# O_NOFOLLOW|O_NONBLOCK flags on Unix; `windows-sys` supplies the typed reparse
+# attribute/flag constants used by the corresponding Windows handle open.
+rustix = { version = "1.1.4", optional = true, features = ["fs"] }
+windows-sys = { version = "0.61.2", optional = true, features = ["Win32_Storage_FileSystem"] }
 # Stream/sink combinators for the pgwire DataRow result stream (feature `pgwire`).
 futures = { version = "0.3", optional = true }
 # SHA-1 digest for the hand-rolled MySQL `mysql_native_password` auth exchange

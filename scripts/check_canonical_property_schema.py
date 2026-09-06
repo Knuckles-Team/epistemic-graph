@@ -12,9 +12,14 @@ exist instead of banning legitimate user data named ``type`` repository-wide.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rust_module_tree import read_module_tree
 
 STRUCTURAL_READERS = (
     "crates/eg-core/src/graph.rs",
@@ -72,7 +77,11 @@ def text(path: str) -> str:
 def main() -> int:
     failures: list[str] = []
     for path in STRUCTURAL_READERS:
-        source = text(path)
+        source = (
+            read_module_tree(path, root_dir=ROOT)
+            if path == "src/server/handlers/graph_ops.rs"
+            else text(path)
+        )
         for pattern in EDGE_TYPE_FALLBACKS:
             if pattern.search(source):
                 failures.append(

@@ -129,6 +129,27 @@ fn cleanup_backup_stage(stage: &std::path::Path) {
 }
 
 #[cfg(feature = "redb")]
+fn cleanup_restore_retry_stage(stage: &std::path::Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(stage) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err("staged restore target is not an engine-owned directory".to_string())
+        }
+        Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(stage).map_err(|error| {
+            format!(
+                "Restore retry cleanup failed; error_ref={}",
+                opaque_ref(&error.to_string())
+            )
+        }),
+        Ok(_) => Err("staged restore target is not an engine-owned directory".to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "Restore retry inspection failed; error_ref={}",
+            opaque_ref(&error.to_string())
+        )),
+    }
+}
+
+#[cfg(feature = "redb")]
 fn create_private_directory(path: &std::path::Path) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -361,8 +382,32 @@ pub(crate) async fn try_handle(
                 &extra_stores,
             ) {
                 Ok(r) => {
-                    if let Err(error) = std::fs::rename(&stage, &destination) {
-                        cleanup_backup_stage(&stage);
+                    let publication_stage = stage.clone();
+                    let publication_destination = destination.clone();
+                    let publication = match ::tokio::task::spawn_blocking(move || {
+                        std::fs::rename(&publication_stage, publication_destination).map_err(
+                            |error| {
+                                cleanup_backup_stage(&publication_stage);
+                                error.to_string()
+                            },
+                        )
+                    })
+                    .await
+                    {
+                        Ok(result) => result,
+                        Err(error) => {
+                            let cleanup_stage = stage.clone();
+                            match ::tokio::task::spawn_blocking(move || {
+                                cleanup_backup_stage(&cleanup_stage);
+                            })
+                            .await
+                            {
+                                Ok(()) | Err(_) => {}
+                            }
+                            Err(error.to_string())
+                        }
+                    };
+                    if let Err(error) = publication {
                         return Ok(Response::err(
                             req_id,
                             format!(
@@ -452,40 +497,20 @@ pub(crate) async fn try_handle(
             // retry must rebuild from a clean target rather than becoming
             // permanently wedged on existing files. Never follow a substituted
             // symlink outside the engine-owned sibling location.
-            if stage.exists() {
-                match std::fs::symlink_metadata(&stage) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        return Ok(Response::err(
-                            req_id,
-                            "staged restore target is not an engine-owned directory",
-                        ));
-                    }
-                    Ok(metadata) if metadata.is_dir() => {
-                        if let Err(error) = std::fs::remove_dir_all(&stage) {
-                            return Ok(Response::err(
-                                req_id,
-                                format!(
-                                    "Restore retry cleanup failed; error_ref={}",
-                                    opaque_ref(&error.to_string())
-                                ),
-                            ));
-                        }
-                    }
-                    Ok(_) => {
-                        return Ok(Response::err(
-                            req_id,
-                            "staged restore target is not an engine-owned directory",
-                        ));
-                    }
-                    Err(error) => {
-                        return Ok(Response::err(
-                            req_id,
-                            format!(
-                                "Restore retry inspection failed; error_ref={}",
-                                opaque_ref(&error.to_string())
-                            ),
-                        ));
-                    }
+            let retry_stage = stage.clone();
+            match ::tokio::task::spawn_blocking(move || cleanup_restore_retry_stage(&retry_stage))
+                .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => return Ok(Response::err(req_id, error)),
+                Err(error) => {
+                    return Ok(Response::err(
+                        req_id,
+                        format!(
+                            "Restore retry inspection failed; error_ref={}",
+                            opaque_ref(&error.to_string())
+                        ),
+                    ));
                 }
             }
             if let Err(error) = create_private_directory(&stage) {

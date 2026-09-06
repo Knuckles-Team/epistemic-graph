@@ -99,7 +99,7 @@ redb = { version = "4.1", optional = true }
 eg-mutation-store = { path = "../eg-mutation-store", optional = true }
 sha2 = { version = "0.10", optional = true }
 # `MintAuthorization` (isolation.rs): the constant-time HMAC verification gate in
-# front of `IsolationLayer::mint_graph_policy_lease` (GRAPH-POLICY-LEASE-CONTRACT.md
+# front of `IsolationLayer::mint_policy_decision_lease` (GRAPH-POLICY-LEASE-CONTRACT.md
 # §3 hardening). Same version pin already locked in the workspace (root
 # `Cargo.toml`, linked unconditionally by `eg-plan` and optionally by
 # `src/server/handlers/knowledge_stream/mod.rs`'s `keyed_ref`/`keyed_bytes`) — no

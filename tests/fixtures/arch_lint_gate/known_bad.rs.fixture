@@ -1,0 +1,6 @@
+use std::fs as disk;
+
+async fn served() {
+    let _ = std::fs::read("direct.redb");
+    let _ = disk::read("aliased.redb");
+}

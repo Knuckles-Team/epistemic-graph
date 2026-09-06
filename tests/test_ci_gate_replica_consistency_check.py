@@ -132,6 +132,122 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
         )
 
 
+CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
+CAPABILITY_GATE_COMMAND = (
+    "cargo test -p eg-capabilities --features canonical-ledger --no-fail-fast"
+)
+
+
+def _capability_gate_rows(m, doc):
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
+    return [
+        row
+        for row in plan
+        if row["job"] == "gates" and row["name"] == CAPABILITY_GATE_NAME
+    ]
+
+
+def _capability_gate_steps(doc):
+    return [
+        step
+        for step in doc["jobs"]["gates"]["steps"]
+        if step.get("name") == CAPABILITY_GATE_NAME
+    ]
+
+
+def _assert_complete_capability_gate(m, doc) -> None:
+    steps = _capability_gate_steps(doc)
+    assert len(steps) == 1
+    job = doc["jobs"]["gates"]
+    assert job.get("continue-on-error") is None or job.get("continue-on-error") is False
+    assert job.get("if") is None
+    assert (
+        steps[0].get("continue-on-error") is None
+        or steps[0].get("continue-on-error") is False
+    )
+    assert steps[0].get("if") is None
+    rows = _capability_gate_rows(m, doc)
+    assert len(rows) == 1
+    assert rows[0]["mode"] == "RUN"
+    assert rows[0]["blocking"] is True
+    assert rows[0]["detail"] == CAPABILITY_GATE_COMMAND
+
+
+def _set_capability_gate_command(doc, command: str) -> None:
+    matches = _capability_gate_steps(doc)
+    assert len(matches) == 1
+    matches[0]["run"] = command
+
+
+def test_gates_job_runs_the_complete_canonical_capability_suite():
+    """The package-wide command discovers both integration-test targets.
+
+    Naming the targets here makes the proof fail if one is removed; requiring the
+    unfiltered command makes it fail if CI selects either one and skips the other.
+    """
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    discovered_targets = {
+        path.stem
+        for path in (REPO_ROOT / "crates" / "eg-capabilities" / "tests").glob("*.rs")
+    }
+    assert {"consistency", "invariants"}.issubset(discovered_targets)
+    _assert_complete_capability_gate(m, doc)
+
+
+@pytest.mark.parametrize("selected_target", ["consistency", "invariants"])
+def test_capability_gate_contract_rejects_a_single_selected_target(selected_target):
+    """Prove each formerly possible one-target filter violates the plan contract."""
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    _set_capability_gate_command(
+        doc,
+        f"cargo test -p eg-capabilities --features canonical-ledger "
+        f"--test {selected_target} --no-fail-fast",
+    )
+    with pytest.raises(AssertionError):
+        _assert_complete_capability_gate(m, doc)
+
+
+@pytest.mark.parametrize(
+    ("scope", "field", "value"),
+    [
+        ("step", "continue-on-error", True),
+        ("step", "continue-on-error", "${{ true }}"),
+        ("step", "if", "${{ false }}"),
+        ("job", "continue-on-error", True),
+        ("job", "continue-on-error", "${{ true }}"),
+        ("job", "if", "${{ false }}"),
+    ],
+)
+def test_capability_gate_contract_rejects_conditional_bypasses(scope, field, value):
+    """GitHub conditions must not weaken the release gate behind replica parity."""
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    steps = _capability_gate_steps(doc)
+    assert len(steps) == 1
+    target = steps[0] if scope == "step" else doc["jobs"]["gates"]
+    target[field] = value
+    with pytest.raises(AssertionError):
+        _assert_complete_capability_gate(m, doc)
+
+
+def test_lint_job_runs_the_constrained_parallelism_gate_exactly_once():
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
+    rows = [
+        item
+        for item in plan
+        if item["job"] == "lint-and-architecture"
+        and item["name"]
+        == "Constrained parallelism + Kafka non-blocking contract (GOC-70)"
+    ]
+    assert len(rows) == 1
+    assert rows[0]["mode"] == "RUN"
+    assert rows[0]["detail"] == "bash scripts/constrained_parallelism_gate.sh"
+
+
 def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():
     """GAP 1's headline example: the feature-build matrix (formerly in a
     since-deleted advisory.yml, now release.yml's own `feature-matrix` job) used to be

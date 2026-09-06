@@ -309,11 +309,11 @@ pub fn gen_ledger() -> String {
     out.push_str("# Epistemic Graph -- Generated Capability Ledger\n\n");
     out.push_str(
         "> **This file is GENERATED and is the AUTHORITATIVE machine-checked capability \n\
-         > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities --bin \n\
-         > gen_ledger`. It is derived directly from the eleven current domain `ROWS` \n\
+         > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities \n\
+         > --features canonical-ledger --bin gen_ledger`. It is derived directly from the eleven current domain `ROWS` \n\
          > declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep \n\
          > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature \n\
-         > parity; this generated table is authoritative for per-method policy.\n\n\
+         > parity; this generated table is authoritative for per-method policy.\n>\n\
          > `mutates` marked `~true` means the value is a conservative UPPER BOUND: the real \n\
          > runtime answer is conditional (an operation, a `writeback` flag, or a parsed \n\
          > query) -- see the `note` column. `VolatileControl` is explicit non-durable \n\

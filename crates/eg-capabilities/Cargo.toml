@@ -60,6 +60,21 @@ features = [
 
 [features]
 default = []
+# The checked-in ledger is the complete supported wire inventory, not a
+# projection of whichever optional surfaces happened to be enabled for one build.
+# Use this named profile for regeneration and its exact drift test; ordinary
+# feature-selected builds retain their smaller runtime policy registry.
+canonical-ledger = [
+    "jobs",
+    "statechart",
+    "tts-piper",
+    "knowledge-batch",
+    "modality-serving",
+    "quantum",
+    "asr-native",
+    "viz",
+    "policy_export",
+]
 # CONCEPT:INT-P2-1 -- see the module doc above. Mirrors `eg-types/jobs` 1:1: NEVER
 # enable one without the other (this feature enables `eg-types/jobs` itself, so a
 # caller only ever needs to request THIS one).

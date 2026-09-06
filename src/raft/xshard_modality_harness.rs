@@ -114,6 +114,28 @@ async fn graph_node_count(state: &Arc<RwLock<crate::server::ServerState>>, graph
     fixture::node_count(state, graph).await
 }
 
+/// Synchronous directory removal operation run only by [`run_scenario_cleanup`].
+fn remove_scenario_dir(dir: &str) -> std::io::Result<()> {
+    std::fs::remove_dir_all(dir)
+}
+
+/// Run one completed scenario's best-effort cleanup without blocking the async runtime.
+async fn run_scenario_cleanup<F>(dir: &str, cleanup: F)
+where
+    F: FnOnce(&str) -> std::io::Result<()> + Send + 'static,
+{
+    let owned_dir = dir.to_string();
+    match ::tokio::task::spawn_blocking(move || cleanup(&owned_dir)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(directory = dir, %error, "scenario directory cleanup failed");
+        }
+        Err(error) => {
+            tracing::warn!(directory = dir, %error, "scenario cleanup task failed");
+        }
+    }
+}
+
 /// A cross-shard txn spanning TWO modalities: a property-graph node into `modalA`
 /// (group A) and an RDF triple into `modalB` (group B).
 fn modality_spanning_txn(txn_id: &str, node: &str) -> CrossShardTxn {
@@ -261,7 +283,7 @@ async fn scenario_happy() -> Result<bool, String> {
 
     multi.stop_listener();
     backend.shutdown();
-    let _ = std::fs::remove_dir_all(&dir);
+    run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     Ok(outcome == TxnOutcome::Committed
         && modal.is_atomic()
@@ -294,7 +316,7 @@ async fn scenario_participant_kill() -> Result<bool, String> {
 
     multi.stop_listener();
     backend.shutdown();
-    let _ = std::fs::remove_dir_all(&dir);
+    run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     // ABORT, no partial commit (neither modality present), clean 2PC state.
     Ok(b_killed
@@ -347,7 +369,7 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
 
     multi2.stop_listener();
     backend2.shutdown();
-    let _ = std::fs::remove_dir_all(&dir);
+    run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     // Single decision = COMMIT: BOTH modalities re-applied, records cleared.
     Ok(resolved == 1 && modal.is_atomic() && modal.a_present && modal.b_present && cleared)
@@ -396,7 +418,7 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
 
     multi2.stop_listener();
     backend2.shutdown();
-    let _ = std::fs::remove_dir_all(&dir);
+    run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     // Single decision = ABORT (presumed): NEITHER modality landed, prepares cleared.
     Ok(resolved == 1
@@ -546,7 +568,7 @@ async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
 
     multi.stop_listener();
     backend.shutdown();
-    let _ = std::fs::remove_dir_all(&dir);
+    run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     Ok(stale_rejected && fresh_accepted)
 }
@@ -554,6 +576,66 @@ async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Barrier;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn scenario_cleanup_runs_once_off_runtime_and_is_awaited() {
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let cleanup = {
+            let entered = entered.clone();
+            let release = release.clone();
+            let calls = calls.clone();
+            tokio::spawn(async move {
+                run_scenario_cleanup("barrier-probe", move |_| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    entered.wait();
+                    release.wait();
+                    Ok(())
+                })
+                .await;
+            })
+        };
+
+        let entered_wait = entered.clone();
+        ::tokio::task::spawn_blocking(move || entered_wait.wait())
+            .await
+            .expect("barrier entry wait joins");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(
+            !cleanup.is_finished(),
+            "cleanup must await its blocking work"
+        );
+
+        ::tokio::task::spawn_blocking(move || release.wait())
+            .await
+            .expect("barrier release wait joins");
+        cleanup.await.expect("cleanup task joins");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn scenario_cleanup_io_and_join_errors_remain_best_effort() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let io_calls = calls.clone();
+        run_scenario_cleanup("io-error-probe", move |_| {
+            io_calls.fetch_add(1, Ordering::SeqCst);
+            Err(std::io::Error::other("expected cleanup failure"))
+        })
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        let join_calls = calls.clone();
+        run_scenario_cleanup("join-error-probe", move |_| {
+            join_calls.fetch_add(1, Ordering::SeqCst);
+            panic!("expected cleanup worker failure");
+        })
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
 
     /// The umbrella proof — runs all four scenarios (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness).
     #[tokio::test(flavor = "multi_thread", worker_threads = 6)]

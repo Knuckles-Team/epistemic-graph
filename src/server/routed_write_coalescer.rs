@@ -60,7 +60,6 @@
 
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
@@ -347,6 +346,7 @@ impl Default for RoutedWriteCoalescerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn job(
         id: u64,

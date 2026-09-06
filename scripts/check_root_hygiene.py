@@ -101,6 +101,7 @@ ALLOWED_DOTFILES: frozenset[str] = frozenset(
         ".importlinter",  # import-linter contract config (import-linter-architecture hook)
         ".mergequeue.yaml",  # merge-queue config
         ".pre-commit-config.yaml",  # pre-commit hook config
+        ".python-version",  # exact Python patch used by local tooling and CI
         ".vulture_ignore",  # vulture dead-code false-positive whitelist
     }
 )

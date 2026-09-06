@@ -44,8 +44,10 @@
 //! `eg_query::PgColType`: `Int8 → INT8`, `Float8 → FLOAT8`, `Bool → BOOL`,
 //! everything else `TEXT` (JSON-stringified) — so a column is never lossy-dropped.
 
-use std::io::{BufReader, Error, ErrorKind};
+use std::fs::File;
+use std::io::{BufReader, Error, ErrorKind, Read};
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -93,6 +95,11 @@ pub const PGWIRE_TLS_KEY_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_TLS_KEY";
 /// a client certificate (mTLS).
 pub const PGWIRE_TLS_CLIENT_CA_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_TLS_CLIENT_CA";
 
+/// Upper bound for each configured PEM input. TLS material is loaded only at
+/// listener startup, but it is still deployment-controlled input and must not
+/// permit an unbounded allocation on the blocking worker.
+const MAX_TLS_PEM_BYTES: u64 = 1024 * 1024;
+
 /// Runtime-only TLS material for the pgwire listener. Certificate contents never
 /// enter [`ServerState`] or logs; the PEM bytes are retained only so the SCRAM
 /// handler can offer certificate-bound authentication on each fresh connection.
@@ -103,10 +110,17 @@ struct PgWireTlsConfig {
     client_ca_path: Option<String>,
 }
 
-#[derive(Clone)]
-struct PgWireTlsMaterial {
-    acceptor: pgwire::tokio::TlsAcceptor,
-    certificate_pem: Arc<Vec<u8>>,
+type PgWireTlsMaterial = (pgwire::tokio::TlsAcceptor, Arc<Vec<u8>>);
+
+/// Fully validated startup state for one pgwire listener. The TLS material and
+/// authentication secret remain private and this value is intentionally not
+/// cloneable, so preparation can be consumed by exactly one listener bind.
+pub struct PreparedPgWireListener {
+    addr: String,
+    auth_mode: PgWireAuthMode,
+    auth_secret: String,
+    tls_material: Option<PgWireTlsMaterial>,
+    mtls: bool,
 }
 
 fn read_path_env(name: &str) -> std::io::Result<Option<String>> {
@@ -175,7 +189,7 @@ fn addr_is_loopback(addr: &str) -> bool {
 
 /// Resolve the opt-in pgwire listener address. Unlike the other auxiliary
 /// listeners, an explicit non-loopback address is allowed only after
-/// [`validate_startup_policy`] proves native TLS is configured. Bare enable
+/// [`prepare_startup_policy`] proves native TLS is configured. Bare enable
 /// tokens and ports retain the loopback-safe defaults.
 pub fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String> {
     let value = value.map(str::trim).filter(|value| !value.is_empty())?;
@@ -187,18 +201,6 @@ pub fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<
         }
         _ => Some(value.to_owned()),
     }
-}
-
-/// Fail-closed startup policy for the pgwire listener. Loopback remains safe
-/// without TLS; every non-loopback bind requires a valid native TLS identity and
-/// every bind requires SCRAM backed by non-empty engine key material.
-pub fn validate_startup_policy(
-    addr: &str,
-    auth_secret: &str,
-    auth_mode: PgWireAuthMode,
-) -> std::io::Result<()> {
-    let tls = tls_config_from_env()?;
-    validate_startup_policy_with_tls(addr, auth_secret, auth_mode, tls.as_ref())
 }
 
 fn validate_startup_policy_with_tls(
@@ -219,30 +221,121 @@ fn validate_startup_policy_with_tls(
             "non-loopback pgwire requires native TLS; configure certificate and private key",
         ));
     }
-    if let Some(tls) = tls {
-        // Build + parse every TLS component before binding. The returned acceptor
-        // is intentionally discarded here; serve_with_auth builds it once more
-        // and retains the same certificate bytes for SCRAM channel binding.
-        build_tls_material(tls)?;
-    }
     Ok(())
 }
 
-/// Load and validate the native pgwire TLS identity once at startup. This uses
-/// pgwire's already-selected pure-Rust rustls/ring stack, so the listener and
-/// SCRAM channel-binding implementation share one certificate source without
-/// adding a second TLS dependency or an OpenSSL path.
-fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMaterial> {
-    use pgwire::tokio::tokio_rustls::rustls::pki_types::{
-        pem::PemObject, CertificateDer, PrivateKeyDer,
-    };
+struct LoadedPem {
+    bytes: Vec<u8>,
+    group_or_other_permissions: bool,
+}
 
-    let certificate_pem = std::fs::read(&config.cert_path).map_err(|_| {
-        Error::new(
-            ErrorKind::InvalidInput,
-            "pgwire TLS certificate unavailable",
-        )
-    })?;
+/// Read one regular, non-symlink PEM input with a hard allocation bound. The
+/// open itself refuses a final symlink/reparse point and cannot block on a FIFO;
+/// all validation is then performed against that opened descriptor.
+fn read_bounded_pem(
+    path: &Path,
+    unavailable: &'static str,
+    invalid: &'static str,
+) -> std::io::Result<LoadedPem> {
+    let file = open_tls_file(path, unavailable)?;
+    let (length, group_or_other_permissions) = inspect_open_tls_file(&file, unavailable)?;
+    if length > MAX_TLS_PEM_BYTES {
+        return Err(Error::new(ErrorKind::InvalidInput, invalid));
+    }
+
+    let mut bytes = Vec::with_capacity(length as usize);
+    file.take(MAX_TLS_PEM_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, unavailable))?;
+    if bytes.len() as u64 > MAX_TLS_PEM_BYTES {
+        return Err(Error::new(ErrorKind::InvalidInput, invalid));
+    }
+    Ok(LoadedPem {
+        bytes,
+        group_or_other_permissions,
+    })
+}
+
+#[cfg(unix)]
+fn inspect_open_tls_file(file: &File, unavailable: &'static str) -> std::io::Result<(u64, bool)> {
+    use rustix::fs::{fstat, FileType, Mode};
+
+    let stat = fstat(file).map_err(|_| Error::new(ErrorKind::InvalidInput, unavailable))?;
+    if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+        return Err(Error::new(ErrorKind::InvalidInput, unavailable));
+    }
+    let length = u64::try_from(stat.st_size)
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, unavailable))?;
+    let mode = Mode::from_raw_mode(stat.st_mode);
+    Ok((length, mode.intersects(Mode::RWXG | Mode::RWXO)))
+}
+
+#[cfg(windows)]
+fn inspect_open_tls_file(file: &File, unavailable: &'static str) -> std::io::Result<(u64, bool)> {
+    use std::os::windows::fs::MetadataExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+    // Fully qualified calls make explicit that this is handle metadata, not a
+    // second path lookup after the no-follow open above.
+    let metadata =
+        File::metadata(file).map_err(|_| Error::new(ErrorKind::InvalidInput, unavailable))?;
+    if MetadataExt::file_attributes(&metadata) & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        || !std::fs::FileType::is_file(&std::fs::Metadata::file_type(&metadata))
+    {
+        return Err(Error::new(ErrorKind::InvalidInput, unavailable));
+    }
+    Ok((std::fs::Metadata::len(&metadata), false))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn inspect_open_tls_file(_file: &File, unavailable: &'static str) -> std::io::Result<(u64, bool)> {
+    Err(Error::new(ErrorKind::InvalidInput, unavailable))
+}
+
+#[cfg(unix)]
+fn open_tls_file(path: &Path, unavailable: &'static str) -> std::io::Result<File> {
+    use rustix::fs::{open, Mode, OFlags};
+
+    let descriptor = open(
+        path,
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+        Mode::empty(),
+    )
+    .map_err(|_| Error::new(ErrorKind::InvalidInput, unavailable))?;
+    Ok(descriptor.into())
+}
+
+#[cfg(windows)]
+fn open_tls_file(path: &Path, unavailable: &'static str) -> std::io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+
+    File::options()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, unavailable))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_tls_file(_path: &Path, unavailable: &'static str) -> std::io::Result<File> {
+    Err(Error::new(ErrorKind::InvalidInput, unavailable))
+}
+
+fn load_tls_certificates(
+    path: &Path,
+) -> std::io::Result<(
+    Vec<u8>,
+    Vec<pgwire::tokio::tokio_rustls::rustls::pki_types::CertificateDer<'static>>,
+)> {
+    use pgwire::tokio::tokio_rustls::rustls::pki_types::{pem::PemObject, CertificateDer};
+
+    let certificate_pem = read_bounded_pem(
+        path,
+        "pgwire TLS certificate unavailable",
+        "pgwire TLS certificate invalid",
+    )?
+    .bytes;
     let certs = CertificateDer::pem_reader_iter(BufReader::new(certificate_pem.as_slice()))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS certificate invalid"))?;
@@ -252,54 +345,70 @@ fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMate
             "pgwire TLS certificate invalid",
         ));
     }
+    Ok((certificate_pem, certs))
+}
 
-    let key_pem = std::fs::read(&config.key_path).map_err(|_| {
-        Error::new(
-            ErrorKind::InvalidInput,
-            "pgwire TLS private key unavailable",
-        )
-    })?;
+fn load_tls_private_key(
+    path: &Path,
+) -> std::io::Result<pgwire::tokio::tokio_rustls::rustls::pki_types::PrivateKeyDer<'static>> {
+    use pgwire::tokio::tokio_rustls::rustls::pki_types::{pem::PemObject, PrivateKeyDer};
+
+    let key_pem = read_bounded_pem(
+        path,
+        "pgwire TLS private key unavailable",
+        "pgwire TLS private key invalid",
+    )?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(&config.key_path)
-            .map_err(|_| {
-                Error::new(
-                    ErrorKind::InvalidInput,
-                    "pgwire TLS private key unavailable",
-                )
-            })?
-            .permissions()
-            .mode();
-        if mode & 0o077 != 0 {
+        if key_pem.group_or_other_permissions {
             return Err(Error::new(
                 ErrorKind::PermissionDenied,
                 "pgwire TLS private key permissions are too broad",
             ));
         }
     }
-    let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_pem.as_slice()))
-        .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS private key invalid"))?;
+    PrivateKeyDer::from_pem_reader(BufReader::new(key_pem.bytes.as_slice()))
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS private key invalid"))
+}
+
+fn load_tls_client_roots(
+    path: &Path,
+) -> std::io::Result<pgwire::tokio::tokio_rustls::rustls::RootCertStore> {
+    use pgwire::tokio::tokio_rustls::rustls::pki_types::{pem::PemObject, CertificateDer};
+
+    let ca_pem = read_bounded_pem(
+        path,
+        "pgwire TLS client CA unavailable",
+        "pgwire TLS client CA invalid",
+    )?
+    .bytes;
+    let mut roots = pgwire::tokio::tokio_rustls::rustls::RootCertStore::empty();
+    for certificate in CertificateDer::pem_reader_iter(BufReader::new(ca_pem.as_slice())) {
+        let certificate = certificate
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
+        roots
+            .add(certificate)
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
+    }
+    if roots.is_empty() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "pgwire TLS client CA invalid",
+        ));
+    }
+    Ok(roots)
+}
+
+/// Load and validate the native pgwire TLS identity. The async owner below runs
+/// this complete filesystem/parse/build operation on one blocking worker.
+fn build_tls_material_blocking(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMaterial> {
+    let (certificate_pem, certs) = load_tls_certificates(Path::new(&config.cert_path))?;
+    let key = load_tls_private_key(Path::new(&config.key_path))?;
 
     let _ = pgwire::tokio::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
     let builder = pgwire::tokio::tokio_rustls::rustls::ServerConfig::builder();
     let server_config = if let Some(client_ca_path) = &config.client_ca_path {
-        let ca_pem = std::fs::read(client_ca_path)
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA unavailable"))?;
-        let mut roots = pgwire::tokio::tokio_rustls::rustls::RootCertStore::empty();
-        for certificate in CertificateDer::pem_reader_iter(BufReader::new(ca_pem.as_slice())) {
-            let certificate = certificate
-                .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
-            roots
-                .add(certificate)
-                .map_err(|_| Error::new(ErrorKind::InvalidInput, "pgwire TLS client CA invalid"))?;
-        }
-        if roots.is_empty() {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "pgwire TLS client CA invalid",
-            ));
-        }
+        let roots = load_tls_client_roots(Path::new(client_ca_path))?;
         let verifier = pgwire::tokio::tokio_rustls::rustls::server::WebPkiClientVerifier::builder(
             Arc::new(roots),
         )
@@ -325,9 +434,67 @@ fn build_tls_material(config: &PgWireTlsConfig) -> std::io::Result<PgWireTlsMate
         )
     })?;
 
-    Ok(PgWireTlsMaterial {
-        acceptor: pgwire::tokio::tokio_rustls::TlsAcceptor::from(Arc::new(server_config)),
-        certificate_pem: Arc::new(certificate_pem),
+    Ok((
+        pgwire::tokio::tokio_rustls::TlsAcceptor::from(Arc::new(server_config)),
+        Arc::new(certificate_pem),
+    ))
+}
+
+async fn run_tls_material_job<F>(
+    config: PgWireTlsConfig,
+    build: F,
+) -> std::io::Result<PgWireTlsMaterial>
+where
+    F: FnOnce(&PgWireTlsConfig) -> std::io::Result<PgWireTlsMaterial> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || build(&config))
+        .await
+        .map_err(|error| Error::other(format!("pgwire TLS material worker failed: {error}")))?
+}
+
+/// Load and validate the native pgwire TLS identity once at startup. This uses
+/// pgwire's already-selected pure-Rust rustls/ring stack, so the listener and
+/// SCRAM channel-binding implementation share one certificate source without
+/// adding a second TLS dependency or an OpenSSL path.
+async fn build_tls_material(config: PgWireTlsConfig) -> std::io::Result<PgWireTlsMaterial> {
+    run_tls_material_job(config, build_tls_material_blocking).await
+}
+
+/// Validate the pgwire startup policy and build configured TLS material once,
+/// off the async reactor, before the listener is detached or bound. Missing or
+/// invalid material therefore remains an engine-startup error rather than a
+/// background-task log, while the returned private state prevents a second
+/// filesystem read between validation and serving.
+pub async fn prepare_startup_policy(
+    addr: &str,
+    auth_secret: String,
+    auth_mode: PgWireAuthMode,
+) -> std::io::Result<PreparedPgWireListener> {
+    let tls_config = tls_config_from_env()?;
+    prepare_startup_policy_with_tls(addr, auth_secret, auth_mode, tls_config).await
+}
+
+async fn prepare_startup_policy_with_tls(
+    addr: &str,
+    auth_secret: String,
+    auth_mode: PgWireAuthMode,
+    tls_config: Option<PgWireTlsConfig>,
+) -> std::io::Result<PreparedPgWireListener> {
+    validate_startup_policy_with_tls(addr, &auth_secret, auth_mode, tls_config.as_ref())?;
+    let mtls = tls_config
+        .as_ref()
+        .and_then(|config| config.client_ca_path.as_ref())
+        .is_some();
+    let tls_material = match tls_config {
+        Some(config) => Some(build_tls_material(config).await?),
+        None => None,
+    };
+    Ok(PreparedPgWireListener {
+        addr: addr.to_owned(),
+        auth_mode,
+        auth_secret,
+        tls_material,
+        mtls,
     })
 }
 
@@ -737,20 +904,6 @@ impl EngineBackend {
                     })
                     .collect())
             }
-            // CONCEPT:EG-KG.query.postgres-family-extension-plan — an AGE cypher() call is a read; describe the typed `AS`
-            // columns (narrowed by the projection) WITHOUT executing the Cypher.
-            Ok(StatementKind::CypherCall(plan)) => Ok(eg_query::cypher_output_columns(&plan)
-                .into_iter()
-                .map(|c| {
-                    FieldInfo::new(
-                        c.name,
-                        None,
-                        None,
-                        pg_type(c.ty),
-                        pgwire::api::results::FieldFormat::Text,
-                    )
-                })
-                .collect()),
             // DDL / user-table DML (CONCEPT:EG-KG.query.register-user-tables-alongside) → no result columns (like a
             // non-RETURNING write); and unclassifiable (e.g. SET graph) → none either.
             Ok(_) | Err(_) => Ok(Vec::new()),
@@ -1768,15 +1921,27 @@ pub async fn serve_with_auth(
     state: Arc<RwLock<ServerState>>,
     auth_mode: PgWireAuthMode,
 ) -> std::io::Result<()> {
+    let auth_secret = state.read().await.auth_secret.clone();
+    let prepared = prepare_startup_policy(addr, auth_secret, auth_mode).await?;
+    serve_prepared(state, prepared).await
+}
+
+/// Consume startup state prepared before task detachment and serve pgwire until
+/// the process exits. Callers cannot construct or clone the private TLS state.
+pub async fn serve_prepared(
+    state: Arc<RwLock<ServerState>>,
+    prepared: PreparedPgWireListener,
+) -> std::io::Result<()> {
+    let PreparedPgWireListener {
+        addr,
+        auth_mode,
+        auth_secret,
+        tls_material,
+        mtls,
+    } = prepared;
     let default_graph =
         std::env::var(PGWIRE_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
-    let (auth_secret, persist_dir) = {
-        let state = state.read().await;
-        (state.auth_secret.clone(), state.persist_dir.clone())
-    };
-    let tls_config = tls_config_from_env()?;
-    validate_startup_policy_with_tls(addr, &auth_secret, auth_mode, tls_config.as_ref())?;
-    let tls_material = tls_config.as_ref().map(build_tls_material).transpose()?;
+    let persist_dir = state.read().await.persist_dir.clone();
     // Once native TLS is configured, do not permit a plaintext downgrade even
     // on loopback. The safe plaintext exception is only the explicit no-TLS
     // loopback default.
@@ -1784,15 +1949,12 @@ pub async fn serve_with_auth(
     crate::server::sql_tables::validate_served_configuration(
         persist_dir.as_deref().map(std::path::Path::new),
     )?;
-    let listener = TcpListener::bind(addr).await?;
+    let listener = TcpListener::bind(&addr).await?;
     tracing::info!(
         "pgwire: serving Postgres wire protocol (addr='{}', tls={}, mtls={}, default graph '{}', auth={}, simple+extended)",
         addr,
         tls_material.is_some(),
-        tls_config
-            .as_ref()
-            .and_then(|config| config.client_ca_path.as_ref())
-            .is_some(),
+        mtls,
         default_graph,
         auth_mode.as_str()
     );
@@ -1807,11 +1969,9 @@ pub async fn serve_with_auth(
             auth_secret.clone(),
             tls_material
                 .as_ref()
-                .map(|material| material.certificate_pem.clone()),
+                .map(|(_, certificate_pem)| certificate_pem.clone()),
         ));
-        let tls_acceptor = tls_material
-            .as_ref()
-            .map(|material| material.acceptor.clone());
+        let tls_acceptor = tls_material.as_ref().map(|(acceptor, _)| acceptor.clone());
         tokio::spawn(async move {
             if require_tls {
                 match client_requested_tls(&socket).await {
@@ -1838,6 +1998,21 @@ pub async fn serve_with_auth(
 #[cfg(test)]
 mod tls_policy_tests {
     use super::*;
+
+    fn tls_config(cert_path: &Path) -> PgWireTlsConfig {
+        PgWireTlsConfig {
+            cert_path: cert_path.to_string_lossy().into_owned(),
+            key_path: cert_path.to_string_lossy().into_owned(),
+            client_ca_path: None,
+        }
+    }
+
+    async fn tls_build_error(config: PgWireTlsConfig) -> std::io::Error {
+        match build_tls_material(config).await {
+            Ok(_) => panic!("expected TLS material build to fail"),
+            Err(error) => error,
+        }
+    }
 
     #[test]
     fn pgwire_address_defaults_remain_loopback_safe() {
@@ -1879,6 +2054,190 @@ mod tls_policy_tests {
             None,
         )
         .is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn tls_material_build_runs_once_off_the_async_reactor() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let reactor_thread = std::thread::current().id();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_in_worker = calls.clone();
+        let (entered_barrier, entered) = tokio::sync::oneshot::channel();
+        let (release_barrier, release) = std::sync::mpsc::sync_channel(0);
+        let config = PgWireTlsConfig {
+            cert_path: "unused-cert".to_owned(),
+            key_path: "unused-key".to_owned(),
+            client_ca_path: None,
+        };
+
+        let loader = tokio::spawn(run_tls_material_job(config, move |_| {
+            assert_ne!(std::thread::current().id(), reactor_thread);
+            calls_in_worker.fetch_add(1, Ordering::SeqCst);
+            entered_barrier.send(()).expect("signal worker entry");
+            release.recv().expect("wait for async-side release");
+            Err(Error::new(ErrorKind::InvalidInput, "test TLS failure"))
+        }));
+
+        entered.await.expect("blocking worker entered");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        release_barrier.send(()).expect("release blocking worker");
+        let outcome = loader.await.expect("TLS loader task joined");
+        match outcome {
+            Ok(_) => panic!("expected injected TLS failure"),
+            Err(error) => assert_eq!(error.to_string(), "test TLS failure"),
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn missing_tls_material_fails_closed() {
+        let directory = tempfile::tempdir().expect("temporary TLS directory");
+        let error = tls_build_error(tls_config(&directory.path().join("missing.pem"))).await;
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "pgwire TLS certificate unavailable");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn missing_tls_material_fails_listener_startup_preparation() {
+        let directory = tempfile::tempdir().expect("temporary TLS directory");
+        let config = tls_config(&directory.path().join("missing.pem"));
+        let outcome = prepare_startup_policy_with_tls(
+            "127.0.0.1:5433",
+            "secret".to_owned(),
+            PgWireAuthMode::Scram,
+            Some(config),
+        )
+        .await;
+        match outcome {
+            Ok(_) => panic!("expected listener startup preparation to fail"),
+            Err(error) => {
+                assert_eq!(error.kind(), ErrorKind::InvalidInput);
+                assert_eq!(error.to_string(), "pgwire TLS certificate unavailable");
+            }
+        }
+    }
+
+    #[test]
+    fn engine_startup_awaits_tls_preparation_before_listener_detachment() {
+        let main_source = include_str!("../../main.rs");
+        let listener_start = main_source
+            .find("async fn spawn_pgwire_listener(")
+            .expect("pgwire startup function");
+        let listener_end = main_source[listener_start..]
+            .find("async fn spawn_sqlite_listener(")
+            .map(|offset| listener_start + offset)
+            .expect("next startup function");
+        let listener_source = &main_source[listener_start..listener_end];
+        let preparation = listener_source
+            .find("let prepared_pgwire = epistemic_graph::server::pgwire::prepare_startup_policy(")
+            .expect("production TLS preparation");
+        let awaited = listener_source[preparation..]
+            .find(".await?;")
+            .map(|offset| preparation + offset)
+            .expect("startup awaits TLS preparation");
+        let detachment = listener_source
+            .find("tokio::spawn(async move {")
+            .expect("pgwire listener detachment");
+
+        assert!(preparation < awaited && awaited < detachment);
+        assert!(listener_source[detachment..].contains("serve_prepared(pg_state, prepared_pgwire)"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn malformed_tls_material_fails_closed() {
+        let directory = tempfile::tempdir().expect("temporary TLS directory");
+        let cert_path = directory.path().join("malformed.pem");
+        tokio::fs::write(&cert_path, b"not a certificate")
+            .await
+            .expect("write malformed certificate");
+
+        let error = tls_build_error(tls_config(&cert_path)).await;
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "pgwire TLS certificate invalid");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn symlinked_tls_material_fails_closed() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary TLS directory");
+        let target_path = directory.path().join("target.pem");
+        let cert_path = directory.path().join("certificate.pem");
+        tokio::fs::write(&target_path, b"not a certificate")
+            .await
+            .expect("write symlink target");
+        symlink(&target_path, &cert_path).expect("create certificate symlink");
+
+        let error = tls_build_error(tls_config(&cert_path)).await;
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "pgwire TLS certificate unavailable");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn same_inode_symlink_swap_fails_closed() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temporary TLS directory");
+        let configured_path = directory.path().join("certificate.pem");
+        let relocated_path = directory.path().join("relocated.pem");
+        tokio::fs::write(&configured_path, b"not a certificate")
+            .await
+            .expect("write initial certificate path");
+        tokio::fs::rename(&configured_path, &relocated_path)
+            .await
+            .expect("relocate original inode");
+        symlink(&relocated_path, &configured_path).expect("swap configured path to symlink");
+
+        let error = tls_build_error(tls_config(&configured_path)).await;
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "pgwire TLS certificate unavailable");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn fifo_tls_material_fails_closed_as_non_regular() {
+        use rustix::fs::{mkfifoat, open, Mode, OFlags, CWD};
+
+        let directory = tempfile::tempdir().expect("temporary TLS directory");
+        let fifo_path = directory.path().join("certificate.pem");
+        mkfifoat(CWD, &fifo_path, Mode::RUSR | Mode::WUSR).expect("create certificate FIFO");
+        let _fifo_anchor = open(
+            &fifo_path,
+            OFlags::RDWR | OFlags::CLOEXEC | OFlags::NONBLOCK,
+            Mode::empty(),
+        )
+        .expect("open FIFO anchor without blocking");
+
+        let error = tls_build_error(tls_config(&fifo_path)).await;
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "pgwire TLS certificate unavailable");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn tls_file_descriptor_is_nonblocking() {
+        use rustix::fs::{fcntl_getfl, OFlags};
+
+        let cert = tempfile::NamedTempFile::new().expect("temporary certificate fixture");
+        let file = open_tls_file(cert.path(), "unavailable").expect("open certificate fixture");
+        let flags = fcntl_getfl(&file).expect("inspect opened certificate flags");
+        assert!(flags.contains(OFlags::NONBLOCK));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn oversized_tls_material_fails_closed() {
+        let directory = tempfile::tempdir().expect("temporary TLS directory");
+        let cert_path = directory.path().join("oversized.pem");
+        tokio::fs::write(&cert_path, vec![b'x'; MAX_TLS_PEM_BYTES as usize + 1])
+            .await
+            .expect("write oversized certificate");
+
+        let error = tls_build_error(tls_config(&cert_path)).await;
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "pgwire TLS certificate invalid");
     }
 }
 

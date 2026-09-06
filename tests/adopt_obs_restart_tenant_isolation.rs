@@ -68,13 +68,27 @@ fn span(
 /// persist dir, "crash" (drop the handle), and reopen. Each tenant's segment
 /// manifest and row bytes must be recoverable and must contain EXACTLY that
 /// tenant's rows -- zero cross-tenant rows in either direction.
-#[test]
-fn obs_restart_recovers_disjoint_per_stream_segments_with_zero_cross_tenant_rows() {
+#[tokio::test(flavor = "current_thread")]
+async fn obs_restart_recovers_disjoint_per_stream_segments_with_zero_cross_tenant_rows() {
     let dir = tempfile::tempdir().expect("temp dir");
     let persist_dir = dir.path().to_str().expect("utf8 temp path");
 
     {
-        let obs = ObsState::open(Some(persist_dir), 2).expect("open");
+        let obs = ObsState::open(Some(persist_dir), 2).await.expect("open");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let mode = std::fs::metadata(dir.path().join("obs"))
+                .expect("fresh observability authority metadata")
+                .permissions()
+                .mode();
+            assert_eq!(
+                mode & 0o077,
+                0,
+                "fresh persistence authority must be private independently of umask"
+            );
+        }
         let tenant_a_recs = vec![
             record("tenant-a", 10, "alpha-one"),
             record("tenant-a", 20, "alpha-two"),
@@ -151,13 +165,13 @@ fn obs_restart_recovers_disjoint_per_stream_segments_with_zero_cross_tenant_rows
                 "all tenant spans must be accepted before persistence"
             );
             assert_eq!(traces.trace_count(), 2, "one durable trace per tenant");
-            obs.persist_traces().expect("persist tenant traces");
+            obs.persist_traces().await.expect("persist tenant traces");
         }
     }
 
     // "Restart on the same durable store": drop the handle entirely and reopen
     // against the identical persist_dir, exactly like BUG-210's own proof.
-    let reopened = ObsState::open(Some(persist_dir), 2).expect("reopen");
+    let reopened = ObsState::open(Some(persist_dir), 2).await.expect("reopen");
 
     let segs_a = reopened.segments_for("tenant-a");
     let segs_b = reopened.segments_for("tenant-b");

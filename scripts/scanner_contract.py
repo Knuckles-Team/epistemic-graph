@@ -194,6 +194,7 @@ class ScannerContract:
     dependency_cruiser_version: str
     import_linter_version: str
     arch_lint_version: str
+    cargo_deny_version: str
     jscpd_formats: tuple[tuple[str, tuple[str, ...]], ...]
     jscpd_filenames: tuple[tuple[str, tuple[str, ...]], ...]
     exclusions: tuple[str, ...]
@@ -450,6 +451,7 @@ _EXPECTED_KEYS = {
     "dependency_cruiser_version",
     "import_linter_version",
     "arch_lint_version",
+    "cargo_deny_version",
     "jscpd_formats",
     "jscpd_filenames",
     "jscpd_exclusions",
@@ -547,6 +549,7 @@ def load_contract(path: Path = ROOT / "pyproject.toml") -> ScannerContract:
         dependency_cruiser_version=_string(table, "dependency_cruiser_version"),
         import_linter_version=_string(table, "import_linter_version"),
         arch_lint_version=_string(table, "arch_lint_version"),
+        cargo_deny_version=_string(table, "cargo_deny_version"),
         jscpd_formats=_format_map(table, "jscpd_formats", filenames=False),
         jscpd_filenames=_format_map(table, "jscpd_filenames", filenames=True),
         exclusions=exclusions,

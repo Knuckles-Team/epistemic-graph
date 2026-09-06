@@ -14,7 +14,7 @@ use eg_modality::{
 
 use crate::cluster::KMeansResult;
 
-const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "a KMeans result is a computed output; CDC would require materializing cluster assignments as persistent nodes/edges",

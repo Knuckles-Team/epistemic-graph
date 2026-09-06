@@ -202,6 +202,46 @@ async fn wire_select_returns_seeded_rows() {
     assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_rejects_retired_graph_compatibility_sql_and_extensions() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+    let sql = "SELECT * FROM cypher('__commons__', $$ MATCH (n) RETURN n $$) AS (n agtype)";
+
+    client
+        .simple_query(sql)
+        .await
+        .expect_err("simple protocol must reject the retired graph compatibility surface");
+
+    match client.prepare(sql).await {
+        Ok(statement) => {
+            client.query(&statement, &[]).await.expect_err(
+                "extended protocol must reject the retired graph compatibility surface",
+            );
+        }
+        Err(_) => {
+            // Rejecting during Parse/Describe is also a valid fail-closed outcome.
+        }
+    }
+
+    for extension in ["age", "pg_age"] {
+        let result = client
+            .simple_query(&format!("CREATE EXTENSION {extension}"))
+            .await;
+        assert!(
+            result.is_err(),
+            "CREATE EXTENSION {extension} must reject a retired extension"
+        );
+    }
+
+    let rows = client
+        .simple_query("SELECT id FROM nodes WHERE rank >= 2 ORDER BY id")
+        .await
+        .expect("native SQL remains available after rejected compatibility requests");
+    assert_eq!(simple_ids(rows), vec!["n2".to_string(), "n3".to_string()]);
+}
+
 /// BUG-CX-084: `eg_embed(text)`'s process-wide embedder (design §9 phase 2) used to be
 /// bound ONLY at the top of the native RPC `handle_sql` entry point — the pgwire
 /// `do_query`/extended-`do_query` handlers never call `handle_sql` (they run the

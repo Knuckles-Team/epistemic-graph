@@ -40,12 +40,12 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use eg_types::mutation_batch::{
-    CommittedVersion, MutationBatch, MutationBatchCommit, MutationBatchRecord,
-    MutationBatchStatus, MutationDomain, MutationOutboxIntent, MutationOutboxRecord,
-    MutationScope, VersionExpectation, MUTATION_BATCH_VERSION,
+    CommittedVersion, MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus,
+    MutationDomain, MutationOutboxIntent, MutationOutboxRecord, MutationScope, VersionExpectation,
+    MUTATION_BATCH_VERSION,
 };
 use redb::{
     Database, Durability, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition,
@@ -157,6 +157,8 @@ type SchemaRecordsTable =
 type SchemaCatalogVersionsTable = redb::ReadOnlyTable<&'static str, u64>;
 type SchemaCatalogOrderTable = redb::ReadOnlyTable<(&'static str, u64), &'static str>;
 type SchemaCatalogTable = redb::ReadOnlyTable<&'static str, &'static [u8]>;
+type RowsReadTable = redb::ReadOnlyTable<(&'static str, u64), &'static [u8]>;
+type SnapshotRows = (Vec<TableSnapshotRow>, Option<u64>, usize, usize);
 
 /// Every table `verify_schema_migrations` needs, bundled so
 /// `open_schema_migration_tables` can hand them back in one piece.
@@ -173,6 +175,14 @@ const MAX_SQL_STORED_VALUE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SQL_STORED_VALUE_ITEMS: usize = 1_000_000;
 const MAX_SQL_SCAN_ROWS: usize = 100_000;
 const MAX_SQL_SCAN_BYTES: usize = 64 * 1024 * 1024;
+/// One semantic source page is deliberately small enough to move through the
+/// later queue boundary without turning a read snapshot into an unbounded job.
+pub const ROW_SNAPSHOT_MAX_RECORDS: usize = 256;
+/// Maximum authorized text plus per-record identity bytes returned by the
+/// server semantic projection.
+pub const ROW_SNAPSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
+/// Physical work remains bounded even when RLS makes every examined row hidden.
+pub const ROW_SNAPSHOT_MAX_SCAN_BYTES: usize = MAX_SQL_STORED_VALUE_BYTES;
 const INITIAL_SQL_DOMAIN_VERSION: u64 = 0;
 
 fn decode_stored<T: serde::de::DeserializeOwned>(
@@ -396,6 +406,11 @@ impl TableTxn {
 #[derive(Debug, Clone)]
 pub struct TableStore {
     db: Arc<Database>,
+    /// Process-local coordination seam for source metadata whose durable rows
+    /// live in this exact store. Clones share the same lock, so the cached
+    /// tenant ACL handle can serialize mutations and serve coherent snapshots
+    /// without a second global lock registry.
+    source_authority: Arc<RwLock<()>>,
     /// Owner/tenant namespace for secondary-index catalog keys. `open()` keeps
     /// legacy callers isolated to one stable default; multiplexed services use
     /// `open_scoped()` and must provide the authenticated tenant scope.
@@ -404,6 +419,33 @@ pub struct TableStore {
     /// historical single-tenant behavior; served callers should use
     /// `open_scoped()` so a migration cannot be replayed against another tenant.
     scope: Arc<str>,
+}
+
+/// One row from an immutable redb read snapshot. The physical id is an ordering
+/// cursor only; semantic consumers must derive durable identity from the row's
+/// declared primary key rather than persisting this allocation detail.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableSnapshotRow {
+    pub row_id: u64,
+    pub cells: Vec<Cell>,
+}
+
+/// A bounded, point-in-time table page. Schema, schema revision, digest, and
+/// rows all come from the same redb read transaction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableRowSnapshot {
+    pub schema: TableSchema,
+    pub schema_revision: u64,
+    pub schema_digest: String,
+    pub rows: Vec<TableSnapshotRow>,
+    /// Exclusive physical-row cursor for the next page. `None` means this read
+    /// snapshot reached the end of the table.
+    pub next_cursor: Option<u64>,
+    /// Encoded bytes for visible rows returned to the caller.
+    pub encoded_bytes: usize,
+    /// Encoded bytes physically examined under this snapshot. This is never
+    /// propagated through the authorized semantic result.
+    pub scanned_bytes: usize,
 }
 
 impl TableStore {
@@ -427,6 +469,7 @@ impl TableStore {
         let db = Database::create(path).map_err(|e| format!("open sql table store: {e}"))?;
         let store = Self {
             db: Arc::new(db),
+            source_authority: Arc::new(RwLock::new(())),
             index_scope: Arc::new(tenant_scope.clone()),
             scope: Arc::from(tenant_scope),
         };
@@ -454,6 +497,15 @@ impl TableStore {
     /// intentionally not derived from an untrusted SQL identifier.
     pub fn index_scope(&self) -> &str {
         self.index_scope.as_str()
+    }
+
+    /// Shared process-local coordination for source metadata in this store.
+    ///
+    /// This is deliberately a lock, not an authorization or ordering claim.
+    /// Callers that require cluster-wide serialization must fail closed until
+    /// this store is committed through a replicated authority.
+    pub fn source_authority_lock(&self) -> Arc<RwLock<()>> {
+        Arc::clone(&self.source_authority)
     }
 
     // ── one-shot DDL (each opens + commits its own txn) ───────────────────────
@@ -593,16 +645,117 @@ impl TableStore {
         &self,
         table: &str,
     ) -> Result<Option<super::migration::SchemaSnapshot>, String> {
-        let Some(schema) = self.get_schema(table)? else {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        self.schema_snapshot_in(&rtx, table)
+    }
+
+    fn schema_snapshot_in(
+        &self,
+        rtx: &ReadTransaction,
+        table: &str,
+    ) -> Result<Option<super::migration::SchemaSnapshot>, String> {
+        Ok(self
+            .schema_and_snapshot_in(rtx, table)?
+            .map(|(_, snapshot)| snapshot))
+    }
+
+    fn schema_and_snapshot_in(
+        &self,
+        rtx: &ReadTransaction,
+        table: &str,
+    ) -> Result<Option<(TableSchema, super::migration::SchemaSnapshot)>, String> {
+        let catalog = match rtx.open_table(CATALOG) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+            Err(error) => return Err(map_err(error)),
+        };
+        let Some(encoded) = catalog.get(table).map_err(map_err)? else {
             return Ok(None);
         };
-        let version = self.schema_version(table)?;
-        Ok(Some(super::migration::SchemaSnapshot {
+        let schema: TableSchema = decode_stored(encoded.value(), "schema")?;
+        schema.validate()?;
+        let version = match rtx.open_table(SCHEMA_VERSIONS) {
+            Ok(versions) => versions
+                .get((self.scope.as_ref(), table))
+                .map_err(map_err)?
+                .map(|value| value.value())
+                .unwrap_or(0),
+            Err(redb::TableError::TableDoesNotExist(_)) => 0,
+            Err(error) => return Err(map_err(error)),
+        };
+        let snapshot = super::migration::SchemaSnapshot {
             tenant_scope: self.scope.to_string(),
             table: schema.name.clone(),
             version,
             schema_digest: schema.schema_digest()?,
-        }))
+        };
+        Ok(Some((schema, snapshot)))
+    }
+
+    /// Read one bounded physical-row page together with its exact schema state.
+    /// `after_row_id` is exclusive. Every returned id is strictly increasing;
+    /// `next_cursor` is the final examined id only when another row exists.
+    /// An optional already-authorized visibility predicate is applied inside the
+    /// same read transaction before row/byte output accounting, while the hard
+    /// physical scan cap still bounds sparse-visibility work.
+    pub fn row_snapshot(
+        &self,
+        table: &str,
+        after_row_id: Option<u64>,
+        visibility: Option<&eg_types::RowPredicate>,
+    ) -> Result<TableRowSnapshot, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        self.row_snapshot_in(&rtx, table, after_row_id, visibility)
+    }
+
+    fn row_snapshot_in(
+        &self,
+        rtx: &ReadTransaction,
+        table: &str,
+        after_row_id: Option<u64>,
+        visibility: Option<&eg_types::RowPredicate>,
+    ) -> Result<TableRowSnapshot, String> {
+        let (schema, snapshot) = self
+            .schema_and_snapshot_in(rtx, table)?
+            .ok_or_else(|| format!("table `{table}` does not exist"))?;
+        let Some(first_row_id) = after_row_id.map_or(Some(0), |row_id| row_id.checked_add(1))
+        else {
+            return Ok(TableRowSnapshot {
+                schema,
+                schema_revision: snapshot.version,
+                schema_digest: snapshot.schema_digest,
+                rows: Vec::new(),
+                next_cursor: None,
+                encoded_bytes: 0,
+                scanned_bytes: 0,
+            });
+        };
+        let rows_table = match rtx.open_table(ROWS) {
+            Ok(rows) => rows,
+            Err(redb::TableError::TableDoesNotExist(_)) => {
+                return Ok(TableRowSnapshot {
+                    schema,
+                    schema_revision: snapshot.version,
+                    schema_digest: snapshot.schema_digest,
+                    rows: Vec::new(),
+                    next_cursor: None,
+                    encoded_bytes: 0,
+                    scanned_bytes: 0,
+                });
+            }
+            Err(error) => return Err(map_err(error)),
+        };
+        let (rows, next_cursor, encoded_bytes, scanned_bytes) =
+            read_snapshot_rows(&rows_table, table, &schema, first_row_id, visibility)?;
+        Ok(TableRowSnapshot {
+            schema,
+            schema_revision: snapshot.version,
+            schema_digest: snapshot.schema_digest,
+            rows,
+            next_cursor,
+            encoded_bytes,
+            scanned_bytes,
+        })
     }
 
     /// Current authoritative schema version for one table.  Tables created by
@@ -2205,8 +2358,7 @@ fn verify_mutation_occ_version(
         VersionExpectation::Native(expected) => expected,
         _ => {
             return Err(
-                "authoritative SQL MutationBatch requires a native version expectation"
-                    .to_string(),
+                "authoritative SQL MutationBatch requires a native version expectation".to_string(),
             )
         }
     };
@@ -2344,8 +2496,7 @@ fn append_mutation_outbox_intents_in(
     committed_version: CommittedVersion,
 ) -> Result<(), String> {
     let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(map_err)?;
-    let ordinal =
-        append_operation_outbox_intents_in(&mut outbox, batch, 0, committed_version)?;
+    let ordinal = append_operation_outbox_intents_in(&mut outbox, batch, 0, committed_version)?;
     append_explicit_outbox_intents_in(&mut outbox, batch, ordinal, committed_version)
 }
 
@@ -6579,6 +6730,66 @@ fn composite_cell_key(cells: &[Cell], columns: &[usize], schema: &TableSchema) -
     serde_json::to_string(&parts).ok()
 }
 
+fn read_snapshot_rows(
+    rows_table: &RowsReadTable,
+    table: &str,
+    schema: &TableSchema,
+    first_row_id: u64,
+    visibility: Option<&eg_types::RowPredicate>,
+) -> Result<SnapshotRows, String> {
+    let width = schema.columns().len();
+    let mut page = Vec::new();
+    let mut encoded_bytes = 0usize;
+    let mut scanned_bytes = 0usize;
+    let mut scanned_rows = 0usize;
+    let mut last_processed_row_id = None;
+    let mut has_more = false;
+    for row in rows_table
+        .range((table, first_row_id)..=(table, u64::MAX))
+        .map_err(map_err)?
+    {
+        let (key, value) = row.map_err(map_err)?;
+        if scanned_rows == ROW_SNAPSHOT_MAX_RECORDS {
+            has_more = true;
+            break;
+        }
+        let row_bytes = value.value().len();
+        if scanned_bytes
+            .checked_add(row_bytes)
+            .is_none_or(|bytes| bytes > ROW_SNAPSHOT_MAX_SCAN_BYTES)
+        {
+            if scanned_rows == 0 {
+                return Err("SQL row exceeds semantic snapshot scan limit".to_string());
+            }
+            has_more = true;
+            break;
+        }
+        let mut cells: Vec<Cell> = decode_stored(value.value(), "row")?;
+        scanned_bytes += row_bytes;
+        scanned_rows += 1;
+        if visibility.is_some_and(|predicate| !predicate.eval(&row_map(schema, &cells))) {
+            last_processed_row_id = Some(key.value().1);
+            continue;
+        }
+        if cells.len() > width {
+            return Err("stored SQL row is wider than its schema".to_string());
+        }
+        cells.resize(width, Cell::Null);
+        encoded_bytes += row_bytes;
+        last_processed_row_id = Some(key.value().1);
+        page.push(TableSnapshotRow {
+            row_id: key.value().1,
+            cells,
+        });
+    }
+    let next_cursor = if has_more {
+        last_processed_row_id
+    } else {
+        None
+    };
+    Ok((page, next_cursor, encoded_bytes, scanned_bytes))
+}
+
 /// Build a `col -> json` row map for predicate evaluation (CONCEPT:EG-KG.query.compound-predicate-decode): one
 /// entry per schema column, the cell decoded to its JSON value. A column the
 /// predicate references that is NOT in the schema is simply absent (reads as NULL).
@@ -7774,5 +7985,196 @@ mod tests {
              fingerprint -- a cache keyed on only ONE scope's mutation_version would \
              silently miss this commit"
         );
+    }
+
+    #[test]
+    fn schema_snapshot_reads_schema_and_revision_from_one_redb_snapshot() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        let initial = TableSchema::new(
+            "items",
+            vec![Column::new("id", ColumnType::Text, false, true)],
+        );
+        store.create_table(&initial, false).unwrap();
+        let rtx = store.db.begin_read().unwrap();
+        let before = store.schema_snapshot_in(&rtx, "items").unwrap().unwrap();
+
+        let migration = SchemaMigration::for_schema(
+            "add-label",
+            store.scope.to_string(),
+            0,
+            &initial,
+            vec![SchemaMigrationOperation::AddColumn {
+                column: Column::new("label", ColumnType::Text, true, false),
+            }],
+            Default::default(),
+        )
+        .unwrap();
+        store.apply_schema_migration(&migration).unwrap();
+
+        let still_before = store.schema_snapshot_in(&rtx, "items").unwrap().unwrap();
+        assert_eq!(still_before, before);
+        drop(rtx);
+        let after = store.schema_snapshot("items").unwrap().unwrap();
+        assert_eq!(after.version, 1);
+        assert_eq!(after.schema_digest, migration.target_schema_digest);
+        assert_ne!(after.schema_digest, before.schema_digest);
+    }
+
+    #[test]
+    fn schema_snapshot_detects_legacy_version_zero_shape_changes_by_digest() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        store
+            .create_table(
+                &TableSchema::new(
+                    "items",
+                    vec![Column::new("id", ColumnType::Text, false, true)],
+                ),
+                false,
+            )
+            .unwrap();
+        let before = store.schema_snapshot("items").unwrap().unwrap();
+        assert_eq!(before.version, 0);
+
+        store.drop_table("items", false).unwrap();
+        store
+            .create_table(
+                &TableSchema::new(
+                    "items",
+                    vec![
+                        Column::new("id", ColumnType::Text, false, true),
+                        Column::new("label", ColumnType::Text, true, false),
+                    ],
+                ),
+                false,
+            )
+            .unwrap();
+        let after = store.schema_snapshot("items").unwrap().unwrap();
+        assert_eq!(after.version, 0);
+        assert_ne!(after.schema_digest, before.schema_digest);
+    }
+
+    fn semantic_rows_schema() -> TableSchema {
+        TableSchema::new(
+            "semantic_rows",
+            vec![
+                Column::new("id", ColumnType::BigInt, false, true),
+                Column::new("body", ColumnType::Text, true, false),
+            ],
+        )
+    }
+
+    #[test]
+    fn row_snapshot_is_atomic_ordered_and_cursor_bounded() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        store.create_table(&semantic_rows_schema(), false).unwrap();
+        let rows: Vec<Vec<Value>> = (0..258)
+            .map(|id| vec![Value::from(id), Value::from(format!("body-{id}"))])
+            .collect();
+        store
+            .insert_rows(
+                "semantic_rows",
+                &["id".to_string(), "body".to_string()],
+                &rows,
+            )
+            .unwrap();
+
+        let rtx = store.db.begin_read().unwrap();
+        let first = store
+            .row_snapshot_in(&rtx, "semantic_rows", None, None)
+            .unwrap();
+        assert_eq!(first.rows.len(), ROW_SNAPSHOT_MAX_RECORDS);
+        assert_eq!(first.rows.first().unwrap().row_id, 0);
+        assert_eq!(first.rows.last().unwrap().row_id, 255);
+        assert_eq!(first.next_cursor, Some(255));
+        assert!(first.encoded_bytes <= ROW_SNAPSHOT_MAX_SCAN_BYTES);
+        assert!(first.scanned_bytes <= ROW_SNAPSHOT_MAX_SCAN_BYTES);
+
+        store
+            .insert_rows(
+                "semantic_rows",
+                &["id".to_string(), "body".to_string()],
+                &[vec![Value::from(258), Value::from("later")]],
+            )
+            .unwrap();
+        let same_read = store
+            .row_snapshot_in(&rtx, "semantic_rows", Some(255), None)
+            .unwrap();
+        assert_eq!(
+            same_read
+                .rows
+                .iter()
+                .map(|row| row.row_id)
+                .collect::<Vec<_>>(),
+            vec![256, 257]
+        );
+        assert_eq!(same_read.next_cursor, None);
+        drop(rtx);
+
+        let next_read = store
+            .row_snapshot("semantic_rows", Some(255), None)
+            .unwrap();
+        assert_eq!(
+            next_read
+                .rows
+                .iter()
+                .map(|row| row.row_id)
+                .collect::<Vec<_>>(),
+            vec![256, 257, 258]
+        );
+        assert_eq!(next_read.next_cursor, None);
+        assert!(store
+            .row_snapshot("semantic_rows", Some(u64::MAX), None)
+            .unwrap()
+            .rows
+            .is_empty());
+    }
+
+    #[test]
+    fn row_snapshot_visibility_precedes_output_byte_accounting() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        store
+            .create_table(
+                &TableSchema::new(
+                    "semantic_rows",
+                    vec![
+                        Column::new("id", ColumnType::BigInt, false, true),
+                        Column::new("body", ColumnType::Text, true, false),
+                        Column::new("owner", ColumnType::Text, false, false),
+                    ],
+                ),
+                false,
+            )
+            .unwrap();
+        store
+            .insert_rows(
+                "semantic_rows",
+                &["id".to_string(), "body".to_string(), "owner".to_string()],
+                &[
+                    vec![
+                        Value::from(1),
+                        Value::from("x".repeat(4 * 1024 * 1024)),
+                        Value::from("other"),
+                    ],
+                    vec![
+                        Value::from(2),
+                        Value::from("y".repeat(5 * 1024 * 1024)),
+                        Value::from("alice"),
+                    ],
+                ],
+            )
+            .unwrap();
+        let visible = eg_types::RowPredicate::Cmp {
+            col: "owner".to_string(),
+            op: eg_types::CmpOp::Eq,
+            value: Value::from("alice"),
+        };
+        let page = store
+            .row_snapshot("semantic_rows", None, Some(&visible))
+            .unwrap();
+        assert_eq!(page.rows.len(), 1);
+        assert_eq!(page.rows[0].cells[0], Cell::Int(2));
+        assert!(page.encoded_bytes < page.scanned_bytes);
+        assert!(page.scanned_bytes <= ROW_SNAPSHOT_MAX_SCAN_BYTES);
+        assert_eq!(page.next_cursor, None);
     }
 }

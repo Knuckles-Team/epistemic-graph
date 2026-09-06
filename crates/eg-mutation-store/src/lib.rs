@@ -103,9 +103,9 @@ pub enum SagaBegin {
 #[path = "store/identity.rs"]
 mod identity;
 pub use identity::{
-    adopt_restored_store, adopt_restored_store_if_mutation_store, bind_scope, initialize, open_read_only, MutationStore, MutationWrite,
-    PrivatePayloadIntegrity, ReadOnlyMutationStore, StoreIdentityDigest, StoreIncarnation,
-    MUTATION_STORE_SCHEMA_VERSION,
+    adopt_restored_store, adopt_restored_store_if_mutation_store, bind_scope, initialize,
+    open_read_only, MutationStore, MutationWrite, PrivatePayloadIntegrity, ReadOnlyMutationStore,
+    StoreIdentityDigest, StoreIncarnation, MUTATION_STORE_SCHEMA_VERSION,
 };
 pub(crate) use identity::{
     binding_for_read, binding_for_write, reject_prototype_names, scope_identity_key, ScopeBinding,

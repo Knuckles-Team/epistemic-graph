@@ -1,6 +1,8 @@
 use super::*;
 use redb::{ReadTransaction, TableHandle};
 
+type PrivateAuthenticator<'a> = dyn Fn(&[u8], &str) -> Result<(), String> + 'a;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecoveryStoreCounts {
@@ -61,7 +63,7 @@ pub fn validate_recovery_store_read_only(
 pub(crate) fn validate_recovery_content(
     expected: &StoreIncarnation,
     rtx: &ReadTransaction,
-    authenticate_private: &dyn Fn(&[u8], &str) -> Result<(), String>,
+    authenticate_private: &PrivateAuthenticator<'_>,
 ) -> Result<RecoveryStoreCounts, String> {
     let root = validate_root(expected, rtx)?;
     let mut counts = RecoveryStoreCounts {
@@ -97,16 +99,7 @@ fn validate_root(
     let table = rtx
         .open_table(STORE_ROOT)
         .map_err(|error| error.to_string())?;
-    let mut rows = table.iter().map_err(|error| error.to_string())?;
-    let (key, value) = rows
-        .next()
-        .ok_or_else(|| "mutation store root is missing".to_string())?
-        .map_err(|error| error.to_string())?;
-    if key.value() != "root" || rows.next().is_some() {
-        return Err("mutation store must contain exactly one canonical root".to_string());
-    }
-    let root: StoreIncarnation = decode_record(value.value())?;
-    root.validate_digest()?;
+    let root = super::identity::require_persisted_root(&table)?;
     if &root != expected {
         return Err(
             "mutation store persisted root does not match its physical database".to_string(),
@@ -289,7 +282,7 @@ fn validate_outbox(
 }
 
 fn validate_private(
-    authenticate_private: &dyn Fn(&[u8], &str) -> Result<(), String>,
+    authenticate_private: &PrivateAuthenticator<'_>,
     rtx: &ReadTransaction,
     records: &std::collections::BTreeMap<(String, String), MutationBatchRecord>,
     counts: &mut RecoveryStoreCounts,

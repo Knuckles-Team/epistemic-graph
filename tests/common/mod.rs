@@ -130,6 +130,9 @@ fn signer_key(agent_id: &str) -> &'static str {
     }
 }
 
+// `tests/common` is compiled once per integration-test target. Round-trip targets
+// use the signing helpers but do not construct an in-process isolation layer.
+#[allow(dead_code)]
 pub fn current_isolation() -> IsolationLayer {
     let mut isolation = IsolationLayer::new();
     isolation.register_agent(AgentIdentity {

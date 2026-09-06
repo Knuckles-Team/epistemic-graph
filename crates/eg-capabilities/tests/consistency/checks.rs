@@ -216,6 +216,7 @@ fn print_known_divergence_report() {
     );
 }
 
+#[cfg(feature = "canonical-ledger")]
 #[test]
 fn generated_ledger_is_not_stale() {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -226,14 +227,14 @@ fn generated_ledger_is_not_stale() {
     let checked_in_path = repo_root.join("docs").join("capabilities.generated.md");
     let checked_in = std::fs::read_to_string(&checked_in_path).unwrap_or_else(|e| {
         panic!(
-            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving,statechart --bin gen_ledger` first",
+            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --features canonical-ledger --bin gen_ledger` first",
             checked_in_path.display()
         )
     });
     let fresh = eg_capabilities::gen_ledger();
     assert_eq!(
         checked_in, fresh,
-        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving,statechart --bin gen_ledger` and commit the result"
+        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features canonical-ledger --bin gen_ledger` and commit the result"
     );
 }
 

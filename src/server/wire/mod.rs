@@ -47,11 +47,11 @@ use tokio::sync::RwLock;
 
 use eg_query::{
     AlterTableAction, AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan,
-    CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, CypherCallPlan,
-    DeleteNodes, DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan,
-    HypertablePlan, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict,
-    OnConflictAction, PgColType, StatementKind, TableSchema, TableStore, TableTxn, TxnOp,
-    TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes,
+    DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan,
+    InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict, OnConflictAction,
+    PgColType, StatementKind, TableSchema, TableStore, TableTxn, TxnOp, TypedColumn,
+    TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 
 use crate::isolation::AccessLevel;
@@ -399,11 +399,11 @@ pub(crate) fn alter_txn_op(plan: AlterTablePlan) -> WireResult<TxnOp> {
 /// started writing.
 ///
 /// Privilege map (the minimum privilege for what each op actually does):
-///   * `CreateTable` — no privilege check (first-writer-wins, matching
-///     `sql_catalog_acl::create_owned_table`'s own behavior for a brand-new
-///     table name); its schema is returned so the caller can register ownership
-///     AFTER a successful commit (see `register_owner_after_create`'s doc for
-///     why that registration is a separate, deliberately non-atomic write).
+///   * `CreateTable` — no privilege check (first-writer-wins for a brand-new
+///     table name); its schema is returned so the caller registers ownership
+///     before releasing the source-authority capability. An exact durable
+///     replay repairs an interrupted registration without granting a different
+///     operation authority over the table.
 ///   * `DropTable`, every `AlterTable` action (`AddColumn`/`DropColumn`/
 ///     `RenameColumn`/`RenameTable`/`AlterColumnType`/`DropConstraint`/
 ///     `AddConstraint`), `PutAnnIndex`, `PutHypertable`, and
@@ -415,35 +415,28 @@ pub(crate) fn alter_txn_op(plan: AlterTablePlan) -> WireResult<TxnOp> {
 ///   * `CreateView`/`DropView`/`CreateExtension`/`DropExtension`/
 ///     `CreateFunction`/`DropFunction` — catalog-WIDE objects with no per-table
 ///     owner in this ACL's data model (unlike a table, a view/extension/function
-///     name has no `__eg_sql_owners__` row to check), and NE-003's own migration
-///     already treats functions/ANN-indexes/hypertables as an explicit,
-///     documented scope cut rather than something to invent an ownership model
-///     for on the spot. Gated to `authority.is_admin()` — the conservative,
+///     name has no `__eg_sql_owners__` row to check). Gated to
+///     `authority.is_admin()` — the conservative,
 ///     fail-closed default, since allowing ANY tenant actor to install a
 ///     tenant-WIDE catalog object (one actor's function every other actor's SQL
 ///     can now invoke; one actor's extension enabled tenant-wide) would be a new
 ///     cross-actor side effect the OLD per-owner-file layout never allowed at
 ///     all. A real per-object ownership model for these is a follow-up, not a
-///     silent gap (recorded here, exactly as NE-003's own migration records its
-///     scope cuts as durable notices rather than dropping them quietly).
+///     silent gap.
 fn authorize_table_txn(
-    authority: &CarrierAuthority,
-    persist_dir: &Path,
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
+    table_store: &TableStore,
     txn: &mut TableTxn,
     committed_replay: bool,
 ) -> WireResult<Vec<TableSchema>> {
-    use crate::server::sql_catalog_acl;
-    sql_catalog_acl::ensure_actor_migrated(authority, persist_dir).map_err(user_err)?;
-    let table_store =
-        crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)
-            .map_err(user_err)?;
+    let authority = source.authority();
     let mut created_tables = Vec::new();
     let mut provisional_creates = std::collections::HashMap::new();
     for op in txn.ops.iter_mut() {
         authorize_table_txn_op(
+            source,
             authority,
-            persist_dir,
-            &table_store,
+            table_store,
             op,
             committed_replay,
             &mut provisional_creates,
@@ -458,8 +451,8 @@ fn authorize_table_txn(
 /// Insert/Update/Delete) and/or `provisional_creates`/`created_tables` (CreateTable/
 /// DropTable's batch-local capability bookkeeping).
 fn authorize_table_txn_op(
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     authority: &CarrierAuthority,
-    persist_dir: &Path,
     table_store: &TableStore,
     op: &mut TxnOp,
     committed_replay: bool,
@@ -475,8 +468,7 @@ fn authorize_table_txn_op(
             schema,
             if_not_exists,
         } => authorize_create_table(
-            authority,
-            persist_dir,
+            source,
             table_store,
             schema,
             *if_not_exists,
@@ -484,13 +476,9 @@ fn authorize_table_txn_op(
             provisional_creates,
             created_tables,
         ),
-        TxnOp::DropTable { name, .. } => authorize_drop_table(
-            authority,
-            persist_dir,
-            name,
-            provisional_creates,
-            created_tables,
-        ),
+        TxnOp::DropTable { name, .. } => {
+            authorize_drop_table(source, name, provisional_creates, created_tables)
+        }
         TxnOp::AddColumn { table, .. }
         | TxnOp::DropColumn { table, .. }
         | TxnOp::RenameColumn { table, .. }
@@ -498,17 +486,17 @@ fn authorize_table_txn_op(
         | TxnOp::DropConstraint { table, .. }
         | TxnOp::AddConstraint { table, .. }
         | TxnOp::DropAnnIndexesForColumn { table, .. } => {
-            authorize_alter_like(authority, persist_dir, table, provisional_creates)
+            authorize_alter_like(source, authority, table, provisional_creates)
         }
         TxnOp::RenameTable { table, .. } => {
-            authorize_rename_table(authority, persist_dir, table, provisional_creates)
+            authorize_rename_table(source, table, provisional_creates)
         }
         TxnOp::PutAnnIndex { plan } => {
-            sql_catalog_acl::authorize_ddl(authority, persist_dir, &plan.table, SqlPrivilege::Alter)
+            sql_catalog_acl::authorize_ddl(source, &plan.table, SqlPrivilege::Alter)
                 .map_err(user_err)
         }
         TxnOp::PutHypertable { plan } => {
-            sql_catalog_acl::authorize_ddl(authority, persist_dir, &plan.table, SqlPrivilege::Alter)
+            sql_catalog_acl::authorize_ddl(source, &plan.table, SqlPrivilege::Alter)
                 .map_err(user_err)
         }
         TxnOp::Insert {
@@ -516,8 +504,8 @@ fn authorize_table_txn_op(
             col_order,
             rows,
         } => authorize_insert_op(
+            source,
             authority,
-            persist_dir,
             table,
             col_order,
             rows,
@@ -527,16 +515,9 @@ fn authorize_table_txn_op(
             table,
             set,
             selector,
-        } => authorize_update_op(
-            authority,
-            persist_dir,
-            table,
-            set,
-            selector,
-            provisional_creates,
-        ),
+        } => authorize_update_op(source, authority, table, set, selector, provisional_creates),
         TxnOp::Delete { table, selector } => {
-            authorize_delete_op(authority, persist_dir, table, selector, provisional_creates)
+            authorize_delete_op(source, authority, table, selector, provisional_creates)
         }
         TxnOp::CreateView { .. }
         | TxnOp::DropView { .. }
@@ -571,8 +552,7 @@ fn is_provisionally_permitted(
 /// The `CreateTable` arm of [`authorize_table_txn_op`].
 #[allow(clippy::too_many_arguments)]
 fn authorize_create_table(
-    authority: &CarrierAuthority,
-    persist_dir: &Path,
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     table_store: &TableStore,
     schema: &TableSchema,
     if_not_exists: bool,
@@ -599,8 +579,7 @@ fn authorize_create_table(
     let owns_committed_create = committed_replay && !if_not_exists;
     if !if_not_exists && (physically_absent || owns_committed_create) {
         if let Some(capability) =
-            sql_catalog_acl::begin_provisional_create(authority, persist_dir, &schema.name)
-                .map_err(user_err)?
+            sql_catalog_acl::begin_provisional_create(source, &schema.name).map_err(user_err)?
         {
             provisional_creates.insert(schema.name.clone(), capability);
         }
@@ -616,8 +595,7 @@ fn authorize_create_table(
 
 /// The `DropTable` arm of [`authorize_table_txn_op`].
 fn authorize_drop_table(
-    authority: &CarrierAuthority,
-    persist_dir: &Path,
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     name: &str,
     provisional_creates: &mut std::collections::HashMap<
         String,
@@ -632,16 +610,15 @@ fn authorize_drop_table(
         created_tables.retain(|schema| schema.name.as_str() != name);
         return Ok(());
     }
-    sql_catalog_acl::authorize_ddl(authority, persist_dir, name, SqlPrivilege::Alter)
-        .map_err(user_err)
+    sql_catalog_acl::authorize_ddl(source, name, SqlPrivilege::Alter).map_err(user_err)
 }
 
 /// The combined `AddColumn`/`DropColumn`/`RenameColumn`/`AlterColumnType`/
 /// `DropConstraint`/`AddConstraint`/`DropAnnIndexesForColumn` arm of
 /// [`authorize_table_txn_op`]: every plain per-table ALTER-shaped op.
 fn authorize_alter_like(
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     authority: &CarrierAuthority,
-    persist_dir: &Path,
     table: &str,
     provisional_creates: &std::collections::HashMap<
         String,
@@ -652,8 +629,7 @@ fn authorize_alter_like(
     if is_provisionally_permitted(provisional_creates, authority, table) {
         return Ok(());
     }
-    sql_catalog_acl::authorize_ddl(authority, persist_dir, table, SqlPrivilege::Alter)
-        .map_err(user_err)
+    sql_catalog_acl::authorize_ddl(source, table, SqlPrivilege::Alter).map_err(user_err)
 }
 
 /// The `RenameTable` arm of [`authorize_table_txn_op`]. Renaming a not-yet-created
@@ -661,8 +637,7 @@ fn authorize_alter_like(
 /// record; keep that complex shape fail-closed rather than silently granting the
 /// new name.
 fn authorize_rename_table(
-    authority: &CarrierAuthority,
-    persist_dir: &Path,
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     table: &str,
     provisional_creates: &std::collections::HashMap<
         String,
@@ -673,15 +648,14 @@ fn authorize_rename_table(
     if provisional_creates.contains_key(table) {
         return Err(user_err(sql_catalog_acl::ACCESS_DENIED));
     }
-    sql_catalog_acl::authorize_ddl(authority, persist_dir, table, SqlPrivilege::Alter)
-        .map_err(user_err)
+    sql_catalog_acl::authorize_ddl(source, table, SqlPrivilege::Alter).map_err(user_err)
 }
 
 /// The `Insert` arm of [`authorize_table_txn_op`]: RLS-stamp `col_order`/`rows` in
 /// place unless this batch's own provisional CREATE already covers `table`.
 fn authorize_insert_op(
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     authority: &CarrierAuthority,
-    persist_dir: &Path,
     table: &str,
     col_order: &mut Vec<String>,
     rows: &mut Vec<Vec<serde_json::Value>>,
@@ -695,8 +669,7 @@ fn authorize_insert_op(
         return Ok(());
     }
     let (new_cols, new_rows) =
-        sql_catalog_acl::authorize_insert(authority, persist_dir, table, col_order, rows)
-            .map_err(user_err)?;
+        sql_catalog_acl::authorize_insert(source, table, col_order, rows).map_err(user_err)?;
     *col_order = new_cols;
     *rows = new_rows;
     Ok(())
@@ -705,8 +678,8 @@ fn authorize_insert_op(
 /// The `Update` arm of [`authorize_table_txn_op`]: RLS-rewrite `set`/`selector` in
 /// place unless this batch's own provisional CREATE already covers `table`.
 fn authorize_update_op(
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     authority: &CarrierAuthority,
-    persist_dir: &Path,
     table: &str,
     set: &mut serde_json::Map<String, serde_json::Value>,
     selector: &mut eg_types::RowPredicate,
@@ -719,14 +692,9 @@ fn authorize_update_op(
     if is_provisionally_permitted(provisional_creates, authority, table) {
         return Ok(());
     }
-    let (new_set, new_selector) = sql_catalog_acl::authorize_update(
-        authority,
-        persist_dir,
-        table,
-        set.clone(),
-        selector.clone(),
-    )
-    .map_err(user_err)?;
+    let (new_set, new_selector) =
+        sql_catalog_acl::authorize_update(source, table, set.clone(), selector.clone())
+            .map_err(user_err)?;
     *set = new_set;
     *selector = new_selector;
     Ok(())
@@ -735,8 +703,8 @@ fn authorize_update_op(
 /// The `Delete` arm of [`authorize_table_txn_op`]: RLS-scope `selector` in place
 /// unless this batch's own provisional CREATE already covers `table`.
 fn authorize_delete_op(
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     authority: &CarrierAuthority,
-    persist_dir: &Path,
     table: &str,
     selector: &mut eg_types::RowPredicate,
     provisional_creates: &std::collections::HashMap<
@@ -748,8 +716,8 @@ fn authorize_delete_op(
     if is_provisionally_permitted(provisional_creates, authority, table) {
         return Ok(());
     }
-    *selector = sql_catalog_acl::authorize_delete(authority, persist_dir, table, selector.clone())
-        .map_err(user_err)?;
+    *selector =
+        sql_catalog_acl::authorize_delete(source, table, selector.clone()).map_err(user_err)?;
     Ok(())
 }
 
@@ -807,6 +775,117 @@ fn committed_sql_replay_receipt(
         return Err("committed SQL replay receipt does not match owner-scoped intent".to_string());
     }
     Ok(Some(record))
+}
+
+type SqlTableCommitIdentity = (
+    String,
+    String,
+    String,
+    crate::protocol::Method,
+    String,
+    u64,
+    uuid::Uuid,
+);
+type SqlTableCommit = (TableStore, TableTxn, SqlTableCommitIdentity);
+const SQL_OWNER_REPAIR_PENDING: &str = "SQL_OWNER_REPAIR_PENDING";
+
+fn table_txn_contains_create(txn: &TableTxn) -> bool {
+    txn.ops
+        .iter()
+        .any(|op| matches!(op, TxnOp::CreateTable { .. }))
+}
+
+fn require_owner_repair_complete(error: &WireError) -> WireResult<()> {
+    if error.message.starts_with(SQL_OWNER_REPAIR_PENDING) {
+        Err(error.clone())
+    } else {
+        Ok(())
+    }
+}
+
+fn commit_table_txn_blocking(
+    authority: CarrierAuthority,
+    persist_dir: std::path::PathBuf,
+    commit: SqlTableCommit,
+) -> Result<usize, String> {
+    let (store, mut txn, identity) = commit;
+    crate::server::sql_catalog_acl::with_source_authority_write(
+        &persist_dir,
+        &authority,
+        |source| commit_table_txn_under_source(source, &store, &mut txn, &identity),
+    )
+}
+
+fn commit_table_txn_under_source(
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
+    store: &TableStore,
+    txn: &mut TableTxn,
+    identity: &SqlTableCommitIdentity,
+) -> Result<usize, String> {
+    let (tenant, graph, principal, operation, batch_id, request_id, operation_id) = identity;
+    let committed_replay = committed_sql_replay_receipt(
+        store,
+        source.authority(),
+        graph,
+        batch_id,
+        *request_id,
+        operation,
+    )?
+    .is_some();
+    let created_tables =
+        authorize_table_txn(source, store, txn, committed_replay).map_err(|error| error.message)?;
+    let created_at_ms = crate::server::txn::now_ms();
+    let expected_version = store.mutation_version(tenant, graph)?;
+    let batch = crate::server::mutation_batch::compile_opaque_method(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id,
+            request_id: *request_id,
+            principal: Some(principal),
+            tenant,
+            graph,
+            placement_epoch: 0,
+            idempotency_key: batch_id,
+            expected_graph_version: Some(expected_version),
+            fencing_token: None,
+            created_at_ms,
+            default_surface: crate::mutation_batch::MutationSurface::Query,
+            authoritative_state: None,
+        },
+        operation,
+        crate::mutation_batch::MutationSurface::Query,
+        crate::mutation_batch::MutationDomain::SqlCatalog,
+        "sql_catalog_operation",
+    )?;
+    let committed = match store.commit_txn_batch(txn, &batch, created_at_ms) {
+        Ok(committed) => committed.record,
+        Err(message) if message.contains("IDEMPOTENCY_CONFLICT") => committed_sql_replay_receipt(
+            store,
+            source.authority(),
+            graph,
+            batch_id,
+            *request_id,
+            operation,
+        )?
+        .ok_or(message)?,
+        Err(message) => return Err(message),
+    };
+    for schema in &created_tables {
+        crate::server::sql_catalog_acl::register_owner_after_create_in(
+            source,
+            &schema.name,
+            *operation_id,
+        )
+        .map_err(|error| format!("{SQL_OWNER_REPAIR_PENDING}: {error}"))?;
+    }
+    let bytes = committed
+        .result_msgpack
+        .as_deref()
+        .ok_or_else(|| "committed SQL MutationBatch has no result".to_string())?;
+    eg_types::msgpack::decode_bounded::<usize>(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(64, 1, 1),
+    )
+    .map_err(|_| "committed SQL result is corrupt".to_string())
 }
 
 /// The PgColType for a single JSON value (RETURNING result-set schema inference).
@@ -1371,7 +1450,7 @@ impl WireSession {
     }
 
     /// Resolve this connection's TENANT-shared SQL catalog (CONCEPT:NE-046 —
-    /// EG-WIRE-CATALOG), migrated on first touch. A verified carrier and the
+    /// EG-WIRE-CATALOG). A verified carrier and the
     /// served engine's configured persistence directory are both mandatory.
     ///
     /// This performs NO per-table authorization of its own — same contract
@@ -1389,8 +1468,7 @@ impl WireSession {
     /// existence/schema probe is newly possible through it.
     pub(crate) async fn user_table_store(&self) -> WireResult<TableStore> {
         let (authority, persist_dir) = self.catalog_authority().await?;
-        crate::server::sql_catalog_acl::ensure_actor_migrated(&authority, &persist_dir)
-            .map_err(user_err)?;
+        crate::server::sql_catalog_acl::require_source_authority().map_err(user_err)?;
         crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), &persist_dir)
             .map_err(user_err)
     }
@@ -1689,9 +1767,8 @@ impl WireSession {
     /// indistinguishability property holds by construction here, not by a
     /// special-cased error mapping.
     ///
-    /// Known limitation (reported, not hidden — mirroring the module's own
-    /// migration-notice precedent for an intentional scope cut): this copies
-    /// TABLE rows only. Durable views/stored functions/ANN index registrations in
+    /// Known limitation (reported, not hidden): this copies TABLE rows only.
+    /// Durable views/stored functions/ANN index registrations in
     /// the tenant catalog are NOT carried into the ephemeral store, so a SELECT
     /// referencing one of those over the shared catalog will not resolve it. This
     /// also drops the served-context-cache amortization for every wire SQL read
@@ -1772,6 +1849,164 @@ impl WireSession {
         Ok(view)
     }
 
+    /// Buffer the ordinary user-table statements whose complete write-set is
+    /// already present in the classified plan. This is a commit-free leaf shared
+    /// by live transactions and durable replay.
+    fn try_buffer_table_statement(&self, kind: &StatementKind) -> WireResult<Option<WireOutcome>> {
+        let (op, outcome) = match kind {
+            StatementKind::CreateTable(plan) => (
+                TxnOp::CreateTable {
+                    schema: TableSchema::new(plan.name.clone(), to_store_columns(&plan.columns)?),
+                    if_not_exists: plan.if_not_exists,
+                },
+                WireOutcome::command("CREATE TABLE"),
+            ),
+            StatementKind::DropTable(plan) => (
+                TxnOp::DropTable {
+                    name: plan.name.clone(),
+                    if_exists: plan.if_exists,
+                },
+                WireOutcome::command("DROP TABLE"),
+            ),
+            StatementKind::AlterTable(plan) => (
+                alter_txn_op(plan.clone())?,
+                WireOutcome::command("ALTER TABLE"),
+            ),
+            StatementKind::InsertTable(insert) => (
+                TxnOp::Insert {
+                    table: insert.table.clone(),
+                    col_order: insert.columns.clone(),
+                    rows: insert.rows.clone(),
+                },
+                WireOutcome::command_rows("INSERT", insert.rows.len()),
+            ),
+            StatementKind::UpdateTable(update) => (
+                TxnOp::Update {
+                    table: update.table.clone(),
+                    set: update.set.clone(),
+                    selector: update.selector.pred.clone(),
+                },
+                WireOutcome::command("UPDATE"),
+            ),
+            StatementKind::DeleteTable(delete) => (
+                TxnOp::Delete {
+                    table: delete.table.clone(),
+                    selector: delete.selector.pred.clone(),
+                },
+                WireOutcome::command("DELETE"),
+            ),
+            StatementKind::CreateView(plan) => (
+                TxnOp::CreateView {
+                    name: plan.name.clone(),
+                    select_sql: plan.select_sql.clone(),
+                    or_replace: plan.or_replace,
+                },
+                WireOutcome::command("CREATE VIEW"),
+            ),
+            StatementKind::DropView(plan) => (
+                TxnOp::DropView {
+                    name: plan.name.clone(),
+                    if_exists: plan.if_exists,
+                },
+                WireOutcome::command("DROP VIEW"),
+            ),
+            _ => return Ok(None),
+        };
+        self.buffer(op);
+        Ok(Some(outcome))
+    }
+
+    /// Buffer catalog-extension statements into the current user-table
+    /// transaction without reaching any commit or intent coordinator.
+    fn try_buffer_catalog_statement(&self, kind: &StatementKind) -> Option<WireOutcome> {
+        let (op, outcome) = match kind {
+            StatementKind::CreateExtension {
+                name,
+                if_not_exists,
+            } => (
+                TxnOp::CreateExtension {
+                    name: name.clone(),
+                    if_not_exists: *if_not_exists,
+                },
+                WireOutcome::command("CREATE EXTENSION"),
+            ),
+            StatementKind::DropExtension { name, if_exists } => (
+                TxnOp::DropExtension {
+                    name: name.clone(),
+                    if_exists: *if_exists,
+                },
+                WireOutcome::command("DROP EXTENSION"),
+            ),
+            StatementKind::CreateFunction(plan) => (
+                TxnOp::CreateFunction {
+                    function: plan.func.clone(),
+                    or_replace: plan.or_replace,
+                },
+                WireOutcome::command("CREATE FUNCTION"),
+            ),
+            StatementKind::DropFunction(plan) => (
+                TxnOp::DropFunction {
+                    name: plan.name.clone(),
+                    if_exists: plan.if_exists,
+                },
+                WireOutcome::command("DROP FUNCTION"),
+            ),
+            StatementKind::CreateAnnIndex(plan) => (
+                TxnOp::PutAnnIndex { plan: plan.clone() },
+                WireOutcome::command("CREATE INDEX"),
+            ),
+            StatementKind::CreateHypertable(plan) => (
+                TxnOp::PutHypertable { plan: plan.clone() },
+                WireOutcome::Rows(single_text_result(
+                    "create_hypertable",
+                    &format!("public.{}", plan.table),
+                )),
+            ),
+            StatementKind::CreateContinuousAggregate(plan) => (
+                TxnOp::CreateView {
+                    name: plan.name.clone(),
+                    select_sql: plan.select_sql.clone(),
+                    or_replace: true,
+                },
+                WireOutcome::command("CREATE MATERIALIZED VIEW"),
+            ),
+            _ => return None,
+        };
+        self.buffer(op);
+        Some(outcome)
+    }
+
+    /// Buffer any statement that contributes to the user-table transaction.
+    /// The `INSERT … SELECT` arm resolves its read once, then joins the same
+    /// commit-free leaf as every already-materialized table plan.
+    async fn try_buffer_transaction_table_statement(
+        &self,
+        graph: &str,
+        kind: &StatementKind,
+    ) -> WireResult<Option<WireOutcome>> {
+        if let StatementKind::InsertSelect(insert) = kind {
+            let result = self.run_read(graph, insert.select_sql.clone()).await?;
+            if result.columns.len() != insert.columns.len() {
+                return Err(user_err(format!(
+                    "INSERT … SELECT column count mismatch: {} target columns, {} selected",
+                    insert.columns.len(),
+                    result.columns.len()
+                )));
+            }
+            let count = result.rows.len();
+            self.buffer(TxnOp::Insert {
+                table: insert.table.clone(),
+                col_order: insert.columns.clone(),
+                rows: result.rows,
+            });
+            return Ok(Some(WireOutcome::command_rows("INSERT", count)));
+        }
+        if let Some(outcome) = self.try_buffer_table_statement(kind)? {
+            return Ok(Some(outcome));
+        }
+        Ok(self.try_buffer_catalog_statement(kind))
+    }
+
     /// The classify → read/write dispatch (CONCEPT:EG-KG.query.describe / EG-049), factored out
     /// of [`WireSession::execute`] so the caller can latch the aborted-txn state on a
     /// returned error. When `in_txn`, graph-node and user-table DML buffer instead of
@@ -1796,75 +2031,13 @@ impl WireSession {
             StatementKind::DeleteNodes(del) if in_txn => self.buffer_delete(graph, sql, del).await,
             StatementKind::DeleteNodes(del) => self.run_delete(graph, sql, del).await,
             // ── arbitrary user-defined relational tables (CONCEPT:EG-KG.query.register-user-tables-alongside/EG-020) ───
-            StatementKind::CreateTable(plan) if in_txn => {
-                let columns = to_store_columns(&plan.columns)?;
-                self.buffer(TxnOp::CreateTable {
-                    schema: TableSchema::new(plan.name, columns),
-                    if_not_exists: plan.if_not_exists,
-                });
-                Ok(WireOutcome::command("CREATE TABLE"))
-            }
             StatementKind::CreateTable(plan) => self.run_create_table(graph, sql, plan).await,
-            StatementKind::DropTable(plan) if in_txn => {
-                self.buffer(TxnOp::DropTable {
-                    name: plan.name,
-                    if_exists: plan.if_exists,
-                });
-                Ok(WireOutcome::command("DROP TABLE"))
-            }
             StatementKind::DropTable(plan) => self.run_drop_table(graph, sql, plan).await,
             // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — staged into the txn.
-            StatementKind::AlterTable(plan) if in_txn => {
-                self.buffer(alter_txn_op(plan)?);
-                Ok(WireOutcome::command("ALTER TABLE"))
-            }
             StatementKind::AlterTable(plan) => self.run_alter_table(graph, sql, plan).await,
-            StatementKind::InsertTable(ins) if in_txn => {
-                let n = ins.rows.len();
-                self.buffer(TxnOp::Insert {
-                    table: ins.table,
-                    col_order: ins.columns,
-                    rows: ins.rows,
-                });
-                Ok(WireOutcome::command_rows("INSERT", n))
-            }
             StatementKind::InsertTable(ins) => self.run_insert_table(graph, sql, ins).await,
-            StatementKind::InsertSelect(ins) if in_txn => {
-                // The SELECT half is a read (runs immediately); only the INSERT is
-                // buffered into the transaction.
-                let result = self.run_read(graph, ins.select_sql).await?;
-                if result.columns.len() != ins.columns.len() {
-                    return Err(user_err(format!(
-                        "INSERT … SELECT column count mismatch: {} target columns, {} selected",
-                        ins.columns.len(),
-                        result.columns.len()
-                    )));
-                }
-                let n = result.rows.len();
-                self.buffer(TxnOp::Insert {
-                    table: ins.table,
-                    col_order: ins.columns,
-                    rows: result.rows,
-                });
-                Ok(WireOutcome::command_rows("INSERT", n))
-            }
             StatementKind::InsertSelect(ins) => self.run_insert_select(graph, sql, ins).await,
-            StatementKind::UpdateTable(upd) if in_txn => {
-                self.buffer(TxnOp::Update {
-                    table: upd.table,
-                    set: upd.set,
-                    selector: upd.selector.pred,
-                });
-                Ok(WireOutcome::command("UPDATE"))
-            }
             StatementKind::UpdateTable(upd) => self.run_update_table(graph, sql, upd).await,
-            StatementKind::DeleteTable(del) if in_txn => {
-                self.buffer(TxnOp::Delete {
-                    table: del.table,
-                    selector: del.selector.pred,
-                });
-                Ok(WireOutcome::command("DELETE"))
-            }
             StatementKind::DeleteTable(del) => self.run_delete_table(graph, sql, del).await,
             // CONCEPT:EG-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT (facade dispatch).
             StatementKind::InsertNodesSelect(ins) if in_txn => {
@@ -1887,34 +2060,9 @@ impl WireSession {
                 self.run_delete_nodes_join(graph, sql, del).await
             }
             // CONCEPT:EG-KG.query.create-drop-view — CREATE/DROP VIEW over the durable view catalog.
-            StatementKind::CreateView(plan) if in_txn => {
-                self.buffer(TxnOp::CreateView {
-                    name: plan.name,
-                    select_sql: plan.select_sql,
-                    or_replace: plan.or_replace,
-                });
-                Ok(WireOutcome::command("CREATE VIEW"))
-            }
             StatementKind::CreateView(plan) => self.run_create_view(graph, sql, plan).await,
-            StatementKind::DropView(plan) if in_txn => {
-                self.buffer(TxnOp::DropView {
-                    name: plan.name,
-                    if_exists: plan.if_exists,
-                });
-                Ok(WireOutcome::command("DROP VIEW"))
-            }
             StatementKind::DropView(plan) => self.run_drop_view(graph, sql, plan).await,
             // CONCEPT:EG-KG.query.create-drop-extension-over — CREATE/DROP EXTENSION over the durable extension catalog.
-            StatementKind::CreateExtension {
-                name,
-                if_not_exists,
-            } if in_txn => {
-                self.buffer(TxnOp::CreateExtension {
-                    name,
-                    if_not_exists,
-                });
-                Ok(WireOutcome::command("CREATE EXTENSION"))
-            }
             StatementKind::CreateExtension {
                 name,
                 if_not_exists,
@@ -1922,60 +2070,19 @@ impl WireSession {
                 self.run_create_extension(graph, sql, name, if_not_exists)
                     .await
             }
-            StatementKind::DropExtension { name, if_exists } if in_txn => {
-                self.buffer(TxnOp::DropExtension { name, if_exists });
-                Ok(WireOutcome::command("DROP EXTENSION"))
-            }
             StatementKind::DropExtension { name, if_exists } => {
                 self.run_drop_extension(graph, sql, name, if_exists).await
             }
             // CONCEPT:EG-KG.query.create-drop-function — CREATE/DROP FUNCTION over the durable function catalog.
-            StatementKind::CreateFunction(plan) if in_txn => {
-                self.buffer(TxnOp::CreateFunction {
-                    function: plan.func,
-                    or_replace: plan.or_replace,
-                });
-                Ok(WireOutcome::command("CREATE FUNCTION"))
-            }
             StatementKind::CreateFunction(plan) => self.run_create_function(graph, sql, plan).await,
-            StatementKind::DropFunction(plan) if in_txn => {
-                self.buffer(TxnOp::DropFunction {
-                    name: plan.name,
-                    if_exists: plan.if_exists,
-                });
-                Ok(WireOutcome::command("DROP FUNCTION"))
-            }
             StatementKind::DropFunction(plan) => self.run_drop_function(graph, sql, plan).await,
-            // ── Postgres-family extension parity (wave 19) ──────────────────────────
-            // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE cypher() set-returning function.
-            StatementKind::CypherCall(plan) => self.run_cypher_call(graph, plan).await,
             // CONCEPT:EG-KG.query.real-ann-top-k — pgvector ANN index registration.
-            StatementKind::CreateAnnIndex(plan) if in_txn => {
-                self.buffer(TxnOp::PutAnnIndex { plan });
-                Ok(WireOutcome::command("CREATE INDEX"))
-            }
             StatementKind::CreateAnnIndex(plan) => {
                 self.run_create_ann_index(graph, sql, plan).await
             }
             // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB hypertable + continuous aggregate.
-            StatementKind::CreateHypertable(plan) if in_txn => {
-                let text = format!("public.{}", plan.table);
-                self.buffer(TxnOp::PutHypertable { plan });
-                Ok(WireOutcome::Rows(single_text_result(
-                    "create_hypertable",
-                    &text,
-                )))
-            }
             StatementKind::CreateHypertable(plan) => {
                 self.run_create_hypertable(graph, sql, plan).await
-            }
-            StatementKind::CreateContinuousAggregate(plan) if in_txn => {
-                self.buffer(TxnOp::CreateView {
-                    name: plan.name,
-                    select_sql: plan.select_sql,
-                    or_replace: true,
-                });
-                Ok(WireOutcome::command("CREATE MATERIALIZED VIEW"))
             }
             StatementKind::CreateContinuousAggregate(plan) => {
                 self.run_create_continuous_aggregate(graph, sql, plan).await
@@ -1984,10 +2091,34 @@ impl WireSession {
             // streamed rows are ingested by the wire's copy-done hook.
             StatementKind::CopyIn(plan) => self.start_copy(plan).await,
             // Transaction-control statements are handled before dispatch.
-            StatementKind::Begin | StatementKind::Commit | StatementKind::Rollback => {
-                unreachable!("transaction control handled before dispatch")
+            StatementKind::Begin
+            | StatementKind::Commit
+            | StatementKind::Rollback
+            | StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_)
+            | StatementKind::GraphTableReadRequiresCatalogAdmission(_) => {
+                unroutable_statement_outcome(&kind)
             }
         }
+    }
+
+    /// Route transaction-local table statements through the commit-free
+    /// buffering leaf; all other statements continue through ordinary dispatch.
+    async fn dispatch_buffered_or_kind(
+        &self,
+        graph: &str,
+        sql: &str,
+        kind: StatementKind,
+        in_txn: bool,
+    ) -> WireResult<WireOutcome> {
+        if in_txn {
+            if let Some(outcome) = self
+                .try_buffer_transaction_table_statement(graph, &kind)
+                .await?
+            {
+                return Ok(outcome);
+            }
+        }
+        self.dispatch_kind(graph, sql, kind, in_txn).await
     }
 
     /// `COMMIT` a wire transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
@@ -2276,6 +2407,7 @@ impl WireSession {
         node_ops: Vec<NodeOp>,
         table_txn: TableTxn,
     ) -> WireResult<WireOutcome> {
+        crate::server::sql_catalog_acl::require_source_authority().map_err(user_err)?;
         let methods = Self::node_ops_to_methods(&node_ops)?;
         let isolation = *self.txn_isolation.lock();
         // A real open transaction (mixed graph+table) — require the captured
@@ -2381,6 +2513,11 @@ impl WireSession {
                 Ok(())
             }
             Err(table_err) => {
+                // The physical SQL receipt already committed, but its ACL
+                // owner repair did not. Keep the durable intent: deleting it
+                // here would turn a recoverable cross-redb interruption into
+                // a permanently unowned table.
+                require_owner_repair_complete(&table_err)?;
                 let compensate_id = intent.compensation_operation_id();
                 if let Err(comp_err) = self
                     .commit_graph_methods_with_op(
@@ -2443,35 +2580,49 @@ impl WireSession {
 
     /// Replay one recorded table-side step (CONCEPT:EG-TXN.mixed-commit-intent — NE-004) into the scratch `self.txn`
     /// buffer `replay_table_steps_and_commit` set up. A `Sql` step re-runs the
-    /// ORIGINAL literal statement through the ordinary `in_txn = true`
-    /// buffering dispatch (re-deriving the exact same `TxnOp` the original
-    /// statement did); a `CopyRows` step re-applies the decoded batch
-    /// directly (a `COPY` has no equivalent SQL text to re-parse).
+    /// original literal statement through the commit-free table-buffering leaf
+    /// (re-deriving the exact same `TxnOp` without entering dispatch or creating
+    /// another intent); a `CopyRows` step re-applies the decoded batch directly
+    /// (a `COPY` has no equivalent SQL text to re-parse).
     async fn replay_table_steps(
         &self,
         graph: &str,
         steps: &[crate::server::txn_intent::ReplayStep],
     ) -> WireResult<()> {
         for step in steps {
-            match step {
-                crate::server::txn_intent::ReplayStep::Sql(sql) => {
-                    let kind = eg_query::classify(sql).map_err(user_err)?;
-                    self.dispatch_kind(graph, sql, kind, true).await?;
-                }
-                crate::server::txn_intent::ReplayStep::CopyRows {
-                    table,
-                    columns,
-                    rows,
-                } => {
-                    self.buffer(TxnOp::Insert {
-                        table: table.clone(),
-                        col_order: columns.clone(),
-                        rows: rows.clone(),
-                    });
-                }
-            }
+            self.replay_table_step(graph, step).await?;
         }
         Ok(())
+    }
+
+    async fn replay_table_step(
+        &self,
+        graph: &str,
+        step: &crate::server::txn_intent::ReplayStep,
+    ) -> WireResult<()> {
+        match step {
+            crate::server::txn_intent::ReplayStep::Sql(sql) => {
+                let kind = eg_query::classify(sql).map_err(user_err)?;
+                self.try_buffer_transaction_table_statement(graph, &kind)
+                    .await?
+                    .map(|_| ())
+                    .ok_or_else(|| {
+                        user_err("durable SQL replay step is not a table transaction operation")
+                    })
+            }
+            crate::server::txn_intent::ReplayStep::CopyRows {
+                table,
+                columns,
+                rows,
+            } => {
+                self.buffer(TxnOp::Insert {
+                    table: table.clone(),
+                    col_order: columns.clone(),
+                    rows: rows.clone(),
+                });
+                Ok(())
+            }
+        }
     }
 
     /// Lazily sweep this connection's owner directory for a leftover
@@ -2480,6 +2631,7 @@ impl WireSession {
     /// most once per connection (cheap after the first call: a
     /// directory-listing miss when there is nothing to recover).
     async fn recover_owner_intents_once(&self) -> WireResult<()> {
+        crate::server::sql_catalog_acl::require_source_authority().map_err(user_err)?;
         if self
             .recovered_intents
             .swap(true, std::sync::atomic::Ordering::AcqRel)
@@ -2708,42 +2860,6 @@ impl WireSession {
         });
         self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("DROP FUNCTION"))
-    }
-
-    /// CONCEPT:EG-KG.query.postgres-family-extension-plan — `SELECT … FROM cypher('graph', $$ … $$) AS (cols…)`: run the
-    /// inner Cypher on the named graph over its off-lock snapshot, then project the
-    /// agtype (JSON) result onto the typed `AS` columns. Behind the `cypher` feature.
-    async fn run_cypher_call(&self, graph: &str, plan: CypherCallPlan) -> WireResult<WireOutcome> {
-        #[cfg(feature = "cypher")]
-        {
-            // AGE always names a graph; fall back to the session graph if blank.
-            let target = if plan.graph.is_empty() {
-                graph.to_string()
-            } else {
-                plan.graph.clone()
-            };
-            self.check_access(&target, AccessLevel::Read).await?;
-            let core = self.graph_core(&target).await?;
-            let mut snap = core.analysis_snapshot();
-            #[cfg(feature = "security")]
-            self.filter_view_for_verified_actor(&mut snap).await?;
-            let cypher = plan.cypher.clone();
-            let result = tokio::task::spawn_blocking(move || eg_query::exec_cypher(&snap, &cypher))
-                .await
-                .map_err(|e| user_err(format!("cypher task failed: {e}")))?
-                .map_err(|msg| user_err(format!("cypher error: {msg}")))?;
-            let projected =
-                eg_query::project_cypher_rows(&result, &plan.columns, plan.projection.as_deref())
-                    .map_err(user_err)?;
-            Ok(WireOutcome::Rows(projected))
-        }
-        #[cfg(not(feature = "cypher"))]
-        {
-            let _ = (graph, plan);
-            Err(user_err(
-                "cypher() (Apache AGE) requires the engine's `cypher` feature",
-            ))
-        }
     }
 
     /// CONCEPT:EG-KG.query.real-ann-top-k — persist a pgvector ANN index definition
@@ -3791,17 +3907,72 @@ impl WireSession {
     }
 
     /// Commit one user-table/catalog transaction through the SQL-native
-    /// MutationBatch kernel, under a fresh `operation_id` — the ordinary path.
-    /// See [`Self::commit_table_txn_with_op`] for the replay-safe variant
-    /// NE-004's mixed-commit path uses.
+    /// MutationBatch kernel. A transaction containing `CREATE TABLE` first
+    /// persists the same replay intent used by mixed transactions, so a crash
+    /// after the physical catalog commit but before ACL owner registration is
+    /// repaired on the owner's next authenticated connection.
     async fn commit_table_txn(
         &self,
         graph: &str,
         operation: &str,
         txn: TableTxn,
     ) -> WireResult<usize> {
-        self.commit_table_txn_with_op(graph, operation, txn, uuid::Uuid::new_v4())
+        self.commit_table_txn_dispatch(graph, operation, txn).await
+    }
+
+    async fn commit_table_txn_dispatch(
+        &self,
+        graph: &str,
+        operation: &str,
+        txn: TableTxn,
+    ) -> WireResult<usize> {
+        if !table_txn_contains_create(&txn) {
+            return self
+                .commit_table_txn_with_op(graph, operation, txn, uuid::Uuid::new_v4())
+                .await;
+        }
+        crate::server::sql_catalog_acl::require_source_authority().map_err(user_err)?;
+
+        let table_steps = if operation == "transaction" {
+            std::mem::take(&mut *self.txn_replay_log.lock())
+        } else {
+            vec![crate::server::txn_intent::ReplayStep::Sql(
+                operation.to_string(),
+            )]
+        };
+        if table_steps.is_empty() {
+            return Err(user_err("CREATE TABLE commit has no durable replay recipe"));
+        }
+        let operation_id = uuid::Uuid::new_v4();
+        let intent = crate::server::txn_intent::CommitIntent::new(
+            graph.to_string(),
+            operation_id,
+            Vec::new(),
+            Vec::new(),
+            table_steps,
+            crate::server::txn::now_ms(),
+        );
+        let authority = self.carrier_authority()?;
+        let persist_dir = self
+            .state
+            .read()
             .await
+            .persist_dir
+            .clone()
+            .ok_or_else(|| user_err("CREATE TABLE recovery requires configured persistence"))?;
+        let persist_dir = std::path::Path::new(&persist_dir);
+        crate::server::txn_intent::write_intent(&authority, persist_dir, &intent)
+            .map_err(user_err)?;
+        self.resolve_commit_intent(
+            &authority,
+            persist_dir,
+            intent,
+            crate::server::txn::IsolationLevel::Snapshot,
+            TxnBeginVersion::Autocommit,
+            Some(txn),
+        )
+        .await?;
+        Ok(0)
     }
 
     /// Commit one user-table/catalog transaction through the SQL-native
@@ -3818,13 +3989,14 @@ impl WireSession {
         &self,
         graph: &str,
         operation: &str,
-        mut txn: TableTxn,
+        txn: TableTxn,
         operation_id: uuid::Uuid,
     ) -> WireResult<usize> {
         if txn.ops.is_empty() {
             return Ok(0);
         }
         let (authority, persist_dir) = self.catalog_authority().await?;
+        crate::server::sql_catalog_acl::require_source_authority().map_err(user_err)?;
         let request_id = u64::from_be_bytes(
             operation_id.as_bytes()[..8]
                 .try_into()
@@ -3844,81 +4016,21 @@ impl WireSession {
         };
         let store = crate::server::sql_tables::tenant_table_store(&tenant, &persist_dir)
             .map_err(user_err)?;
-        let committed_replay = committed_sql_replay_receipt(
-            &store, &authority, &graph, &batch_id, request_id, &operation,
-        )
-        .map_err(user_err)?
-        .is_some();
-        // CONCEPT:NE-046 (EG-WIRE-CATALOG) — authorize (and, for Insert/Update/
-        // Delete, RLS-rewrite) EVERY op in this buffered batch BEFORE any of it
-        // reaches `commit_txn_batch`. A denial on any op aborts the WHOLE
-        // transaction with NOTHING written, matching the batch's own
-        // all-or-nothing atomicity — see `authorize_table_txn`'s own doc.
-        let created_tables =
-            authorize_table_txn(&authority, &persist_dir, &mut txn, committed_replay)?;
-        let owner_authority = authority.clone();
-        let owner_persist_dir = persist_dir.clone();
+        let commit = (
+            store,
+            txn,
+            (
+                tenant,
+                graph,
+                principal,
+                operation,
+                batch_id,
+                request_id,
+                operation_id,
+            ),
+        );
         let result = tokio::task::spawn_blocking(move || {
-            let created_at_ms = crate::server::txn::now_ms();
-            let expected_version = store.mutation_version(&tenant, &graph)?;
-            let batch = crate::server::mutation_batch::compile_opaque_method(
-                crate::server::mutation_batch::CompileBatch {
-                    batch_id: &batch_id,
-                    request_id,
-                    principal: Some(&principal),
-                    tenant: &tenant,
-                    graph: &graph,
-                    placement_epoch: 0,
-                    idempotency_key: &batch_id,
-                    expected_graph_version: Some(expected_version),
-                    fencing_token: None,
-                    created_at_ms,
-                    default_surface: crate::mutation_batch::MutationSurface::Query,
-                    authoritative_state: None,
-                },
-                &operation,
-                crate::mutation_batch::MutationSurface::Query,
-                crate::mutation_batch::MutationDomain::SqlCatalog,
-                "sql_catalog_operation",
-            )?;
-            let committed = match store.commit_txn_batch(&txn, &batch, created_at_ms) {
-                Ok(committed) => committed.record,
-                Err(message) if message.contains("IDEMPOTENCY_CONFLICT") => {
-                    committed_sql_replay_receipt(
-                        &store,
-                        &owner_authority,
-                        &graph,
-                        &batch_id,
-                        request_id,
-                        &operation,
-                    )?
-                    .ok_or(message)?
-                }
-                Err(message) => return Err(message),
-            };
-            // The batch committed: register ownership of every table this batch
-            // created (CONCEPT:NE-046). `register_owner_after_create` is a
-            // no-op for a table that already has an owner. Existing
-            // `IF NOT EXISTS` targets are excluded from `created_tables`
-            // before commit, so they can never be used to claim ownership.
-            // See the registration helper's own doc for why this remains a
-            // separate, deliberately non-atomic write from the batch commit.
-            for schema in &created_tables {
-                crate::server::sql_catalog_acl::register_owner_after_create(
-                    &owner_authority,
-                    &owner_persist_dir,
-                    &schema.name,
-                )?;
-            }
-            let bytes = committed
-                .result_msgpack
-                .as_deref()
-                .ok_or_else(|| "committed SQL MutationBatch has no result".to_string())?;
-            eg_types::msgpack::decode_bounded::<usize>(
-                bytes,
-                eg_types::msgpack::MsgpackLimits::new(64, 1, 1),
-            )
-            .map_err(|_| "committed SQL result is corrupt".to_string())
+            commit_table_txn_blocking(authority, persist_dir, commit)
         })
         .await
         .map_err(|error| user_err(format!("SQL MutationBatch task failed: {error}")))?;
@@ -4524,8 +4636,7 @@ impl WireSession {
     /// needs Write.
     async fn check_access_for_kind(&self, graph: &str, kind: &StatementKind) -> WireResult<()> {
         let access = match kind {
-            // CONCEPT:EG-KG.query.postgres-family-extension-plan — an AGE cypher() call is a read.
-            StatementKind::Read | StatementKind::CypherCall(_) => AccessLevel::Read,
+            StatementKind::Read => AccessLevel::Read,
             _ => AccessLevel::Write,
         };
         self.check_access(graph, access).await
@@ -4554,7 +4665,9 @@ impl WireSession {
         let slow = crate::slow_query::describe_sql(sql);
         let slow_start = slow.as_ref().map(|_| std::time::Instant::now());
 
-        let result = self.dispatch_kind(graph, sql, kind, in_txn).await;
+        let result = self
+            .dispatch_buffered_or_kind(graph, sql, kind, in_txn)
+            .await;
         if let (Some(slow), Some(start)) = (slow, slow_start) {
             slow.log_if_slow(start.elapsed());
         }
@@ -4590,6 +4703,25 @@ enum XmodalStmt {
     /// `SPARQL <CONSTRUCT/DESCRIBE query>` — stage/commit the CONSTRUCT'd triples.
     #[cfg(feature = "sparql")]
     SparqlConstruct(String),
+}
+
+/// Stop SQL/PGQ at the catalog-authority boundary until the catalog owner
+/// resolves definitions and admits mutations. Transaction control is handled
+/// before statement dispatch and therefore remains unreachable here.
+#[cfg(feature = "query")]
+fn unroutable_statement_outcome(kind: &StatementKind) -> WireResult<WireOutcome> {
+    match kind {
+        StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_) => Err(user_err(
+            "SQL/PGQ property-graph DDL requires authoritative catalog admission",
+        )),
+        StatementKind::GraphTableReadRequiresCatalogAdmission(_) => Err(user_err(
+            "SQL/PGQ GRAPH_TABLE requires authoritative catalog resolution before relational lowering",
+        )),
+        StatementKind::Begin | StatementKind::Commit | StatementKind::Rollback => {
+            unreachable!("transaction control handled before dispatch")
+        }
+        _ => unreachable!("only unroutable statement kinds call this helper"),
+    }
 }
 
 /// Project a unified-query result (`[(id, score)]`) into a two-column typed row set
@@ -5469,7 +5601,7 @@ mod ne_004_ne_005_tests {
 #[cfg(all(test, feature = "query"))]
 mod wired_catalog_tests {
     //! NE-046 (EG-WIRE-CATALOG) wiring tests. `sql_catalog_acl.rs`'s own 13
-    //! tests already prove the ACL primitives (ownership/grants/RLS/migration)
+    //! tests already prove the ACL primitives (ownership/grants/RLS)
     //! are correct in isolation; these drive the REAL wire `execute()`
     //! dispatch instead — the buffered `TxnOp`/`TableTxn` commit path
     //! (`commit_table_txn_with_op`, reached by CREATE/INSERT/UPDATE/DELETE/
@@ -5614,6 +5746,24 @@ mod wired_catalog_tests {
         .expect("build test authority")
     }
 
+    fn authorize_test_table_txn(
+        authority: &CarrierAuthority,
+        persist_dir: &Path,
+        store: &TableStore,
+        txn: &mut TableTxn,
+        committed_replay: bool,
+    ) -> WireResult<Vec<TableSchema>> {
+        crate::server::sql_catalog_acl::with_source_authority_write(
+            persist_dir,
+            authority,
+            |source| {
+                authorize_table_txn(source, store, txn, committed_replay)
+                    .map_err(|error| error.message)
+            },
+        )
+        .map_err(user_err)
+    }
+
     /// The SAME persistence directory `test_state` configured — for tests
     /// that call `sql_catalog_acl` directly (bypassing the wire) and need the
     /// exact `Path` every `sql_catalog_acl`/`sql_tables` entry point takes.
@@ -5644,6 +5794,8 @@ mod wired_catalog_tests {
         let persist_dir = test_persist_dir_of(&state).await;
         let alice = authority("alice-provisional", tenant);
         let bob = authority("bob-provisional", tenant);
+        let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir)
+            .expect("open tenant table store");
 
         let schema = TableSchema::new(
             "provisional_target",
@@ -5662,7 +5814,7 @@ mod wired_catalog_tests {
             if_not_exists: false,
         });
         assert_eq!(
-            authorize_table_txn(&alice, &persist_dir, &mut reordered, false)
+            authorize_test_table_txn(&alice, &persist_dir, &store, &mut reordered, false)
                 .expect_err("DML before CREATE must not receive later authority")
                 .message,
             sql_catalog_acl::ACCESS_DENIED
@@ -5678,7 +5830,7 @@ mod wired_catalog_tests {
             if_exists: false,
         });
         assert!(
-            authorize_table_txn(&alice, &persist_dir, &mut dropped, false)
+            authorize_test_table_txn(&alice, &persist_dir, &store, &mut dropped, false)
                 .expect("CREATE then DROP is authorized without residual ownership")
                 .is_empty(),
             "a dropped provisional table must not be registered after commit"
@@ -5694,19 +5846,23 @@ mod wired_catalog_tests {
             new_name: "renamed_target".to_string(),
         });
         assert_eq!(
-            authorize_table_txn(&alice, &persist_dir, &mut renamed, false)
+            authorize_test_table_txn(&alice, &persist_dir, &store, &mut renamed, false)
                 .expect_err("a provisional capability cannot be retargeted")
                 .message,
             sql_catalog_acl::ACCESS_DENIED
         );
 
-        let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir)
-            .expect("open tenant table store");
         store
             .create_table(&schema, false)
             .expect("seed the physical collision");
-        sql_catalog_acl::register_owner_after_create(&alice, &persist_dir, &schema.name)
-            .expect("seed the retained owner");
+        sql_catalog_acl::with_source_authority_write(&persist_dir, &alice, |source| {
+            sql_catalog_acl::register_owner_after_create_in(
+                source,
+                &schema.name,
+                uuid::Uuid::new_v4(),
+            )
+        })
+        .expect("seed the retained owner");
         let mut collision = TableTxn::new();
         collision.push(TxnOp::CreateTable {
             schema: schema.clone(),
@@ -5714,11 +5870,129 @@ mod wired_catalog_tests {
         });
         collision.push(insert);
         assert_eq!(
-            authorize_table_txn(&bob, &persist_dir, &mut collision, false)
+            authorize_test_table_txn(&bob, &persist_dir, &store, &mut collision, false)
                 .expect_err("another actor cannot inherit collision authority")
                 .message,
             sql_catalog_acl::ACCESS_DENIED
         );
+    }
+
+    #[tokio::test]
+    async fn ordinary_create_retains_intent_until_owner_repair_completes() {
+        let tenant = "wired-catalog-ordinary-owner-repair";
+        let state = test_state(&[CREATOR, "ordinary-owner"]);
+        let graph = "wired-catalog-ordinary-owner-repair-graph";
+        create_test_graph(&state, graph, 43).await;
+        let persist_dir = test_persist_dir_of(&state).await;
+        let owner = authority("ordinary-owner", tenant);
+
+        // A malformed owner table lets the physical CREATE commit but makes
+        // owner registration fail. This is a deterministic storage fault at
+        // the exact cross-redb boundary ordinary autocommit must recover.
+        let acl = crate::server::sql_tables::tenant_acl_table_store(tenant, &persist_dir)
+            .expect("open tenant ACL store");
+        acl.create_table(
+            &TableSchema::new(
+                "__eg_sql_owners__",
+                vec![Column::new("table_name", ColumnType::Text, false, true)],
+            ),
+            false,
+        )
+        .expect("install malformed owner table fault");
+
+        let session = session_for(state.clone(), graph, "ordinary-owner", tenant);
+        let error = session
+            .execute("CREATE TABLE ordinary_repair (id TEXT PRIMARY KEY)")
+            .await
+            .expect_err("owner registration fault must surface");
+        assert!(error.message.starts_with(SQL_OWNER_REPAIR_PENDING));
+        let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir)
+            .expect("open tenant table store");
+        assert!(store
+            .get_schema("ordinary_repair")
+            .expect("read physical create")
+            .is_some());
+        assert_eq!(
+            crate::server::txn_intent::list_intents(&owner, &persist_dir).len(),
+            1,
+            "ordinary CREATE keeps its durable recipe while owner repair is pending"
+        );
+
+        acl.drop_table("__eg_sql_owners__", false)
+            .expect("remove injected malformed catalog");
+        let recovering = session_for(state, graph, "ordinary-owner", tenant);
+        read_rows(&recovering, "SELECT id FROM ordinary_repair")
+            .await
+            .expect("the next authenticated connection repairs before serving");
+        assert!(crate::server::txn_intent::list_intents(&owner, &persist_dir).is_empty());
+        sql_catalog_acl::grant(
+            &persist_dir,
+            &owner,
+            "ordinary_repair",
+            "grantee",
+            &[SqlPrivilege::Select],
+            uuid::Uuid::new_v4(),
+        )
+        .expect("recovery durably restored the ordinary creator's ownership");
+    }
+
+    #[test]
+    fn local_source_authority_is_checked_before_any_intent_state_effect() {
+        let source = include_str!("mod.rs");
+        for (function, effect) in [
+            ("async fn commit_mixed_txn", "write_intent"),
+            ("async fn commit_table_txn_dispatch", "write_intent"),
+            ("async fn recover_owner_intents_once", ".swap(true"),
+            ("async fn recover_owner_intents_once", "list_intents"),
+        ] {
+            let body = &source[source.find(function).expect("function must exist")..];
+            let authority = body
+                .find("require_source_authority")
+                .expect("source-authority check must exist");
+            let effect = body.find(effect).expect("intent effect must exist");
+            assert!(
+                authority < effect,
+                "{function} must fail closed before {effect}"
+            );
+        }
+    }
+
+    #[test]
+    fn durable_table_replay_cannot_enter_dispatch_or_create_an_intent() {
+        let source = include_str!("mod.rs");
+        let replay_start = source
+            .find("async fn replay_table_steps(")
+            .expect("replay function must exist");
+        let replay_end = source[replay_start..]
+            .find("async fn recover_owner_intents_once")
+            .map(|offset| replay_start + offset)
+            .expect("recovery function must follow replay");
+        let replay = &source[replay_start..replay_end];
+        assert!(replay.contains("try_buffer_transaction_table_statement"));
+        for forbidden in ["dispatch_kind", "commit_table_txn", "write_intent"] {
+            assert!(
+                !replay.contains(forbidden),
+                "durable replay must not call {forbidden}"
+            );
+        }
+
+        let leaf_start = source
+            .find("fn try_buffer_table_statement(")
+            .expect("commit-free replay leaves must exist");
+        let leaf_end = source[leaf_start..]
+            .find("/// The classify")
+            .map(|offset| leaf_start + offset)
+            .expect("dispatch must follow replay leaves");
+        let leaf = &source[leaf_start..leaf_end];
+        assert!(leaf.contains("async fn try_buffer_transaction_table_statement("));
+        assert!(leaf.contains("StatementKind::CreateTable"));
+        assert!(leaf.contains("self.buffer("));
+        for forbidden in ["commit_table_txn", "resolve_commit_intent", "write_intent"] {
+            assert!(
+                !leaf.contains(forbidden),
+                "the replay leaves must not call {forbidden}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -5762,7 +6036,7 @@ mod wired_catalog_tests {
             .replay_table_steps(graph, &intent.table_steps)
             .await
             .expect("rebuild the original table transaction");
-        let mut table_txn = session.txn.lock().take().expect("rebuilt table txn");
+        let table_txn = session.txn.lock().take().expect("rebuilt table txn");
 
         let request_id = u64::from_be_bytes(
             operation_id.as_bytes()[..8]
@@ -5780,9 +6054,10 @@ mod wired_catalog_tests {
         };
         let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir)
             .expect("open tenant table store");
-        let created = authorize_table_txn(&owner, &persist_dir, &mut table_txn, false)
-            .expect("authorize the original uncommitted batch");
-        assert_eq!(created.len(), 1);
+        // Fabricate the recoverable crash shape directly: the durable table
+        // batch landed while owner registration did not. Current production
+        // retains this exact intent across that gap, and the exclusive
+        // capability prevents any competing source decision during each attempt.
         let created_at_ms = crate::server::txn::now_ms();
         let expected_version = store
             .mutation_version(tenant, graph)
@@ -5819,6 +6094,7 @@ mod wired_catalog_tests {
                 table,
                 "foreign-replay",
                 &[SqlPrivilege::Select],
+                uuid::Uuid::new_v4(),
             )
             .expect_err("the injected crash left no owner yet"),
             sql_catalog_acl::ACCESS_DENIED
@@ -5837,6 +6113,7 @@ mod wired_catalog_tests {
             table,
             "foreign-replay",
             &[SqlPrivilege::Select],
+            uuid::Uuid::new_v4(),
         )
         .expect("owner repair is durable before recovery closes");
 
@@ -5923,7 +6200,8 @@ mod wired_catalog_tests {
 
         // `grant` requires the grantor to already be recognized as OWNER of
         // `widgets2` — succeeding here is itself proof that the wire CREATE
-        // TABLE above (`authorize_table_txn` -> `register_owner_after_create`)
+        // TABLE above (`authorize_table_txn` -> owner registration under the
+        // same source-authority capability)
         // registered ownership correctly.
         let owner_authority = authority("owner-2", tenant);
         sql_catalog_acl::grant(
@@ -5932,6 +6210,7 @@ mod wired_catalog_tests {
             "widgets2",
             "grantee-2",
             &[SqlPrivilege::Select, SqlPrivilege::Insert],
+            uuid::Uuid::new_v4(),
         )
         .expect("owner grants Select+Insert to grantee-2 (proves ownership was registered)");
 
@@ -6067,68 +6346,6 @@ mod wired_catalog_tests {
         assert_eq!(rows.rows[0][0], serde_json::Value::String("99".to_string()));
     }
 
-    // ── legacy-catalog migration on first touch ─────────────────────────────
-
-    #[tokio::test]
-    async fn wired_catalog_legacy_table_reachable_on_first_touch() {
-        let tenant = "wired-catalog-tenant-migrate";
-        let state = test_state(&[CREATOR, "legacy-actor"]);
-        let graph = "wired-catalog-migrate-graph";
-        create_test_graph(&state, graph, 1).await;
-        let persist_dir = test_persist_dir_of(&state).await;
-        let legacy_authority = authority("legacy-actor", tenant);
-
-        // Seed the OLD per-(tenant, agent) physical layout directly — BEFORE
-        // this actor ever touches the tenant-shared wire path at all.
-        {
-            let legacy =
-                crate::server::sql_tables::legacy_table_store(&legacy_authority, &persist_dir)
-                    .expect("open legacy per-actor store");
-            let schema = TableSchema::new(
-                "legacy_notes",
-                vec![
-                    Column::new("id", ColumnType::Text, false, true),
-                    Column::new("body", ColumnType::Text, false, false),
-                ],
-            );
-            legacy
-                .create_table(&schema, false)
-                .expect("create legacy table");
-            legacy
-                .insert_rows(
-                    "legacy_notes",
-                    &["id".to_string(), "body".to_string()],
-                    &[vec![
-                        serde_json::Value::String("l1".to_string()),
-                        serde_json::Value::String("pre-migration".to_string()),
-                    ]],
-                )
-                .expect("seed a legacy row");
-        }
-
-        let session = session_for(state.clone(), graph, "legacy-actor", tenant);
-        let rows = read_rows(&session, "SELECT id, body FROM legacy_notes")
-            .await
-            .expect("the legacy table is reachable on first touch (migration fires)");
-        assert_eq!(
-            rows.rows.len(),
-            1,
-            "the pre-migration row survived migration"
-        );
-
-        // Ownership was registered as part of migration, so the SAME actor can
-        // also WRITE to the migrated table through the wire (not just read
-        // what migration copied in).
-        session
-            .execute("INSERT INTO legacy_notes (id, body) VALUES ('l2', 'post-migration')")
-            .await
-            .expect("the migrated table's owner can insert new rows too");
-        let rows = read_rows(&session, "SELECT id, body FROM legacy_notes")
-            .await
-            .expect("select after insert");
-        assert_eq!(rows.rows.len(), 2);
-    }
-
     // ── row-level security constrains BOTH reads and writes ────────────────
 
     #[tokio::test]
@@ -6151,6 +6368,7 @@ mod wired_catalog_tests {
             &owner_authority,
             "notes",
             Some("owner_tag"),
+            uuid::Uuid::new_v4(),
         )
         .expect("declare owner_tag as the RLS discriminator");
         sql_catalog_acl::grant(
@@ -6164,6 +6382,7 @@ mod wired_catalog_tests {
                 SqlPrivilege::Update,
                 SqlPrivilege::Delete,
             ],
+            uuid::Uuid::new_v4(),
         )
         .expect("grant the full DML set to rls-grantee");
 

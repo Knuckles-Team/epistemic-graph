@@ -369,6 +369,7 @@ BUILD_AFFECTING_FILE_PATTERNS: tuple[str, ...] = (
     "Cargo.lock",
     ".cargo/**",
     "rust-toolchain*",
+    ".python-version",
     "build.rs",
     ".github/workflows/**",
     ".pre-commit-config.yaml",

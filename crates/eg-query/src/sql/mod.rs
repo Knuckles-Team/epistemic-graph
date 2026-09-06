@@ -71,10 +71,12 @@ mod iceberg_federation;
 /// `numeric` (out of `pi`); no pyo3 in the engine build.
 #[cfg(feature = "numeric")]
 mod numeric;
-/// Postgres-family extension parity (CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117/119): AGE `cypher()`,
-/// pgvector ANN index pushdown, TimescaleDB hypertables/continuous-aggregates, and
+/// Postgres-family extension parity: pgvector ANN index pushdown, TimescaleDB hypertables/continuous-aggregates, and
 /// ParadeDB `@@@` BM25 — the pure parse/plan/project layer.
 mod pgfamily;
+/// SQL:2023 SQL/PGQ property-graph definitions and bounded `GRAPH_TABLE`
+/// relational lowering. Execution stays on this module's sole DataFusion path.
+mod pgq;
 /// PL/pgSQL procedural interpreter (CONCEPT:EG-KG.query.eg-validate-procedural-body/EG-341): parse + execute a
 /// `LANGUAGE plpgsql` body (DECLARE vars, BEGIN..END, `:=`, IF/ELSIF/ELSE, LOOP/WHILE/
 /// FOR, RETURN, RAISE, `SELECT … INTO`) against a variable environment, running embedded
@@ -92,6 +94,7 @@ pub(crate) mod providers;
 /// Always-on under base `sql` — the underlying sketches (`eg_compute::sketch`) are pure-Rust
 /// with zero heavy deps, already-linked `eg-compute` unconditionally carries them.
 mod sketch_udfs;
+mod spill;
 mod tablefuncs;
 mod udfs;
 
@@ -101,7 +104,8 @@ pub use classify::{
     CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin, DeleteTable,
     DropFunctionPlan, DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect,
     InsertSelect, InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite,
-    StatementKind, TableWhereEq, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    PropertyGraphCatalogAdmission, PropertyGraphDdlOperation, StatementKind, TableWhereEq,
+    UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 // Design §9 phase 2 — the `eg_embed(text)` scalar function plus the seam a facade binds
 // the engine's existing `eg_plan::TextEmbedder` through (`eg-query` cannot name that
@@ -109,17 +113,23 @@ pub use classify::{
 // cycle — see `embed_udf`'s module doc).
 pub use embed_udf::{bind_text_embedder, eg_embed_udf, eg_embed_udf_with, EmbedFn, EG_EMBED_FN};
 pub use exec::{
-    default_spill_rows, exec_sql, exec_sql_arrow, exec_sql_arrow_cancellable, exec_sql_cached,
-    exec_sql_over_tables, exec_sql_typed, exec_sql_typed_cancellable, exec_sql_typed_with_tables,
+    exec_graph_table_typed_with_tables, exec_graph_table_typed_with_tables_cancellable, exec_sql,
+    exec_sql_arrow, exec_sql_arrow_cancellable, exec_sql_cached, exec_sql_over_tables,
+    exec_sql_typed, exec_sql_typed_cancellable, exec_sql_typed_with_tables,
     exec_sql_typed_with_tables_cached_cancellable, exec_sql_typed_with_tables_cancellable,
-    CancellationToken, PgColType, QueryResult, SqlContextCache, StreamOutcome, TypedColumn,
-    TypedQueryResult,
+    PgColType, QueryResult, SqlContextCache, TypedColumn, TypedQueryResult,
 };
-// CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117/119 — Postgres-family extension parity plans + planners.
+pub use pgq::{
+    lower_graph_table, lower_graph_table_to_datafusion, parse_graph_table, parse_graph_table_sql,
+    parse_property_graph_ddl, BinaryOp as GraphBinaryOp, EdgeDirection, EdgePattern,
+    ElementPattern, GraphExpr, GraphTableColumn, GraphTableQuery, PathPattern, RelationalGraphPlan,
+    SqlNumber, MAX_PGQ_SQL_BYTES,
+};
+pub use spill::{default_spill_rows, CancellationToken, StreamOutcome};
+// Postgres-family extension parity plans + planners.
 pub use pgfamily::{
-    cypher_output_columns, parse_create_ann_index, parse_cypher_call, plan_ann_search,
-    plan_bm25_search, project_cypher_rows, AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan,
-    ContinuousAggPlan, CypherCallPlan, CypherColumn, HypertablePlan, VectorMetric,
+    parse_create_ann_index, plan_ann_search, plan_bm25_search, AnnIndexPlan, AnnMethod,
+    AnnSearchPlan, Bm25SearchPlan, ContinuousAggPlan, HypertablePlan, VectorMetric,
 };
 pub use providers::SqlCache;
 // CA-19 (GOC-77 W01-W05, BUG-224) — federated Iceberg read pushdown stats, exposed so a

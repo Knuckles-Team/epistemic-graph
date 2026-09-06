@@ -14,8 +14,8 @@ The **Feature** column is the Cargo feature that gates the surface; the
 
 > **Machine-checked ledger available (EG-P0-1).** [`docs/capabilities.generated.md`](capabilities.generated.md)
 > is generated from an exhaustive, compiler-enforced `MethodPolicy` match over every wire-protocol
-> `Method` variant (`crates/eg-capabilities`, regenerate via `cargo run -p eg-capabilities --bin
-> gen_ledger`) and is the **authoritative** machine-checked source for per-method
+> `Method` variant (`crates/eg-capabilities`, regenerate via `cargo run -p eg-capabilities
+> --features canonical-ledger --bin gen_ledger`) and is the **authoritative** machine-checked source for per-method
 > mutates/durability-domain/authz-action/idempotent/audited/emits-CDC/txn-participation facts. This
 > page answers the coarser question of which query surface supports which operation.
 > The generated ledger is authoritative where the two overlap. Its consistency gate

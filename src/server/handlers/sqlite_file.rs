@@ -29,14 +29,14 @@
 use eg_query::{Cell, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
 use eg_sqlite_format::{ColumnDef as SqliteColumnDef, Reader, Value as SqliteValue, Writer};
 use serde_json::Value as JsonValue;
-use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::{Path, PathBuf};
 
 use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 
-const SQLITE_TRANSFER_ROOT_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT";
+mod transfer_fs;
+
 const SQLITE_MAX_BYTES_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_MAX_BYTES";
 const SQLITE_MAX_ROWS_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_MAX_ROWS";
 const DEFAULT_SQLITE_MAX_BYTES: u64 = 256 * 1024 * 1024;
@@ -45,15 +45,12 @@ const DEFAULT_SQLITE_MAX_ROWS: u64 = 1_000_000;
 const MAX_CONFIGURED_SQLITE_ROWS: u64 = 100_000_000;
 const MAX_SQLITE_TABLES: usize = 4_096;
 const MAX_SQLITE_COLUMNS: usize = 2_048;
-static EXPORT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn bounded_env_u64(name: &str, default: u64, maximum: u64) -> Result<u64, String> {
-    let Some(raw) = std::env::var(name)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-    else {
+    let Some(raw) = nonempty_env_value(name) else {
         return Ok(default);
     };
+    let raw = raw.to_string_lossy();
     let value = raw
         .trim()
         .parse::<u64>()
@@ -62,6 +59,11 @@ fn bounded_env_u64(name: &str, default: u64, maximum: u64) -> Result<u64, String
         return Err(format!("{name} must be between 1 and {maximum}"));
     }
     Ok(value)
+}
+
+fn nonempty_env_value(name: &str) -> Option<std::ffi::OsString> {
+    let value = std::env::var_os(name)?;
+    (!value.to_string_lossy().trim().is_empty()).then_some(value)
 }
 
 fn sqlite_limits() -> Result<(u64, u64), String> {
@@ -77,83 +79,6 @@ fn sqlite_limits() -> Result<(u64, u64), String> {
             MAX_CONFIGURED_SQLITE_ROWS,
         )?,
     ))
-}
-
-/// SQLite file transfer is deliberately disabled until an operator provisions a
-/// dedicated directory. RPC callers provide a logical filename, never a host path.
-fn sqlite_transfer_root() -> Result<PathBuf, String> {
-    let configured = std::env::var_os(SQLITE_TRANSFER_ROOT_ENV)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            format!("SQLite file transfer is disabled; configure {SQLITE_TRANSFER_ROOT_ENV}")
-        })?;
-    let configured = PathBuf::from(configured);
-    let metadata = std::fs::symlink_metadata(&configured)
-        .map_err(|_| "configured SQLite transfer root is unavailable".to_string())?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err("configured SQLite transfer root must be a real directory".to_string());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o077 != 0 {
-            return Err(
-                "configured SQLite transfer root must have private permissions".to_string(),
-            );
-        }
-    }
-    configured
-        .canonicalize()
-        .map_err(|_| "configured SQLite transfer root is unavailable".to_string())
-}
-
-fn sqlite_logical_filename(value: &str) -> Result<&str, String> {
-    let mut chars = value.chars();
-    let first = chars.next();
-    if value.is_empty()
-        || value.len() > 255
-        || first.is_none_or(|character| !character.is_ascii_alphanumeric())
-        || !chars.all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
-        })
-        || !value.to_ascii_lowercase().ends_with(".db")
-    {
-        return Err("SQLite transfer name must be a bounded .db filename".to_string());
-    }
-    let path = Path::new(value);
-    let mut components = path.components();
-    if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
-        return Err("SQLite transfer name must not contain a path".to_string());
-    }
-    Ok(value)
-}
-
-fn resolve_sqlite_import(value: &str) -> Result<PathBuf, String> {
-    let root = sqlite_transfer_root()?;
-    let name = sqlite_logical_filename(value)?;
-    let candidate = root.join(name);
-    let metadata = std::fs::symlink_metadata(&candidate)
-        .map_err(|_| "SQLite import source does not exist".to_string())?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err("SQLite import source must be a regular file".to_string());
-    }
-    let canonical = candidate
-        .canonicalize()
-        .map_err(|_| "SQLite import source is unavailable".to_string())?;
-    if canonical.parent() != Some(root.as_path()) {
-        return Err("SQLite import source escaped the transfer root".to_string());
-    }
-    let (max_bytes, _) = sqlite_limits()?;
-    if metadata.len() > max_bytes {
-        return Err("SQLite import source exceeds the configured size limit".to_string());
-    }
-    Ok(canonical)
-}
-
-fn resolve_sqlite_export(value: &str) -> Result<PathBuf, String> {
-    let root = sqlite_transfer_root()?;
-    let name = sqlite_logical_filename(value)?;
-    Ok(root.join(name))
 }
 
 /// The configured served-engine persistence directory, or the SAME error
@@ -184,8 +109,7 @@ async fn tenant_persist_dir(
 /// import/export is a bulk backup/restore tool, not a scoped query, so it is
 /// deliberately NOT routed through `AuthorizedTable`, which would RLS-filter an
 /// admin's own export down to just their own rows). What DOES change here: the
-/// physical store resolves to the TENANT-shared catalog (migrated on first
-/// touch) instead of the legacy per-owner file, so an imported table is
+/// physical store resolves directly to the TENANT-shared catalog, so an imported table is
 /// immediately visible/joinable to every other tenant member with a grant on it
 /// — and import registers ownership of each table it creates, so a subsequent
 /// non-admin `GRANT`/`REVOKE` on it works.
@@ -201,117 +125,119 @@ pub(crate) async fn try_handle(
     let original_method = method.clone();
     match method {
         Method::ImportSqliteFile { path } => {
-            let source = match resolve_sqlite_import(&path) {
-                Ok(value) => value,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
             let persist_dir = match tenant_persist_dir(state).await {
                 Ok(dir) => dir,
                 Err(e) => return Ok(Response::err(req_id, e)),
             };
-            if let Err(e) =
-                crate::server::sql_catalog_acl::ensure_actor_migrated(authority, &persist_dir)
-            {
-                return Ok(Response::err(req_id, e));
-            }
-            let store = match crate::server::sql_tables::tenant_table_store(
-                authority.tenant_scope(),
-                &persist_dir,
-            ) {
-                Ok(s) => s,
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
-            let (batch, now) =
-                match compile_import_batch(&store, req_id, authority, &original_method) {
-                    Ok(value) => value,
-                    Err(error) => return Ok(Response::err(req_id, error)),
-                };
-            if let Ok(Some(record)) = store.mutation_batch(&batch.batch_id) {
-                if same_import_identity(&batch, &record.batch) {
-                    let Some(bytes) = record.result_msgpack.as_deref() else {
-                        return Ok(Response::err(
-                            req_id,
-                            "committed SQLite import batch has no result",
-                        ));
-                    };
-                    return Ok(match eg_types::msgpack::decode_property_value(bytes) {
-                        Ok(value) => Response::ok(req_id, ResultPayload::Json(value)),
-                        Err(_) => Response::err(
-                            req_id,
-                            "committed SQLite import batch has an invalid result",
-                        ),
-                    });
-                }
-                return Ok(Response::err(
-                    req_id,
-                    "IDEMPOTENCY_CONFLICT: SQLite import request identity changed",
-                ));
-            }
             let owner_authority = authority.clone();
-            let owner_persist_dir = persist_dir.clone();
-            let out = tokio::task::spawn_blocking(move || {
-                let (txn, report, imported_tables) = prepare_sqlite_import(&source)?;
-                let result = rmp_serde::to_vec_named(&report).map_err(|e| e.to_string())?;
-                let committed = store.commit_txn_batch_result(&txn, &batch, result, now)?;
-                // The batch committed: register ownership of every table this
-                // import created/replaced (CONCEPT:NE-046) — a no-op via
-                // `register_owner_after_create` for a table that already had an
-                // owner, matching the wire commit path's identical treatment.
-                for table in &imported_tables {
-                    crate::server::sql_catalog_acl::register_owner_after_create(
-                        &owner_authority,
-                        &owner_persist_dir,
-                        table,
-                    )?;
-                }
-                let bytes = committed
-                    .record
-                    .result_msgpack
-                    .as_deref()
-                    .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
-                eg_types::msgpack::decode_property_value(bytes)
-                    .map_err(|_| "committed SQLite import batch has an invalid result".to_string())
+            // Sample replicated authoritative time on the reactor while its task-local
+            // apply scope is available, then move the complete filesystem/catalog
+            // lifecycle into one owned blocking job.
+            let now = crate::server::dispatch::authoritative_now_ms();
+            let out = run_transfer_job("import", move || {
+                import_sqlite_lifecycle(
+                    req_id,
+                    &owner_authority,
+                    &original_method,
+                    &path,
+                    &persist_dir,
+                    now,
+                )
             })
             .await;
             Ok(match out {
-                Ok(Ok(v)) => Response::ok(req_id, ResultPayload::Json(v)),
-                Ok(Err(e)) => Response::err(req_id, e),
-                Err(e) => Response::err(req_id, format!("sqlite import task join error: {e}")),
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                Err(e) => Response::err(req_id, e),
             })
         }
         Method::ExportSqliteFile { path, tables } => {
-            let destination = match resolve_sqlite_export(&path) {
-                Ok(value) => value,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
             let persist_dir = match tenant_persist_dir(state).await {
                 Ok(dir) => dir,
                 Err(e) => return Ok(Response::err(req_id, e)),
             };
-            if let Err(e) =
-                crate::server::sql_catalog_acl::ensure_actor_migrated(authority, &persist_dir)
-            {
-                return Ok(Response::err(req_id, e));
-            }
-            let store = match crate::server::sql_tables::tenant_table_store(
-                authority.tenant_scope(),
-                &persist_dir,
-            ) {
-                Ok(s) => s,
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
-            let out = tokio::task::spawn_blocking(move || {
-                export_sqlite_file(&store, &destination, &tables)
+            let owner_authority = authority.clone();
+            let out = run_transfer_job("export", move || {
+                export_sqlite_lifecycle(&owner_authority, &path, &tables, &persist_dir)
             })
             .await;
             Ok(match out {
-                Ok(Ok(v)) => Response::ok(req_id, ResultPayload::Json(v)),
-                Ok(Err(e)) => Response::err(req_id, e),
-                Err(e) => Response::err(req_id, format!("sqlite export task join error: {e}")),
+                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                Err(e) => Response::err(req_id, e),
             })
         }
         other => Err(other),
     }
+}
+
+/// Run one owned lifecycle to durable commit/atomic install despite waiter cancellation.
+/// Panic join details stay private because they can contain host paths or source data.
+async fn run_transfer_job<T, F>(operation: &'static str, job: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tokio::task::spawn_blocking(job)
+        .await
+        .map_err(|_| format!("SQLite {operation} task failed"))?
+}
+
+fn import_sqlite_lifecycle(
+    req_id: u64,
+    authority: &CarrierAuthority,
+    method: &Method,
+    logical_path: &str,
+    persist_dir: &Path,
+    now: u64,
+) -> Result<JsonValue, String> {
+    crate::server::sql_catalog_acl::require_source_authority()?;
+    crate::server::sql_catalog_acl::with_source_authority_write(persist_dir, authority, |source| {
+        let store =
+            crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
+        let batch = compile_import_batch(&store, req_id, authority, method, now)?;
+        if let Some(record) = store.mutation_batch(&batch.batch_id)? {
+            if !same_import_identity(&batch, &record.batch) {
+                return Err(
+                    "IDEMPOTENCY_CONFLICT: SQLite import request identity changed".to_string(),
+                );
+            }
+            let bytes = record
+                .result_msgpack
+                .as_deref()
+                .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
+            let report = eg_types::msgpack::decode_property_value(bytes)
+                .map_err(|_| "committed SQLite import batch has an invalid result".to_string())?;
+            register_import_owners(source, &batch.batch_id, &report)?;
+            return Ok(report);
+        }
+
+        let reader = transfer_fs::open_import(logical_path, sqlite_limits()?.0)?;
+        let (txn, report) = prepare_sqlite_import(&reader)?;
+        let result = rmp_serde::to_vec_named(&report).map_err(|e| e.to_string())?;
+        let committed = store.commit_txn_batch_result(&txn, &batch, result, now)?;
+        let bytes = committed
+            .record
+            .result_msgpack
+            .as_deref()
+            .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
+        let committed_report = eg_types::msgpack::decode_property_value(bytes)
+            .map_err(|_| "committed SQLite import batch has an invalid result".to_string())?;
+        register_import_owners(source, &batch.batch_id, &committed_report)?;
+        Ok(committed_report)
+    })
+}
+
+fn export_sqlite_lifecycle(
+    authority: &CarrierAuthority,
+    logical_path: &str,
+    tables: &[String],
+    persist_dir: &Path,
+) -> Result<JsonValue, String> {
+    crate::server::sql_catalog_acl::require_source_authority()?;
+    export_sqlite_file(
+        &crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?,
+        &transfer_fs::export_destination(logical_path)?,
+        tables,
+    )
 }
 
 fn compile_import_batch(
@@ -319,12 +245,12 @@ fn compile_import_batch(
     req_id: u64,
     authority: &CarrierAuthority,
     method: &Method,
-) -> Result<(MutationBatch, u64), String> {
+    now: u64,
+) -> Result<MutationBatch, String> {
     let scope = authority.namespace("sqlite-import", "global-user-tables");
     let expected = store.mutation_version(authority.tenant_scope(), &scope)?;
     let batch_id =
         crate::server::mutation_batch::opaque_request_key("sqlite-import", &scope, req_id, method);
-    let now = crate::server::dispatch::authoritative_now_ms();
     let batch = crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
@@ -345,54 +271,66 @@ fn compile_import_batch(
         MutationDomain::SqlCatalog,
         "sqlite_import",
     )?;
-    Ok((batch, now))
+    Ok(batch)
 }
 
 fn same_import_identity(proposed: &MutationBatch, stored: &MutationBatch) -> bool {
     proposed.batch_id == stored.batch_id
         && proposed.context.principal == stored.context.principal
         && proposed.identity == stored.identity
-        && rmp_serde::to_vec_named(&proposed.operations).ok()
-            == rmp_serde::to_vec_named(&stored.operations).ok()
+        && serialized_import_operations_match(proposed, stored)
+}
+
+fn serialized_import_operations_match(proposed: &MutationBatch, stored: &MutationBatch) -> bool {
+    match (
+        rmp_serde::to_vec_named(&proposed.operations),
+        rmp_serde::to_vec_named(&stored.operations),
+    ) {
+        (Ok(proposed), Ok(stored)) => proposed == stored,
+        _ => false,
+    }
+}
+
+/// Register ownership from the durable result on both the fresh-commit and replay
+/// paths. Registration is idempotent, so a retry repairs a crash or failure that
+/// happened after the table transaction committed but before ACL registration.
+fn register_import_owners(
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
+    parent_operation: &str,
+    report: &JsonValue,
+) -> Result<(), String> {
+    let tables = report
+        .get("imported_tables")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| "committed SQLite import batch has an invalid result".to_string())?;
+    if report.get("source").and_then(JsonValue::as_str) != Some("sqlite")
+        || tables.len() > MAX_SQLITE_TABLES
+    {
+        return Err("committed SQLite import batch has an invalid result".to_string());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for item in tables {
+        let table = item
+            .get("table")
+            .and_then(JsonValue::as_str)
+            .filter(|table| !table.is_empty())
+            .ok_or_else(|| "committed SQLite import batch has an invalid result".to_string())?;
+        if !seen.insert(table) {
+            return Err("committed SQLite import batch has an invalid result".to_string());
+        }
+        crate::server::sql_catalog_acl::register_owner_after_create_in(
+            source,
+            table,
+            crate::server::sql_catalog_acl::stable_source_operation_id(parent_operation),
+        )?;
+    }
+    Ok(())
 }
 
 // ── Import (CONCEPT:EG-KG.query.eg-feature) ───────────────────────────────────────────────────
 
-/// Read every user table (+ its rows) from a validated transfer-root `.db` into
-/// `store`. A same-name table already in the store is REPLACED (drop-then-recreate) so
-/// the import mirrors the file. Returns aggregate table counts without a host path.
-#[cfg(test)]
-pub(crate) fn import_sqlite_file(store: &TableStore, path: &Path) -> Result<JsonValue, String> {
-    if !path.exists() {
-        return Err("SQLite import source does not exist".to_string());
-    }
-    let reader = Reader::open(path).map_err(|_| "open SQLite import source failed".to_string())?;
-
-    let tables = list_user_tables(&reader)?;
-    let mut report = Vec::with_capacity(tables.len());
-    for table in &tables {
-        let (schema, col_order) = import_schema(&reader, table)?;
-        // Replace an existing same-name table so the import mirrors the file.
-        store.drop_table(table, true)?;
-        store.create_table(&schema, false)?;
-        let rows = import_rows(&reader, table, &schema)?;
-        let n = if rows.is_empty() {
-            0
-        } else {
-            // ONE batch insert per table (never per-row).
-            store.insert_rows(table, &col_order, &rows)?
-        };
-        report.push(serde_json::json!({ "table": table, "rows": n }));
-    }
-    Ok(serde_json::json!({ "source": "sqlite", "imported_tables": report }))
-}
-
-fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue, Vec<String>), String> {
-    if !path.exists() {
-        return Err("SQLite import source does not exist".to_string());
-    }
-    let reader = Reader::open(path).map_err(|_| "open SQLite import source failed".to_string())?;
-    let tables = list_user_tables(&reader)?;
+fn prepare_sqlite_import(reader: &Reader) -> Result<(TableTxn, JsonValue), String> {
+    let tables = list_user_tables(reader)?;
     let (_, max_rows) = sqlite_limits()?;
     if tables.len() > MAX_SQLITE_TABLES {
         return Err("SQLite import contains too many tables".to_string());
@@ -401,15 +339,15 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue, Vec<String
     let mut report = Vec::with_capacity(tables.len());
     let mut total_rows = 0u64;
     for table in &tables {
-        let (schema, col_order) = import_schema(&reader, table)?;
-        let row_count = sqlite_table_row_count(&reader, table)?;
+        let (schema, col_order) = import_schema(reader, table)?;
+        let row_count = sqlite_table_row_count(reader, table)?;
         total_rows = total_rows
             .checked_add(row_count)
             .ok_or_else(|| "SQLite import row count overflow".to_string())?;
         if total_rows > max_rows {
             return Err("SQLite import exceeds the configured row limit".to_string());
         }
-        let rows = import_rows(&reader, table, &schema)?;
+        let rows = import_rows(reader, table, &schema)?;
         if rows.len() as u64 != row_count {
             return Err("SQLite import changed while it was being read".to_string());
         }
@@ -433,7 +371,6 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue, Vec<String
     Ok((
         txn,
         serde_json::json!({ "source": "sqlite", "imported_tables": report }),
-        tables,
     ))
 }
 
@@ -516,7 +453,7 @@ fn import_rows(
         // than schema columns) is NULL-padded to the schema width.
         let mut jrow = Vec::with_capacity(ncols);
         for i in 0..ncols {
-            let v = row.get(i).cloned().unwrap_or(SqliteValue::Null);
+            let v = sqlite_value_at(&row, i);
             jrow.push(sqlite_value_to_json(v, schema.columns()[i].ty)?);
         }
         out.push(jrow);
@@ -524,14 +461,18 @@ fn import_rows(
     Ok(out)
 }
 
+fn sqlite_value_at(row: &[SqliteValue], index: usize) -> SqliteValue {
+    match row.get(index) {
+        Some(value) => value.clone(),
+        None => SqliteValue::Null,
+    }
+}
+
 /// Convert a SQLite value into the `serde_json::Value` the store's `Cell::coerce`
 /// accepts for `ty`.
 fn sqlite_value_to_json(v: SqliteValue, ty: ColumnType) -> Result<JsonValue, String> {
-    let num_f64 = |f: f64| {
-        serde_json::Number::from_f64(f)
-            .map(JsonValue::Number)
-            .unwrap_or(JsonValue::Null)
-    };
+    let num_f64 =
+        |f: f64| serde_json::Number::from_f64(f).map_or(JsonValue::Null, JsonValue::Number);
     match v {
         SqliteValue::Null => Ok(JsonValue::Null),
         SqliteValue::Integer(i) => match ty {
@@ -569,13 +510,15 @@ fn sqlite_value_to_json(v: SqliteValue, ty: ColumnType) -> Result<JsonValue, Str
 
 /// Write the selected user tables OUT to a FRESH, valid transfer-root `sqlite3` `.db`
 /// (the `sqlite3` CLI can open it). `tables` empty ⇒ every user table; else exactly the
-/// named tables (each must exist). Any pre-existing file at `path` is overwritten.
+/// named tables (each must exist). The destination must be fresh: descriptor-to-name
+/// linking refuses replacement, and active WAL/SHM/journal sidecars fail closed.
 /// Returns aggregate table counts without a host path.
-pub(crate) fn export_sqlite_file(
+fn export_sqlite_file(
     store: &TableStore,
-    path: &Path,
+    destination: &transfer_fs::ExportDestination,
     tables: &[String],
 ) -> Result<JsonValue, String> {
+    let before = store.catalog_fingerprint()?;
     let names: Vec<String> = if tables.is_empty() {
         store.list_tables()?
     } else {
@@ -591,138 +534,68 @@ pub(crate) fn export_sqlite_file(
         return Err("SQLite export contains too many tables".to_string());
     }
     let (max_bytes, max_rows) = sqlite_limits()?;
-    let temp_path = create_private_export_temp(path)?;
-    // The pure-Rust Writer accumulates every table/row and serializes the whole `.db` in
-    // one bottom-up bulk load on `finish()` — no C sqlite, no per-row wire loop.
-    let mut writer = match Writer::create(&temp_path, 4096) {
-        Ok(value) => value,
-        Err(_) => {
-            let _ = std::fs::remove_file(&temp_path);
-            return Err("create SQLite export failed".to_string());
-        }
-    };
-
-    let result = (|| -> Result<Vec<JsonValue>, String> {
-        let mut report = Vec::with_capacity(names.len());
-        let mut total_rows = 0u64;
-        for table in &names {
-            let schema = store
-                .get_schema(table)?
-                .ok_or_else(|| "SQLite export table does not exist".to_string())?;
-            if schema.columns().len() > MAX_SQLITE_COLUMNS {
-                return Err("SQLite export table contains too many columns".to_string());
-            }
-            writer
-                .add_table(&schema.name, &columns_from_schema(&schema))
-                .map_err(|_| "create table in SQLite export failed".to_string())?;
-            // ONE scan per table (batch), then one bulk insert of the whole table.
-            let rows = store.scan(table)?;
-            total_rows = total_rows
-                .checked_add(rows.len() as u64)
-                .ok_or_else(|| "SQLite export row count overflow".to_string())?;
-            if total_rows > max_rows {
-                return Err("SQLite export exceeds the configured row limit".to_string());
-            }
-            let n = export_rows(&mut writer, &schema, &rows)?;
-            report.push(serde_json::json!({ "table": table, "rows": n }));
-        }
+    let materialized = materialize_export_tables(store, &names, max_rows)?;
+    if store.catalog_fingerprint()? != before {
+        return Err("SQLite export source changed while it was being read".to_string());
+    }
+    let report = transfer_fs::write_export(destination, max_bytes, |path| {
+        // The pure-Rust Writer serializes the whole `.db` in one bottom-up bulk load.
+        let mut writer =
+            Writer::create(path, 4096).map_err(|_| "create SQLite export failed".to_string())?;
+        let report = write_export_tables(&materialized, &mut writer)?;
+        writer
+            .finish()
+            .map_err(|_| "finalize SQLite export failed".to_string())?;
         Ok(report)
-    })();
-    let report = match result {
-        Ok(value) => value,
-        Err(error) => {
-            let _ = remove_db_files(&temp_path);
-            return Err(error);
-        }
-    };
-    // Serialize + fsync the accumulated tables to the temp file.
-    if let Err(error) = writer.finish() {
-        let _ = remove_db_files(&temp_path);
-        return Err(format!("finalize SQLite export failed: {error}"));
-    }
-    let export_bytes = match std::fs::metadata(&temp_path) {
-        Ok(metadata) => metadata.len(),
-        Err(_) => {
-            let _ = remove_db_files(&temp_path);
-            return Err("inspect SQLite export failed".to_string());
-        }
-    };
-    if export_bytes > max_bytes {
-        let _ = remove_db_files(&temp_path);
-        return Err("SQLite export exceeds the configured size limit".to_string());
-    }
-    if let Err(error) = install_export(&temp_path, path) {
-        let _ = remove_db_files(&temp_path);
-        return Err(error);
-    }
+    })?;
     Ok(serde_json::json!({ "destination": "transfer-root", "exported_tables": report }))
 }
 
-fn create_private_export_temp(destination: &Path) -> Result<PathBuf, String> {
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "SQLite export destination is invalid".to_string())?;
-    for _ in 0..32 {
-        let sequence = EXPORT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let candidate = parent.join(format!(
-            ".sqlite-export-{}-{sequence}.tmp",
-            std::process::id()
-        ));
-        let opened = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate);
-        match opened {
-            Ok(file) => {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    file.set_permissions(std::fs::Permissions::from_mode(0o600))
-                        .map_err(|_| "secure SQLite export permissions failed".to_string())?;
-                }
-                drop(file);
-                return Ok(candidate);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return Err("create private SQLite export failed".to_string()),
-        }
-    }
-    Err("create unique SQLite export failed".to_string())
+struct ExportTable {
+    schema: TableSchema,
+    rows: Vec<Vec<Cell>>,
 }
 
-fn install_export(temp_path: &Path, destination: &Path) -> Result<(), String> {
-    remove_db_files(destination)?;
-    std::fs::rename(temp_path, destination)
-        .map_err(|_| "install SQLite export failed".to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(destination, std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| "secure SQLite export permissions failed".to_string())?;
+/// Materialize a version-fenced view; concurrent served DDL/DML rejects publication.
+fn materialize_export_tables(
+    store: &TableStore,
+    names: &[String],
+    max_rows: u64,
+) -> Result<Vec<ExportTable>, String> {
+    let mut materialized = Vec::with_capacity(names.len());
+    let mut total_rows = 0u64;
+    for table in names {
+        let schema = store
+            .get_schema(table)?
+            .ok_or_else(|| "SQLite export table does not exist".to_string())?;
+        if schema.columns().len() > MAX_SQLITE_COLUMNS {
+            return Err("SQLite export table contains too many columns".to_string());
+        }
+        let rows = store.scan(table)?;
+        total_rows = total_rows
+            .checked_add(rows.len() as u64)
+            .ok_or_else(|| "SQLite export row count overflow".to_string())?;
+        if total_rows > max_rows {
+            return Err("SQLite export exceeds the configured row limit".to_string());
+        }
+        materialized.push(ExportTable { schema, rows });
     }
-    Ok(())
+    Ok(materialized)
 }
 
-/// Remove a `.db` file and any leftover `-wal`/`-shm`/`-journal` siblings so a fresh
-/// export never inherits stale pages.
-fn remove_db_files(path: &Path) -> Result<(), String> {
-    let value = path
-        .to_str()
-        .ok_or_else(|| "SQLite export destination is invalid".to_string())?;
-    for suffix in ["", "-wal", "-shm", "-journal"] {
-        let p = format!("{value}{suffix}");
-        let pp = Path::new(&p);
-        if pp.exists() {
-            let metadata = std::fs::symlink_metadata(pp)
-                .map_err(|_| "inspect existing SQLite export failed".to_string())?;
-            if metadata.file_type().is_symlink() || !metadata.is_file() {
-                return Err("existing SQLite export target is not a regular file".to_string());
-            }
-            std::fs::remove_file(pp)
-                .map_err(|_| "remove existing SQLite export failed".to_string())?;
-        }
+fn write_export_tables(
+    materialized: &[ExportTable],
+    writer: &mut Writer,
+) -> Result<Vec<JsonValue>, String> {
+    let mut report = Vec::with_capacity(materialized.len());
+    for table in materialized {
+        writer
+            .add_table(&table.schema.name, &columns_from_schema(&table.schema))
+            .map_err(|_| "create table in SQLite export failed".to_string())?;
+        let n = export_rows(writer, &table.schema, &table.rows)?;
+        report.push(serde_json::json!({ "table": table.schema.name.as_str(), "rows": n }));
     }
-    Ok(())
+    Ok(report)
 }
 
 /// The column list for a table, mapping each [`ColumnType`] back to a SQLite declared type
@@ -810,6 +683,40 @@ mod tests {
 
     use super::*;
 
+    #[cfg(feature = "raft")]
+    struct EnvVarRestore {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    #[cfg(feature = "raft")]
+    impl EnvVarRestore {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    #[cfg(feature = "raft")]
+    impl Drop for EnvVarRestore {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    fn authority(agent: &str, tenant: &str) -> CarrierAuthority {
+        CarrierAuthority::from_verified(
+            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                agent, tenant,
+            ),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn ne002_expanded_types_have_explicit_sqlite_mappings() {
         assert_eq!(type_to_sqlite(ColumnType::Uuid), "TEXT");
@@ -822,17 +729,20 @@ mod tests {
         );
     }
 
-    fn unique_paths() -> (std::path::PathBuf, std::path::PathBuf) {
+    #[cfg(target_os = "linux")]
+    fn unique_paths() -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
         use std::time::{SystemTime, UNIX_EPOCH};
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir = std::env::temp_dir();
         let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("eg_sqlite_roundtrip_{pid}_{nanos}"));
+        rustix::fs::mkdir(&dir, rustix::fs::Mode::from_raw_mode(0o700)).unwrap();
         (
-            dir.join(format!("eg_sqlite_src_{pid}_{nanos}.db")),
-            dir.join(format!("eg_sqlite_dst_{pid}_{nanos}.db")),
+            dir.clone(),
+            dir.join("source.db"),
+            dir.join("destination.db"),
         )
     }
 
@@ -867,13 +777,14 @@ mod tests {
     /// must be `ok`, and the `.schema`/`SELECT` output must match — including a NULL, a
     /// BLOB, an overflow-forcing large TEXT, and a multi-leaf/interior b-tree. Skips (not
     /// fails) when `sqlite3` is not on `$PATH`.
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_sqlite_file_roundtrip_eg331_eg332() {
         if !sqlite3_available() {
             eprintln!("SKIP test_sqlite_file_roundtrip_eg331_eg332: sqlite3 not on PATH");
             return;
         }
-        let (src, dst) = unique_paths();
+        let (test_root, src, dst) = unique_paths();
 
         // 1. Build a source `.db` with the real sqlite3 CLI — every storage class, a NULL,
         //    a BLOB, a >4KB TEXT (overflow), and 4000 rows (multi-leaf + interior b-tree).
@@ -891,7 +802,9 @@ mod tests {
 
         // 2. Import into an ISOLATED user-table store (pure-Rust Reader).
         let (store, store_path) = TableStore::open_temp().unwrap();
-        let report = import_sqlite_file(&store, &src).unwrap();
+        let reader = Reader::open(&src).unwrap();
+        let (txn, report) = prepare_sqlite_import(&reader).unwrap();
+        store.commit_txn(&txn).unwrap();
         let imported: Vec<&str> = report["imported_tables"]
             .as_array()
             .unwrap()
@@ -903,7 +816,8 @@ mod tests {
         assert_eq!(store.scan("nums").unwrap().len(), 4000);
 
         // 3. Export the store back out to a fresh `.db` (pure-Rust Writer).
-        let report2 = export_sqlite_file(&store, &dst, &[]).unwrap();
+        let report2 =
+            export_sqlite_file(&store, &transfer_fs::test_destination(&dst), &[]).unwrap();
         assert!(report2["exported_tables"].as_array().unwrap().len() == 3);
 
         // 4a. THE conformance bar: real sqlite3 integrity_check on OUR-written file.
@@ -942,31 +856,185 @@ mod tests {
         );
 
         // Cleanup.
-        let _ = std::fs::remove_file(&src);
-        let _ = std::fs::remove_file(&dst);
-        let _ = std::fs::remove_file(&store_path);
+        rustix::fs::unlink(&src).unwrap();
+        rustix::fs::unlink(&dst).unwrap();
+        rustix::fs::unlink(&store_path).unwrap();
+        rustix::fs::rmdir(&test_root).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn transfer_job_runs_once_off_the_current_thread_reactor() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        let barrier = Arc::new(Barrier::new(2));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let completions = Arc::new(AtomicUsize::new(0));
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let worker_barrier = Arc::clone(&barrier);
+        let worker_executions = Arc::clone(&executions);
+        let worker_completions = Arc::clone(&completions);
+
+        let task = tokio::spawn(run_transfer_job("test", move || {
+            worker_executions.fetch_add(1, Ordering::SeqCst);
+            entered_tx.send(()).expect("reactor still awaits entry");
+            worker_barrier.wait();
+            worker_completions.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, String>(17_u64)
+        }));
+
+        entered_rx.await.expect("blocking job entered");
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        assert_eq!(completions.load(Ordering::SeqCst), 0);
+        barrier.wait();
+        assert_eq!(task.await.expect("join transfer future").unwrap(), 17);
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
+        assert_eq!(completions.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn transfer_job_preserves_safe_failures_and_redacts_panics() {
+        let expected = "SQLite import source does not exist";
+        let ordinary = run_transfer_job("import", move || Err::<(), _>(expected.to_string())).await;
+        assert_eq!(ordinary.unwrap_err(), expected);
+
+        let panicked = run_transfer_job("export", || -> Result<(), String> {
+            panic!("/private/transfer/operator-secret.db")
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(panicked, "SQLite export task failed");
+        assert!(!panicked.contains("operator-secret"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_waiter_does_not_cancel_owned_transfer_job() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        let barrier = Arc::new(Barrier::new(2));
+        let completions = Arc::new(AtomicUsize::new(0));
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
+        let worker_barrier = Arc::clone(&barrier);
+        let worker_completions = Arc::clone(&completions);
+        let waiter = tokio::spawn(run_transfer_job("test", move || {
+            entered_tx.send(()).expect("test waits for entry");
+            worker_barrier.wait();
+            worker_completions.fetch_add(1, Ordering::SeqCst);
+            completed_tx.send(()).expect("test waits for completion");
+            Ok::<_, String>(())
+        }));
+
+        entered_rx.await.expect("blocking job entered");
+        waiter.abort();
+        assert!(waiter.await.unwrap_err().is_cancelled());
+        barrier.wait();
+        completed_rx.await.expect("owned blocking job completed");
+        assert_eq!(completions.load(Ordering::SeqCst), 1);
     }
 
     #[test]
-    fn transfer_name_rejects_paths_and_non_database_files() {
-        assert_eq!(
-            sqlite_logical_filename("snapshot.db").unwrap(),
-            "snapshot.db"
+    fn export_version_fence_rejects_deterministic_interleaved_commit() {
+        let persist_dir = crate::server::sql_tables::test_persist_dir();
+        let authority = authority("sqlite-exporter", "sqlite-export-fence");
+        let store =
+            crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), &persist_dir)
+                .unwrap();
+        let schema = TableSchema::new(
+            "events",
+            vec![Column::new("id", ColumnType::BigInt, false, false)],
         );
-        for invalid in [
-            "../snapshot.db",
-            "nested/snapshot.db",
-            "/tmp/snapshot.db",
-            "C:\\temp\\snapshot.db",
-            ".hidden.db",
-            "snapshot.sqlite",
-            "snapshot.db\n",
-            "",
-        ] {
-            assert!(
-                sqlite_logical_filename(invalid).is_err(),
-                "accepted {invalid:?}"
+        store.create_table(&schema, false).unwrap();
+        let before = store.catalog_fingerprint().unwrap();
+        let snapshot = materialize_export_tables(&store, &["events".to_string()], 10).unwrap();
+        assert!(snapshot[0].rows.is_empty());
+
+        let method = Method::ImportSqliteFile {
+            path: "interleaved.db".to_string(),
+        };
+        let batch = compile_import_batch(&store, 77, &authority, &method, 2).unwrap();
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::Insert {
+            table: "events".to_string(),
+            col_order: vec!["id".to_string()],
+            rows: vec![vec![serde_json::json!(1)]],
+        });
+        store
+            .commit_txn_batch_result(&txn, &batch, Vec::new(), 2)
+            .unwrap();
+
+        assert_ne!(store.catalog_fingerprint().unwrap(), before);
+    }
+
+    #[cfg(feature = "raft")]
+    #[test]
+    fn export_fails_source_authority_before_opening_store_or_destination() {
+        let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+        let key = "EPISTEMIC_GRAPH_RAFT_NODE_ID";
+        let _env_restore = EnvVarRestore::set(key, "sqlite-export-order-test");
+        let error = export_sqlite_lifecycle(
+            &authority("sqlite-exporter", "sqlite-export-order"),
+            "invalid/path.db",
+            &[],
+            Path::new("/definitely-not-a-persist-directory"),
+        )
+        .unwrap_err();
+        assert_eq!(error, "SQL source authority has no replicated ordering");
+    }
+
+    #[test]
+    fn missing_source_replay_repairs_simulated_post_commit_process_loss() {
+        use crate::server::sql_catalog_acl::{open_authorized_table, SqlPrivilege};
+
+        let persist_dir = crate::server::sql_tables::test_persist_dir();
+        let authority = authority("sqlite-owner", "sqlite-owner-repair");
+        let store =
+            crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), &persist_dir)
+                .unwrap();
+        let method = Method::ImportSqliteFile {
+            path: "missing-after-commit.db".to_string(),
+        };
+        let batch = compile_import_batch(&store, 91, &authority, &method, 3).unwrap();
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::CreateTable {
+            schema: TableSchema::new(
+                "repaired",
+                vec![Column::new("id", ColumnType::BigInt, false, false)],
+            ),
+            if_not_exists: false,
+        });
+        let report = serde_json::json!({
+            "source": "sqlite",
+            "imported_tables": [{"table": "repaired", "rows": 0}],
+        });
+        store
+            .commit_txn_batch_result(&txn, &batch, rmp_serde::to_vec_named(&report).unwrap(), 3)
+            .unwrap();
+
+        // The physical effect exists without its ACL child, exactly the durable
+        // state left by process loss after the table commit. The source never exists.
+        assert!(
+            open_authorized_table(&authority, &persist_dir, "repaired", SqlPrivilege::Select)
+                .is_err()
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                import_sqlite_lifecycle(
+                    91,
+                    &authority,
+                    &method,
+                    "missing-after-commit.db",
+                    &persist_dir,
+                    4,
+                )
+                .unwrap(),
+                report
             );
         }
+        assert!(
+            open_authorized_table(&authority, &persist_dir, "repaired", SqlPrivilege::Select)
+                .is_ok()
+        );
     }
 }

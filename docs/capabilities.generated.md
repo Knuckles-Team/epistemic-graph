@@ -1,8 +1,8 @@
 # Epistemic Graph -- Generated Capability Ledger
 
 > **This file is GENERATED and is the AUTHORITATIVE machine-checked capability
-> truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities --bin
-> gen_ledger`. It is derived directly from the eleven current domain `ROWS`
+> truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities
+> --features canonical-ledger --bin gen_ledger`. It is derived directly from the eleven current domain `ROWS`
 > declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep
 > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature
 > parity; this generated table is authoritative for per-method policy.
@@ -287,7 +287,7 @@
 | `Quantum` | false | None | `quantum:run` | true | false | false | None | self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain; R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance |
 | `Asr` | false | None | `asr:transcribe` | false | false | false | None | self-routes before dispatch_graph_op like Quantum/Viz; direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06) |
 | `Viz` | false | None | `viz:render` | true | false | false | None | pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6) |
-| `TtsSynthesize` | false | None | `tts:synthesize` | false | true | false | None | pure compute: native Piper-ONNX synthesis runs inline and returns audio, no durable graph write (GOC-34, no CAS/rendition publication exists yet) |
+| `TtsSynthesize` | false | None | `tts:synthesize` | false | false | false | None | pure compute: native Piper-ONNX synthesis runs inline and returns audio, no durable graph write or audit-chain commit (GOC-34, no CAS/rendition publication exists yet) |
 | `DeclareExchange` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
 | `DeleteExchange` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
 | `BindQueue` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |

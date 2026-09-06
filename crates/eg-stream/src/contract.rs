@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 
 use crate::event::Event;
 
-const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "CDC is already wired via stream.event.append; event retention/GC is a CEP window/pattern-engine concern, not a per-event capability",

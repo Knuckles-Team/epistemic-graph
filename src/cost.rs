@@ -414,12 +414,11 @@ pub struct ResourceSnapshot {
     pub graphs: Vec<GraphResourceStats>,
 }
 
-/// Current process RSS in bytes, falling back to peak RSS when a platform omits
-/// `VmRSS`. Returns `0` when `/proc` is unavailable.
-fn process_rss_bytes() -> u64 {
-    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+/// Parse current process RSS in bytes, falling back to peak RSS when a platform
+/// omits `VmRSS`.
+fn parse_process_rss_bytes(status: &str) -> u64 {
     for key in ["VmRSS:", "VmHWM:"] {
-        for line in s.lines() {
+        for line in status.lines() {
             let Some(rest) = line.strip_prefix(key) else {
                 continue;
             };
@@ -428,11 +427,39 @@ fn process_rss_bytes() -> u64 {
                 .next()
                 .and_then(|n| n.parse::<u64>().ok())
             {
-                return kb * 1024;
+                return kb.saturating_mul(1024);
             }
         }
     }
     0
+}
+
+#[cfg(target_os = "linux")]
+async fn process_rss_bytes_from(status_path: std::path::PathBuf) -> u64 {
+    // `/proc/self/status` is small, but opening it can still block on filesystem
+    // machinery. Keep the complete, owned probe on Tokio's bounded blocking pool;
+    // a missing procfs or a failed worker preserves the metric's documented zero
+    // fallback rather than failing the ResourceStats request.
+    ::tokio::task::spawn_blocking(move || {
+        std::fs::read_to_string(status_path)
+            .map(|status| parse_process_rss_bytes(&status))
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Current process RSS in bytes, falling back to peak RSS when Linux omits
+/// `VmRSS`. Returns `0` when procfs is unavailable or on another platform.
+async fn process_rss_bytes() -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        process_rss_bytes_from(std::path::PathBuf::from("/proc/self/status")).await
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        0
+    }
 }
 
 /// A page candidate carries only the bounded response fields.  Ordering the
@@ -736,7 +763,7 @@ async fn collect_resource_stats_inner(
         .then(|| graphs.last().map(|graph| graph.graph.clone()))
         .flatten();
 
-    let rss = process_rss_bytes();
+    let rss = process_rss_bytes().await;
     let (coalescer_queue_depth, coalescer_queue_bytes, coalescer_operations_total) =
         crate::write_coalescer::global_stats();
     crate::metrics::set_resource_stats(
@@ -1050,6 +1077,36 @@ pub fn capacity_estimate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_rss_parser_prefers_current_then_peak_and_rejects_bad_values() {
+        assert_eq!(
+            parse_process_rss_bytes("Name:\teg\nVmHWM:\t29 kB\nVmRSS:\t17 kB\n"),
+            17 * 1024
+        );
+        assert_eq!(parse_process_rss_bytes("VmHWM:\t29 kB\n"), 29 * 1024);
+        assert_eq!(parse_process_rss_bytes("VmRSS:\tnot-a-number kB\n"), 0);
+        assert_eq!(parse_process_rss_bytes("Name:\teg\n"), 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn process_rss_probe_is_current_thread_safe_and_io_errors_fall_back_to_zero() {
+        let root = tempfile::tempdir().expect("create RSS fixture directory");
+        let status_path = root.path().join("status");
+        std::fs::write(&status_path, "VmRSS:\t41 kB\n").expect("write RSS fixture");
+        assert_eq!(process_rss_bytes_from(status_path).await, 41 * 1024);
+        assert_eq!(
+            process_rss_bytes_from(root.path().join("missing-status")).await,
+            0
+        );
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn process_rss_probe_has_a_platform_zero_fallback() {
+        assert_eq!(process_rss_bytes().await, 0);
+    }
 
     #[test]
     fn tenant_of_splits_on_first_colon() {

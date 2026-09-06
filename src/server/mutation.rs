@@ -648,11 +648,6 @@ pub enum ClusterMutationRoute {
     SelfRoutedAdmin,
 }
 
-/// Shared plaintext ceiling for one encrypted native consensus command. Served
-/// coordinators preflight against this exact value before allocating/dispatching
-/// their encoded method, and Raft enforces it again when sealing/opening.
-pub(crate) const MAX_NATIVE_COORDINATOR_PAYLOAD_BYTES: usize = 128 * 1024 * 1024;
-
 /// Public coordinator commands that decompose into independently placed,
 /// typed consensus graph commands before any local mutation executes.
 pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyChangeEnvelopes"];
@@ -665,8 +660,8 @@ pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyC
 ///
 /// This is the deliberate complement of `crate::raft::NATIVE_CONSENSUS_METHODS`:
 /// that list is every mutating method with a *bounded* `NativeMutationCommand`
-/// (`raft::native_domain(method).is_some()`); THIS list is every mutating method
-/// that instead owns a dedicated, self-routing handler (resolves `MultiRaft`,
+/// in the command catalog; THIS list is every mutating method that instead owns
+/// a dedicated, self-routing handler (resolves `MultiRaft`,
 /// performs the leader check, and answers `OPERATION_REDIRECTED` itself — exactly
 /// like `handlers::placement::try_handle` does for the read-only `PlacementRoute`,
 /// just for a method that also mutates). Routing a `SelfRoutedAdmin` method

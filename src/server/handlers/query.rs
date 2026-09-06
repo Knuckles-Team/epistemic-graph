@@ -380,7 +380,7 @@ pub(crate) fn try_handle_with_policy<'a>(
     ctx: super::TryHandleContext<'a>,
     core: Arc<GraphCore>,
     query: PolicyAwareQuery,
-    policy_lease: &'a Arc<crate::isolation::GraphPolicyLease>,
+    policy_lease: &'a Arc<crate::isolation::PolicyDecisionLease>,
     rls: &'a Arc<crate::isolation::IsolationLayer>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, String>> + Send + 'a>> {
     Box::pin(try_handle_with_policy_inner(
@@ -393,7 +393,7 @@ pub(crate) fn try_handle_with_policy<'a>(
     ))
 }
 
-/// A build without `security` has no `GraphPolicyLease` to bind — and every
+/// A build without `security` has no `PolicyDecisionLease` to bind — and every
 /// production caller of this function is itself gated `feature = "security"`
 /// upstream (`KnowledgeStreamAuthority::validate_request_binding` denies
 /// unconditionally without it, mod.rs). This arm exists purely so
@@ -419,7 +419,7 @@ async fn try_handle_with_policy_inner(
     ctx: super::TryHandleContext<'_>,
     core: Arc<GraphCore>,
     query: PolicyAwareQuery,
-    policy_lease: &Arc<crate::isolation::GraphPolicyLease>,
+    policy_lease: &Arc<crate::isolation::PolicyDecisionLease>,
     rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, String> {
     let super::TryHandleContext {
@@ -470,7 +470,7 @@ struct LeaseQueryCtx<'a> {
     read_authority: Option<&'a GraphReadAuthority>,
     caller: &'a str,
     core: &'a Arc<GraphCore>,
-    policy_lease: &'a Arc<crate::isolation::GraphPolicyLease>,
+    policy_lease: &'a Arc<crate::isolation::PolicyDecisionLease>,
     store: &'a dyn eg_core::rbac_persist::RbacPolicyStore,
 }
 
@@ -489,7 +489,7 @@ struct LeaseQueryCtx<'a> {
 #[cfg(all(feature = "query", feature = "security"))]
 fn lease_filtered_snapshot(
     core: &Arc<GraphCore>,
-    lease: &Arc<crate::isolation::GraphPolicyLease>,
+    lease: &Arc<crate::isolation::PolicyDecisionLease>,
     store: &dyn eg_core::rbac_persist::RbacPolicyStore,
 ) -> Result<(Arc<crate::graph::GraphView>, u64), String> {
     // `version` is read before the snapshot, the same "safe LOWER BOUND"
@@ -503,7 +503,7 @@ fn lease_filtered_snapshot(
     let mut view = core.analysis_snapshot();
     lease
         .filter_view(store, &mut view)
-        .map_err(|_| "KnowledgeStream graph policy lease is stale".to_string())?;
+        .map_err(|_| "KnowledgeStream policy decision lease is stale".to_string())?;
     Ok((Arc::new(view), version))
 }
 
@@ -1441,11 +1441,13 @@ async fn handle_recompute_materialization(
         match crate::server::reasoning_projection::recompute_materialization(
             persist_dir.as_deref(),
             graph_name,
-            &snap,
+            snap,
             authoritative_graph_version,
             &derived_id,
             expected_source_graph_version,
-        ) {
+        )
+        .await
+        {
             Ok(value) => value,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
@@ -1477,7 +1479,9 @@ async fn handle_materialization_status(
             persist_dir.as_deref(),
             graph_name,
             &id,
-        ) {
+        )
+        .await
+        {
             Ok(value) => value,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
@@ -1500,7 +1504,9 @@ async fn handle_stale_materializations(ctx: &QueryHandlerCtx<'_>) -> Result<Resp
         match crate::server::reasoning_projection::stale_materializations(
             persist_dir.as_deref(),
             graph_name,
-        ) {
+        )
+        .await
+        {
             Ok(value) => value,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
@@ -1800,6 +1806,7 @@ fn handle_nl_query_plan(
     })
 }
 
+#[cfg(feature = "nl-query")]
 async fn handle_nl_query(
     ctx: &QueryHandlerCtx<'_>,
     text: String,
@@ -2159,6 +2166,7 @@ async fn handle_cypher_write(req_id: u64, core: Arc<GraphCore>, query: String) -
     }
 }
 
+#[cfg(feature = "cypher")]
 async fn handle_cypher_query(
     ctx: &QueryHandlerCtx<'_>,
     query: String,
@@ -2738,6 +2746,7 @@ fn run_unified_bind_foreign<'a>(
 /// server-side text→vector embedder, if one is bound (`EG_UQL_TEXT_EMBEDDER=hash`
 /// for the deterministic offline fallback; otherwise absent, and `Op::RankEmbed` is
 /// a clean typed error).
+#[cfg(feature = "query")]
 fn run_unified_bind_embedder(ctx: eg_plan::PlanCtx<'_>) -> eg_plan::PlanCtx<'_> {
     match uql_text_embedder() {
         Some(embedder) => ctx.with_embedder(embedder),
@@ -2749,7 +2758,7 @@ fn run_unified_bind_embedder(ctx: eg_plan::PlanCtx<'_>) -> eg_plan::PlanCtx<'_> 
 /// store and its ownership scope atomically (a partial/missing scope never leaves
 /// a raw store reachable through `TsScan`), then the txn's staged-series overlay
 /// (CONCEPT:EG-KG.query.txn-tsdb-read-your) so an in-txn `TsScan` reads its own uncommitted points.
-#[cfg(feature = "tsdb")]
+#[cfg(all(feature = "query", feature = "tsdb"))]
 fn run_unified_bind_tsdb<'a>(
     ctx: eg_plan::PlanCtx<'a>,
     tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
@@ -3517,6 +3526,7 @@ fn explain_belief_redacted_wire(
     }
 }
 
+#[cfg(feature = "epistemic-redaction")]
 fn disclosure_level_from_wire(
     cap: crate::protocol::DisclosureLevelWire,
 ) -> eg_epistemic::DisclosureLevel {
@@ -3529,6 +3539,7 @@ fn disclosure_level_from_wire(
     }
 }
 
+#[cfg(feature = "epistemic-redaction")]
 fn disclosure_level_to_wire(
     level: eg_epistemic::DisclosureLevel,
 ) -> crate::protocol::DisclosureLevelWire {
@@ -3541,6 +3552,7 @@ fn disclosure_level_to_wire(
     }
 }
 
+#[cfg(feature = "epistemic-redaction")]
 fn existence_signal_to_wire(
     existence: eg_epistemic::ExistenceSignal,
 ) -> crate::protocol::ExistenceSignalWire {
@@ -3557,6 +3569,7 @@ fn existence_signal_to_wire(
 /// [`explain_belief_redacted_wire`]'s OTEL span attributes: `None`/`0`/empty when
 /// `root` is `None` (`ExistenceOnly` renders no structure at all, by design) —
 /// never fabricated.
+#[cfg(feature = "epistemic-redaction")]
 fn redacted_tree_summary(
     root: Option<&eg_epistemic::RedactedProofNode>,
 ) -> (Option<f64>, usize, String) {
@@ -3706,6 +3719,7 @@ type ConflictClassification = (
     Vec<String>,
 );
 
+#[cfg(feature = "epistemic-tms")]
 fn resolve_conflict_wire(
     node_ids: &[String],
     semantics: &str,
@@ -3753,6 +3767,7 @@ fn resolve_conflict_wire(
 /// The `"grounded"` arm of [`resolve_conflict_wire`]: each queried id is
 /// `surviving` (in the grounded extension), `defeated` (attacked by some member of
 /// it), or `undecided` (neither).
+#[cfg(feature = "epistemic-tms")]
 fn resolve_conflict_grounded(
     bg: &eg_epistemic::BeliefGraph,
     node_ids: &[String],
@@ -3779,6 +3794,7 @@ fn resolve_conflict_grounded(
 /// The `"preferred"`/`"stable"` arm of [`resolve_conflict_wire`]: each queried id
 /// is `surviving` (in every extension), `defeated` (in no extension), or
 /// `undecided` (in some but not all, or there are no extensions at all).
+#[cfg(feature = "epistemic-tms")]
 fn resolve_conflict_preferred_or_stable(
     bg: &eg_epistemic::BeliefGraph,
     node_ids: &[String],
@@ -4317,7 +4333,7 @@ async fn run_unified_overlaid_resolve_txn(
 /// still sees committed only. `SeriesStore` is redb-file-backed with no in-memory
 /// overlay, so this dep-free map is the RYOW source. Empty when the txn is gone by
 /// the time this runs (best-effort, never an error).
-#[cfg(feature = "tsdb")]
+#[cfg(all(feature = "query", feature = "tsdb"))]
 async fn run_unified_overlaid_staged_series(
     state: &Arc<RwLock<ServerState>>,
     txn_id: &str,
@@ -4337,6 +4353,7 @@ async fn run_unified_overlaid_staged_series(
     staged
 }
 
+#[cfg(feature = "query")]
 async fn run_unified_overlaid(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -4883,53 +4900,6 @@ async fn exec_sql_write_delete_nodes_join(
     sql_write_ack(req_id, "DELETE", r)
 }
 
-/// Execute `Method::Sql`'s Apache-AGE-style `cypher()` table function — pure
-/// extract-method out of `exec_sql_write`'s `K::CypherCall` arm, no behaviour
-/// change. A read (run + projected onto the AS columns), gated on the `cypher`
-/// feature exactly like before.
-#[cfg(feature = "query")]
-async fn exec_sql_write_cypher_call(
-    req_id: u64,
-    read_core: &Arc<GraphCore>,
-    plan: eg_query::CypherCallPlan,
-) -> Response {
-    #[cfg(feature = "cypher")]
-    {
-        let core = read_core.clone();
-        let r = compute_off_lock(req_id, move || {
-            let snap = core.analysis_snapshot();
-            let result = eg_query::exec_cypher(&snap, &plan.cypher)?;
-            let typed =
-                eg_query::project_cypher_rows(&result, &plan.columns, plan.projection.as_deref())?;
-            Ok::<_, String>(crate::protocol::QueryResult {
-                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                rows: typed
-                    .rows
-                    .iter()
-                    .map(|row| rmp_serde::to_vec_named(row).unwrap_or_default())
-                    .collect(),
-            })
-        })
-        .await;
-        match r {
-            Ok(Ok(result)) => Response::ok(
-                req_id,
-                ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-            ),
-            Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
-            Err(resp) => resp,
-        }
-    }
-    #[cfg(not(feature = "cypher"))]
-    {
-        let _ = (read_core, plan);
-        Response::err(
-            req_id,
-            "SQL error: cypher() (Apache AGE) requires the engine's `cypher` feature".to_string(),
-        )
-    }
-}
-
 /// Execute `Method::Sql`'s `CREATE TABLE …` DDL — pure extract-method out of
 /// `exec_sql_write`'s `K::CreateTable` arm, no behaviour change.
 #[cfg(feature = "query")]
@@ -5266,10 +5236,6 @@ async fn exec_sql_write(
             )
             .await
         }
-        // ── Postgres-family extension parity (wave 19) ──────────────────────────
-        // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE cypher() is a read; run it + project the agtype
-        // result onto the AS columns, returning a result set (like the read path).
-        K::CypherCall(plan) => exec_sql_write_cypher_call(req_id, &read_core, plan).await,
         // CONCEPT:EG-KG.query.real-ann-top-k — persist the pgvector ANN index used
         // by the native eg-ann pushdown planner.
         K::CreateAnnIndex(plan) => {
@@ -5337,8 +5303,28 @@ async fn exec_sql_write(
             "SQL error: COPY … FROM STDIN is a streaming pgwire operation, not available over Method::Sql".to_string(),
         ),
         // The caller only routes non-`Read` statements here.
-        K::Read => Response::err(req_id, "SQL error: read routed to write path".to_string()),
+        K::Read
+        | K::PropertyGraphDdlRequiresCatalogAdmission(_)
+        | K::GraphTableReadRequiresCatalogAdmission(_) => {
+            sql_unroutable_response(req_id, &kind)
+        }
     }
+}
+
+#[cfg(feature = "query")]
+fn sql_unroutable_response(req_id: u64, kind: &eg_query::StatementKind) -> Response {
+    use eg_query::StatementKind as K;
+    let message = match kind {
+        K::PropertyGraphDdlRequiresCatalogAdmission(_) => {
+            "SQL/PGQ property-graph DDL requires authoritative catalog admission"
+        }
+        K::GraphTableReadRequiresCatalogAdmission(_) => {
+            "SQL/PGQ GRAPH_TABLE requires authoritative catalog resolution before relational lowering"
+        }
+        K::Read => "SQL error: read routed to write path",
+        _ => unreachable!("only unroutable SQL kinds call this helper"),
+    };
+    Response::err(req_id, message.to_string())
 }
 
 /// A scalar cell (from a resolved SELECT row) coerced to the string node-id form the

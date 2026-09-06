@@ -115,7 +115,6 @@ fn decode_page(
             raw_line,
             line_start,
             page_index,
-            blocks.len() as u32,
             total_blocks,
             lexemes,
             postings,
@@ -130,7 +129,6 @@ fn decode_line(
     raw_line: &str,
     line_start: usize,
     page_index: usize,
-    block_number: u32,
     total_blocks: &mut usize,
     lexemes: &dyn LexemeEncoder,
     postings: &mut Vec<LexicalPosting>,
@@ -150,6 +148,7 @@ fn decode_line(
     }
     let start = line_start.checked_add(leading)?;
     let end = start.checked_add(trimmed.chars().count())?;
+    let block_number = blocks.len() as u32;
     blocks.push(build_block(trimmed, start, end));
     index_lexemes(
         trimmed,
