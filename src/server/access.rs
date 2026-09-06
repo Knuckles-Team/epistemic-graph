@@ -824,6 +824,12 @@ pub(crate) fn sql_is_write(query: &str) -> bool {
     !matches!(
         eg_query::classify(query),
         Ok(StatementKind::Read)
+            // SQL:2023 `GRAPH_TABLE` is a read over base relations. It is a
+            // separate classification only because it needs an authoritative
+            // catalog resolution before it can lower; the ACCESS LEVEL it needs
+            // is a read's, on every route -- this function is what
+            // `requires_write` and the read-only KnowledgeStream gate consult.
+            | Ok(StatementKind::GraphTableReadRequiresCatalogAdmission(_))
             | Ok(StatementKind::Begin)
             | Ok(StatementKind::Commit)
             | Ok(StatementKind::Rollback)
@@ -2755,5 +2761,30 @@ mod read_rls_coverage_tests {
         let not_audited: HashMap<&'static str, &'static str> =
             NOT_YET_AUDITED.iter().copied().collect();
         assert!(!not_audited.contains_key("RankByProvenance"));
+    }
+
+    /// Cross-route parity: `sql_is_write` is the single chokepoint that
+    /// `requires_write`, the read-only KnowledgeStream gate and the wire's own
+    /// access check all resolve a `Method::Sql` statement through. A
+    /// `GRAPH_TABLE` read must be a READ at every one of them; classifying it
+    /// as a write denied a Read-only caller a pure read and made
+    /// KnowledgeStream reject it outright.
+    #[cfg(feature = "query")]
+    #[test]
+    fn graph_table_is_a_read_at_the_shared_write_classification_chokepoint() {
+        let graph_table = "SELECT * FROM GRAPH_TABLE (shop MATCH (c:customer) COLUMNS (c.name))";
+        assert!(matches!(
+            eg_query::classify(graph_table),
+            Ok(eg_query::StatementKind::GraphTableReadRequiresCatalogAdmission(_))
+        ));
+        assert!(!sql_is_write(graph_table));
+        assert!(!requires_write(&crate::protocol::Method::Sql {
+            query: graph_table.to_string(),
+            params_msgpack: Vec::new(),
+        }));
+
+        // Property-graph DDL stays a write on every route.
+        let ddl = "CREATE PROPERTY GRAPH shop VERTEX TABLES (customers KEY (customer_id))";
+        assert!(sql_is_write(ddl));
     }
 }

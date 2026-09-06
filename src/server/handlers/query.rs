@@ -5330,11 +5330,19 @@ async fn exec_sql_property_graph_ddl(
 
 /// Execute a SQL/PGQ `GRAPH_TABLE` read.
 ///
-/// The definition is resolved from the AUTHORITATIVE durable catalog, then
-/// lowered and run on the SAME relational executor, over the SAME owner-scoped
-/// catalog handle and the SAME row-level-security-projected graph view every
-/// other `SELECT` on this route uses. A graph read therefore gains no access an
-/// ordinary `SELECT` over the base relations would not already have.
+/// This route's SQL catalog is the caller's OWN per-principal file
+/// (`user_table_store`), exactly as it is for `CREATE TABLE`/`CREATE VIEW`
+/// here, so a graph resolved on this route is one the caller already owns
+/// outright; there is no second principal whose grants to consult. (The
+/// tenant-SHARED catalog the pgwire route uses is a different file, and gates
+/// resolution on `Select` over every base relation -- see
+/// `sql_catalog_acl::authorized_graph_table_sql`. The two catalogs are separate
+/// by construction, so a graph created on one route is not visible on the
+/// other.)
+///
+/// Lowering then runs on the SAME relational executor, the SAME catalog handle,
+/// and the SAME row-level-security-projected graph view every other `SELECT` on
+/// this route uses.
 #[cfg(feature = "query")]
 fn exec_sql_graph_table_read(
     req_id: u64,
@@ -5365,12 +5373,17 @@ fn graph_table_rows(
     read_core: &Arc<GraphCore>,
     query: &eg_query::GraphTableQuery,
 ) -> Result<eg_query::TypedQueryResult, String> {
-    let record = store.property_graph(&query.graph)?.ok_or_else(|| {
-        format!(
-            "property graph `{}` does not exist",
-            query.graph.leaf().value()
-        )
-    })?;
+    // Defence in depth: this file is per-principal, so a record admitted under
+    // another tenant cannot be here -- and if one ever were, it is not readable.
+    let record = store
+        .property_graph(&query.graph)?
+        .filter(|record| record.name.tenant_scope == tenant_scope)
+        .ok_or_else(|| {
+            format!(
+                "property graph `{}` does not exist",
+                query.graph.leaf().value()
+            )
+        })?;
     eg_query::exec_graph_table_typed_with_tables(
         &read_core.analysis_snapshot(),
         store,

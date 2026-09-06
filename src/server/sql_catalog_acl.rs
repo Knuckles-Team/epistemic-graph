@@ -1824,6 +1824,47 @@ pub(crate) fn register_owner_after_create_in(
 /// the way OBDA's `tables` param or a single-table DML op does, so gating happens
 /// by restricting the SET of tables materialized for the query instead of a
 /// per-reference check.
+/// Resolve a SQL/PGQ `GRAPH_TABLE` read against the tenant catalog and lower it,
+/// under the CALLER'S OWN authorization.
+///
+/// A property-graph definition is catalog metadata: it names every base
+/// relation, its key columns, its labels, and each property's source column.
+/// Resolving it therefore requires the same `Select` the lowered query will
+/// need on EVERY base relation the graph pins — otherwise a tenant member with
+/// no grants could read the shape of tables it cannot read a row of, and could
+/// probe which graph names exist.
+///
+/// Absence, a foreign tenant scope, and a missing grant on any base relation
+/// all return the SAME [`ACCESS_DENIED`], so none of them is distinguishable
+/// from the others. Past that gate the caller may already `Select` every
+/// relation involved, so lowering diagnostics (unknown label, unresolved
+/// property) are returned verbatim: they disclose nothing new.
+pub(crate) fn authorized_graph_table_sql(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    query: &eg_query::GraphTableQuery,
+) -> Result<String, String> {
+    require_source_authority()?;
+    let tenant_scope = authority.tenant_scope();
+    let store = sql_tables::tenant_table_store(tenant_scope, persist_dir)?;
+    let record = store
+        .property_graph(&query.graph)?
+        .filter(|record| record.name.tenant_scope == tenant_scope)
+        .ok_or_else(|| ACCESS_DENIED.to_string())?;
+    let selectable: BTreeSet<String> = selectable_tables(authority, persist_dir)?
+        .into_iter()
+        .collect();
+    if !record
+        .dependencies
+        .iter()
+        .all(|dependency| selectable.contains(dependency.name.object.value()))
+    {
+        return Err(ACCESS_DENIED.to_string());
+    }
+    eg_query::sql::lower_graph_table(query, &record.accepted_definition, tenant_scope)
+        .map(|plan| plan.to_sql())
+}
+
 pub(crate) fn selectable_tables(
     authority: &CarrierAuthority,
     persist_dir: &Path,
@@ -3672,5 +3713,131 @@ mod tests {
         let bob = authority("bob", "tenant-debug-redact");
         let denied = open_authorized_table(&bob, &dir, "orders", SqlPrivilege::Select).unwrap_err();
         assert_eq!(denied, ACCESS_DENIED);
+    }
+
+    // ── SQL/PGQ: the definition is metadata, and metadata needs a grant ──────
+
+    #[cfg(feature = "query")]
+    fn graph_fixture(dir: &Path, owner: &CarrierAuthority) {
+        for table in [
+            schema(
+                "customers",
+                vec![
+                    Column::new("customer_id", ColumnType::Text, false, true),
+                    text_col("name"),
+                ],
+            ),
+            schema(
+                "orders",
+                vec![
+                    Column::new("order_id", ColumnType::Text, false, true),
+                    text_col("ordered_when"),
+                ],
+            ),
+        ] {
+            assert!(create_owned_table(owner, dir, &table, false).unwrap());
+        }
+        let ddl = "CREATE PROPERTY GRAPH shop VERTEX TABLES (\
+                   customers KEY (customer_id) LABEL customer PROPERTIES (name), \
+                   orders KEY (order_id) LABEL \"order\" PROPERTIES (ordered_when))";
+        let eg_query::tables::PropertyGraphStatement::Create(definition) =
+            eg_query::sql::parse_property_graph_ddl(ddl, owner.tenant_scope()).unwrap()
+        else {
+            panic!("expected CREATE PROPERTY GRAPH");
+        };
+        sql_tables::tenant_table_store(owner.tenant_scope(), dir)
+            .unwrap()
+            .create_property_graph(&definition, owner.agent_id())
+            .unwrap();
+    }
+
+    #[cfg(feature = "query")]
+    fn graph_table_query(graph: &str) -> eg_query::GraphTableQuery {
+        let sql = format!(
+            "SELECT * FROM GRAPH_TABLE ({graph} MATCH (c:customer) COLUMNS (c.name AS customer_name))"
+        );
+        match eg_query::classify(&sql).unwrap() {
+            eg_query::StatementKind::GraphTableReadRequiresCatalogAdmission(query) => query,
+            _ => panic!("expected a GRAPH_TABLE read"),
+        }
+    }
+
+    #[cfg(feature = "query")]
+    #[test]
+    fn graph_table_resolution_requires_select_on_every_pinned_base_relation() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-pgq-grants");
+        let bob = authority("bob", "tenant-pgq-grants");
+        graph_fixture(&dir, &alice);
+        let query = graph_table_query("shop");
+
+        // The owner of every base relation resolves and lowers it.
+        let owner_sql = authorized_graph_table_sql(&alice, &dir, &query).unwrap();
+        assert!(
+            owner_sql.contains(r#"FROM "public"."customers""#),
+            "unexpected lowering: {owner_sql}"
+        );
+
+        // Bob has no grant at all: denied, with the generic string.
+        assert_eq!(
+            authorized_graph_table_sql(&bob, &dir, &query).unwrap_err(),
+            ACCESS_DENIED
+        );
+
+        // A PARTIAL grant is still a denial -- the definition names both tables.
+        grant(
+            &dir,
+            &alice,
+            "customers",
+            "bob",
+            &[SqlPrivilege::Select],
+            mutation_id(),
+        )
+        .unwrap();
+        assert_eq!(
+            authorized_graph_table_sql(&bob, &dir, &query).unwrap_err(),
+            ACCESS_DENIED
+        );
+
+        // Granted on every pinned relation, Bob resolves it like the owner.
+        grant(
+            &dir,
+            &alice,
+            "orders",
+            "bob",
+            &[SqlPrivilege::Select],
+            mutation_id(),
+        )
+        .unwrap();
+        assert_eq!(
+            authorized_graph_table_sql(&bob, &dir, &query).unwrap(),
+            authorized_graph_table_sql(&alice, &dir, &query).unwrap()
+        );
+    }
+
+    #[cfg(feature = "query")]
+    #[test]
+    fn graph_catalog_metadata_is_not_disclosed_to_an_ungranted_caller() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-pgq-probe");
+        let bob = authority("bob", "tenant-pgq-probe");
+        let other_tenant = authority("bob", "tenant-pgq-probe-other");
+        graph_fixture(&dir, &alice);
+
+        // An existing graph Bob may not read, a graph that does not exist, and
+        // one in another tenant are INDISTINGUISHABLE: the denial carries no
+        // base-relation name, no column, and no existence signal.
+        let existing = authorized_graph_table_sql(&bob, &dir, &graph_table_query("shop"));
+        let absent = authorized_graph_table_sql(&bob, &dir, &graph_table_query("no_such_graph"));
+        let foreign = authorized_graph_table_sql(&other_tenant, &dir, &graph_table_query("shop"));
+        assert_eq!(existing.as_ref().unwrap_err(), &ACCESS_DENIED.to_string());
+        assert_eq!(absent.as_ref().unwrap_err(), &ACCESS_DENIED.to_string());
+        assert_eq!(foreign.as_ref().unwrap_err(), &ACCESS_DENIED.to_string());
+        for denial in [&existing, &absent, &foreign] {
+            let text = denial.as_ref().unwrap_err();
+            for leak in ["customers", "orders", "customer_id", "ordered_when", "name"] {
+                assert!(!text.contains(leak), "denial leaked `{leak}`: {text}");
+            }
+        }
     }
 }

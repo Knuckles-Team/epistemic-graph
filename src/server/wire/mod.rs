@@ -2177,32 +2177,29 @@ impl WireSession {
         Ok(WireOutcome::command(tag))
     }
 
-    /// Resolve a `GRAPH_TABLE` read against the authoritative property-graph
-    /// catalog and lower it onto the relational SQL the ordinary read path runs.
+    /// Resolve a `GRAPH_TABLE` read against the tenant property-graph catalog
+    /// and lower it onto the relational SQL the ordinary read path runs.
+    ///
+    /// Resolution is authorized as the caller: `authorized_graph_table_sql`
+    /// requires `Select` on every base relation the graph pins, and returns one
+    /// indistinguishable denial for an absent graph, a foreign tenant, and a
+    /// missing grant. This is the tenant-shared catalog, so a graph created
+    /// over `Method::Sql` (whose catalog is per-principal) is not visible here.
     async fn lower_graph_table_read(
         &self,
         query: &eg_query::sql::GraphTableQuery,
     ) -> WireResult<String> {
         let (authority, persist_dir) = self.catalog_authority().await?;
-        crate::server::sql_catalog_acl::require_source_authority().map_err(user_err)?;
-        let store =
-            crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), &persist_dir)
-                .map_err(user_err)?;
-        let record = store
-            .property_graph(&query.graph)
-            .map_err(user_err)?
-            .ok_or_else(|| {
-                user_err(format!(
-                    "property graph `{}` does not exist",
-                    query.graph.leaf().value()
-                ))
-            })?;
-        eg_query::sql::lower_graph_table(
-            query,
-            &record.accepted_definition,
-            authority.tenant_scope(),
-        )
-        .map(|plan| plan.to_sql())
+        let query = query.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::server::sql_catalog_acl::authorized_graph_table_sql(
+                &authority,
+                &persist_dir,
+                &query,
+            )
+        })
+        .await
+        .map_err(|error| user_err(format!("SQL/PGQ catalog task failed: {error}")))?
         .map_err(user_err)
     }
 
