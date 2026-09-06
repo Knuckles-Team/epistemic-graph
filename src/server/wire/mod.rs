@@ -6198,14 +6198,14 @@ mod wired_catalog_tests {
         // capability prevents any competing source decision during each attempt.
         let created_at_ms = crate::server::txn::now_ms();
         let expected_version = store
-            .mutation_version(tenant, graph)
+            .mutation_version(&tenant_scope, graph)
             .expect("read SQL mutation version");
         let batch = crate::server::mutation_batch::compile_opaque_method(
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &batch_id,
                 request_id,
                 principal: Some(owner.actor_scope()),
-                tenant,
+                tenant: &tenant_scope,
                 graph,
                 placement_epoch: 0,
                 idempotency_key: &batch_id,
@@ -6312,7 +6312,13 @@ mod wired_catalog_tests {
         let persist_dir = test_persist_dir_of(&state).await;
         let owner = authority("actor-header-owner", tenant);
         let stranger = authority("actor-header-foreign", tenant);
-        let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir)
+        // `CarrierAuthority::tenant_scope` is an opaque digest of the tenant,
+        // not the raw name, and the served commit path
+        // (`commit_table_txn_under_source`) compiles under exactly that value.
+        // The receipt is looked up under the same one, so the fixture has to
+        // use it too or it commits into a scope nothing reads.
+        let tenant_scope = owner.tenant_scope().to_string();
+        let store = crate::server::sql_tables::tenant_table_store(&tenant_scope, &persist_dir)
             .expect("open tenant table store");
 
         let operation = crate::protocol::Method::Sql {
@@ -6327,14 +6333,14 @@ mod wired_catalog_tests {
         let request_id = 0x5150_4143_4b45_5401_u64;
         let created_at_ms = crate::server::txn::now_ms();
         let expected_version = store
-            .mutation_version(tenant, graph)
+            .mutation_version(&tenant_scope, graph)
             .expect("read SQL mutation version");
         let batch = crate::server::mutation_batch::compile_opaque_method(
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &batch_id,
                 request_id,
                 principal: Some(owner.actor_scope()),
-                tenant,
+                tenant: &tenant_scope,
                 graph,
                 placement_epoch: 0,
                 idempotency_key: &batch_id,

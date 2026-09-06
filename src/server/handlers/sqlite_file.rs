@@ -194,18 +194,11 @@ fn import_sqlite_lifecycle(
         let store =
             crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
         let batch = compile_import_batch(&store, req_id, authority, method, now)?;
-        // No pre-check for an already-committed receipt. RF-RULING-006 retired
-        // the SQL store's private ledger onto the mutation kernel, and the
-        // kernel is now the ONE authority on whether a retry is a replay or an
-        // `IDEMPOTENCY_CONFLICT`: `commit_txn_batch_result` returns the stored
-        // receipt untouched for a byte-identical batch and refuses a changed
-        // one. Re-deriving that answer here would be a second replay authority
-        // over the same ledger, which is exactly what the ruling removed.
-        //
-        // The cost, stated rather than hidden: a retry re-opens and re-parses
-        // the source `.db` before the kernel short-circuits it. Nothing durable
-        // is re-applied and the returned report is the stored one, so the only
-        // loss is repeated read work on the ack-loss path.
+        if let Some(report) = committed_import_report(&store, &batch)? {
+            register_import_owners(source, &batch.batch_id, &report)?;
+            return Ok(report);
+        }
+
         let reader = transfer_fs::open_import(logical_path, sqlite_limits()?.0)?;
         let (txn, report) = prepare_sqlite_import(&reader)?;
         let result = rmp_serde::to_vec_named(&report).map_err(|e| e.to_string())?;
@@ -234,6 +227,62 @@ fn export_sqlite_lifecycle(
         &transfer_fs::export_destination(logical_path)?,
         tables,
     )
+}
+
+/// The stored report of an import whose durable batch already committed, or
+/// `None` if this exact request has no receipt yet.
+///
+/// This is NOT a second replay authority. `TableStore::commit_txn_batch_result`
+/// is the one authority on replay-versus-conflict, and it decides on BYTE
+/// identity of the whole `MutationBatch` -- which a rebuilt attempt can never
+/// satisfy, because `created_at_ms` and the observed OCC version legitimately
+/// differ between attempts (RF-RULING-006's stated cost, restored for free once
+/// `OperationReplayIdentityV1` lands). What this answers is the different, and
+/// strictly narrower, question the recovery path actually asks: *is the durable
+/// effect of THIS caller's THIS request already committed?* It is the same shape
+/// and the same reasoning as `server::wire::committed_sql_replay_receipt` --
+/// every stable identity field plus the caller's outbox `actor` header is
+/// compared, the volatile OCC expectation and timestamps deliberately are not --
+/// and it exists because the source `.db` may be gone by the time a crashed
+/// import is retried: without it, recovery dies re-opening a file whose whole
+/// content is already durable.
+///
+/// Any mismatch is a refusal, never a fabrication: a batch id whose receipt does
+/// not answer to this caller's request never yields a report.
+fn committed_import_report(
+    store: &TableStore,
+    batch: &MutationBatch,
+) -> Result<Option<JsonValue>, String> {
+    let Some(record) = store.mutation_batch(&batch.identity, &batch.batch_id)? else {
+        return Ok(None);
+    };
+    let actor = |candidate: &MutationBatch| {
+        candidate
+            .outbox
+            .iter()
+            .find_map(|intent| intent.headers.get("actor"))
+            .cloned()
+    };
+    let exact = record.status == eg_types::mutation_batch::MutationBatchStatus::Committed
+        && record.batch.batch_id == batch.batch_id
+        && record.batch.idempotency_key == batch.idempotency_key
+        && record.batch.context.request_id == batch.context.request_id
+        && record.batch.identity == batch.identity
+        && record.batch.operations == batch.operations
+        && actor(&record.batch).is_some()
+        && actor(&record.batch) == actor(batch);
+    if !exact {
+        return Err(
+            "IDEMPOTENCY_CONFLICT: SQLite import request identity changed".to_string(),
+        );
+    }
+    let bytes = record
+        .result_msgpack
+        .as_deref()
+        .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
+    eg_types::msgpack::decode_property_value(bytes)
+        .map(Some)
+        .map_err(|_| "committed SQLite import batch has an invalid result".to_string())
 }
 
 fn compile_import_batch(
