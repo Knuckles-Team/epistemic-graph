@@ -881,8 +881,13 @@ pub struct ObsState {
 
 fn open_persistent_obs_stores(base: &Path) -> Result<(SeriesStore, RedbChunkStore), String> {
     let authority = SnapshotDirectory::open(base, true, OBS_PERSISTENCE_DIRECTORY_ERROR)?;
-    let series = SeriesStore::open_in_dir(&authority.io_path)
-        .map_err(|_| "observability series store is unavailable".to_string())?;
+    let series = SeriesStore::open_in_dir(
+        &authority.io_path,
+        crate::store_authority::process_verifier(),
+        crate::store_authority::process_authority().principal(),
+        &crate::store_authority::process_authority().proof(),
+    )
+    .map_err(|_| "observability series store is unavailable".to_string())?;
     let blob = RedbChunkStore::open(
         &authority
             .child(std::ffi::OsStr::new("blob"))
@@ -908,8 +913,13 @@ fn open_obs_state_blocking(
         None => {
             let base =
                 std::env::temp_dir().join(format!("eg-obs-{}-{}", std::process::id(), now_ns()));
-            let series = SeriesStore::open_in_dir(&base)
-                .map_err(|_| "observability series store is unavailable".to_string())?;
+            let series = SeriesStore::open_in_dir(
+                &base,
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .map_err(|_| "observability series store is unavailable".to_string())?;
             let blob = RedbChunkStore::open(&base.join("blob").to_string_lossy())
                 .map_err(|_| "observability blob store is unavailable".to_string())?;
             (series, blob, None, None)

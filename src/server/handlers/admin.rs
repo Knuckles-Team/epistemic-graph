@@ -633,12 +633,11 @@ pub(crate) fn begin_admin_saga(
 }
 
 /// If a mutation-batch record already exists for `batch_id`, this call is a
-/// REPLAY (or a resume of a still-Prepared saga): `eg_mutation_store::
-/// prepare_saga`/`prepare_saga_with_private_payload` require the caller to
-/// hand them a freshly-built `MutationBatch` describing "what I intend to do
-/// right now", and compare it WHOLE-STRUCT against the STORED batch
-/// (`verify_replay_identity`) to reject a genuinely different mutation that
-/// happens to reuse the same idempotency key.
+/// REPLAY (or a resume of a still-Prepared saga): the mutation kernel's saga
+/// preparation requires the caller to hand it a freshly-built `MutationBatch`
+/// describing "what I intend to do right now", and compares it WHOLE-STRUCT
+/// against the STORED batch (`verify_replay_identity`) to reject a genuinely
+/// different mutation that happens to reuse the same idempotency key.
 ///
 /// `expected_graph_version`/`request_id`/`created_at_ms` are request
 /// METADATA, not part of the caller's intended operation -- but a retry
@@ -653,14 +652,14 @@ pub(crate) fn begin_admin_saga(
 /// first attempt (no existing record) observes the live version/clock.
 #[cfg(feature = "redb")]
 fn admin_saga_request_stamp(
-    db: &eg_mutation_store::MutationStore,
+    read: &crate::server::persistence::redb_backend::AdminScopedRead<'_>,
     identity: &eg_types::MutationScopeIdentity,
     batch_id: &str,
     req_id: u64,
     now: u64,
 ) -> Result<(u64, u64, u64), String> {
-    let Some(existing) = eg_mutation_store::read_record(db, identity, batch_id)? else {
-        return Ok((eg_mutation_store::version(db, identity)?, req_id, now));
+    let Some(existing) = eg_transaction::read_ledger(read, batch_id)? else {
+        return Ok((eg_transaction::version(read)?, req_id, now));
     };
     validate_admin_record(&existing, identity)?;
     validate_admin_lookup_key(&existing, batch_id)?;
@@ -693,11 +692,15 @@ pub(crate) fn begin_named_admin_saga(
     domain: MutationDomain,
     batch_id: &str,
 ) -> Result<AdminSaga, String> {
-    let db = backend.admin_mutation_store();
     let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
     let now = crate::server::dispatch::authoritative_now_ms();
-    let (expected, stamped_request_id, stamped_created_at_ms) =
-        admin_saga_request_stamp(db, &identity, batch_id, req_id, now)?;
+    let (expected, stamped_request_id, stamped_created_at_ms) = admin_saga_request_stamp(
+        &backend.admin_mutations_read()?,
+        &identity,
+        batch_id,
+        req_id,
+        now,
+    )?;
     let batch = crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
@@ -718,12 +721,12 @@ pub(crate) fn begin_named_admin_saga(
         domain,
         "cluster_admin_operation",
     )?;
-    let replayed = match eg_mutation_store::prepare_saga(db, &batch, now)? {
-        eg_mutation_store::SagaBegin::Committed(record) => {
+    let replayed = match backend.admin_saga_step(&batch, now, None)? {
+        eg_transaction::SagaBegin::Committed(record) => {
             let (_, result) = decode_admin_commit(record, &identity, true)?;
             Some(result)
         }
-        eg_mutation_store::SagaBegin::Execute | eg_mutation_store::SagaBegin::Resume(_) => None,
+        eg_transaction::SagaBegin::Execute | eg_transaction::SagaBegin::Resume(_) => None,
     };
     Ok(AdminSaga {
         batch,
@@ -761,11 +764,15 @@ pub(crate) fn begin_named_admin_saga_with_private_payload(
         payload_digest,
         encrypted_payload,
     } = payload;
-    let db = backend.admin_mutation_store();
     let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
     let now = crate::server::dispatch::authoritative_now_ms();
-    let (expected, stamped_request_id, stamped_created_at_ms) =
-        admin_saga_request_stamp(db, &identity, batch_id, req_id, now)?;
+    let (expected, stamped_request_id, stamped_created_at_ms) = admin_saga_request_stamp(
+        &backend.admin_mutations_read()?,
+        &identity,
+        batch_id,
+        req_id,
+        now,
+    )?;
     let batch = crate::server::mutation_batch::compile_opaque_digest(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
@@ -786,17 +793,12 @@ pub(crate) fn begin_named_admin_saga_with_private_payload(
         domain,
         event_type,
     )?;
-    let replayed = match eg_mutation_store::prepare_saga_with_private_payload(
-        db,
-        &batch,
-        now,
-        Some(encrypted_payload),
-    )? {
-        eg_mutation_store::SagaBegin::Committed(record) => {
+    let replayed = match backend.admin_saga_step(&batch, now, Some(encrypted_payload))? {
+        eg_transaction::SagaBegin::Committed(record) => {
             let (_, result) = decode_admin_commit(record, &identity, true)?;
             Some(result)
         }
-        eg_mutation_store::SagaBegin::Execute | eg_mutation_store::SagaBegin::Resume(_) => None,
+        eg_transaction::SagaBegin::Execute | eg_transaction::SagaBegin::Resume(_) => None,
     };
     Ok(AdminSaga {
         batch,
@@ -818,8 +820,7 @@ pub(crate) fn resume_named_admin_saga(
         caller.ok_or_else(|| "coordinator recovery requires a verified principal".to_string())?,
     )?;
     let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
-    let Some(record) =
-        eg_mutation_store::read_record(backend.admin_mutation_store(), &identity, batch_id)?
+    let Some(record) = eg_transaction::read_ledger(&backend.admin_mutations_read()?, batch_id)?
     else {
         return Ok(None);
     };
@@ -861,8 +862,7 @@ pub(crate) fn read_named_admin_saga_result(
         caller.ok_or_else(|| "coordinator recovery requires a verified principal".to_string())?,
     )?;
     let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
-    let Some(record) =
-        eg_mutation_store::read_record(backend.admin_mutation_store(), &identity, batch_id)?
+    let Some(record) = eg_transaction::read_ledger(&backend.admin_mutations_read()?, batch_id)?
     else {
         return Ok(None);
     };
@@ -886,12 +886,7 @@ pub(crate) fn finish_admin_saga(
     result: crate::protocol::ResultPayload,
 ) -> Result<crate::protocol::ResultPayload, String> {
     let encoded = rmp_serde::to_vec_named(&result).map_err(|error| error.to_string())?;
-    let (record, replayed) = eg_mutation_store::commit_saga(
-        backend.admin_mutation_store(),
-        &batch,
-        encoded,
-        committed_at_ms,
-    )?;
+    let (record, replayed) = backend.admin_saga_end(&batch, encoded, committed_at_ms)?;
     let (_, durable_result) = decode_admin_commit(record, &batch.identity, replayed)?;
     Ok(durable_result)
 }

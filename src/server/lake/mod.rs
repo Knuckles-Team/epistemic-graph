@@ -1185,6 +1185,9 @@ mod tests {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!("eg-lake-test-{}", std::process::id())),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
         )
         .unwrap();
         append(&tsdb, "temp.sensor1", &points(0, 3));
@@ -1230,6 +1233,9 @@ mod tests {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!("eg-lake-test-compact-{}", std::process::id())),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
         )
         .unwrap();
         append(&tsdb, "s1", &points(0, 3));
@@ -1271,6 +1277,9 @@ mod tests {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!("eg-lake-test-asof-{}", std::process::id())),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
         )
         .unwrap();
         append(&tsdb, "s5", &points(0, 3));
@@ -1336,6 +1345,9 @@ mod tests {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!("eg-lake-test-delete-{}", std::process::id())),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
         )
         .unwrap();
         append(&tsdb, "s2", &points(0, 4));
@@ -1370,6 +1382,9 @@ mod tests {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!("eg-lake-test-evolve-{}", std::process::id())),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
         )
         .unwrap();
         append(&tsdb, "s3", &points(0, 2));
@@ -1439,6 +1454,9 @@ mod tests {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!("eg-lake-test-lineage-{}", std::process::id())),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
         )
         .unwrap();
         append(&tsdb, "s4", &points(0, 2));
@@ -1487,10 +1505,15 @@ mod tests {
         std::env::remove_var(lineage_transport::KafkaTransport::ENV_BROKERS);
 
         let s = store();
-        let tsdb = SeriesStore::open_in_dir(&std::env::temp_dir().join(format!(
-            "eg-lake-test-lineage-unconfigured-{}",
-            std::process::id()
-        )))
+        let tsdb = SeriesStore::open_in_dir(
+            &std::env::temp_dir().join(format!(
+                "eg-lake-test-lineage-unconfigured-{}",
+                std::process::id()
+            )),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        )
         .unwrap();
         append(&tsdb, "s5", &points(0, 2));
         let mgr = LakeManager::new();

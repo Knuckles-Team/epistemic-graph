@@ -83,6 +83,7 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
                     | OwnerLayout::Statechart
                     | OwnerLayout::Kv
                     | OwnerLayout::PathIndex
+                    | OwnerLayout::Blob
                     | OwnerLayout::RequestReplay
                     | OwnerLayout::VizProvenance
                     | OwnerLayout::ColdTier
@@ -173,11 +174,10 @@ fn jobs_key_type(name: &str) -> Option<&'static str> {
 fn domain_owner_key_type(name: &str) -> Option<&'static str> {
     match name {
         "series_chunks" => Some("(&str,u64)"),
-        "kv" | "cas_blobs" => Some("(&str,&str)"),
-        "cas_uploads" => Some("(&str,u64)"),
+        "kv" => Some("(&str,&str)"),
+        "cas_uploads" | "node_info" => Some("u64"),
         "eg_kvcache_cold" => Some("&[u8]"),
-        "node_info" => Some("u64"),
-        "cas_chunks" | "cas_refcount" => Some("&str"),
+        "cas_chunks" | "cas_refcount" | "cas_blobs" => Some("&str"),
         "rbac_v1"
         | "path_index_v1"
         | "eg_ann"

@@ -257,7 +257,7 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 // `#[cfg(feature = "blob")]` attribute and its intended target, so the
 // attribute silently re-attached to the new function instead of gating this
 // `mod` declaration. That made `server::blob` (and therefore `blob/store.rs`'s
-// unconditional `redb`/`eg_mutation_store` imports) compile in EVERY build,
+// unconditional `redb`/`eg_storage`/`eg_transaction` imports) compile in EVERY build,
 // including `--no-default-features --features server`, breaking the slim
 // server. It went unnoticed because this repo has not pushed in a long time,
 // so CI never ran that feature-matrix row. Restoring the attribute here is
@@ -687,8 +687,13 @@ pub(crate) fn test_state_with_services(
     #[cfg(feature = "tsdb")]
     {
         state.tsdb_store = Some(std::sync::Arc::new(
-            eg_tsdb::store::SeriesStore::open_in_dir(&crate::server::unique_temp_dir(tsdb_label))
-                .expect("open test series store"),
+            eg_tsdb::store::SeriesStore::open_in_dir(
+                &crate::server::unique_temp_dir(tsdb_label),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .expect("open test series store"),
         ));
     }
     std::sync::Arc::new(tokio::sync::RwLock::new(state))

@@ -1310,27 +1310,14 @@ impl Shard {
 }
 
 /// Fixed [`eg_types::MutationScopeIdentity`] for the admin-mutations / "cluster-admin"
-/// coordinator store (`{persist_dir}/admin-mutations.redb`) — the durable projection
-/// of cluster-wide/admin saga authority (M3 catalog RPCs, multi-op transaction 2PC
-/// receipts; see [`RedbBackend::admin_mutation_store`]'s doc).
+/// coordinator store (`{persist_dir}/admin-mutations.redb`) — see [`AdminMutationStore`].
 ///
-/// NOT a native scope, even though the physical file is a self-contained store
-/// independent of any real graph shard. Every batch reaching this store is compiled
-/// by `mutation_batch::compile_opaque_method` / `compile_opaque_digest` (see every
-/// `begin_admin_saga` / `begin_named_admin_saga*` call site in `handlers::admin`,
-/// `handlers::txn`, and `dispatch`), always with a domain from the "either" family —
-/// `MutationDomain::ControlPlane` or `MutationDomain::MultiGraph` — and
-/// `mutation_batch::finish_batch` maps EVERY such domain to a **graph**-shaped
-/// `MutationScopeIdentity` (`graph_scope = !domain.requires_native_scope()`, true for
-/// both; see that function's doc: "an 'either' domain … belongs in the graph scope").
-/// So the identity this store binds/reads by must match that shape exactly: tenant
-/// `"native"`, graph name `"cluster-admin"` (the same two literals every
-/// `CompileBatch { tenant: "native", graph: "cluster-admin", .. }` call site already
-/// used pre-v1), incarnation [`crate::server::mutation_batch::COMPILED_BATCH_INCARNATION`]
-/// — the SAME constant `finish_batch` stamps on every compiled batch and every other
-/// independent native-scope identity builder in this tree reuses (`kv.rs`,
-/// `blob/store.rs`, `eg-tsdb`). Building a *native* identity here instead would fail
-/// every admin-saga commit closed with "mutation scope binding identity mismatch".
+/// GRAPH-shaped, not native: every batch here is compiled with an "either"-family domain
+/// (`ControlPlane`/`MultiGraph`), which `mutation_batch::finish_batch` maps to a
+/// graph-shaped identity, so this identity must match that shape exactly or every
+/// admin-saga commit fails closed with "mutation scope binding identity mismatch". Only
+/// [`AdminOwner`]'s `OwnerLayout::LedgerOnly` can serve it: declaring no owner tables, it
+/// is the one layout that places no shape requirement on the scopes it binds.
 pub(crate) fn cluster_admin_scope_identity() -> Result<eg_types::MutationScopeIdentity, String> {
     eg_types::MutationScopeIdentity::fixed_graph(
         "native",
@@ -1339,56 +1326,74 @@ pub(crate) fn cluster_admin_scope_identity() -> Result<eg_types::MutationScopeId
     )
 }
 
-/// [`eg_mutation_store::PrivatePayloadIntegrity`] for the admin-mutations store,
-/// backed by the SAME transaction-recovery-plan cipher (D-ORC-50) that seals the
-/// private payload bytes in the first place
-/// (`handlers::txn::seal_txn_recovery_plan`/`open_txn_recovery_plan`, which resolve it
-/// via [`RedbBackend::transaction_recovery_cipher`]). `authenticate` re-derives
-/// exactly the check `open_txn_recovery_plan` already did by hand pre-v1: unseal, then
-/// compare the plaintext's SHA-256 against the digest the canonical batch commits to.
-/// `commit_saga`/`prepare_saga_with_private_payload` now enforce this INSIDE
-/// `eg_mutation_store` on every private-payload read/write, so without a real
-/// authority here every 2PC transaction-recovery-plan write/read would fail closed
-/// with "private recovery integrity authority is unavailable" whenever `security` is
-/// enabled — this is not optional plumbing.
+/// [`eg_storage::PrivatePayloadIntegrity`] for the admin-mutations store, backed by the
+/// SAME transaction-recovery-plan cipher (D-ORC-50) that sealed the bytes in the first
+/// place (`handlers::txn::seal_txn_recovery_plan`/`open_txn_recovery_plan`). The storage
+/// kernel enforces it on every private-payload read/write, so without a real authority
+/// here every 2PC recovery-plan write/read fails closed — not optional plumbing.
 #[cfg(feature = "security")]
 struct TxnRecoveryPrivateIntegrity(crate::crypto::ValueCipher);
 
 #[cfg(feature = "security")]
-impl eg_mutation_store::PrivatePayloadIntegrity for TxnRecoveryPrivateIntegrity {
+impl eg_storage::PrivatePayloadIntegrity for TxnRecoveryPrivateIntegrity {
     fn authenticate(&self, sealed: &[u8], expected_plaintext_digest: &str) -> Result<(), String> {
         use sha2::{Digest, Sha256};
         let plaintext = self.0.unseal(sealed)?;
         let actual = hex::encode(Sha256::digest(&plaintext));
         if actual != expected_plaintext_digest {
-            return Err("private recovery payload digest does not match its parent receipt".to_string());
+            return Err(
+                "private recovery payload digest does not match its parent receipt".to_string(),
+            );
         }
         Ok(())
     }
 }
 
-/// Resolve the admin-mutations store's private-payload integrity authority (see
-/// [`TxnRecoveryPrivateIntegrity`]'s doc). Reads the SAME
-/// `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` (falling back to the shared data key) as every
-/// [`Shard`]'s own `txn_recovery_cipher` — a free function of the environment, not of
-/// any one shard, so it is resolved independently here rather than borrowing shard 0's
-/// (which in any case is not yet constructed at this call site). `None` when the build
-/// has no `security` feature, or the key is unset: the private-payload write/read path
-/// already fails closed itself in that case (`handlers::txn::seal_txn_recovery_plan`'s
-/// `not(security)` stub, and the `security`-enabled arm's own "requires {key} to be
-/// configured" check), so `None` here changes no observable behavior — it just leaves
-/// the enforcement to the existing call sites instead of duplicating it.
+/// Resolve the admin-mutations store's private-payload integrity authority. Reads the
+/// SAME `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` (falling back to the shared data key) as every
+/// [`Shard`]'s own `txn_recovery_cipher`, but as a function of the environment rather
+/// than of any one shard (none is constructed yet at this call site). `None` without the
+/// `security` feature or the key: the write/read path already fails closed itself there.
 #[cfg(feature = "security")]
 pub(crate) fn admin_mutations_private_integrity(
-) -> Option<Arc<dyn eg_mutation_store::PrivatePayloadIntegrity>> {
-    crate::crypto::ValueCipher::from_env_for_txn_recovery()
-        .map(|cipher| Arc::new(TxnRecoveryPrivateIntegrity(cipher)) as Arc<dyn eg_mutation_store::PrivatePayloadIntegrity>)
+) -> Option<Arc<dyn eg_storage::PrivatePayloadIntegrity>> {
+    crate::crypto::ValueCipher::from_env_for_txn_recovery().map(|cipher| {
+        Arc::new(TxnRecoveryPrivateIntegrity(cipher))
+            as Arc<dyn eg_storage::PrivatePayloadIntegrity>
+    })
 }
 
 #[cfg(not(feature = "security"))]
 pub(crate) fn admin_mutations_private_integrity(
-) -> Option<Arc<dyn eg_mutation_store::PrivatePayloadIntegrity>> {
+) -> Option<Arc<dyn eg_storage::PrivatePayloadIntegrity>> {
     None
+}
+
+/// Operator-facing identity of the ONE physical `admin-mutations.redb` owner file.
+pub(crate) const ADMIN_MUTATIONS_STORE: &str = "epistemic-graph:admin-mutations";
+
+/// The owner domain of `admin-mutations.redb`: it declares no owner tables of its own,
+/// so `eg_storage` materializes only the ledger census for it.
+pub(crate) type AdminOwner = eg_storage::LedgerOnlyOwner;
+/// One kernel-issued scoped read over that store, as the consumers name it.
+pub(crate) type AdminScopedRead<'a> = eg_storage::ScopedRead<'a, AdminOwner>;
+
+/// The kernel-owned admin-mutations coordinator store (RF-RULING-004): the storage
+/// kernel that owns the file, the one mutation kernel it issued, and the single bound
+/// serving scope. It hands no database back out. Every row the file holds is the
+/// ledger's own bookkeeping, so `create_owner` materializes the whole declared census
+/// at creation and no "ensure the table exists" bootstrap of ours remains.
+type AdminMutationStore = crate::sidecar_store::SidecarStore<AdminOwner>;
+
+/// Open (creating if absent) the one admin-mutations owner file.
+fn open_admin_mutations(path: &std::path::Path) -> Result<AdminMutationStore, String> {
+    AdminMutationStore::open_with(
+        path,
+        ADMIN_MUTATIONS_STORE,
+        cluster_admin_scope_identity()?,
+        admin_mutations_private_integrity(),
+        crate::store_authority::process_authority(),
+    )
 }
 
 /// Handle to the redb write-through tier (CONCEPT:EG-KG.storage.kg-kg / EG-026). The dispatch
@@ -1412,17 +1417,10 @@ pub struct RedbBackend {
     /// rows). When NO catalog is attached (the default) the write path never touches this
     /// — EG-026 is byte-for-byte unchanged.
     routing_epoch: Arc<RwLock<()>>,
-    /// Local durable projection of cluster-wide/admin saga authority. In clustered
-    /// serving every writer is routed through the placement Raft group, so this file
-    /// is replayable consensus state on every group member rather than a pod-local
-    /// coordinator. Single-node serving uses the same image directly.
-    ///
-    /// Holds the [`eg_mutation_store::MutationStore`] that owns the physical
-    /// `admin-mutations.redb` file (was `Arc<Database>` before the MutationBatch v1
-    /// migration — see [`cluster_admin_scope_identity`]'s doc for why every batch
-    /// committed here is bound under a fixed, reused identity rather than one
-    /// derived per-call).
-    admin_mutations: eg_mutation_store::MutationStore,
+    /// Local durable projection of cluster-wide/admin saga authority: in clustered
+    /// serving this file is replayable consensus state on every group member rather than
+    /// a pod-local coordinator, and single-node serving uses the same image directly.
+    admin_mutations: AdminMutationStore,
     /// Durable cluster-topology self-report store (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1).
     /// Always opened (like `admin_mutations` above) so the shape of `RedbBackend`
     /// doesn't vary with whether Raft happens to be configured; it is populated
@@ -1635,20 +1633,8 @@ impl RedbBackend {
                 shard_open_start.elapsed()
             );
         }
-        let admin_mutations_path =
-            std::path::Path::new(&persist_dir).join("admin-mutations.redb");
-        let admin_mutations_identity = cluster_admin_scope_identity()?;
-        // No owner-specific table: every row this store holds is `eg_mutation_store`'s
-        // own bookkeeping (batches/versions/idempotency/outbox/private payloads), so
-        // the bootstrap closure — which runs once, only on the first-ever bind — has
-        // nothing of its own to materialize.
-        let admin_mutations = eg_mutation_store::initialize(
-            &admin_mutations_path,
-            &admin_mutations_identity,
-            0,
-            admin_mutations_private_integrity(),
-            |_wtx| Ok(()),
-        )?;
+        let admin_path = std::path::Path::new(&persist_dir).join("admin-mutations.redb");
+        let admin_mutations = open_admin_mutations(&admin_path)?;
         let node_info = Arc::new(super::node_info_store::NodeInfoStore::open(&persist_dir)?);
         let cluster_hierarchy = Arc::new(
             super::cluster_hierarchy_store::ClusterHierarchyStore::open(&persist_dir)?,
@@ -1683,8 +1669,38 @@ impl RedbBackend {
         self.catalog.clone()
     }
 
-    pub(crate) fn admin_mutation_store(&self) -> &eg_mutation_store::MutationStore {
-        &self.admin_mutations
+    /// One scoped read over the admin-mutations ledger — the capability every
+    /// `eg_transaction::read_*` / `version` call over this store is a function of.
+    pub(crate) fn admin_mutations_read(&self) -> Result<AdminScopedRead<'_>, String> {
+        self.admin_mutations.read()
+    }
+
+    /// Prepare one admin saga, with its sealed private recovery payload when it has one:
+    /// a durable `Prepared` receipt, no owner rows yet.
+    pub(crate) fn admin_saga_step(
+        &self,
+        batch: &eg_types::MutationBatch,
+        prepared_at_ms: u64,
+        private_payload: Option<&[u8]>,
+    ) -> Result<eg_transaction::SagaBegin, String> {
+        let store = &self.admin_mutations;
+        store
+            .mutations()
+            .saga_step(store.owner(), batch, prepared_at_ms, private_payload)
+    }
+
+    /// Terminalize one prepared admin saga. The `bool` is `true` when the saga had
+    /// already committed and this call only replayed its receipt.
+    pub(crate) fn admin_saga_end(
+        &self,
+        batch: &eg_types::MutationBatch,
+        result_msgpack: Vec<u8>,
+        committed_at_ms: u64,
+    ) -> Result<(eg_types::MutationBatchRecord, bool), String> {
+        let store = &self.admin_mutations;
+        store
+            .mutations()
+            .saga_end(store.owner(), batch, result_msgpack, committed_at_ms)
     }
 
     /// The durable cluster-topology self-report store (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1).
@@ -1935,7 +1951,7 @@ impl RedbBackend {
         use super::backup;
         std::fs::create_dir_all(dst_dir).map_err(|e| e.to_string())?;
         let admin_boundary_before =
-            eg_mutation_store::recovery_store_fingerprint(&self.admin_mutations)?;
+            eg_storage::recovery_store_fingerprint(self.admin_mutations.kernel())?;
         let shard0 = self
             .shard0()
             .db
@@ -1984,8 +2000,8 @@ impl RedbBackend {
             let counts = backup::write_bundle_shard(&db, &dst_path, i == 0)?;
             report.add_shard(counts);
         }
-        report.admin_mutations = eg_mutation_store::backup_recovery_store(
-            &self.admin_mutations,
+        report.admin_mutations = eg_storage::backup_recovery_store(
+            self.admin_mutations.kernel(),
             &dst_dir.join(backup::ADMIN_MUTATIONS_FILE),
         )?;
         // Non-shard durable stores: the ones this backend owns, then the ones handed in.
@@ -2016,7 +2032,7 @@ impl RedbBackend {
             report.bundled_stores.insert(name.to_string(), rows);
         }
         let admin_boundary_after =
-            eg_mutation_store::recovery_store_fingerprint(&self.admin_mutations)?;
+            eg_storage::recovery_store_fingerprint(self.admin_mutations.kernel())?;
         let xshard_boundary_after = backup::xshard_recovery_fingerprint(&shard0)?;
         if admin_boundary_before != admin_boundary_after
             || xshard_boundary_before != xshard_boundary_after
@@ -7824,7 +7840,15 @@ mod tests {
         // The measurement modality of this cross-modal commit is written to the tsdb
         // SeriesStore, so the state MUST carry one (same setup the measurement +
         // reconciliation tests use) — without it the Commit fails writing the tsdb leg.
-        let series_store = Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let series_store = Arc::new(
+            SeriesStore::open_in_dir(
+                std::path::Path::new(&dir),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .unwrap(),
+        );
         let state = new_state(Some(dir.clone()));
         {
             let mut s = state.write().await;
@@ -7893,9 +7917,13 @@ mod tests {
         // Measurements are durable in the authoritative shard's SERIES tables
         // (same wtx, not series.redb).
         {
-            let series_db =
-                SeriesStore::open(std::path::Path::new(&dir).join(shard_filename(0)).as_path())
-                    .unwrap();
+            let series_db = SeriesStore::open(
+                std::path::Path::new(&dir).join(shard_filename(0)).as_path(),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .unwrap();
             let key = direct_test_series_key("media", "sensor");
             let meta = series_db.meta(&key).unwrap().expect("series durable");
             assert_eq!(meta.count, 2, "both measurement points durable");
@@ -7989,9 +8017,13 @@ mod tests {
 
         // And the measurement never landed durably either (the wtx never committed).
         {
-            let series_db =
-                SeriesStore::open(std::path::Path::new(&dir).join(shard_filename(0)).as_path())
-                    .unwrap();
+            let series_db = SeriesStore::open(
+                std::path::Path::new(&dir).join(shard_filename(0)).as_path(),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .unwrap();
             let key = direct_test_series_key("media", "sensor");
             assert!(
                 series_db.meta(&key).unwrap().is_none(),
@@ -8037,7 +8069,15 @@ mod tests {
 
         let backend: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
-        let series_store = Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let series_store = Arc::new(
+            SeriesStore::open_in_dir(
+                std::path::Path::new(&dir),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .unwrap(),
+        );
         let state = new_state(Some(dir.clone()));
         {
             let mut s = state.write().await;
@@ -8149,9 +8189,13 @@ mod tests {
         backend.shutdown();
         drop(backend);
         {
-            let series_db =
-                SeriesStore::open(std::path::Path::new(&dir).join(shard_filename(0)).as_path())
-                    .unwrap();
+            let series_db = SeriesStore::open(
+                std::path::Path::new(&dir).join(shard_filename(0)).as_path(),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .unwrap();
             let key = envelope_test_series_key("media", "sensor.ts-unify");
             let meta = series_db
                 .meta(&key)
@@ -8169,7 +8213,15 @@ mod tests {
             Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
         let state2 = new_state(Some(dir.clone()));
         backend2.load_all(&state2).await.unwrap();
-        let series_store2 = Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let series_store2 = Arc::new(
+            SeriesStore::open_in_dir(
+                std::path::Path::new(&dir),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .unwrap(),
+        );
         {
             let mut s = state2.write().await;
             s.auth_secret = SECRET.to_string();
@@ -8220,7 +8272,15 @@ mod tests {
 
         let backend: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
-        let series_store = Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let series_store = Arc::new(
+            SeriesStore::open_in_dir(
+                std::path::Path::new(&dir),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .unwrap(),
+        );
         let state = new_state(Some(dir.clone()));
         {
             let mut s = state.write().await;

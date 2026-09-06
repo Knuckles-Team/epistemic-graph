@@ -202,11 +202,11 @@ async fn resume_sparql_update_plan(
     if let Some(result) = saga.replayed.clone() {
         return Err(replay_sparql_update(coord, result).await);
     }
-    let encrypted = match eg_mutation_store::read_private_payload(
-        coord.redb.admin_mutation_store(),
-        &saga.batch.identity,
-        coord.parent_id,
-    ) {
+    let read = match coord.redb.admin_mutations_read() {
+        Ok(read) => read,
+        Err(error) => return Err(Response::err(coord.req_id, error)),
+    };
+    let encrypted = match eg_transaction::read_private_payload(&read, coord.parent_id) {
         Ok(Some(value)) => value,
         Ok(None) => {
             return Err(Response::err(
@@ -750,19 +750,27 @@ pub(super) async fn coordinated_sparql_http_update(
 mod coordinator_restart_tests {
     use super::*;
     use crate::mutation_batch::{MutationBatchStatus, MutationDomain, MutationSurface};
+    use eg_transaction::{read_ledger, read_private_payload};
 
-    /// Test-local [`eg_mutation_store::PrivatePayloadIntegrity`], mirroring
+    /// The coordinator owner file is ledger-only: receipts and sealed payloads.
+    type Owner = eg_storage::LedgerOnlyOwner;
+
+    /// The ONE physical owner file each test opens, and the principal + proof
+    /// bytes this module's grant authority accepts for it.
+    const TEST_PHYSICAL_STORE: &str = "epistemic-graph:sparql-coordinator-test";
+    const TEST_PRINCIPAL: &str = "principal:epistemic-graph:sparql-coordinator-test";
+    const TEST_PROOF: &[u8] = b"sparql-coordinator-test-scope-grant";
+
+    /// Test-local [`eg_storage::PrivatePayloadIntegrity`], mirroring
     /// `persistence::redb_backend::TxnRecoveryPrivateIntegrity` exactly (same
     /// unseal-then-compare-SHA-256 check) but keyed off the test's own in-memory
-    /// cipher instead of `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY`. These tests genuinely
-    /// seal and read real private (encrypted) coordinator-recovery payloads via
-    /// `prepare_saga_with_private_payload`/`read_private_payload`, so — exactly like
-    /// production — the store needs a real authority; passing `None` here would not
-    /// be a stub, it would be silently disabling the authentication these tests
-    /// exist to exercise.
+    /// cipher. These tests seal and read real private (encrypted) coordinator
+    /// recovery payloads, so — exactly like production — the store needs a real
+    /// authority; `None` here would not be a stub, it would silently disable the
+    /// authentication these tests exist to exercise.
     struct TestPrivateIntegrity(crate::crypto::ValueCipher);
 
-    impl eg_mutation_store::PrivatePayloadIntegrity for TestPrivateIntegrity {
+    impl eg_storage::PrivatePayloadIntegrity for TestPrivateIntegrity {
         fn authenticate(
             &self,
             sealed: &[u8],
@@ -780,17 +788,70 @@ mod coordinator_restart_tests {
         }
     }
 
-    fn private_integrity(
-        cipher: &crate::crypto::ValueCipher,
-    ) -> Option<Arc<dyn eg_mutation_store::PrivatePayloadIntegrity>> {
-        Some(Arc::new(TestPrivateIntegrity(cipher.clone())))
+    /// This module's composition root for scope grants (RF-RULING-004): these
+    /// tests have no engine root, so they decide their own. Not a permissive
+    /// stub — it is built for ONE layout and checks that layout, the scope
+    /// tenant, the principal AND the proof bytes, so any other layout, tenant,
+    /// principal or proof still fails closed.
+    struct TestScopeVerifier;
+
+    impl eg_storage::ScopeGrantVerifier for TestScopeVerifier {
+        fn verify(
+            &self,
+            _physical: &eg_storage::PhysicalStoreIdentity,
+            layout: eg_storage::OwnerLayout,
+            identity: &eg_types::MutationScopeIdentity,
+            principal: &str,
+            proof: &[u8],
+        ) -> Result<(), String> {
+            if layout != eg_storage::OwnerLayout::LedgerOnly
+                || identity.tenant().as_str() != "native"
+                || principal != TEST_PRINCIPAL
+                || proof != TEST_PROOF
+            {
+                return Err("sparql coordinator test scope grant rejected".to_string());
+            }
+            Ok(())
+        }
     }
 
-    fn parent_batch(
-        id: &str,
-        digest: &str,
-        event_type: &str,
-    ) -> crate::mutation_batch::MutationBatch {
+    /// Open (creating when absent) the coordinator owner file at `path` exactly
+    /// as a composition root does: the storage kernel, the one mutation kernel
+    /// it issues once, and the single authenticated, ledger-bootstrapped scope.
+    fn open_coordinator_store(
+        path: &std::path::Path,
+        identity: &eg_types::MutationScopeIdentity,
+        cipher: &crate::crypto::ValueCipher,
+    ) -> (
+        eg_storage::StorageKernelV1,
+        eg_transaction::MutationKernelV1,
+        eg_storage::OwnedStoreHandle<Owner>,
+    ) {
+        let physical = eg_storage::PhysicalStoreIdentity::new(TEST_PHYSICAL_STORE).unwrap();
+        let integrity: Option<Arc<dyn eg_storage::PrivatePayloadIntegrity>> =
+            Some(Arc::new(TestPrivateIntegrity(cipher.clone())));
+        let kernel = if path.exists() {
+            eg_storage::StorageKernelV1::open_owner::<Owner>(path, physical, integrity)
+        } else {
+            eg_storage::StorageKernelV1::create_owner::<Owner>(path, physical, integrity)
+        }
+        .unwrap();
+        let (kernel, authority) = kernel.into_read_and_mutation_authority().unwrap();
+        let mutations = eg_transaction::MutationKernelV1::new(authority);
+        let grant = kernel
+            .authenticate_scope::<Owner>(
+                &TestScopeVerifier,
+                identity.clone(),
+                TEST_PRINCIPAL.to_string(),
+                TEST_PROOF,
+            )
+            .unwrap();
+        let owner = kernel.bind_serving_scope(grant, 0).unwrap();
+        mutations.bootstrap_ledger(&owner).unwrap();
+        (kernel, mutations, owner)
+    }
+
+    fn parent_batch(id: &str, digest: &str, event_type: &str) -> eg_types::MutationBatch {
         crate::server::mutation_batch::compile_opaque_digest(
             crate::server::mutation_batch::CompileBatch {
                 batch_id: id,
@@ -834,38 +895,15 @@ mod coordinator_restart_tests {
         let batch = parent_batch("sparql-parent", &digest, SPARQL_RECOVERY_EVENT);
         let identity = batch.identity.clone();
         {
-            let store = eg_mutation_store::initialize(
-                &path,
-                &identity,
-                0,
-                private_integrity(&cipher),
-                |_wtx| Ok(()),
-            )
-            .unwrap();
-            assert!(matches!(
-                eg_mutation_store::prepare_saga_with_private_payload(
-                    &store,
-                    &batch,
-                    1,
-                    Some(&encrypted),
-                )
-                .unwrap(),
-                eg_mutation_store::SagaBegin::Execute
-            ));
+            let (_kernel, mutations, owner) = open_coordinator_store(&path, &identity, &cipher);
+            let begun = mutations.saga_step(&owner, &batch, 1, Some(&encrypted));
+            assert!(matches!(begun.unwrap(), eg_transaction::SagaBegin::Execute));
         }
-        let store = eg_mutation_store::initialize(
-            &path,
-            &identity,
-            0,
-            private_integrity(&cipher),
-            |_wtx| Ok(()),
-        )
-        .unwrap();
-        let record = eg_mutation_store::read_record(&store, &identity, &batch.batch_id)
-            .unwrap()
-            .unwrap();
+        let (kernel, _mutations, owner) = open_coordinator_store(&path, &identity, &cipher);
+        let read = kernel.read_scope(&owner).unwrap();
+        let record = read_ledger(&read, &batch.batch_id).unwrap().unwrap();
         assert_eq!(record.status, MutationBatchStatus::Prepared);
-        let recovered = eg_mutation_store::read_private_payload(&store, &identity, &batch.batch_id)
+        let recovered = read_private_payload(&read, &batch.batch_id)
             .unwrap()
             .unwrap();
         let opened: SparqlRecoveryPlanV1 = open_private_coordinator_plan_with_cipher(
@@ -911,62 +949,23 @@ mod coordinator_restart_tests {
         );
         let identity = parent.identity.clone();
         {
-            let store = eg_mutation_store::initialize(
-                &path,
-                &identity,
-                0,
-                private_integrity(&cipher),
-                |_wtx| Ok(()),
-            )
-            .unwrap();
-            eg_mutation_store::prepare_saga_with_private_payload(
-                &store,
-                &parent,
-                1,
-                Some(&parent_encrypted),
-            )
-            .unwrap();
-            eg_mutation_store::prepare_saga_with_private_payload(
-                &store,
-                &marker,
-                2,
-                Some(&marker_encrypted),
-            )
-            .unwrap();
+            let (_kernel, mutations, owner) = open_coordinator_store(&path, &identity, &cipher);
+            mutations
+                .saga_step(&owner, &parent, 1, Some(&parent_encrypted))
+                .unwrap();
+            mutations
+                .saga_step(&owner, &marker, 2, Some(&marker_encrypted))
+                .unwrap();
             let result = rmp_serde::to_vec_named(&ResultPayload::Bool(true)).unwrap();
-            eg_mutation_store::commit_saga(&store, &marker, result, 3).unwrap();
+            mutations.saga_end(&owner, &marker, result, 3).unwrap();
         }
-        let store = eg_mutation_store::initialize(
-            &path,
-            &identity,
-            0,
-            private_integrity(&cipher),
-            |_wtx| Ok(()),
-        )
-        .unwrap();
-        assert_eq!(
-            eg_mutation_store::read_record(&store, &identity, &parent.batch_id)
-                .unwrap()
-                .unwrap()
-                .status,
-            MutationBatchStatus::Prepared
-        );
-        assert_eq!(
-            eg_mutation_store::read_record(&store, &identity, &marker.batch_id)
-                .unwrap()
-                .unwrap()
-                .status,
-            MutationBatchStatus::Committed
-        );
-        assert!(
-            eg_mutation_store::read_private_payload(&store, &identity, &parent.batch_id)
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            eg_mutation_store::read_private_payload(&store, &identity, &marker.batch_id)
-                .unwrap()
-                .is_none()
-        );
+        let (kernel, _mutations, owner) = open_coordinator_store(&path, &identity, &cipher);
+        let read = kernel.read_scope(&owner).unwrap();
+        let status = |id: &str| read_ledger(&read, id).unwrap().unwrap().status;
+        assert_eq!(status(&parent.batch_id), MutationBatchStatus::Prepared);
+        assert_eq!(status(&marker.batch_id), MutationBatchStatus::Committed);
+        let sealed = |id: &str| read_private_payload(&read, id).unwrap();
+        assert!(sealed(&parent.batch_id).is_some());
+        assert!(sealed(&marker.batch_id).is_none());
     }
 }

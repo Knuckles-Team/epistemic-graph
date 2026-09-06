@@ -6,15 +6,26 @@
 //! entitled to serve one exact logical scope on one exact physical file under
 //! one exact layout. This binary IS that root, so this module is where that
 //! decision is made, once, for every store it owns.
+//! The policy it enforces is
+//! "this principal serves on behalf of THIS engine process", and the proof is
+//! the per-process secret that answers it: a proof minted by any other process,
+//! or presented for any other principal, is refused. The secret never leaves
+//! the process and is never persisted; the principal is stable, because it is
+//! written into every scope binding and every batch actor this engine records.
 //!
-//! The proof is a keyed digest over the four things the grant actually binds —
-//! the physical store identity, the owner layout, the scope binding digest and
-//! the principal — under a secret minted once per process. It is therefore not
-//! a constant a caller could forge from a source read: a proof issued for one
-//! store, layout or scope does not verify for another, and no proof issued by
-//! an earlier process verifies here. The secret never leaves the process and is
-//! never persisted; the principal is stable, because it is written into every
-//! scope binding and every batch actor this engine records.
+//! The proof is deliberately NOT bound to one `(physical, layout, scope)`
+//! triple. Domain crates open their own files: `RbacStore::open`,
+//! `StatechartStore::open`, `SeriesStore::open` and the rest take
+//! `(verifier, principal, proof)` and build the physical identity and the
+//! serving scope THEMSELVES, so the composition root cannot compute a
+//! triple-bound proof for them without every one of those crates first
+//! exporting its physical identity — five crates' worth of new public surface
+//! to re-state a fact the kernel already checks. And it does check it: the
+//! grant is verified against the store's OWN persisted manifest
+//! (`layout == D::LAYOUT` and `layout.accepts(identity)`,
+//! `eg_storage::StorageKernelV1::authenticate_scope`) before it can be bound,
+//! and a bound handle can only ever address the scope it was minted for. What
+//! is left for this authority to decide is exactly what it decides.
 //!
 //! There is exactly one authority per process. Handing a second one out would
 //! be a second grant authority for the same files, which is the shape
@@ -56,9 +67,17 @@ pub fn process_authority() -> &'static Arc<EngineScopeAuthority> {
     PROCESS_AUTHORITY.get_or_init(EngineScopeAuthority::new)
 }
 
+/// The same authority as an owned trait object, for the stores whose `open`
+/// takes `Arc<dyn ScopeGrantVerifier>` because they authenticate a new scope
+/// lazily, long after `open` returned (`eg_tsdb::SeriesStore`).
+pub fn process_verifier() -> Arc<dyn ScopeGrantVerifier> {
+    Arc::clone(process_authority()) as Arc<dyn ScopeGrantVerifier>
+}
+
 impl std::fmt::Debug for EngineScopeAuthority {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EngineScopeAuthority").finish_non_exhaustive()
+        f.debug_struct("EngineScopeAuthority")
+            .finish_non_exhaustive()
     }
 }
 
@@ -86,31 +105,15 @@ impl EngineScopeAuthority {
         ENGINE_PRINCIPAL
     }
 
-    /// The proof bytes for one exact `(physical, layout, scope)` triple.
-    pub fn proof(
-        &self,
-        physical: &PhysicalStoreIdentity,
-        layout: OwnerLayout,
-        identity: &MutationScopeIdentity,
-    ) -> Vec<u8> {
-        self.digest(physical, layout, identity, ENGINE_PRINCIPAL)
-            .to_vec()
+    /// The proof bytes every store this engine opens presents.
+    pub fn proof(&self) -> Vec<u8> {
+        self.digest(ENGINE_PRINCIPAL).to_vec()
     }
 
-    fn digest(
-        &self,
-        physical: &PhysicalStoreIdentity,
-        layout: OwnerLayout,
-        identity: &MutationScopeIdentity,
-        principal: &str,
-    ) -> [u8; 32] {
+    fn digest(&self, principal: &str) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(GRANT_PROOF_DOMAIN);
         hasher.update(self.secret);
-        hasher.update(physical.digest());
-        hasher.update(layout.canonical_name().as_bytes());
-        hasher.update([0u8]);
-        hasher.update(identity.binding_digest().as_bytes());
         hasher.update(principal.as_bytes());
         hasher.finalize().into()
     }
@@ -119,14 +122,14 @@ impl EngineScopeAuthority {
 impl ScopeGrantVerifier for EngineScopeAuthority {
     fn verify(
         &self,
-        physical: &PhysicalStoreIdentity,
-        layout: OwnerLayout,
-        identity: &MutationScopeIdentity,
+        _physical: &PhysicalStoreIdentity,
+        _layout: OwnerLayout,
+        _identity: &MutationScopeIdentity,
         principal: &str,
         proof: &[u8],
     ) -> Result<(), String> {
-        let expected = self.digest(physical, layout, identity, principal);
-        if proof.len() != expected.len() || !constant_time_eq(proof, &expected) {
+        let expected = self.digest(principal);
+        if !constant_time_eq(proof, &expected) {
             return Err("engine scope grant authority rejected".to_string());
         }
         Ok(())
@@ -146,65 +149,42 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 mod tests {
     use super::*;
 
-    fn scope(resource: &str) -> MutationScopeIdentity {
+    fn scope() -> MutationScopeIdentity {
         MutationScopeIdentity::fixed_native(
             "native",
             eg_types::mutation_batch::MutationDomain::ControlPlane,
-            resource,
+            "a",
             "test:v1",
         )
         .unwrap()
     }
 
-    fn physical(name: &str) -> PhysicalStoreIdentity {
-        PhysicalStoreIdentity::new(name).unwrap()
+    fn physical() -> PhysicalStoreIdentity {
+        PhysicalStoreIdentity::new("physical:test:a").unwrap()
     }
 
     #[test]
-    fn a_proof_verifies_for_exactly_the_triple_it_was_issued_for() {
+    fn this_process_authority_accepts_its_own_proof() {
         let authority = EngineScopeAuthority::new();
-        let store = physical("physical:test:a");
-        let identity = scope("a");
-        let proof = authority.proof(&store, OwnerLayout::TenantCatalog, &identity);
         assert!(authority
             .verify(
-                &store,
+                &physical(),
                 OwnerLayout::TenantCatalog,
-                &identity,
+                &scope(),
                 ENGINE_PRINCIPAL,
-                &proof
+                &authority.proof()
             )
             .is_ok());
-        for (other_store, other_layout, other_scope) in [
-            (physical("physical:test:b"), OwnerLayout::TenantCatalog, scope("a")),
-            (physical("physical:test:a"), OwnerLayout::NodeInfo, scope("a")),
-            (physical("physical:test:a"), OwnerLayout::TenantCatalog, scope("b")),
-        ] {
-            assert!(
-                authority
-                    .verify(
-                        &other_store,
-                        other_layout,
-                        &other_scope,
-                        ENGINE_PRINCIPAL,
-                        &proof
-                    )
-                    .is_err(),
-                "a grant proof must not carry to another store, layout or scope"
-            );
-        }
     }
 
     #[test]
     fn a_proof_from_another_authority_is_rejected() {
-        let store = physical("physical:test:a");
-        let identity = scope("a");
-        let proof = EngineScopeAuthority::new().proof(&store, OwnerLayout::ColdTier, &identity);
+        let proof = EngineScopeAuthority::new().proof();
         assert!(EngineScopeAuthority::new()
             .verify(
-                &store,
+                &physical(),
                 OwnerLayout::ColdTier,
-                &identity,
+                &scope(),
                 ENGINE_PRINCIPAL,
                 &proof
             )
@@ -212,19 +192,41 @@ mod tests {
     }
 
     #[test]
-    fn a_proof_for_another_principal_is_rejected() {
+    fn a_proof_presented_for_another_principal_is_rejected() {
         let authority = EngineScopeAuthority::new();
-        let store = physical("physical:test:a");
-        let identity = scope("a");
-        let proof = authority.proof(&store, OwnerLayout::ColdTier, &identity);
         assert!(authority
             .verify(
-                &store,
+                &physical(),
                 OwnerLayout::ColdTier,
-                &identity,
+                &scope(),
                 "principal:someone-else",
-                &proof
+                &authority.proof()
             )
             .is_err());
+    }
+
+    #[test]
+    fn an_empty_or_truncated_proof_is_rejected() {
+        let authority = EngineScopeAuthority::new();
+        let full = authority.proof();
+        for forged in [Vec::new(), full[..full.len() - 1].to_vec(), vec![0u8; 32]] {
+            assert!(authority
+                .verify(
+                    &physical(),
+                    OwnerLayout::ColdTier,
+                    &scope(),
+                    ENGINE_PRINCIPAL,
+                    &forged
+                )
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn the_process_authority_is_one_instance() {
+        assert!(std::sync::Arc::ptr_eq(
+            process_authority(),
+            process_authority()
+        ));
     }
 }

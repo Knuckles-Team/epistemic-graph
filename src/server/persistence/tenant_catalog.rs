@@ -49,7 +49,7 @@ const MAX_CATALOG_ENTRIES: usize = 1_000_000;
 const MAX_CATALOG_KEY_BYTES: usize = 4 * 1024;
 
 /// The `SidecarStore` identity for the catalog's kernel-owned owner file.
-const CATALOG_PHYSICAL_STORE: &str = "epistemic-graph:tenant-catalog";
+pub(crate) const CATALOG_PHYSICAL_STORE: &str = "epistemic-graph:tenant-catalog";
 const CATALOG_SCOPE_RESOURCE: &str = "tenant-catalog";
 const CATALOG_SCOPE_INCARNATION: &str = "tenant-catalog:v1";
 

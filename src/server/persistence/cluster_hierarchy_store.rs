@@ -27,7 +27,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use redb::TableDefinition;
+use redb::{ReadableTable, TableDefinition};
 
 /// The one owner table of `OwnerLayout::ClusterHierarchy`. `eg-storage`
 /// declares it; this module only names it (RF-RULING-004).
@@ -91,7 +91,7 @@ impl ClusterHierarchyStore {
         {
             let read = durable.read()?;
             let table = read.open_owner_table(CLUSTER_HIERARCHY)?;
-            for row in table.iter()? {
+            for row in table.iter().map_err(|e| e.to_string())? {
                 if entries.len() >= MAX_ENTRIES {
                     return Err("cluster hierarchy store exceeds resource limits".to_string());
                 }

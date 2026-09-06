@@ -207,6 +207,7 @@ fn every_owner_table_declares_its_partition_boundary() {
                             | OwnerLayout::Statechart
                             | OwnerLayout::Kv
                             | OwnerLayout::PathIndex
+                            | OwnerLayout::Blob
                             | OwnerLayout::RequestReplay
                             | OwnerLayout::VizProvenance
                             | OwnerLayout::ColdTier
@@ -431,9 +432,9 @@ fn signed_blob_layout_uses_domain_services_and_shared_cas_authority() {
     for (name, key, value, scope, codec, caps, access) in [
         (
             "cas_blobs",
-            "(&str,&str)",
+            "&str",
             "&[u8]",
-            TableScope::Serving,
+            TableScope::StorePrivate,
             "msgpack-v1",
             CAP_READ | CAP_INSERT | CAP_DELETE,
             OwnerTableAccess::DomainService,
@@ -458,9 +459,9 @@ fn signed_blob_layout_uses_domain_services_and_shared_cas_authority() {
         ),
         (
             "cas_uploads",
-            "(&str,u64)",
+            "u64",
             "&[u8]",
-            TableScope::Serving,
+            TableScope::StorePrivate,
             "msgpack-v1",
             CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
             OwnerTableAccess::DomainService,

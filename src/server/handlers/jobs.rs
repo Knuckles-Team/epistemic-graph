@@ -142,9 +142,14 @@ fn job_store(persist_dir: Option<&str>) -> Result<Arc<JobStore>, String> {
         })?;
     STORE
         .get_or_init(|| {
-            JobStore::open_in_dir(Path::new(persist_dir))
-                .map(Arc::new)
-                .map_err(|_| "analytics job projection is unavailable".to_string())
+            JobStore::open_in_dir(
+                Path::new(persist_dir),
+                crate::store_authority::process_authority().as_ref(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .map(Arc::new)
+            .map_err(|_| "analytics job projection is unavailable".to_string())
         })
         .clone()
 }

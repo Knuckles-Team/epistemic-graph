@@ -219,11 +219,40 @@ def _check_fault_seam_contract() -> list[str]:
     return errors
 
 
+# crates/eg-mutation-store is deleted (split into eg-storage's
+# StorageKernelV1 and eg-transaction's MutationKernelV1). The
+# MutationCommitPhase call sites and the commit() helper definition this
+# check pins now live in eg-transaction/src/commit.rs; the saga call site
+# that invokes it (`commit(write, batch)?;`) lives in the peer
+# eg-transaction/src/saga.rs. Found by tracing where `MutationCommitPhase::`
+# is actually referenced today, since the old
+# `crates/eg-mutation-store/src/lib.rs` this gate read never held that
+# content even before the deletion (it moved there only when the crate first
+# split into `store/*.rs` submodules -- this specific check appears to have
+# gone stale then and stayed stale until now; repointing it here restores
+# real enforcement, not just a path fix).
+_NATIVE_STORE_COMMIT_SOURCES = (
+    "crates/eg-transaction/src/commit.rs",
+    "crates/eg-transaction/src/saga.rs",
+)
+
+# `eg_mutation_store::finish`/`::commit` were free functions. Their
+# successors, `MutationKernelV1::{finish, commit}`, are ONLY reachable as
+# methods (eg-transaction/src/lib.rs re-exports no free finish/commit), so
+# every migrated consumer now calls them as `<kernel-field>.finish(&write, ` /
+# `<kernel-field>.commit(write` (observed across kv.rs, eg-tsdb, eg-jobs, and
+# eg-core's rbac_persist/durable_write.rs -- some inline, some split onto
+# their own line before `.finish`/`.commit`, so the check tolerates
+# whitespace between the receiver and the call).
+_MUTATION_KERNEL_FINISH_CALL = re.compile(r"\.mutations\s*\.finish\(&write")
+_MUTATION_KERNEL_COMMIT_CALL = re.compile(r"\.mutations\s*\.commit\(write")
+
+
 def _check_store_contract() -> list[str]:
     errors: list[str] = []
     graph_store = _read("src/redb_store.rs")
     sql_store = _read("crates/eg-query/src/tables/store.rs")
-    native_store = _read("crates/eg-mutation-store/src/lib.rs")
+    native_store = "\n".join(_read(path) for path in _NATIVE_STORE_COMMIT_SOURCES)
     phase_variants = {
         "MutationCommitPhase::BeforeRows",
         "MutationCommitPhase::AfterRowsBeforeMetadata",
@@ -236,8 +265,19 @@ def _check_store_contract() -> list[str]:
     _require(
         native_store,
         {
-            "pub fn commit(wtx: WriteTransaction, batch: &MutationBatch)",
-            "commit(wtx, batch)?;",
+            # `pub fn commit(wtx: WriteTransaction, batch: &MutationBatch)` ->
+            # `pub(crate) fn commit<D: OwnerDomain>(write: AdmittedMutation<'_,
+            # D>, batch: &MutationBatch)`: genuinely re-shaped (typed capability
+            # + generic domain, no longer a bare redb WriteTransaction, and
+            # crate-private rather than pub), not merely renamed -- pinned to
+            # the real current signature.
+            "pub(crate) fn commit<D: OwnerDomain>(\n"
+            "    write: AdmittedMutation<'_, D>,\n"
+            "    batch: &MutationBatch,\n"
+            ") -> Result<(), String> {",
+            # saga.rs's call site kept the same shape, only the parameter's
+            # name changed (wtx -> write).
+            "commit(write, batch)?;",
         },
         "native commit helper and saga",
         errors,
@@ -251,9 +291,15 @@ def _check_store_contract() -> list[str]:
         "crates/eg-core/src/rbac_persist.rs",
     ):
         source = _read(relative)
-        if "eg_mutation_store::finish" not in source:
+        if relative == "crates/eg-core/src/rbac_persist.rs":
+            # The actual write path lives in this declared submodule, not the
+            # rbac_persist.rs facade itself.
+            source += "\n" + _read("crates/eg-core/src/rbac_persist/durable_write.rs")
+        if "MutationKernelV1" not in source:
+            errors.append(f"{relative}: does not hold a native MutationKernelV1")
+        if not _MUTATION_KERNEL_FINISH_CALL.search(source):
             errors.append(f"{relative}: no native MutationBatch finish call")
-        if "eg_mutation_store::commit" not in source:
+        if not _MUTATION_KERNEL_COMMIT_CALL.search(source):
             errors.append(f"{relative}: native finish has no phase-aware commit helper")
     return errors
 

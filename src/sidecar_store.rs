@@ -57,21 +57,39 @@ impl<D: OwnerDomain> SidecarStore<D> {
         incarnation: &str,
         authority: &EngineScopeAuthority,
     ) -> Result<Self, String> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let physical = PhysicalStoreIdentity::new(physical_name)?;
         let identity = MutationScopeIdentity::fixed_native(
             SIDECAR_TENANT,
             eg_types::mutation_batch::MutationDomain::ControlPlane,
             resource,
             incarnation,
         )?;
-        let proof = authority.proof(&physical, D::LAYOUT, &identity);
+        Self::open_with(path, physical_name, identity, None, authority)
+    }
+
+    /// Open one owner file whose serving scope is not the fixed-native shape
+    /// [`Self::open`] builds, or which needs a private-payload integrity
+    /// authority.
+    ///
+    /// The admin-mutations coordinator store is both: its scope is
+    /// GRAPH-shaped (`native`/`cluster-admin`, which only `OwnerLayout::LedgerOnly`
+    /// accepts) and its sealed transaction-recovery plans are authenticated by
+    /// the transaction-recovery cipher.
+    pub fn open_with(
+        path: &Path,
+        physical_name: &str,
+        identity: MutationScopeIdentity,
+        private_integrity: Option<std::sync::Arc<dyn eg_storage::PrivatePayloadIntegrity>>,
+        authority: &EngineScopeAuthority,
+    ) -> Result<Self, String> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let physical = PhysicalStoreIdentity::new(physical_name)?;
+        let proof = authority.proof();
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<D>(path, physical, None)
+            StorageKernelV1::open_owner::<D>(path, physical, private_integrity)
         } else {
-            StorageKernelV1::create_owner::<D>(path, physical, None)
+            StorageKernelV1::create_owner::<D>(path, physical, private_integrity)
         }?;
         let (kernel, write_authority) = kernel.into_read_and_mutation_authority()?;
         let mutations = MutationKernelV1::new(write_authority);
@@ -93,6 +111,24 @@ impl<D: OwnerDomain> SidecarStore<D> {
     /// One scoped read over this owner file.
     pub fn read(&self) -> Result<ScopedRead<'_, D>, String> {
         self.kernel.read_scope(&self.owner)
+    }
+
+    /// The one mutation kernel this store issued, for a domain whose writes are
+    /// not owner-row writes — a saga, say, whose whole effect is ledger rows.
+    pub fn mutations(&self) -> &MutationKernelV1 {
+        &self.mutations
+    }
+
+    /// The one bound serving scope, the capability every kernel call takes.
+    pub fn owner(&self) -> &OwnedStoreHandle<D> {
+        &self.owner
+    }
+
+    /// The storage kernel that owns this file, for the recovery, backup and
+    /// fingerprint operations `eg_storage` defines over a whole store rather
+    /// than over one scope.
+    pub fn kernel(&self) -> &StorageKernelV1 {
+        &self.kernel
     }
 
     /// The scope's authoritative mutation version.
@@ -132,7 +168,8 @@ impl<D: OwnerDomain> SidecarStore<D> {
                 return Err(error);
             }
         }
-        self.mutations.finish(&write, &batch, None, 0, source_version)?;
+        self.mutations
+            .finish(&write, &batch, None, 0, source_version)?;
         self.mutations.commit(write, &batch)
     }
 }

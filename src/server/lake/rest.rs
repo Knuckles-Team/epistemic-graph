@@ -1075,8 +1075,13 @@ mod tests {
 
     fn seed() -> (LakeManager, RedbChunkStore) {
         let store = RedbChunkStore::open_temp().unwrap();
-        let tsdb =
-            SeriesStore::open_in_dir(&crate::server::unique_temp_dir("eg-lake-rest-test")).unwrap();
+        let tsdb = SeriesStore::open_in_dir(
+            &crate::server::unique_temp_dir("eg-lake-rest-test"),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        )
+        .unwrap();
         tsdb.append_batch(
             "rest.series1",
             1,

@@ -40,7 +40,7 @@ const MAX_NODE_INFO_ENTRIES: usize = 4_096;
 const MAX_NODE_INFO_FIELD_BYTES: usize = 4 * 1024;
 const MAX_CERTIFICATE_ID_BYTES: usize = 512;
 
-const NODE_INFO_PHYSICAL_STORE: &str = "epistemic-graph:node-info";
+pub(crate) const NODE_INFO_PHYSICAL_STORE: &str = "epistemic-graph:node-info";
 const NODE_INFO_SCOPE_RESOURCE: &str = "node-info";
 const NODE_INFO_SCOPE_INCARNATION: &str = "node-info:v1";
 

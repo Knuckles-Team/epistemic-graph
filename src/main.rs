@@ -646,7 +646,12 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
             Some(dir) => std::path::Path::new(dir).join("series.redb"),
             None => std::env::temp_dir().join(format!("eg-tsdb-{}.redb", std::process::id())),
         };
-        match eg_tsdb::store::SeriesStore::open(&path) {
+        match eg_tsdb::store::SeriesStore::open(
+            &path,
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        ) {
             Ok(s) => {
                 info!("Time-series store (tsdb): durable store ready");
                 Some(Arc::new(s))
@@ -732,7 +737,12 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     let isolation = {
         info!("RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant");
         let isolation = match args.persist_dir.as_deref() {
-            Some(dir) => match IsolationLayer::with_persist_dir(dir) {
+            Some(dir) => match IsolationLayer::with_persist_dir(
+                dir,
+                crate::store_authority::process_authority().as_ref(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            ) {
                 Ok(layer) => layer,
                 Err(error) => {
                     eprintln!("error: could not open durable identity/RBAC policy: {error}");

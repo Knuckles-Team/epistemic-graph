@@ -422,7 +422,7 @@ pub(crate) async fn try_handle(
         // returns `0`) — unlike `TsAppend`, which would double points on a blind retry. So
         // unlike `TsAppend`'s `append_scoped_batch`, these route through the store's plain
         // `evict_before_scoped`/`delete_scoped` (one redb write txn each, still commit-
-        // before-ack durable) rather than the `eg_mutation_store` idempotency-batch
+        // before-ack durable) rather than the `eg_transaction` idempotency-batch
         // machinery — there is no replay hazard here for that machinery to guard against.
         Method::TsEvict { series_id, cutoff } => {
             let store = match store_of(state, req_id).await {
@@ -580,7 +580,13 @@ mod nested_payload_tests {
     #[test]
     fn cross_actor_and_cross_tenant_reads_see_no_points_through_the_real_store() {
         let dir = tempfile::tempdir().expect("temp dir");
-        let store = SeriesStore::open(&dir.path().join("series.redb")).expect("open test store");
+        let store = SeriesStore::open(
+            &dir.path().join("series.redb"),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        )
+        .expect("open test store");
 
         let alice = CarrierAuthority::from_verified(
             &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(

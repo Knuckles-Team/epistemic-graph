@@ -169,13 +169,13 @@ pub type NodeId = u64;
 /// graph maps to one group via the [`multi::GroupRouter`]. It is the composite-key
 /// prefix the durable redb log + meta rows are keyed by, so ONE authoritative shard serves
 /// every group's log (the spike's FD-ceiling fix — no file per group).
-pub type GroupId = u64;
-
-/// The single default group every graph routes to in this increment (one group =
-/// today's single-group behavior, now with a durable redb log). Multi-group routing
-/// machinery exists ([`multi`]) and is proven by tests, but the default router maps
-/// all graphs here so behavior is unchanged from the single-group path.
-pub const DEFAULT_GROUP: GroupId = 0;
+///
+/// Defined by `eg_storage::direct_state`, not here: the direct-state whole-generation
+/// module inside the storage kernel is the other consumer of both, and the kernel may
+/// not depend on this binary. Re-exported so every `crate::raft::GroupId` /
+/// `crate::raft::DEFAULT_GROUP` path in this tree keeps naming the SAME type and
+/// constant rather than a second, silently-divergent pair.
+pub use eg_storage::direct_state::{GroupId, DEFAULT_GROUP};
 const RAFT_RESPONSE_SCHEMA_VERSION: u16 = 2;
 #[cfg(feature = "modality-serving")]
 const MAX_REPLICATED_MODALITY_STATE_BYTES: usize = 128 * 1024 * 1024;

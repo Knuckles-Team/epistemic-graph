@@ -26,15 +26,17 @@ def _gate_module():
 
 
 def _m1_sources(module):
+    # crates/eg-mutation-store is deleted; module.mutation_kernel_source() is
+    # its current-only successor (the union of eg-storage's StorageKernelV1
+    # and eg-transaction's MutationKernelV1 module trees). See that helper's
+    # docstring in scripts/check_persisted_mutation_contract.py.
     return (
         module.read_module_tree("crates/eg-types/src/mutation_batch.rs"),
-        module.read_module_tree("crates/eg-mutation-store/src/lib.rs"),
+        module.mutation_kernel_source(),
         module.read_module_tree(
             "crates/eg-types/src/mutation_batch.rs", include_tests=True
         ),
-        module.read_module_tree(
-            "crates/eg-mutation-store/src/lib.rs", include_tests=True
-        ),
+        module.mutation_kernel_source(include_tests=True),
         module.read_module_tree("src/graph_delta.rs"),
     )
 
@@ -302,7 +304,7 @@ def test_m1_semantic_inventory_rejects_partial_migration() -> None:
                 "activate_generation_pair(",
                 "purge_generation_pair(",
                 "purge_ann_cas_binding(",
-                "eg_mutation_store::begin_partial();",
+                "eg_transaction::begin_partial();",
             )
         ),
     }
@@ -534,20 +536,30 @@ def test_native_command_payload_limit_has_one_owner() -> None:
 
 def test_native_store_source_union_contains_root_and_scope_binding_lanes() -> None:
     module = _gate_module()
-    source = module.read_module_tree("crates/eg-mutation-store/src/lib.rs")
+    source = module.mutation_kernel_source()
     assert 'TableDefinition::new("mutation_store_root_v1")' in source
     assert 'TableDefinition::new("mutation_scope_bindings_v1")' in source
+    # NOT repointed -- left failing deliberately. `initialize<F>`/`bind_scope<F>`
+    # (caller-supplied-closure atomic bootstrap constructors) were deleted
+    # outright by 064f2d04, not renamed; their replacements
+    # (StorageKernelV1::{create_owner, open_owner} + authenticate_scope +
+    # bind_serving_scope) take no generic closure at all, so no current text
+    # satisfies this exact marker. See this task's report for the finding.
     assert "pub fn initialize<F>(" in source
     assert "pub fn bind_scope<F>(" in source
-    assert "pub struct MutationWrite" in source
+    # MutationWrite -> AdmittedMutation (the write capability admit() returns).
+    assert "pub struct AdmittedMutation<'a, D: OwnerDomain>" in source
     assert "MutationVersionScope" not in source
 
 
 def test_product_schema_one_is_disjoint_from_prototype_tables() -> None:
     module = _gate_module()
-    source = module.read_module_tree("crates/eg-mutation-store/src/lib.rs")
+    source = module.mutation_kernel_source()
 
-    assert "pub const MUTATION_STORE_SCHEMA_VERSION: u16 = 1;" in source
+    # Renamed STORAGE_KERNEL_SCHEMA_VERSION and bumped 1 -> 2 by b90e42a7
+    # (the same commit that closed the storage/ledger key split); re-baselined
+    # to the real current name/value.
+    assert "pub const STORAGE_KERNEL_SCHEMA_VERSION: u16 = 2;" in source
     for stem in (
         "mutation_store_root",
         "mutation_scope_bindings",

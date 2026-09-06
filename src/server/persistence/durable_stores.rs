@@ -145,6 +145,53 @@ pub const DURABLE_STORES: &[DurableStore] = &[
     ),
 ];
 
+/// The kernel owner authority of one bundled store: the exact
+/// `PhysicalStoreIdentity` name its owner opens the file under, and the
+/// `OwnerLayout` that owner declares.
+///
+/// A restore copies a bundled file, which always allocates a NEW inode, so the
+/// copy's `StoreIncarnation` can never match the one the bundle was stamped
+/// with and an ordinary open fails closed
+/// (SEC-FINDING-V1-INCARNATION-BREAKS-RESTORE-20260903). Staged adoption is the
+/// kernel's explicit substitution path, and it requires the caller to DECLARE
+/// what it expects the file to be — `eg_storage` no longer infers it. This
+/// registry already owns the bundled file-name list, so the declaration belongs
+/// here rather than being re-derived at the restore site.
+///
+/// `rbac.redb`'s identity string is `eg-core`'s (`RBAC_PHYSICAL_STORE`, a
+/// private const in `crates/eg-core/src/rbac_persist.rs`); it is restated here
+/// because that crate exports no accessor for it. The guard against the two
+/// drifting is `backup.rs`'s `backup_restore_carries_non_shard_durable_stores`,
+/// which reopens the restored `rbac.redb` through `RbacStore::open` — a
+/// mismatched identity fails that adoption closed.
+pub(crate) fn bundled_store_authority(
+    file_name: &str,
+) -> Option<(&'static str, eg_storage::OwnerLayout)> {
+    match file_name {
+        "admin-mutations.redb" => Some((
+            super::redb_backend::ADMIN_MUTATIONS_STORE,
+            eg_storage::OwnerLayout::LedgerOnly,
+        )),
+        "catalog.redb" => Some((
+            super::tenant_catalog::CATALOG_PHYSICAL_STORE,
+            eg_storage::OwnerLayout::TenantCatalog,
+        )),
+        "kv.redb" => Some((
+            crate::server::kv::KV_PHYSICAL_STORE,
+            eg_storage::OwnerLayout::Kv,
+        )),
+        "node_info.redb" => Some((
+            super::node_info_store::NODE_INFO_PHYSICAL_STORE,
+            eg_storage::OwnerLayout::NodeInfo,
+        )),
+        "rbac.redb" => Some((
+            "eg-core:rbac-security-control",
+            eg_storage::OwnerLayout::Rbac,
+        )),
+        _ => None,
+    }
+}
+
 /// The registry entry for `file_name`, or `None` when it is not a known durable store.
 pub fn lookup(file_name: &str) -> Option<&'static DurableStore> {
     DURABLE_STORES
@@ -253,6 +300,24 @@ impl BundledStoreSource for RbacBundledStore {
 mod tests {
     use super::*;
 
+    /// Every bundled store must declare the kernel authority a restore adopts it
+    /// under. A new bundled file with no entry would be copied and then silently
+    /// left un-adopted, which is the failure `bundled_store_authority`'s `None`
+    /// arm exists to make impossible.
+    #[test]
+    fn every_bundled_store_declares_its_restore_authority() {
+        for store in DURABLE_STORES
+            .iter()
+            .filter(|store| store.scope == BackupScope::Bundled)
+        {
+            assert!(
+                bundled_store_authority(store.file_name).is_some(),
+                "bundled store {} declares no restore authority",
+                store.file_name
+            );
+        }
+    }
+
     /// `*.redb` file names that appear in this crate's sources but are NOT durable
     /// stores under a served persist dir. Every entry is a deliberate classification,
     /// so `registry_covers_every_redb_store` can treat ANY other name as an
@@ -260,21 +325,21 @@ mod tests {
     const NOT_A_PERSIST_DIR_STORE: &[(&str, &str)] = &[
         (
             "native.redb",
-            "eg-mutation-store unit-test fixture (tempdir)",
+            "storage/mutation kernel unit-test fixture (tempdir)",
         ),
         (
             "prototype.redb",
-            "eg-mutation-store unit-test fixture (tempdir): a deliberately hand-built \
+            "storage/mutation kernel unit-test fixture (tempdir): a deliberately hand-built \
              legacy-named table used to prove reject_prototype_names quarantines it",
         ),
         (
             "source.redb",
-            "eg-mutation-store unit-test fixture (tempdir): the pre-backup store in the \
+            "storage/mutation kernel unit-test fixture (tempdir): the pre-backup store in the \
              backup_derives_a_distinct_physical_root_and_rebinds_scopes round-trip test",
         ),
         (
             "backup.redb",
-            "eg-mutation-store unit-test fixture (tempdir): the backup destination in the \
+            "storage/mutation kernel unit-test fixture (tempdir): the backup destination in the \
              backup_derives_a_distinct_physical_root_and_rebinds_scopes round-trip test",
         ),
         ("coordinator.redb", "dispatch unit-test fixture (tempdir)"),

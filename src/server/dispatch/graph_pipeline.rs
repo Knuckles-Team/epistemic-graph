@@ -3134,7 +3134,15 @@ mod eg318_dispatch_tests {
         ));
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(Arc::new(eg_tsdb::store::SeriesStore::open(&path).unwrap()));
+            s.tsdb_store = Some(Arc::new(
+                eg_tsdb::store::SeriesStore::open(
+                    &path,
+                    crate::store_authority::process_verifier(),
+                    crate::store_authority::process_authority().principal(),
+                    &crate::store_authority::process_authority().proof(),
+                )
+                .unwrap(),
+            ));
             // RBAC (`feature = "security"`) is the mandatory current access decision
             // for a non-System identity — `check_access` ignores `graph_owner`
             // entirely under this feature and evaluates ONLY `identity.roles`
@@ -3291,7 +3299,15 @@ mod eg318_dispatch_tests {
         ));
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(Arc::new(eg_tsdb::store::SeriesStore::open(&path).unwrap()));
+            s.tsdb_store = Some(Arc::new(
+                eg_tsdb::store::SeriesStore::open(
+                    &path,
+                    crate::store_authority::process_verifier(),
+                    crate::store_authority::process_authority().principal(),
+                    &crate::store_authority::process_authority().proof(),
+                )
+                .unwrap(),
+            ));
             #[cfg(feature = "security")]
             {
                 use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
@@ -3527,7 +3543,15 @@ mod eg318_dispatch_tests {
         ));
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(Arc::new(eg_tsdb::store::SeriesStore::open(&path).unwrap()));
+            s.tsdb_store = Some(Arc::new(
+                eg_tsdb::store::SeriesStore::open(
+                    &path,
+                    crate::store_authority::process_verifier(),
+                    crate::store_authority::process_authority().principal(),
+                    &crate::store_authority::process_authority().proof(),
+                )
+                .unwrap(),
+            ));
             s.isolation.add_role(Role::new("reader-acme-private"));
             s.isolation.add_grant(Grant {
                 role: "reader-acme-private".to_string(),

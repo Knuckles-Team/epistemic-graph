@@ -56,9 +56,14 @@ fn statechart_store(persist_dir: Option<&str>) -> Result<Arc<StatechartStore>, S
         })?;
     STORE
         .get_or_init(|| {
-            StatechartStore::open_in_dir(Path::new(persist_dir))
-                .map(Arc::new)
-                .map_err(|_| "statechart instance store is unavailable".to_string())
+            StatechartStore::open_in_dir(
+                Path::new(persist_dir),
+                crate::store_authority::process_authority().as_ref(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .map(Arc::new)
+            .map_err(|_| "statechart instance store is unavailable".to_string())
         })
         .clone()
 }
@@ -258,7 +263,16 @@ mod tests {
 
     fn tmp_store() -> (StatechartStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        (StatechartStore::open_in_dir(dir.path()).unwrap(), dir)
+        (
+            StatechartStore::open_in_dir(
+                dir.path(),
+                crate::store_authority::process_authority().as_ref(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .unwrap(),
+            dir,
+        )
     }
 
     /// A `CarrierAuthority` for a given `(actor, tenant)` pair, mirroring

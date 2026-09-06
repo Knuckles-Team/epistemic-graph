@@ -37,7 +37,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "redb")]
-use redb::TableDefinition;
+use redb::{ReadableTable, TableDefinition};
 
 /// The one owner table of `OwnerLayout::VizProvenance`. `eg-storage` declares
 /// it; this module only names it (RF-RULING-004).
@@ -134,7 +134,7 @@ impl VizProvenanceStore {
         {
             let read = durable.read()?;
             let table = read.open_owner_table(PROVENANCE_TABLE)?;
-            for row in table.iter()? {
+            for row in table.iter().map_err(|e| e.to_string())? {
                 if entries.len() >= MAX_ENTRIES {
                     return Err("viz provenance store exceeds resource limits".to_string());
                 }

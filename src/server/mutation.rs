@@ -4910,24 +4910,24 @@ mod tests {
         ("KvDelete", "native MutationBatch in kv.redb: KV row + status/fence/idempotency/outbox in one WTX"),
         ("KvCas", "native MutationBatch in kv.redb: CAS decision/row + exact result/coordinator metadata in one WTX"),
         ("TsAppend", "native MutationBatch in series.redb: series rows/projection + coordinator metadata in one WTX"),
-        ("TsEvict", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::evict_before_scoped -- no eg_mutation_store idempotency batch, because retention is content-idempotent (re-evicting an already-past cutoff is a safe no-op), unlike TsAppend"),
-        ("TsDeleteSeries", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::delete_scoped -- no eg_mutation_store idempotency batch, because deletion is content-idempotent (re-deleting an already-gone series is a safe no-op), unlike TsAppend"),
+        ("TsEvict", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::evict_before_scoped -- no eg_transaction idempotency batch, because retention is content-idempotent (re-evicting an already-past cutoff is a safe no-op), unlike TsAppend"),
+        ("TsDeleteSeries", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::delete_scoped -- no eg_transaction idempotency batch, because deletion is content-idempotent (re-deleting an already-gone series is a safe no-op), unlike TsAppend"),
         #[cfg(feature = "jobs")]
         ("AnalyticsJob", "native MutationBatch in jobs.redb; asynchronous claim writeback uses a staged graph MutationBatch"),
         // `Statechart` self-routes in dispatch.rs BEFORE dispatch_graph_op (see the
         // `Method::Statechart` arm there and `handlers::statechart` module docs) --
         // it never reaches this gateway's `try_handle_gateway`/`commit_mutation` at
         // all. `eg-statechart`'s `StatechartStore::instantiate`/`send_event` commit
-        // through `eg-mutation-store` (the SAME universal MutationBatch/OCC
+        // through `eg-transaction` (the SAME universal MutationBatch/OCC
         // primitive `eg-jobs` uses for `AnalyticsJob`, per eg-statechart/Cargo.toml)
         // against their OWN `statecharts.redb`, keyed by def_id/instance_id, not a
         // graph -- structurally identical to `AnalyticsJob` above, just gated
-        // `statechart` instead of `jobs`. Note: this is `eg-mutation-store` (a
+        // `statechart` instead of `jobs`. Note: this is `eg-transaction` (a
         // generic per-store OCC/durable-commit primitive shared by jobs/kv/blob/
         // series/statecharts), NOT this module's `GATEWAY_ROUTED`/`commit_mutation`
         // -- the two are easily conflated by name but are different mechanisms.
         #[cfg(feature = "statechart")]
-        ("Statechart", "native MutationBatch in statecharts.redb; instance define/instantiate/send_event commit status/version/fence/idempotency/outbox in one WTX via eg-mutation-store, exactly like AnalyticsJob in jobs.redb"),
+        ("Statechart", "native MutationBatch in statecharts.redb; instance define/instantiate/send_event commit status/version/fence/idempotency/outbox in one WTX via eg-transaction, exactly like AnalyticsJob in jobs.redb"),
         ("ImportSqliteFile", "native SQL-catalog MutationBatch: all imported tables + exact result/coordinator metadata in one WTX"),
         // ── Process-global registries on ServerState: opaque control-redb sagas,
         // no GraphCore/graph_name; dispatched directly in the top-level match. ──

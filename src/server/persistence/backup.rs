@@ -242,14 +242,9 @@ pub struct BackupReport {
     pub global: u64,
     pub xshard_prepares: u64,
     pub xshard_decisions: u64,
-    /// Rows copied from the tables this lane found missing from `backup`/
-    /// `restore` (WD5-BUG-04, same class as `shard_migrate.rs`'s `MigrationReport::
-    /// capability_and_resource`): every RESOURCE_*, development_lane_*,
-    /// capacity_lease_*, and work_item_capability row, plus provenance-anchor-
-    /// member rows and the WorkItem command sequence. Counted separately so a
-    /// backup/restore report makes this coverage independently auditable.
+    /// Aggregate of [`ShardCounts::capability_and_resource`] across every shard.
     pub capability_and_resource: u64,
-    pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
+    pub admin_mutations: eg_storage::RecoveryStoreCounts,
     /// Non-shard durable stores copied into the bundle, as `file name → rows copied`
     /// (CONCEPT:EG-KG.sharding.reshard-on-restore).
     pub bundled_stores: BTreeMap<String, u64>,
@@ -318,7 +313,7 @@ pub struct BackupManifest {
     #[serde(default)]
     pub capability_and_resource: u64,
     /// Integrity totals for the separate admin coordinator ledger.
-    pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
+    pub admin_mutations: eg_storage::RecoveryStoreCounts,
     /// Stable, non-secret encryption key identity required to open this bundle.
     /// `None` means the source store used plaintext values; no key material is ever
     /// written to the manifest.
@@ -760,6 +755,10 @@ pub(crate) fn write_bundle_shard(
             dst_path.display()
         ));
     }
+    // graph-shard layout blocker: `MutationScope::Graph` is accepted by NO
+    // table-owning `OwnerLayout` (`crates/eg-storage/src/owner/layout.rs`), so a
+    // graph shard has no layout it can bind and every shard-file open in this
+    // module stays on raw redb until one exists.
     let rtx = src_db.begin_read().map_err(|e| e.to_string())?;
     let dst_db =
         Database::create(dst_path).map_err(|e| format!("create {}: {e}", dst_path.display()))?;
@@ -903,11 +902,11 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     // a rename doesn't change it) and never opens a write transaction against
     // the file, so validating it here cannot perturb the digest check that
     // follows.
-    let admin = eg_mutation_store::open_read_only(
+    let admin = eg_storage::open_read_only(
         &admin_path,
         crate::server::persistence::redb_backend::admin_mutations_private_integrity(),
     )?;
-    let counts = eg_mutation_store::validate_recovery_store_read_only(&admin)?;
+    let counts = eg_storage::validate_recovery_store_read_only(&admin)?;
     if counts != manifest.admin_mutations {
         return Err("admin mutation coordinator totals do not match the manifest".to_string());
     }
@@ -930,7 +929,7 @@ pub struct RestoreReport {
     /// Verbatim row-import totals (EG-030 `MigrationReport`).
     pub migration: shard_migrate::MigrationReport,
     /// Validated coordinator receipts and encrypted staged recovery plans.
-    pub admin_mutations: eg_mutation_store::RecoveryStoreCounts,
+    pub admin_mutations: eg_storage::RecoveryStoreCounts,
     /// Non-shard durable store files copied back into the persist dir.
     pub restored_stores: Vec<String>,
 }
@@ -948,16 +947,11 @@ pub struct RestoreReport {
 /// be serving out of `persist_dir` while it is rebuilt.
 /// Whether every counter the migration reported matches the backup manifest.
 ///
-/// Extracted because WD5-BUG-04 added a tenth clause
-/// (`capability_and_resource`) to what was already a nine-clause `||` chain,
-/// and each `||` is a cyclomatic decision point — inline, it pushed
-/// `restore_bundle` from 20 to 21. The comparison is unchanged: same operands,
-/// same order, same short-circuit semantics (De Morgan: the `||`-of-`!=` guard
-/// becomes an `&&`-of-`==` predicate, negated at the call site).
-///
-/// This cross-check is what makes the 30-table routing fix meaningful: if a
-/// restore silently dropped a subsystem, the counts diverge HERE rather than
-/// producing a quietly incomplete database.
+/// Extracted to keep `restore_bundle` under the cyclomatic cap; the comparison
+/// is unchanged (De Morgan: the `||`-of-`!=` guard is an `&&`-of-`==` predicate,
+/// negated at the call site). This cross-check is what makes the 30-table routing
+/// fix meaningful: if a restore silently dropped a subsystem the counts diverge
+/// HERE rather than producing a quietly incomplete database.
 fn restored_totals_match_manifest(
     migration: &shard_migrate::MigrationReport,
     manifest: &BackupManifest,
@@ -1022,22 +1016,19 @@ pub fn restore_bundle(
         return Err("restore target already contains an admin mutation store".to_string());
     }
     std::fs::copy(&admin_source, &admin_target).map_err(|error| error.to_string())?;
-    // SEC-FINDING-V1-INCARNATION-BREAKS-RESTORE-20260903, resolved: `std::fs::copy`
-    // just above always allocates a NEW inode, so `admin_target`'s physical
-    // identity can never equal the one `backup_recovery_store` stamped into it
-    // at backup time — that mismatch is real and `initialize`/`open_read_only`
-    // correctly keep failing closed on it, because ordinarily it means a live
-    // store file was substituted. A restore is an INTENDED substitution, so
-    // `adopt_restored_store` is the one named, explicit operation that proves
-    // every OTHER recovery invariant holds for the copied bytes (under the
-    // incarnation they were stamped with) before re-stamping STORE_ROOT and
-    // every SCOPE_BINDINGS row to this file's actual, freshly-derived physical
-    // identity. From this point on `restored_admin` is an ordinary live store.
-    let restored_admin = eg_mutation_store::adopt_restored_store(
+    // SEC-FINDING-V1-INCARNATION-BREAKS-RESTORE-20260903: the `std::fs::copy` above
+    // always allocates a NEW inode, so the copy's incarnation can never match the one
+    // the bundle was stamped with and every ordinary open fails closed. A restore is
+    // an INTENDED substitution and needs the kernel's explicit staged adoption, which
+    // re-anchors the physical root and every scope binding to the new inode after
+    // proving the image is byte-identical to what it validated.
+    let restored_admin = adopt_bundled_store(
         &admin_target,
+        ADMIN_MUTATIONS_FILE,
         crate::server::persistence::redb_backend::admin_mutations_private_integrity(),
-    )?;
-    let admin_mutations = eg_mutation_store::validate_recovery_store(&restored_admin)?;
+    )?
+    .ok_or_else(|| "admin mutation store is not a declared bundled owner".to_string())?;
+    let admin_mutations = eg_storage::validate_recovery_store(&restored_admin)?;
     if admin_mutations != manifest.admin_mutations {
         return Err("restored admin mutation coordinator totals changed".to_string());
     }
@@ -1051,18 +1042,12 @@ pub fn restore_bundle(
             return Err("restore target already contains a bundled durable store".to_string());
         }
         std::fs::copy(bundle_dir.join(name), &target).map_err(|error| error.to_string())?;
-        // A copied file is a NEW inode, so any mutation-store-backed bundled
-        // store (`rbac.redb`, `kv.redb`) carries an incarnation that no longer
-        // describes it, and version rows whose scope bindings still point at the
-        // old identity. Reopening one through its owner's ordinary `open` then
-        // fails closed with "mutation version row exists without a scope
-        // binding" -- which is what BUG-PE-054's reopen assertion caught.
-        //
-        // Adopt it here, at the restore boundary, so every owner's normal
-        // fail-closed open path stays exactly as strict as it is for a live
-        // store. Plain redb stores in the bundle are not mutation stores and are
-        // returned as `None` rather than being mistaken for a corrupt one.
-        eg_mutation_store::adopt_restored_store_if_mutation_store(&target, None)
+        // A copied file is a NEW inode, so a kernel-owned bundled store carries an
+        // incarnation that no longer describes it and its owner's ordinary `open`
+        // fails closed (what BUG-PE-054's reopen assertion caught). Adoption belongs
+        // here, at the restore boundary. The expected authority is DECLARED by
+        // `durable_stores::bundled_store_authority` — the kernel no longer infers it.
+        adopt_bundled_store(&target, name, None)
             .map_err(|error| format!("restore adopt {name}: {error}"))?;
         restored_stores.push(name.clone());
     }
@@ -1073,6 +1058,30 @@ pub fn restore_bundle(
         admin_mutations,
         restored_stores,
     })
+}
+
+/// Adopt one restored bundled store into its new inode.
+///
+/// Returns `None` for a bundled file that declares no kernel owner authority —
+/// there is none today, and the `None` arm is what makes a future plain bundled
+/// file fail loudly at its own call site rather than being adopted as something
+/// it is not.
+fn adopt_bundled_store(
+    path: &std::path::Path,
+    file_name: &str,
+    private_integrity: Option<std::sync::Arc<dyn eg_storage::PrivatePayloadIntegrity>>,
+) -> Result<Option<eg_storage::StorageKernelV1>, String> {
+    let Some((physical_name, layout)) = super::durable_stores::bundled_store_authority(file_name)
+    else {
+        return Ok(None);
+    };
+    let staged = eg_storage::inspect_staged_mutation_store(
+        path,
+        eg_storage::PhysicalStoreIdentity::new(physical_name)?,
+        layout,
+        private_integrity,
+    )?;
+    eg_storage::adopt_staged_mutation_store(staged).map(Some)
 }
 
 #[cfg(test)]
@@ -1432,7 +1441,14 @@ mod tests {
             teams: Vec::new(),
             roles: vec!["reader".to_string()],
         };
-        let rbac = eg_core::rbac_persist::RbacStore::open(&src).expect("open rbac store");
+        let authority = crate::store_authority::process_authority();
+        let rbac = eg_core::rbac_persist::RbacStore::open(
+            &src,
+            authority.as_ref(),
+            authority.principal(),
+            &authority.proof(),
+        )
+        .expect("open rbac store");
         let mut identities = std::collections::BTreeMap::new();
         identities.insert(identity.agent_id.clone(), identity);
         rbac.save(
@@ -1494,8 +1510,13 @@ mod tests {
             );
         }
         // The restored engine knows the identity again — the whole point of BUG-PE-054.
-        let restored_rbac =
-            eg_core::rbac_persist::RbacStore::open(&restored).expect("reopen restored rbac");
+        let restored_rbac = eg_core::rbac_persist::RbacStore::open(
+            &restored,
+            authority.as_ref(),
+            authority.principal(),
+            &authority.proof(),
+        )
+        .expect("reopen restored rbac");
         let (_, restored_identities, bootstrap) = restored_rbac.load().expect("load identities");
         assert!(
             restored_identities.contains_key("restore-probe"),
@@ -1579,7 +1600,7 @@ mod tests {
             "graphs": 0, "nodes": 0, "edges": 0, "ledger": 0, "semantic": 0, "audit": 0,
             "auxiliary": 0, "global": 0,
             "xshard_prepares": 0, "xshard_decisions": 0,
-            "admin_mutations": eg_mutation_store::RecoveryStoreCounts::default(),
+            "admin_mutations": eg_storage::RecoveryStoreCounts::default(),
             "bundled_stores": {},
             "excluded_stores": {},
             "file_digests": {},

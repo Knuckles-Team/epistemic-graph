@@ -371,7 +371,14 @@ mod tests {
         // `IsolationLayer::with_persist_dir` below — `redb::Database` does not
         // support two concurrently-open handles onto the same file.
         {
-            let store = RbacStore::open(&directory).expect("open durable policy store");
+            let authority = crate::store_authority::process_authority();
+            let store = RbacStore::open(
+                &directory,
+                authority.as_ref(),
+                authority.principal(),
+                &authority.proof(),
+            )
+            .expect("open durable policy store");
             store
                 .save(&policy, &identities, IdentityBootstrapState::Consumed)
                 .expect("save authorized policy");
@@ -384,8 +391,14 @@ mod tests {
         // duplicating the authorization decision. Mint through
         // `IsolationLayer::mint_policy_decision_lease` instead, over an
         // `IsolationLayer` reopened from the SAME durable directory.
-        let isolation = IsolationLayer::with_persist_dir(&directory)
-            .expect("reopen isolation layer over durable store");
+        let authority = crate::store_authority::process_authority();
+        let isolation = IsolationLayer::with_persist_dir(
+            &directory,
+            authority.as_ref(),
+            authority.principal(),
+            &authority.proof(),
+        )
+        .expect("reopen isolation layer over durable store");
         let verified_context =
             crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
                 "alice", "tenant",

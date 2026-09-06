@@ -973,7 +973,12 @@ fn probe_analytics(
     let path = probe_file(root, row_id, scale, seed, repetition);
     let _ = std::fs::remove_file(&path);
     let result = (|| -> Result<Observation, ProbeError> {
-        let store = JobStore::open(&path)?;
+        let store = JobStore::open(
+            &path,
+            crate::store_authority::process_authority().as_ref(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        )?;
         let mut last = None;
         for index in 0..scale {
             last = Some(store.submit(job_spec(index))?);
@@ -986,7 +991,12 @@ fn probe_analytics(
                     .and_then(|job| job_number(&job.job_id))
                     .ok_or("job id was not monotonic")?;
                 drop(store);
-                let reopened = JobStore::open(&path)?;
+                let reopened = JobStore::open(
+                    &path,
+                    crate::store_authority::process_authority().as_ref(),
+                    crate::store_authority::process_authority().principal(),
+                    &crate::store_authority::process_authority().proof(),
+                )?;
                 let (next, latency) = timed(|| reopened.submit(job_spec(scale)));
                 let next = next?;
                 Ok(Observation {

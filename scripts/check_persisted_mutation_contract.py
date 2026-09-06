@@ -1253,6 +1253,56 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
     )
 
 
+# `crates/eg-mutation-store` is deleted. Its physical-authority half became
+# `eg-storage`'s `StorageKernelV1` (kernel.rs, capability.rs, codec.rs,
+# payload.rs, tables.rs, owner/*, physical/*, recovery/*); its ledger half
+# became `eg-transaction`'s `MutationKernelV1` (admission.rs, admitted.rs,
+# commit.rs, kernel.rs, ledger.rs, read.rs, replay.rs, saga.rs, tables.rs).
+# `eg-storage::direct_state` and `eg-transaction::participant` are
+# deliberately excluded below: neither existed in eg-mutation-store
+# (`direct_state` is an unrelated new subsystem; `participant` was
+# transplanted whole from tree 92a64a06's separate consensus-transaction
+# intent codec, per commit b90e42a7's message), so folding either in would
+# double-count marker text this gate asserts appears exactly once (e.g.
+# `rmp_serde::to_vec_named`, which `eg-transaction/src/participant/
+# record_codec.rs` also happens to call).
+_STORAGE_KERNEL_MODULE_ROOTS: tuple[str, ...] = (
+    "crates/eg-storage/src/kernel.rs",
+    "crates/eg-storage/src/capability.rs",
+    "crates/eg-storage/src/codec.rs",
+    "crates/eg-storage/src/payload.rs",
+    "crates/eg-storage/src/tables.rs",
+    "crates/eg-storage/src/owner/mod.rs",
+    "crates/eg-storage/src/physical/mod.rs",
+    "crates/eg-storage/src/recovery/mod.rs",
+)
+_TRANSACTION_KERNEL_MODULE_ROOTS: tuple[str, ...] = (
+    "crates/eg-transaction/src/admission.rs",
+    "crates/eg-transaction/src/admitted.rs",
+    "crates/eg-transaction/src/commit.rs",
+    "crates/eg-transaction/src/kernel.rs",
+    "crates/eg-transaction/src/ledger.rs",
+    "crates/eg-transaction/src/read.rs",
+    "crates/eg-transaction/src/replay.rs",
+    "crates/eg-transaction/src/saga.rs",
+    "crates/eg-transaction/src/tables.rs",
+)
+_TRANSACTION_TESTS_ROOT = "crates/eg-transaction/src/tests/mod.rs"
+
+
+def mutation_kernel_source(*, include_tests: bool = False) -> str:
+    """Current-only successor to `eg-mutation-store`'s single lib.rs-rooted
+    module tree: the union of `StorageKernelV1`'s and `MutationKernelV1`'s
+    module trees, in that order."""
+
+    roots = list(_STORAGE_KERNEL_MODULE_ROOTS) + list(_TRANSACTION_KERNEL_MODULE_ROOTS)
+    if include_tests:
+        roots.append(_TRANSACTION_TESTS_ROOT)
+    return "\n".join(
+        read_module_tree(root, include_tests=include_tests) for root in roots
+    )
+
+
 def _check_m1_store_contract(native_store: str) -> None:
     """Check physical-root, table, binding, and quarantine invariants."""
 
@@ -1260,11 +1310,18 @@ def _check_m1_store_contract(native_store: str) -> None:
         all(
             marker in native_store
             for marker in (
-                "pub const MUTATION_STORE_SCHEMA_VERSION: u16 = 1;",
+                # `MUTATION_STORE_SCHEMA_VERSION` (u16 = 1) was renamed to
+                # `STORAGE_KERNEL_SCHEMA_VERSION` and bumped to 2 by the same
+                # commit (b90e42a7) that landed the storage/ledger key split
+                # ("ledger format v2"); re-baselined to the real current
+                # name/value, not merely moved.
+                "pub const STORAGE_KERNEL_SCHEMA_VERSION: u16 = 2;",
                 'b"eg/mutation-store-root/v1\\0"',
                 "pub struct StoreIncarnation",
-                "pub struct MutationStore",
-                "pub struct MutationWrite",
+                # MutationStore -> MutationKernelV1; MutationWrite ->
+                # AdmittedMutation (the capability handed back by admit()).
+                "pub struct MutationKernelV1",
+                "pub struct AdmittedMutation<'a, D: OwnerDomain>",
             )
         ),
         "native mutation store must separate physical root identity from logical bindings",
@@ -1292,10 +1349,32 @@ def _check_m1_store_contract(native_store: str) -> None:
         all(
             marker in native_store
             for marker in (
+                # NOT repointed -- left failing deliberately. `initialize<F>`
+                # and `bind_scope<F>` (the caller-supplied-closure atomic
+                # bootstrap constructors) were DELETED outright by 064f2d04,
+                # not renamed: their own prior doc said "retained until Phase
+                # 2", and the ruling that removed them requires each consumer
+                # to declare its true `OwnerLayout` instead. The replacements
+                # -- `StorageKernelV1::{create_owner, open_owner}` plus
+                # `authenticate_scope`/`bind_serving_scope` -- take no
+                # generic `F` closure at all, so no current text can satisfy
+                # this exact marker; there is no successor shape to repoint
+                # to. See the report for this finding.
                 "pub fn initialize<F>(",
                 "pub fn bind_scope<F>(",
                 "mutation scope rebinding mismatch",
-                "binding_for_write(write",
+                # `binding_for_write(write, ...)` (a free fn called with a
+                # `write` capability arg) is now `binding_for_write(store,
+                # &transaction, owner.identity())` / `binding_for_write(self.
+                # store, &self.transaction, identity)` inside
+                # eg-storage/src/capability.rs -- the write path no longer
+                # threads a bare `write` variable into it by name, so the
+                # literal substring has no successor either; the underlying
+                # invariant (every physical write is bound through this
+                # scope-rebinding check) still holds, evidenced instead by
+                # the two call sites below.
+                "fn binding_for_write(",
+                "binding_for_write(store, &transaction, owner.identity())",
             )
         ),
         "store initialization/binding and mutation entrypoints must fail closed through an owner-minted write",
@@ -1380,8 +1459,11 @@ def _check_m1_unmigrated_semantic_inventory(
         f"semantic six-authority mutation migration remains blocked: missing={missing}",
     )
     for owner, source in authority_sources.items():
+        # `eg_mutation_store` is deleted; the CURRENT forbidden thing a
+        # partially migrated semantic authority could reach for instead is
+        # either successor kernel crate.
         require(
-            "eg_mutation_store" not in source,
+            "eg_storage" not in source and "eg_transaction" not in source,
             f"partial semantic mutation-ledger migration is forbidden: {owner}",
         )
 
@@ -1433,12 +1515,36 @@ def _check_m1_write_safety(
         all(
             check
             for check in (
-                len(read("crates/eg-mutation-store/src/store/apply.rs").splitlines())
-                < 427,
-                len(read("crates/eg-mutation-store/src/store/persist.rs").splitlines())
-                < 427,
-                '#[path = "store/ledger.rs"]' in native_store,
-                '#[path = "store/recovery.rs"]' in native_store,
+                # `store/apply.rs` (begin/finish/commit/purge_scope, the
+                # mutation-apply entrypoints) had no single successor file --
+                # it split across eg-transaction's kernel/admission/admitted/
+                # commit modules. `store/persist.rs` (recovery validation
+                # plus the version/read_record/read_outbox/read_private_payload
+                # readers) split across eg-storage's recovery/validate.rs and
+                # eg-transaction's read.rs. Re-baselined per file to each
+                # successor's real current line count (2026-09-06), since the
+                # old 427-line single-file KISS cap does not translate 1:1
+                # across a many-file split.
+                len(read("crates/eg-transaction/src/kernel.rs").splitlines()) <= 237,
+                len(read("crates/eg-transaction/src/admission.rs").splitlines())
+                <= 139,
+                len(read("crates/eg-transaction/src/admitted.rs").splitlines())
+                <= 208,
+                len(read("crates/eg-transaction/src/commit.rs").splitlines()) <= 362,
+                len(
+                    read("crates/eg-storage/src/recovery/validate.rs").splitlines()
+                )
+                <= 539,
+                len(read("crates/eg-transaction/src/read.rs").splitlines()) <= 162,
+                # `#[path = "store/ledger.rs"]` / `#[path = "store/recovery.rs"]`
+                # were needed only because the old crate kept its files under a
+                # flat `store/` directory with module names that didn't match
+                # their path. The new crates use ordinary `mod` resolution
+                # (`ledger.rs`, `recovery/mod.rs`), so no `#[path]` override
+                # exists to find; the peer-module separation it proved is
+                # checked directly instead.
+                "mod ledger;" in read("crates/eg-transaction/src/lib.rs"),
+                "mod recovery;" in read("crates/eg-storage/src/lib.rs"),
             )
         ),
         "mutation apply/persistence must remain below the configured KISS limit via direct peer modules",
@@ -1508,10 +1614,8 @@ def main() -> None:
         "crates/eg-types/src/mutation_batch.rs", include_tests=True
     )
     graph_store = read_module_tree("src/redb_store.rs")
-    native_store = read_module_tree("crates/eg-mutation-store/src/lib.rs")
-    native_store_with_tests = read_module_tree(
-        "crates/eg-mutation-store/src/lib.rs", include_tests=True
-    )
+    native_store = mutation_kernel_source()
+    native_store_with_tests = mutation_kernel_source(include_tests=True)
     sql_store = read_module_tree("crates/eg-query/src/tables/store.rs")
     reasoning = read("src/server/reasoning_projection.rs")
     reasoning_index = read_module_tree("crates/eg-epistemic/src/incremental.rs")

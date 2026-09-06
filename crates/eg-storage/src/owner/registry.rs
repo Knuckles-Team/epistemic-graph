@@ -85,11 +85,9 @@ const SQL_SCHEMA_MIGRATION_ORDER: TableDefinition<'static, (&str, &str, u64), &s
 const SQL_SCHEMA_CATALOG_ORDER: TableDefinition<'static, (&str, u64), &str> =
     TableDefinition::new("__sql_schema_catalog_order__");
 const BLOB_CHUNKS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cas_chunks");
-const BLOB_OBJECTS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("cas_blobs");
+const BLOB_OBJECTS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cas_blobs");
 const BLOB_REFS: TableDefinition<'static, &str, u64> = TableDefinition::new("cas_refcount");
-const BLOB_UPLOADS: TableDefinition<'static, (&str, u64), &[u8]> =
-    TableDefinition::new("cas_uploads");
+const BLOB_UPLOADS: TableDefinition<'static, u64, &[u8]> = TableDefinition::new("cas_uploads");
 const SEMANTIC_BINDINGS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
     TableDefinition::new("semantic_bindings_v1");
 const SEMANTIC_HEADS: TableDefinition<'static, (&str, &str), u64> =

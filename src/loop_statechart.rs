@@ -694,7 +694,14 @@ mod tests {
     #[test]
     fn end_to_end_through_the_durable_store_reaches_stalled() {
         let dir = tempfile::tempdir().unwrap();
-        let store = eg_statechart::StatechartStore::open_in_dir(dir.path()).unwrap();
+        let authority = crate::store_authority::process_authority();
+        let store = eg_statechart::StatechartStore::open_in_dir(
+            dir.path(),
+            authority.as_ref(),
+            authority.principal(),
+            &authority.proof(),
+        )
+        .unwrap();
         let def_id = store.define(&def()).unwrap();
         let instance = store
             .instantiate(&def_id, Context::new(), "tenant-a", "loop-driver")

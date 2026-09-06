@@ -318,7 +318,7 @@ fn finish_batch(
     // file + `handlers/graph_ops.rs`), so the fix lives here: branch on the same
     // feature the producer is gated on, and for the `not(redb)` arm, encode the
     // identical payload shape locally rather than making `redb_store` unconditional
-    // (which would pull the `redb`/`eg-mutation-store` deps into every slim build).
+    // (which would pull the `redb`/`eg-storage`/`eg-transaction` deps into every slim build).
     #[cfg(feature = "redb")]
     let summary = crate::redb_store::projection_payload_for_operations(&operations)?;
     #[cfg(not(feature = "redb"))]

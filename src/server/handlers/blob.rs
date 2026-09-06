@@ -373,7 +373,7 @@ pub(crate) fn compile_blob_batch(
 /// two independent connections from the same tenant/actor calling
 /// `BlobBegin()` with the same default `chunk_size` as their first RPC
 /// produced the EXACT SAME idempotency key. The engine's
-/// `eg_mutation_store::begin` idempotency ledger never expires (by design —
+/// `eg_transaction::MutationKernelV1::admit` idempotency ledger never expires (by design —
 /// it survives an acknowledgement-lost retry across a coordinator restart),
 /// so the SECOND connection's `BlobBegin` silently REPLAYED the first
 /// connection's already-committed result: the FIRST connection's cursor id,
