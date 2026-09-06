@@ -1,7 +1,8 @@
 use crate::kernel::{create_physical, open_physical};
 use crate::owner::contract::{CAP_CAS, CAP_DELETE, CAP_INSERT, CAP_READ, CAP_UPDATE};
 use crate::owner::identity::PhysicalStoreIdentity;
-use crate::owner::layout::{OwnerLayout, LEDGER_TABLE_NAMES, OWNER_LAYOUT_DOMAINS};
+use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
+use crate::tables::ledger_table_names;
 use crate::owner::registry::{
     declared_table_names, is_known_mutation_table, owner_table_names, KV,
 };
@@ -13,19 +14,23 @@ use redb::{MultimapTableDefinition, ReadableDatabase, TableDefinition};
 
 #[test]
 fn owner_layout_registry_has_frozen_cardinality() {
-    // The physical ledger has exactly 17 tables total. OWNER_MANIFEST is one
-    // of those 17; it is not an eighteenth table. Ledger format v2 added the
-    // two replay tables (`mutation_replay_nonces_v1`,
-    // `mutation_replay_operations_v1`) to the closed census.
-    assert_eq!(LEDGER_TABLE_NAMES.len(), 17);
+    // The physical ledger has exactly 18 tables total. OWNER_MANIFEST is one
+    // of those 18; it is not a nineteenth table. Ledger format v2 added the two
+    // replay tables (`mutation_replay_nonces_v1`,
+    // `mutation_replay_operations_v1`) and the mutation-class label
+    // (`mutation_classes_v1`, which makes a maintenance write explicit) to the
+    // closed census.
+    assert_eq!(ledger_table_names().len(), 18);
     assert_eq!(owner_table_names(OwnerLayout::LedgerOnly).len(), 0);
     assert_eq!(owner_table_names(OwnerLayout::Rbac).len(), 1);
     assert_eq!(owner_table_names(OwnerLayout::Jobs).len(), 13);
     assert_eq!(owner_table_names(OwnerLayout::Statechart).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::TimeSeries).len(), 3);
-    assert_eq!(owner_table_names(OwnerLayout::Kv).len(), 1);
+    assert_eq!(owner_table_names(OwnerLayout::Kv).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::Blob).len(), 4);
-    assert_eq!(owner_table_names(OwnerLayout::SemanticIndex).len(), 15);
+    assert_eq!(owner_table_names(OwnerLayout::SemanticIndex).len(), 16);
+    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 20);
+    assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
 }
 
 #[test]
@@ -39,14 +44,16 @@ fn public_declared_table_projection_is_exact_and_sorted() {
         OwnerLayout::Kv,
         OwnerLayout::Blob,
         OwnerLayout::SemanticIndex,
+        OwnerLayout::Sql,
+        OwnerLayout::PathIndex,
     ] {
         let names = declared_table_names(layout);
         assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
         assert_eq!(
             names.len(),
-            LEDGER_TABLE_NAMES.len() + owner_table_names(layout).len()
+            ledger_table_names().len() + owner_table_names(layout).len()
         );
-        assert!(LEDGER_TABLE_NAMES.iter().all(|name| names.contains(name)));
+        assert!(ledger_table_names().iter().all(|name| names.contains(name)));
         assert!(owner_table_names(layout)
             .iter()
             .all(|name| names.contains(name)));
@@ -65,6 +72,8 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
         OwnerLayout::Kv,
         OwnerLayout::Blob,
         OwnerLayout::SemanticIndex,
+        OwnerLayout::Sql,
+        OwnerLayout::PathIndex,
     ] {
         names.extend(owner_table_names(layout));
     }
@@ -76,7 +85,11 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
         .iter()
         .filter(|name| owner_table_access(name) == OwnerTableAccess::SharedService)
         .count();
-    assert_eq!((names.len(), service, shared), (39, 37, 2));
+    // 62 owner tables across the ten layouts: RF-RULING-004 puts the complete
+    // physical registry in the storage kernel, so the consumer-owned tables
+    // (`path_index_v1`, `eg_ann`, `eg_kvcache_cold`, and the 20 `__sql_*`)
+    // are declared here rather than by the crates that read them.
+    assert_eq!((names.len(), service, shared), (62, 60, 2));
 }
 
 #[test]
@@ -149,6 +162,8 @@ fn manifest_registry_is_closed_for_every_layout() {
         OwnerLayout::Kv,
         OwnerLayout::Blob,
         OwnerLayout::SemanticIndex,
+        OwnerLayout::Sql,
+        OwnerLayout::PathIndex,
     ] {
         let manifest = OwnerManifest::new(
             PhysicalStoreIdentity::new(format!("physical:test:{}", layout.canonical_name()))
@@ -156,7 +171,7 @@ fn manifest_registry_is_closed_for_every_layout() {
             layout,
         )
         .unwrap();
-        assert_eq!(manifest.tables.len(), 17 + owner_table_names(layout).len());
+        assert_eq!(manifest.tables.len(), 18 + owner_table_names(layout).len());
         let names = manifest
             .tables
             .iter()
@@ -185,6 +200,8 @@ fn every_owner_table_declares_its_partition_boundary() {
         OwnerLayout::Kv,
         OwnerLayout::Blob,
         OwnerLayout::SemanticIndex,
+        OwnerLayout::Sql,
+        OwnerLayout::PathIndex,
     ] {
         let manifest = OwnerManifest::new(
             PhysicalStoreIdentity::new(format!(
@@ -204,7 +221,10 @@ fn every_owner_table_declares_its_partition_boundary() {
             match table.scope {
                 TableScope::Serving => assert!(matches!(
                     layout,
-                    OwnerLayout::TimeSeries | OwnerLayout::Blob | OwnerLayout::SemanticIndex
+                    OwnerLayout::TimeSeries
+                        | OwnerLayout::Blob
+                        | OwnerLayout::SemanticIndex
+                        | OwnerLayout::Sql
                 )),
                 TableScope::StorePrivate => {
                     assert!(matches!(
@@ -213,6 +233,7 @@ fn every_owner_table_declares_its_partition_boundary() {
                             | OwnerLayout::Jobs
                             | OwnerLayout::Statechart
                             | OwnerLayout::Kv
+                            | OwnerLayout::PathIndex
                     ));
                 }
                 TableScope::SharedService => {
@@ -506,10 +527,13 @@ fn signed_semantic_layout_is_closed_domain_service_authority() {
         );
         assert_eq!(
             table.logical_codec_id,
-            if *name == "semantic_binding_heads_v1" {
-                "redb-scalar-v1"
-            } else {
-                "semantic-index-bytes-v1"
+            match *name {
+                "semantic_binding_heads_v1" => "redb-scalar-v1",
+                // `eg_ann` stores the ANN index's three opaque buffers
+                // (meta/codes/refine), not a semantic-index row, so its codec
+                // states what it actually is.
+                "eg_ann" => "raw-bytes-v1",
+                _ => "semantic-index-bytes-v1",
             }
         );
     }
@@ -564,7 +588,7 @@ fn write_rejects_missing_or_wrong_type_without_recreating_table() {
 
 #[test]
 fn plain_recovery_rejects_every_known_mutation_table_marker() {
-    let mut names = LEDGER_TABLE_NAMES
+    let mut names = ledger_table_names()
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
     for layout in [
@@ -576,10 +600,16 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
         OwnerLayout::Kv,
         OwnerLayout::Blob,
         OwnerLayout::SemanticIndex,
+        OwnerLayout::Sql,
+        OwnerLayout::PathIndex,
     ] {
         names.extend(owner_table_names(layout));
     }
-    assert_eq!(names.len(), 56);
+    // 18 ledger + 39 owner tables across the ten layouts. The consumer-owned
+    // tables `path_index_v1`, `eg_ann`, `eg_kvcache_cold` and the 20 `__sql_*`
+    // tables joined the registry because RF-RULING-004 puts the complete
+    // physical table registry in the storage kernel.
+    assert_eq!(names.len(), 80);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

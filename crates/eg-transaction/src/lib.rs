@@ -51,7 +51,7 @@ pub use participant::{
     MAX_COORDINATOR_ID_BYTES, MAX_ENCODED_RECORD_KEY_BYTES,
 };
 pub use read::{
-    read_batches, read_fences, read_ledger, read_outbox, read_private_payload, version,
+    read_batches, read_class, read_fences, read_ledger, read_outbox, read_private_payload, version,
     OutboxCursor,
 };
 pub use replay::ReplayResolution;

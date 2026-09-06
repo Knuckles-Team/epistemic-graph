@@ -12,9 +12,7 @@ use crate::physical::manifest::OwnerManifest;
 use crate::physical::root::PhysicalStore;
 use crate::recovery::validate::validate_recovery_content;
 use crate::tables::{
-    BATCHES, FENCES, IDEMPOTENCY, OUTBOX, OUTBOX_CLAIM_CURSORS, OUTBOX_CONSUMERS,
-    OUTBOX_CURSORS, OUTBOX_DELIVERIES, OUTBOX_FAIRNESS, OUTBOX_TOPIC_INDEX, OWNER_MANIFEST,
-    PRIVATE_PAYLOADS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
+    visit_ledger_content_tables, visit_ledger_tables, OWNER_MANIFEST, SCOPE_BINDINGS,
 };
 use crate::StorageKernelV1;
 use redb::{
@@ -174,6 +172,9 @@ fn strict_snapshot(
     })
 }
 
+/// Hash every ledger table of the authoritative list -- census, evidence and
+/// the adoption TOCTOU guard all read this one sweep, so a table added to
+/// `visit_ledger_tables!` is covered by all three at once.
 fn hash_ledger(
     snapshot: HashSnapshot<'_>,
     hasher: &mut Sha256,
@@ -191,24 +192,13 @@ fn hash_ledger(
             });
         }};
     }
-    visit!(STORE_ROOT);
-    visit!(SCOPE_BINDINGS);
-    visit!(OWNER_MANIFEST);
-    visit!(BATCHES);
-    visit!(IDEMPOTENCY);
-    visit!(VERSIONS);
-    visit!(FENCES);
-    visit!(OUTBOX);
-    visit!(PRIVATE_PAYLOADS);
-    visit!(OUTBOX_TOPIC_INDEX);
-    visit!(OUTBOX_CONSUMERS);
-    visit!(OUTBOX_DELIVERIES);
-    visit!(OUTBOX_CURSORS);
-    visit!(OUTBOX_CLAIM_CURSORS);
-    visit!(OUTBOX_FAIRNESS);
+    visit_ledger_tables!(visit);
     Ok(rows)
 }
 
+/// Copy every ledger row of the authoritative list. The three physical-identity
+/// tables are excluded because the backup re-anchors them to the destination
+/// incarnation (`copy_bindings`, the manifest write, and `create_physical`).
 fn copy_ledger_rows(source: &ReadTransaction, target: &WriteTransaction) -> Result<u64, String> {
     let mut rows = 0;
     macro_rules! copy {
@@ -216,18 +206,7 @@ fn copy_ledger_rows(source: &ReadTransaction, target: &WriteTransaction) -> Resu
             rows += copy_table(source, target, $table)?;
         }};
     }
-    copy!(BATCHES);
-    copy!(IDEMPOTENCY);
-    copy!(VERSIONS);
-    copy!(FENCES);
-    copy!(OUTBOX);
-    copy!(PRIVATE_PAYLOADS);
-    copy!(OUTBOX_TOPIC_INDEX);
-    copy!(OUTBOX_CONSUMERS);
-    copy!(OUTBOX_DELIVERIES);
-    copy!(OUTBOX_CURSORS);
-    copy!(OUTBOX_CLAIM_CURSORS);
-    copy!(OUTBOX_FAIRNESS);
+    visit_ledger_content_tables!(copy);
     Ok(rows)
 }
 

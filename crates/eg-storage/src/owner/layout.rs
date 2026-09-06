@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const OWNER_LAYOUT_DOMAIN: &[u8] = b"eg/mutation-owner-layout/v1\0";
-const OWNER_LAYOUT_NAMES: [&str; 8] = [
+const OWNER_LAYOUT_NAMES: [&str; 10] = [
     "ledger_only",
     "rbac",
     "jobs",
@@ -16,8 +16,10 @@ const OWNER_LAYOUT_NAMES: [&str; 8] = [
     "kv",
     "blob",
     "semantic_index",
+    "sql",
+    "path_index",
 ];
-pub(crate) const OWNER_LAYOUT_DOMAINS: [MutationDomain; 8] = [
+pub(crate) const OWNER_LAYOUT_DOMAINS: [MutationDomain; 10] = [
     MutationDomain::ControlPlane,
     MutationDomain::ControlPlane,
     MutationDomain::AnalyticsJob,
@@ -26,25 +28,8 @@ pub(crate) const OWNER_LAYOUT_DOMAINS: [MutationDomain; 8] = [
     MutationDomain::KvStore,
     MutationDomain::BlobStore,
     MutationDomain::SemanticIndex,
-];
-pub(crate) const LEDGER_TABLE_NAMES: [&str; 17] = [
-    "mutation_store_root_v1",
-    "mutation_scope_bindings_v1",
-    "mutation_owner_manifest_v1",
-    "mutation_batches_v1",
-    "mutation_idempotency_v1",
-    "mutation_versions_v1",
-    "mutation_fences_v1",
-    "mutation_outbox_v1",
-    "mutation_private_payloads_v1",
-    "mutation_outbox_topic_index_v1",
-    "mutation_outbox_consumers_v1",
-    "mutation_outbox_deliveries_v1",
-    "mutation_outbox_cursors_v1",
-    "mutation_outbox_claim_cursors_v1",
-    "mutation_outbox_fairness_v1",
-    "mutation_replay_nonces_v1",
-    "mutation_replay_operations_v1",
+    MutationDomain::SqlCatalog,
+    MutationDomain::ControlPlane,
 ];
 
 /// Closed registry of physical owner-table layouts.
@@ -60,6 +45,10 @@ pub enum OwnerLayout {
     Kv,
     Blob,
     SemanticIndex,
+    /// The SQL catalog/row store (`__sql_*`) owned by `eg-query`.
+    Sql,
+    /// The durable logical-path index owned by `eg-core`'s path persistence.
+    PathIndex,
 }
 
 impl OwnerLayout {
@@ -80,6 +69,8 @@ impl OwnerLayout {
                 | (Self::Kv, Some(MutationDomain::KvStore))
                 | (Self::Blob, Some(MutationDomain::BlobStore))
                 | (Self::SemanticIndex, Some(MutationDomain::SemanticIndex))
+                | (Self::Sql, Some(MutationDomain::SqlCatalog))
+                | (Self::PathIndex, Some(MutationDomain::ControlPlane))
         )
     }
 
@@ -87,7 +78,7 @@ impl OwnerLayout {
         let mut hasher = Sha256::new();
         hasher.update(OWNER_LAYOUT_DOMAIN);
         hasher.update(self.canonical_name().as_bytes());
-        for table in LEDGER_TABLE_NAMES {
+        for table in crate::tables::ledger_table_names() {
             hash_table_contract(&mut hasher, &ledger_table_contract(table));
         }
         for table in owner_table_names(self) {

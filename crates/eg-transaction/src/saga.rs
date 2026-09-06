@@ -1,14 +1,16 @@
 //! Two-phase saga preparation and commit over one ledger scope.
 
 use crate::admitted::AdmittedMutation;
-use crate::commit::{begin, commit, finish};
+use crate::commit::{begin, commit, finish, write_class};
 use crate::ledger::{
     idempotency_batch_id, persist_idempotency, persist_private, persist_record,
     read_private_in_write, read_record_in_write, remove_private, source_version,
     verify_replay_identity,
 };
 use crate::{Begin, SagaBegin};
-use eg_storage::{ledger_scope_key, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain};
+use eg_storage::{
+    ledger_scope_key, MutationClass, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain,
+};
 use eg_types::{
     CommittedVersion, MutationBatch, MutationBatchRecord, MutationBatchStatus,
 };
@@ -37,7 +39,7 @@ pub(crate) fn prepare_saga_with_private_payload<D: OwnerDomain>(
         write.abort()?;
         return Ok(result);
     }
-    match begin(&write, batch)? {
+    match begin(&write, batch, MutationClass::Operation)? {
         Begin::Replay(record) => {
             write.abort()?;
             return Ok(SagaBegin::Committed(*record));
@@ -104,6 +106,7 @@ fn persist_prepared_saga<D: OwnerDomain>(
     };
     persist_record(write, &record)?;
     persist_idempotency(write, batch)?;
+    write_class(write, batch)?;
     if let Some(payload) = private_payload {
         persist_private(write, &record, payload)?;
     }
@@ -125,7 +128,7 @@ pub(crate) fn commit_saga<D: OwnerDomain>(
     verify_replay_identity(batch, &record.batch)?;
     if record.status == MutationBatchStatus::Committed {
         let identity_key = ledger_scope_key(&batch.identity);
-        remove_private(write.transaction(), &identity_key, &batch.batch_id)?;
+        remove_private(&write, &identity_key, &batch.batch_id)?;
         write.commit()?;
         return Ok((record, true));
     }
@@ -145,7 +148,7 @@ pub(crate) fn commit_saga<D: OwnerDomain>(
         source_version,
     )?;
     let identity_key = ledger_scope_key(&batch.identity);
-    remove_private(write.transaction(), &identity_key, &batch.batch_id)?;
+    remove_private(&write, &identity_key, &batch.batch_id)?;
     commit(write, batch)?;
     Ok((committed, false))
 }

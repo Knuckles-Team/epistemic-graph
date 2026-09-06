@@ -3,16 +3,19 @@ use crate::kernel::create_physical;
 use crate::physical::binding::ScopeBinding;
 use crate::physical::incarnation::StoreIncarnation;
 use crate::physical::root::PhysicalStore;
+use crate::recovery::evidence::{copy_table, HashSnapshot};
 use crate::recovery::validate::{validate_live_recovery_store, RecoveryStoreCounts};
-use crate::tables::{
-    BATCHES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
-};
+use crate::tables::{visit_ledger_content_tables, visit_ledger_tables, SCOPE_BINDINGS};
 use crate::StorageKernelV1;
-use redb::{Key, ReadTransaction, ReadableTable, TableDefinition, Value, WriteTransaction};
+use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
 /// Stable content fingerprint over one owner file's physical and ledger rows.
+///
+/// Driven by the authoritative ledger-table list, so the fingerprint of two
+/// stores can never agree while their rows differ in any declared table --
+/// including the replay ledger, which a hand-maintained list omitted.
 pub fn recovery_store_fingerprint(kernel: &StorageKernelV1) -> Result<[u8; 32], String> {
     recovery_store_fingerprint_of(kernel.store())
 }
@@ -20,108 +23,15 @@ pub fn recovery_store_fingerprint(kernel: &StorageKernelV1) -> Result<[u8; 32], 
 pub(crate) fn recovery_store_fingerprint_of(store: &PhysicalStore) -> Result<[u8; 32], String> {
     validate_live_recovery_store(store)?;
     let rtx = store.begin_read()?;
+    let snapshot = HashSnapshot::Read(&rtx);
     let mut hasher = Sha256::new();
-    hash_bytes_table(&rtx, &mut hasher, b"root", STORE_ROOT)?;
-    hash_bytes_table(&rtx, &mut hasher, b"bindings", SCOPE_BINDINGS)?;
-    hash_pair_bytes_table(&rtx, &mut hasher, b"batches", BATCHES)?;
-    hash_pair_string_table(&rtx, &mut hasher, b"idempotency", IDEMPOTENCY)?;
-    hash_string_u64_table(&rtx, &mut hasher, b"versions", VERSIONS)?;
-    hash_bytes_table(&rtx, &mut hasher, b"fences", FENCES)?;
-    hash_outbox_table(&rtx, &mut hasher)?;
-    hash_pair_bytes_table(&rtx, &mut hasher, b"private", PRIVATE_PAYLOADS)?;
+    macro_rules! hash {
+        ($table:expr) => {{
+            snapshot.hash_table(&mut hasher, $table)?;
+        }};
+    }
+    visit_ledger_tables!(hash);
     Ok(hasher.finalize().into())
-}
-
-fn hash_field(hasher: &mut Sha256, value: &[u8]) {
-    hasher.update((value.len() as u64).to_be_bytes());
-    hasher.update(value);
-}
-
-fn hash_bytes_table(
-    rtx: &ReadTransaction,
-    hasher: &mut Sha256,
-    tag: &[u8],
-    definition: TableDefinition<'static, &str, &[u8]>,
-) -> Result<(), String> {
-    hash_field(hasher, tag);
-    let table = rtx
-        .open_table(definition)
-        .map_err(|error| error.to_string())?;
-    for row in table.iter().map_err(|error| error.to_string())? {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        hash_field(hasher, key.value().as_bytes());
-        hash_field(hasher, value.value());
-    }
-    Ok(())
-}
-
-fn hash_pair_bytes_table(
-    rtx: &ReadTransaction,
-    hasher: &mut Sha256,
-    tag: &[u8],
-    definition: TableDefinition<'static, (&str, &str), &[u8]>,
-) -> Result<(), String> {
-    hash_field(hasher, tag);
-    let table = rtx
-        .open_table(definition)
-        .map_err(|error| error.to_string())?;
-    for row in table.iter().map_err(|error| error.to_string())? {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        hash_field(hasher, key.value().0.as_bytes());
-        hash_field(hasher, key.value().1.as_bytes());
-        hash_field(hasher, value.value());
-    }
-    Ok(())
-}
-
-fn hash_pair_string_table(
-    rtx: &ReadTransaction,
-    hasher: &mut Sha256,
-    tag: &[u8],
-    definition: TableDefinition<'static, (&str, &str), &str>,
-) -> Result<(), String> {
-    hash_field(hasher, tag);
-    let table = rtx
-        .open_table(definition)
-        .map_err(|error| error.to_string())?;
-    for row in table.iter().map_err(|error| error.to_string())? {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        hash_field(hasher, key.value().0.as_bytes());
-        hash_field(hasher, key.value().1.as_bytes());
-        hash_field(hasher, value.value().as_bytes());
-    }
-    Ok(())
-}
-
-fn hash_string_u64_table(
-    rtx: &ReadTransaction,
-    hasher: &mut Sha256,
-    tag: &[u8],
-    definition: TableDefinition<'static, &str, u64>,
-) -> Result<(), String> {
-    hash_field(hasher, tag);
-    let table = rtx
-        .open_table(definition)
-        .map_err(|error| error.to_string())?;
-    for row in table.iter().map_err(|error| error.to_string())? {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        hash_field(hasher, key.value().as_bytes());
-        hash_field(hasher, &value.value().to_be_bytes());
-    }
-    Ok(())
-}
-
-fn hash_outbox_table(rtx: &ReadTransaction, hasher: &mut Sha256) -> Result<(), String> {
-    hash_field(hasher, b"outbox");
-    let table = rtx.open_table(OUTBOX).map_err(|error| error.to_string())?;
-    for row in table.iter().map_err(|error| error.to_string())? {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        hash_field(hasher, key.value().0.as_bytes());
-        hash_field(hasher, key.value().1.as_bytes());
-        hash_field(hasher, &key.value().2.to_be_bytes());
-        hash_field(hasher, value.value());
-    }
-    Ok(())
 }
 
 /// Create a physical backup with a newly derived destination root and exact
@@ -156,12 +66,12 @@ pub(crate) fn backup_recovery_store_of(
     wtx.set_durability(redb::Durability::Immediate)
         .map_err(|error| error.to_string())?;
     copy_bindings(&rtx, &wtx, target.incarnation())?;
-    copy_table(&rtx, &wtx, BATCHES)?;
-    copy_table(&rtx, &wtx, IDEMPOTENCY)?;
-    copy_table(&rtx, &wtx, VERSIONS)?;
-    copy_table(&rtx, &wtx, FENCES)?;
-    copy_table(&rtx, &wtx, OUTBOX)?;
-    copy_table(&rtx, &wtx, PRIVATE_PAYLOADS)?;
+    macro_rules! copy {
+        ($table:expr) => {{
+            copy_table(&rtx, &wtx, $table)?;
+        }};
+    }
+    visit_ledger_content_tables!(copy);
     wtx.commit().map_err(|error| error.to_string())?;
     validate_live_recovery_store(&target)
 }
@@ -184,30 +94,6 @@ fn copy_bindings(
         let bytes = encode_bounded(&binding, "backup mutation scope binding")?;
         target_table
             .insert(key.value(), bytes.as_slice())
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
-}
-
-fn copy_table<K, V>(
-    source: &ReadTransaction,
-    target: &WriteTransaction,
-    definition: TableDefinition<'static, K, V>,
-) -> Result<(), String>
-where
-    K: Key + 'static,
-    V: Value + 'static,
-{
-    let source_table = source
-        .open_table(definition)
-        .map_err(|error| error.to_string())?;
-    let mut target_table = target
-        .open_table(definition)
-        .map_err(|error| error.to_string())?;
-    for row in source_table.iter().map_err(|error| error.to_string())? {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        target_table
-            .insert(key.value(), value.value())
             .map_err(|error| error.to_string())?;
     }
     Ok(())

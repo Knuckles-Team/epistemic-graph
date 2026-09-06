@@ -7,12 +7,36 @@
 
 use crate::owner::domain::OwnerDomain;
 use crate::owner::handle::OwnedStoreHandle;
-use crate::physical::binding::{binding_for_read, binding_for_write};
+use crate::owner::registry::declared_table_names;
+use crate::physical::binding::{binding_for_read, binding_for_write, retire_scope_in};
 use crate::physical::root::PhysicalStore;
 use crate::recovery::evidence::{strict_snapshot_read, StrictRecoveryEvidence};
+use crate::tables::LedgerRowScope;
 use eg_types::MutationScopeIdentity;
-use redb::{ReadTransaction, WriteTransaction};
+use redb::{ReadOnlyTable, ReadTransaction, Table, TableDefinition, TableHandle, WriteTransaction};
 use std::marker::PhantomData;
+
+/// The three tables that ARE the file's physical identity. A capability never
+/// opens one: they are written only by the storage kernel's own create, bind,
+/// adopt and backup paths.
+const IDENTITY_TABLES: [&str; 3] = [
+    "mutation_store_root_v1",
+    "mutation_scope_bindings_v1",
+    "mutation_owner_manifest_v1",
+];
+
+/// A capability may open exactly the tables this owner file declares, minus the
+/// three that carry its physical identity. Anything else -- an undeclared name,
+/// another layout's table, or an identity table -- fails closed.
+fn permit_table(store: &PhysicalStore, name: &str) -> Result<(), String> {
+    if IDENTITY_TABLES.contains(&name) {
+        return Err("capability may not open a physical-identity table".to_string());
+    }
+    if !declared_table_names(store.manifest().layout).contains(&name) {
+        return Err("capability may not open an undeclared table".to_string());
+    }
+    Ok(())
+}
 
 /// The one mintable physical write authority for one owner file.
 pub struct PhysicalWriteCapability<'a, D: OwnerDomain> {
@@ -45,9 +69,49 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         })
     }
 
-    /// The one physical write transaction of this capability.
-    pub fn transaction(&self) -> &WriteTransaction {
-        &self.transaction
+    /// Open one declared, non-identity table of this owner file for writing.
+    ///
+    /// The underlying `redb::WriteTransaction` is never lent out: in redb 4.1 a
+    /// `&WriteTransaction` opens and deletes any table through `&self`, so
+    /// returning one would be unrestricted authority over the
+    /// physical-identity tables. This is the only write path, and
+    /// [`permit_table`] bounds it to this owner file's declared census.
+    pub fn open_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Table<'_, K, V>, String>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        permit_table(self.store, definition.name())?;
+        self.transaction
+            .open_table(definition)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Remove every row of one declared scoped table belonging to `scope_key`.
+    pub fn purge_scoped_rows<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+        scope_key: &str,
+    ) -> Result<(), String>
+    where
+        K: redb::Key + 'static,
+        for<'k> K::SelfType<'k>: LedgerRowScope,
+        V: redb::Value + 'static,
+    {
+        permit_table(self.store, definition.name())?;
+        crate::tables::purge_scoped_rows(&self.transaction, definition, scope_key)
+    }
+
+    /// Retire one logical scope's binding and its authoritative version row.
+    ///
+    /// `mutation_scope_bindings_v1` is physical identity, so the storage kernel
+    /// owns this write; the mutation owner clears its own ledger rows and then
+    /// asks for retirement inside the same transaction.
+    pub fn retire_scope_binding(&self, identity: &MutationScopeIdentity) -> Result<(), String> {
+        retire_scope_in(self.store, &self.transaction, identity)
     }
 
     /// The exact serving scope this capability was issued for.
@@ -108,8 +172,32 @@ impl<'a, D: OwnerDomain> ScopedRead<'a, D> {
         })
     }
 
-    pub fn transaction(&self) -> &ReadTransaction {
+    /// Crate-private for the same reason as the write side: a
+    /// `&ReadTransaction` opens and enumerates every table in the file.
+    ///
+    /// ```compile_fail
+    /// # use eg_storage::{KvOwner, ScopedRead};
+    /// fn leaks_transaction(read: &ScopedRead<'_, KvOwner>) {
+    ///     let _ = read.transaction();
+    /// }
+    /// ```
+    pub(crate) fn transaction(&self) -> &ReadTransaction {
         &self.transaction
+    }
+
+    /// Open one declared, non-identity table of this owner file for reading.
+    pub fn open_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ReadOnlyTable<K, V>, String>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        permit_table(self.store, definition.name())?;
+        self.transaction
+            .open_table(definition)
+            .map_err(|error| error.to_string())
     }
 
     pub fn scope(&self) -> &MutationScopeIdentity {

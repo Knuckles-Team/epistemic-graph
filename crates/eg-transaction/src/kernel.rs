@@ -11,7 +11,8 @@ use crate::replay::{record_replay_in, resolve_replay_in, ReplayResolution};
 use crate::tables::ledger_table_names;
 use crate::{commit, saga, Begin, SagaBegin};
 use eg_storage::{
-    declared_table_names, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain, OwnerLayout,
+    declared_table_names, MutationClass, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain,
+    OwnerLayout,
 };
 use eg_types::authority::{NonceReplayKeyV1, OperationReplayIdentityV1};
 use eg_types::mutation::MutationReceiptV1;
@@ -70,8 +71,34 @@ impl MutationKernelV1 {
         owner: &OwnedStoreHandle<D>,
         batch: &MutationBatch,
     ) -> Result<(AdmittedMutation<'a, D>, Begin), String> {
+        self.admit_class(owner, batch, MutationClass::Operation)
+    }
+
+    /// Admit one owner-maintenance write: compaction, retention, index
+    /// initialization, a content-addressed definition insert.
+    ///
+    /// It is a full mutation -- ledgered, fenced, version-bumping, replayable
+    /// by its idempotency key -- but it carries no caller identity, so it is
+    /// outside operation-replay conflict semantics: [`Self::record_replay`]
+    /// refuses to run inside one, and it can never consume an attempt nonce.
+    /// Under RF-RULING-004 this is what an owner write with no caller identity
+    /// must be, because an un-ledgered write path would be a second authority.
+    pub fn admit_maintenance<'a, D: OwnerDomain>(
+        &'a self,
+        owner: &OwnedStoreHandle<D>,
+        batch: &MutationBatch,
+    ) -> Result<(AdmittedMutation<'a, D>, Begin), String> {
+        self.admit_class(owner, batch, MutationClass::Maintenance)
+    }
+
+    fn admit_class<'a, D: OwnerDomain>(
+        &'a self,
+        owner: &OwnedStoreHandle<D>,
+        batch: &MutationBatch,
+        class: MutationClass,
+    ) -> Result<(AdmittedMutation<'a, D>, Begin), String> {
         let write = AdmittedMutation::open(&self.authority, owner)?;
-        let begun = commit::begin(&write, batch)?;
+        let begun = commit::begin(&write, batch, class)?;
         Ok((write, begun))
     }
 
@@ -152,18 +179,30 @@ impl MutationKernelV1 {
         )
     }
 
-    /// Decide one proposed attempt against the durable replay ledger. Never
-    /// mutates: the resolving transaction is aborted before returning.
+    /// Decide one proposed attempt against the durable replay ledger, **inside**
+    /// the caller's admitted write.
+    ///
+    /// Resolution, the effect and [`Self::record_replay`] therefore share one
+    /// physical transaction: no window exists in which two attempts can both
+    /// resolve `Fresh` and both commit. A resolution taken in a transaction
+    /// that is then aborted decides nothing, which is why this does not open
+    /// its own.
     pub fn resolve_replay<D: OwnerDomain>(
         &self,
-        owner: &OwnedStoreHandle<D>,
+        write: &AdmittedMutation<'_, D>,
         operation: &OperationReplayIdentityV1,
         nonce: &NonceReplayKeyV1,
     ) -> Result<ReplayResolution, String> {
-        let write = AdmittedMutation::open(&self.authority, owner)?;
-        let resolution = resolve_replay_in(&write, operation, nonce);
-        write.abort()?;
-        resolution
+        resolve_replay_in(write, operation, nonce)
+    }
+
+    /// Open the one write for `owner` without admitting a batch, for a caller
+    /// that must resolve replay before it knows whether a batch exists.
+    pub fn open_write<'a, D: OwnerDomain>(
+        &'a self,
+        owner: &OwnedStoreHandle<D>,
+    ) -> Result<AdmittedMutation<'a, D>, String> {
+        AdmittedMutation::open(&self.authority, owner)
     }
 
     /// Consume one attempt nonce and record its receipt inside `write`, so the

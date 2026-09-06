@@ -31,14 +31,14 @@ pub use owner::blob_shared::{
     CasChunkRows, CasRefcountRows,
 };
 pub use owner::domain::{
-    BlobOwner, JobsOwner, KvOwner, LedgerOnlyOwner, OwnerDomain, RbacOwner, SemanticIndexOwner,
-    StatechartOwner, TimeSeriesOwner,
+    BlobOwner, JobsOwner, KvOwner, LedgerOnlyOwner, OwnerDomain, PathIndexOwner, RbacOwner,
+    SemanticIndexOwner, SqlOwner, StatechartOwner, TimeSeriesOwner,
 };
 pub use owner::grant::{AuthenticatedScopeGrant, ScopeGrantVerifier};
 pub use owner::handle::OwnedStoreHandle;
 pub use owner::identity::PhysicalStoreIdentity;
 pub use owner::layout::OwnerLayout;
-pub use owner::registry::declared_table_names;
+pub use owner::registry::{declared_table_names, owner_table_names};
 pub use owner::table_api::*;
 pub use payload::private_payload_digest;
 pub use physical::binding::ledger_scope_key;
@@ -61,4 +61,6 @@ pub use recovery::evidence::{
 pub use recovery::validate::{
     validate_recovery_store, validate_recovery_store_read_only, RecoveryStoreCounts,
 };
-pub use tables::{OperationReplayRow, ScopeFence};
+pub use tables::{
+    LedgerRowScope, MutationClass, MutationClassRow, OperationReplayRow, ScopeFence,
+};

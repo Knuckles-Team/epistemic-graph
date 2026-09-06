@@ -9,8 +9,9 @@ use crate::physical::incarnation::{
 use crate::physical::read_only::ReadOnlyStore;
 use crate::physical::root::{reject_prototype_names, PhysicalStore};
 use crate::tables::{
-    OperationReplayRow, ScopeFence, BATCHES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS,
-    REPLAY_NONCES, REPLAY_OPERATIONS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
+    visit_scoped_ledger_tables, LedgerRowScope, MutationClassRow, OperationReplayRow, ScopeFence,
+    BATCHES, CLASSES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, REPLAY_NONCES,
+    REPLAY_OPERATIONS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
 };
 use crate::StorageKernelV1;
 use eg_types::{MutationBatchRecord, MutationBatchStatus};
@@ -34,6 +35,7 @@ pub struct RecoveryStoreCounts {
     pub encrypted_private_payloads: u64,
     pub replay_nonces: u64,
     pub replay_operations: u64,
+    pub maintenance: u64,
 }
 
 /// Validate a LIVE, read-write-capable owner file: proves the physical file has
@@ -101,6 +103,8 @@ pub(crate) fn validate_recovery_content(
     validate_outbox(rtx, &mut counts)?;
     validate_private(authenticate_private, rtx, &mut counts)?;
     validate_replay(rtx, &root, &mut counts)?;
+    validate_classes(rtx, &root, &mut counts)?;
+    validate_every_scoped_row(rtx, &root)?;
     Ok(counts)
 }
 
@@ -200,6 +204,9 @@ fn validate_batches(
             .ok_or_else(|| "mutation receipt is missing its idempotency row".to_string())?;
         if linked.value() != batch_id {
             return Err("mutation receipt idempotency row points elsewhere".to_string());
+        }
+        if read_class(rtx, identity_key, batch_id)?.identity != binding.identity {
+            return Err("mutation batch class row is not bound to its receipt".to_string());
         }
         match record.status {
             MutationBatchStatus::Prepared => increment(&mut counts.prepared, "prepared count")?,
@@ -349,6 +356,82 @@ fn validate_private(
                 "prepared transaction parent is missing encrypted recovery state".to_string(),
             );
         }
+    }
+    Ok(())
+}
+
+/// Every batch carries exactly one class row, and every class row names a batch
+/// that exists in the same scope. A maintenance batch is therefore explicit in
+/// the ledger rather than inferred from missing replay evidence.
+fn validate_classes(
+    rtx: &ReadTransaction,
+    root: &StoreIncarnation,
+    counts: &mut RecoveryStoreCounts,
+) -> Result<(), String> {
+    let table = rtx.open_table(CLASSES).map_err(|error| error.to_string())?;
+    for row in table.iter().map_err(|error| error.to_string())? {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let (identity_key, batch_id) = key.value();
+        let binding = read_binding(rtx, root, identity_key)?;
+        let class: MutationClassRow = decode_ledger_record(value.value())?;
+        class.identity.validate_digest()?;
+        if class.identity != binding.identity || class.batch_id != batch_id {
+            return Err("mutation class row is not bound to its exact batch".to_string());
+        }
+        read_batch(rtx, identity_key, batch_id)?;
+        if class.class == crate::tables::MutationClass::Maintenance {
+            increment(&mut counts.maintenance, "maintenance count")?;
+        }
+    }
+    Ok(())
+}
+
+fn read_class(
+    rtx: &ReadTransaction,
+    identity_key: &str,
+    batch_id: &str,
+) -> Result<MutationClassRow, String> {
+    let table = rtx.open_table(CLASSES).map_err(|error| error.to_string())?;
+    let bytes = table
+        .get((identity_key, batch_id))
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "mutation receipt is missing its class row".to_string())?;
+    decode_ledger_record(bytes.value())
+}
+
+/// Every row of every scoped ledger table must resolve its own scope binding.
+///
+/// The typed checks above cover the eleven tables that carry a content model.
+/// This sweep is driven by the authoritative list, so the six outbox-delivery
+/// tables -- declared, unwritten today, and previously unvalidated -- cannot
+/// carry a row belonging to no bound scope, whether planted in place or
+/// inherited from an adopted foreign image.
+fn validate_every_scoped_row(rtx: &ReadTransaction, root: &StoreIncarnation) -> Result<(), String> {
+    macro_rules! sweep {
+        ($table:expr) => {{
+            validate_scoped_table(rtx, root, $table)?;
+        }};
+    }
+    visit_scoped_ledger_tables!(sweep);
+    Ok(())
+}
+
+fn validate_scoped_table<K, V>(
+    rtx: &ReadTransaction,
+    root: &StoreIncarnation,
+    definition: redb::TableDefinition<'static, K, V>,
+) -> Result<(), String>
+where
+    K: redb::Key + 'static,
+    for<'a> K::SelfType<'a>: LedgerRowScope,
+    V: redb::Value + 'static,
+{
+    let table = rtx
+        .open_table(definition)
+        .map_err(|error| error.to_string())?;
+    for row in table.iter().map_err(|error| error.to_string())? {
+        let (key, _) = row.map_err(|error| error.to_string())?;
+        read_binding(rtx, root, key.value().ledger_scope())?;
     }
     Ok(())
 }

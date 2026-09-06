@@ -1,5 +1,6 @@
 //! Shared fixtures for the mutation-kernel test modules.
 
+mod backup_replay;
 mod fault_restart;
 mod ledger;
 mod recovery_binding;
@@ -309,4 +310,21 @@ fn receipt(
     };
     value.validate().unwrap();
     value
+}
+
+/// Resolve one attempt the way a caller must: inside a real admitted write,
+/// which is then discarded because this helper decides nothing durable.
+fn resolve<D: OwnerDomain>(
+    fixture: &Fixture,
+    owner: &OwnedStoreHandle<D>,
+    operation: &OperationReplayIdentityV1,
+    nonce: &NonceReplayKeyV1,
+) -> crate::ReplayResolution {
+    let write = fixture.mutations.open_write(owner).unwrap();
+    let resolution = fixture
+        .mutations
+        .resolve_replay(&write, operation, nonce)
+        .unwrap();
+    write.abort().unwrap();
+    resolution
 }

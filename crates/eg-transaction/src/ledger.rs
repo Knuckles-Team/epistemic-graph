@@ -6,7 +6,7 @@ use eg_storage::{
     decode_batch_record, encode_bounded, ledger_scope_key, private_payload_digest, OwnerDomain,
 };
 use eg_types::{MutationBatch, MutationBatchRecord, MutationScopeIdentity, VersionExpectation};
-use redb::{ReadableTable, WriteTransaction};
+use redb::ReadableTable;
 
 const MAX_PRIVATE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
@@ -15,10 +15,7 @@ pub(crate) fn idempotency_batch_id<D: OwnerDomain>(
     batch: &MutationBatch,
 ) -> Result<Option<String>, String> {
     let identity_key = ledger_scope_key(&batch.identity);
-    let table = write
-        .transaction()
-        .open_table(IDEMPOTENCY)
-        .map_err(|error| error.to_string())?;
+    let table = write.open_table(IDEMPOTENCY)?;
     let existing = table
         .get((identity_key.as_str(), batch.idempotency_key.as_str()))
         .map_err(|error| error.to_string())?
@@ -34,10 +31,7 @@ pub(crate) fn source_version<D: OwnerDomain>(
         return Ok(None);
     }
     let binding_key = ledger_scope_key(&batch.identity);
-    let table = write
-        .transaction()
-        .open_table(VERSIONS)
-        .map_err(|error| error.to_string())?;
+    let table = write.open_table(VERSIONS)?;
     let version = table
         .get(binding_key.as_str())
         .map_err(|error| error.to_string())?
@@ -52,10 +46,7 @@ pub(crate) fn read_record_in_write<D: OwnerDomain>(
     batch_id: &str,
 ) -> Result<Option<MutationBatchRecord>, String> {
     let identity_key = ledger_scope_key(identity);
-    let table = write
-        .transaction()
-        .open_table(BATCHES)
-        .map_err(|error| error.to_string())?;
+    let table = write.open_table(BATCHES)?;
     let record = table
         .get((identity_key.as_str(), batch_id))
         .map_err(|error| error.to_string())?
@@ -72,9 +63,7 @@ pub(crate) fn persist_record<D: OwnerDomain>(
     let bytes = encode_bounded(record, "mutation batch record")?;
     let identity_key = ledger_scope_key(&record.identity);
     write
-        .transaction()
-        .open_table(BATCHES)
-        .map_err(|error| error.to_string())?
+        .open_table(BATCHES)?
         .insert(
             (identity_key.as_str(), record.batch.batch_id.as_str()),
             bytes.as_slice(),
@@ -89,9 +78,7 @@ pub(crate) fn persist_idempotency<D: OwnerDomain>(
 ) -> Result<(), String> {
     let identity_key = ledger_scope_key(&batch.identity);
     write
-        .transaction()
-        .open_table(IDEMPOTENCY)
-        .map_err(|error| error.to_string())?
+        .open_table(IDEMPOTENCY)?
         .insert(
             (identity_key.as_str(), batch.idempotency_key.as_str()),
             batch.batch_id.as_str(),
@@ -111,9 +98,7 @@ pub(crate) fn persist_private<D: OwnerDomain>(
     write.authenticate_private(sealed, digest)?;
     let identity_key = ledger_scope_key(&record.identity);
     write
-        .transaction()
-        .open_table(PRIVATE_PAYLOADS)
-        .map_err(|error| error.to_string())?
+        .open_table(PRIVATE_PAYLOADS)?
         .insert(
             (identity_key.as_str(), record.batch.batch_id.as_str()),
             sealed,
@@ -127,10 +112,7 @@ pub(crate) fn read_private_in_write<D: OwnerDomain>(
     record: &MutationBatchRecord,
 ) -> Result<Option<Vec<u8>>, String> {
     let identity_key = ledger_scope_key(&record.identity);
-    let table = write
-        .transaction()
-        .open_table(PRIVATE_PAYLOADS)
-        .map_err(|error| error.to_string())?;
+    let table = write.open_table(PRIVATE_PAYLOADS)?;
     let sealed = table
         .get((identity_key.as_str(), record.batch.batch_id.as_str()))
         .map_err(|error| error.to_string())?
@@ -144,13 +126,13 @@ pub(crate) fn read_private_in_write<D: OwnerDomain>(
     Ok(sealed)
 }
 
-pub(crate) fn remove_private(
-    wtx: &WriteTransaction,
+pub(crate) fn remove_private<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
     identity_key: &str,
     batch_id: &str,
 ) -> Result<(), String> {
-    wtx.open_table(PRIVATE_PAYLOADS)
-        .map_err(|error| error.to_string())?
+    write
+        .open_table(PRIVATE_PAYLOADS)?
         .remove((identity_key, batch_id))
         .map_err(|error| error.to_string())?;
     Ok(())

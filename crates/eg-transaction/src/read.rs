@@ -1,10 +1,11 @@
 //! Scoped ledger reads. Every entry point needs a kernel-issued
 //! [`ScopedRead`], which already proved the scope is bound to this store.
 
-use crate::tables::{BATCHES, FENCES, OUTBOX, PRIVATE_PAYLOADS, VERSIONS};
+use crate::tables::{BATCHES, CLASSES, FENCES, OUTBOX, PRIVATE_PAYLOADS, VERSIONS};
 use eg_storage::{
     decode_batch_record, decode_ledger_record, decode_outbox_record, ledger_scope_key,
-    private_payload_digest, CollectionBudget, OwnerDomain, ScopeFence, ScopedRead,
+    private_payload_digest, CollectionBudget, MutationClass, MutationClassRow, OwnerDomain,
+    ScopeFence, ScopedRead,
 };
 use eg_types::{MutationBatchRecord, MutationOutboxRecord};
 
@@ -14,10 +15,7 @@ const MAX_BATCH_ID_SENTINEL: &str = "\u{10FFFF}";
 /// Authoritative version of the read's bound scope.
 pub fn version<D: OwnerDomain>(read: &ScopedRead<'_, D>) -> Result<u64, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read
-        .transaction()
-        .open_table(VERSIONS)
-        .map_err(|error| error.to_string())?;
+    let table = read.open_table(VERSIONS)?;
     table
         .get(key.as_str())
         .map_err(|error| error.to_string())?
@@ -31,10 +29,7 @@ pub fn read_ledger<D: OwnerDomain>(
     batch_id: &str,
 ) -> Result<Option<MutationBatchRecord>, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read
-        .transaction()
-        .open_table(BATCHES)
-        .map_err(|error| error.to_string())?;
+    let table = read.open_table(BATCHES)?;
     table
         .get((key.as_str(), batch_id))
         .map_err(|error| error.to_string())?
@@ -48,10 +43,7 @@ pub fn read_outbox<D: OwnerDomain>(
     batch_id: &str,
 ) -> Result<Vec<MutationOutboxRecord>, String> {
     let identity_key = ledger_scope_key(read.scope());
-    let table = read
-        .transaction()
-        .open_table(OUTBOX)
-        .map_err(|error| error.to_string())?;
+    let table = read.open_table(OUTBOX)?;
     let mut rows = Vec::new();
     let mut budget = CollectionBudget::default();
     for row in table
@@ -74,10 +66,7 @@ pub fn read_private_payload<D: OwnerDomain>(
     let identity_key = ledger_scope_key(read.scope());
     let record = read_ledger(read, batch_id)?
         .ok_or_else(|| "private recovery plan has no parent receipt".to_string())?;
-    let table = read
-        .transaction()
-        .open_table(PRIVATE_PAYLOADS)
-        .map_err(|error| error.to_string())?;
+    let table = read.open_table(PRIVATE_PAYLOADS)?;
     let sealed = table
         .get((identity_key.as_str(), batch_id))
         .map_err(|error| error.to_string())?
@@ -95,10 +84,7 @@ pub fn read_batches<D: OwnerDomain>(
     read: &ScopedRead<'_, D>,
 ) -> Result<Vec<MutationBatchRecord>, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read
-        .transaction()
-        .open_table(BATCHES)
-        .map_err(|error| error.to_string())?;
+    let table = read.open_table(BATCHES)?;
     let mut records = Vec::new();
     let mut budget = CollectionBudget::default();
     for row in table
@@ -117,10 +103,7 @@ pub fn read_fences<D: OwnerDomain>(
     read: &ScopedRead<'_, D>,
 ) -> Result<Option<ScopeFence>, String> {
     let key = ledger_scope_key(read.scope());
-    let table = read
-        .transaction()
-        .open_table(FENCES)
-        .map_err(|error| error.to_string())?;
+    let table = read.open_table(FENCES)?;
     let fence = table
         .get(key.as_str())
         .map_err(|error| error.to_string())?
@@ -171,4 +154,19 @@ impl OutboxCursor {
             .ok_or_else(|| "outbox cursor ordinal overflow".to_string())?;
         Ok(())
     }
+}
+
+/// The durable class of one committed batch of the read's bound scope.
+pub fn read_class<D: OwnerDomain>(
+    read: &ScopedRead<'_, D>,
+    batch_id: &str,
+) -> Result<Option<MutationClass>, String> {
+    let key = ledger_scope_key(read.scope());
+    let table = read.open_table(CLASSES)?;
+    let row = table
+        .get((key.as_str(), batch_id))
+        .map_err(|error| error.to_string())?
+        .map(|value| decode_ledger_record::<MutationClassRow>(value.value()))
+        .transpose()?;
+    Ok(row.map(|row| row.class))
 }

@@ -105,6 +105,31 @@ fn persist_new_binding(
     Ok(())
 }
 
+/// Retire one logical scope: remove its binding and its authoritative version
+/// row together, inside a transaction the caller already holds.
+///
+/// Both rows are written together by [`bind_scope_in`], so they are retired
+/// together; removing one alone leaves the other unrebindable
+/// ("mutation version row exists without a scope binding").
+pub(crate) fn retire_scope_in(
+    store: &PhysicalStore,
+    wtx: &WriteTransaction,
+    identity: &MutationScopeIdentity,
+) -> Result<(), String> {
+    validate_handle_write(&store.handle, wtx)?;
+    identity.validate_digest()?;
+    let key = identity.binding_digest().to_hex();
+    wtx.open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?
+        .remove(key.as_str())
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(VERSIONS)
+        .map_err(|error| error.to_string())?
+        .remove(key.as_str())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub(crate) fn binding_for_write(
     store: &PhysicalStore,
     wtx: &WriteTransaction,

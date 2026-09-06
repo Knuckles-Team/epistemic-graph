@@ -28,4 +28,6 @@ owner_domains!(
     KvOwner => Kv,
     BlobOwner => Blob,
     SemanticIndexOwner => SemanticIndex,
+    SqlOwner => Sql,
+    PathIndexOwner => PathIndex,
 );

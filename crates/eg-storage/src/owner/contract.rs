@@ -5,7 +5,7 @@
 //! the hash of exactly these contracts, so a divergent redeclaration anywhere
 //! fails the manifest digest closed.
 
-use crate::owner::layout::{OwnerLayout, LEDGER_TABLE_NAMES, OWNER_LAYOUT_DOMAINS};
+use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
 use crate::owner::registry::owner_table_names;
 use crate::physical::manifest::{TableContract, TableOwnership, TableScope};
 
@@ -16,8 +16,8 @@ pub(crate) const CAP_DELETE: u16 = 1 << 3;
 pub(crate) const CAP_CAS: u16 = 1 << 4;
 
 pub(crate) fn expected_table_contracts(layout: OwnerLayout) -> Vec<TableContract> {
-    LEDGER_TABLE_NAMES
-        .iter()
+    crate::tables::ledger_table_names()
+        .into_iter()
         .map(|name| table_contract(name, None))
         .chain(
             owner_table_names(layout)
@@ -77,7 +77,13 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
             TableScope::SharedService
         } else if matches!(
             owner,
-            Some(OwnerLayout::Rbac | OwnerLayout::Jobs | OwnerLayout::Statechart | OwnerLayout::Kv)
+            Some(
+                OwnerLayout::Rbac
+                    | OwnerLayout::Jobs
+                    | OwnerLayout::Statechart
+                    | OwnerLayout::Kv
+                    | OwnerLayout::PathIndex
+            )
         ) {
             TableScope::StorePrivate
         } else if owner.is_some()
@@ -96,10 +102,19 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
     }
 }
 
+/// Every `unreachable!` below dispatches over the **statically closed** table
+/// census: the only callers are `expected_table_contracts` and
+/// `validate_owner_registry_equality`, both of which iterate
+/// `crate::tables::ledger_table_names()` and `owner_table_names(layout)`, and
+/// `validate_owner_registry_equality` fails a test the moment a declared table
+/// has no contract entry. A name reaching one of these arms would mean the
+/// registry and the contract table had already diverged, which is a build-time
+/// invariant break rather than a runtime input.
 fn key_type_id(name: &str) -> &'static str {
     ledger_key_type(name)
         .or_else(|| owner_key_type(name))
         .or_else(|| semantic_key_type(name))
+        .or_else(|| sql_key_type(name))
         .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}"))
 }
 
@@ -116,7 +131,8 @@ fn ledger_key_type(name: &str) -> Option<&'static str> {
         | "mutation_outbox_claim_cursors_v1"
         | "mutation_outbox_fairness_v1"
         | "mutation_replay_nonces_v1"
-        | "mutation_replay_operations_v1" => Some("(&str,&str)"),
+        | "mutation_replay_operations_v1"
+        | "mutation_classes_v1" => Some("(&str,&str)"),
         "mutation_store_root_v1"
         | "mutation_scope_bindings_v1"
         | "mutation_owner_manifest_v1"
@@ -153,12 +169,30 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         "series_chunks" => Some("(&str,u64)"),
         "kv" | "cas_blobs" => Some("(&str,&str)"),
         "cas_uploads" => Some("(&str,u64)"),
+        "eg_kvcache_cold" => Some("&[u8]"),
         "cas_chunks" | "cas_refcount" => Some("&str"),
         "rbac_v1"
+        | "path_index_v1"
+        | "eg_ann"
         | "statechart_defs"
         | "statechart_instances"
         | "series_meta"
         | "series_projection_state" => Some("&str"),
+        _ => None,
+    }
+}
+
+/// The SQL catalog/row store owned by `eg-query`.
+fn sql_key_type(name: &str) -> Option<&'static str> {
+    match name {
+        "__sql_rows__" | "__sql_schema_catalog_order__" => Some("(&str,u64)"),
+        "__sql_mutation_outbox__" => Some("(&str,u32)"),
+        "__sql_mutation_idempotency__" | "__sql_schema_migrations__" => Some("(&str,&str,&str)"),
+        "__sql_schema_migration_order__" => Some("(&str,&str,u64)"),
+        "__sql_mutation_version__" | "__sql_mutation_fence__" | "__sql_schema_versions__" => {
+            Some("(&str,&str)")
+        }
+        name if name.starts_with("__sql_") => Some("&str"),
         _ => None,
     }
 }
@@ -184,6 +218,9 @@ fn semantic_key_type(name: &str) -> Option<&'static str> {
     }
 }
 fn value_type_id(name: &str) -> &'static str {
+    if let Some(value) = sql_value_type(name) {
+        return value;
+    }
     match name {
         "mutation_versions_v1"
         | "analytics_job_scheduler_meta"
@@ -214,6 +251,7 @@ fn value_type_id(name: &str) -> &'static str {
         | "mutation_outbox_claim_cursors_v1"
         | "mutation_outbox_fairness_v1"
         | "mutation_replay_operations_v1"
+        | "mutation_classes_v1"
         | "rbac_v1"
         | "analytics_jobs"
         | "job_intents"
@@ -240,14 +278,41 @@ fn value_type_id(name: &str) -> &'static str {
         | "semantic_generation_checkpoints_v1"
         | "semantic_lexical_manifests_v1"
         | "semantic_ann_manifests_v1"
-        | "semantic_vectors_v1" => "&[u8]",
+        | "semantic_vectors_v1"
+        | "path_index_v1"
+        | "eg_ann"
+        | "eg_kvcache_cold" => "&[u8]",
         _ => unreachable!("table outside closed owner manifest: {name}"),
     }
 }
 
+fn sql_value_type(name: &str) -> Option<&'static str> {
+    match name {
+        "__sql_seq__"
+        | "__sql_schema_catalog_versions__"
+        | "__sql_mutation_version__"
+        | "__sql_schema_versions__" => Some("u64"),
+        "__sql_views__"
+        | "__sql_extensions__"
+        | "__sql_mutation_idempotency__"
+        | "__sql_schema_migration_order__"
+        | "__sql_schema_catalog_order__" => Some("&str"),
+        name if name.starts_with("__sql_") => Some("&[u8]"),
+        _ => None,
+    }
+}
+
 fn logical_codec_id(name: &str) -> &'static str {
+    if name.starts_with("__sql_") {
+        return match sql_value_type(name) {
+            Some("u64") | Some("&str") => "redb-scalar-v1",
+            _ => "msgpack-v1",
+        };
+    }
     match name {
         "mutation_private_payloads_v1" => "authenticated-sealed-bytes-v1",
+        "eg_ann" | "eg_kvcache_cold" => "raw-bytes-v1",
+        "path_index_v1" => "msgpack-v1",
         "rbac_v1" => "json-utf8-v1",
         "kv" | "cas_chunks" => "raw-bytes-v1",
         "series_chunks" => "packed-timeseries-chunk-v1",
@@ -293,6 +358,7 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "mutation_outbox_claim_cursors_v1"
         | "mutation_outbox_fairness_v1"
         | "mutation_replay_operations_v1"
+        | "mutation_classes_v1"
         | "analytics_jobs"
         | "job_intents"
         | "analytics_job_knowledge_batches"
@@ -307,6 +373,9 @@ fn logical_codec_id(name: &str) -> &'static str {
 }
 
 fn table_capabilities(name: &str) -> u16 {
+    if name.starts_with("__sql_") {
+        return CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE;
+    }
     match name {
         "mutation_store_root_v1" | "mutation_owner_manifest_v1" => {
             CAP_READ | CAP_INSERT | CAP_UPDATE
@@ -338,7 +407,10 @@ fn table_capabilities(name: &str) -> u16 {
         "mutation_versions_v1" | "mutation_fences_v1" | "kv" | "cas_refcount" => {
             CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE | CAP_CAS
         }
-        "analytics_job_active_totals_by_tenant"
+        "path_index_v1"
+        | "eg_ann"
+        | "eg_kvcache_cold"
+        | "analytics_job_active_totals_by_tenant"
         | "series_chunks"
         | "series_meta"
         | "series_projection_state"
@@ -352,6 +424,7 @@ fn table_capabilities(name: &str) -> u16 {
         | "mutation_outbox_fairness_v1"
         | "mutation_replay_nonces_v1"
         | "mutation_replay_operations_v1"
+        | "mutation_classes_v1"
         | "semantic_bindings_v1"
         | "semantic_stage_transitions_v1"
         | "semantic_binding_state_transitions_v1"

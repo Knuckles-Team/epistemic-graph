@@ -2,7 +2,7 @@
 //! owner-row window inside it, and a poisoned write on any unfinished drop.
 
 use crate::admitted::{is_ledger_only, AdmittedMutation};
-use eg_storage::{encode_bounded, OwnerDomain, OwnerLayout};
+use eg_storage::{encode_bounded, MutationClass, OwnerDomain, OwnerLayout};
 use eg_types::MutationBatch;
 
 pub(crate) enum AdmissionState {
@@ -10,20 +10,29 @@ pub(crate) enum AdmissionState {
     Applying {
         batch: Vec<u8>,
         owner: Option<OwnerLayout>,
+        class: MutationClass,
     },
-    Finished(Vec<u8>),
+    Finished {
+        batch: Vec<u8>,
+        class: MutationClass,
+    },
     Poisoned,
 }
 
 impl<D: OwnerDomain> AdmittedMutation<'_, D> {
-    pub(crate) fn admit_apply_batch(&self, batch: &MutationBatch) -> Result<(), String> {
+    pub(crate) fn admit_apply_batch(
+        &self,
+        batch: &MutationBatch,
+        class: MutationClass,
+    ) -> Result<(), String> {
         let encoded = encode_bounded(batch, "admitted mutation batch")?;
         let mut state = self.admission.borrow_mut();
         match &*state {
-            AdmissionState::Idle | AdmissionState::Finished(_) => {
+            AdmissionState::Idle | AdmissionState::Finished { .. } => {
                 *state = AdmissionState::Applying {
                     batch: encoded,
                     owner: None,
+                    class,
                 };
                 Ok(())
             }
@@ -35,7 +44,22 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
     }
 
     pub(crate) fn admit_prepared_batch(&self, batch: &MutationBatch) -> Result<(), String> {
-        self.admit_apply_batch(batch)
+        self.admit_apply_batch(batch, MutationClass::Operation)
+    }
+
+    /// The class of the batch this write is applying, or has just finished.
+    ///
+    /// A poisoned write reports poison rather than "no class", so an unfinished
+    /// owner capability still fails with the poison it caused. Replay evidence
+    /// may be recorded either side of `finish`, so `Finished` answers too.
+    pub(crate) fn admitted_class(&self) -> Result<MutationClass, String> {
+        match &*self.admission.borrow() {
+            AdmissionState::Applying { class, .. } | AdmissionState::Finished { class, .. } => {
+                Ok(*class)
+            }
+            AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
+            AdmissionState::Idle => Err("mutation write has no admitted batch".to_string()),
+        }
     }
 
     pub(crate) fn open_owner_admission(
@@ -49,6 +73,7 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
             AdmissionState::Applying {
                 batch: admitted,
                 owner,
+                ..
             } if admitted.as_slice() == encoded.as_slice() && owner.is_none() => {
                 *owner = Some(layout);
                 Ok(())
@@ -83,10 +108,15 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
             AdmissionState::Applying {
                 batch: admitted,
                 owner,
+                class,
             } if admitted.as_slice() == encoded.as_slice()
                 && (is_ledger_only(D::LAYOUT) || owner.is_some()) =>
             {
-                *state = AdmissionState::Finished(encoded);
+                let class = *class;
+                *state = AdmissionState::Finished {
+                    batch: encoded,
+                    class,
+                };
                 Ok(())
             }
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
@@ -97,7 +127,9 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
     pub(crate) fn validate_commit_admission(&self, batch: &MutationBatch) -> Result<(), String> {
         let encoded = encode_bounded(batch, "committed mutation batch")?;
         match &*self.admission.borrow() {
-            AdmissionState::Finished(finished) if finished.as_slice() == encoded.as_slice() => {
+            AdmissionState::Finished { batch: finished, .. }
+                if finished.as_slice() == encoded.as_slice() =>
+            {
                 Ok(())
             }
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),

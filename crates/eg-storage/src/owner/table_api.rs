@@ -80,6 +80,11 @@ declared_owner_tables!(
     SemanticVectorRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_vectors_v1"),
 );
 
+/// Closed dispatch over the declared owner tables. The `unreachable!` arm is a
+/// build-time invariant, not a runtime input path: the only caller is
+/// `OwnerTable::access_class`, whose `TABLE_ID` comes from the sealed
+/// `declared_owner_tables!` macro above, so no caller outside this file can
+/// supply a name.
 pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
     match table {
         "cas_chunks" | "cas_refcount" => OwnerTableAccess::SharedService,
@@ -119,7 +124,11 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "semantic_generation_checkpoints_v1"
         | "semantic_lexical_manifests_v1"
         | "semantic_ann_manifests_v1"
-        | "semantic_vectors_v1" => OwnerTableAccess::DomainService,
+        | "semantic_vectors_v1"
+        | "eg_ann"
+        | "eg_kvcache_cold"
+        | "path_index_v1" => OwnerTableAccess::DomainService,
+        name if name.starts_with("__sql_") => OwnerTableAccess::DomainService,
         _ => unreachable!("table outside closed owner access registry: {table}"),
     }
 }

@@ -1,5 +1,5 @@
 use crate::owner::contract::expected_owner_table_contract;
-use crate::owner::layout::{OwnerLayout, LEDGER_TABLE_NAMES};
+use crate::owner::layout::OwnerLayout;
 use crate::physical::root::is_retired_prototype_table;
 use crate::recovery::evidence::{copy_table, HashSnapshot, StrictTableEvidence};
 use crate::tables::open_declared_ledger_tables;
@@ -43,6 +43,47 @@ const TS_ROWS: [TableDefinition<'static, &str, &[u8]>; 2] = [
     TableDefinition::new("series_projection_state"),
 ];
 pub(crate) const KV: TableDefinition<'static, (&str, &str), &[u8]> = TableDefinition::new("kv");
+const KV_COLD: TableDefinition<'static, &[u8], &[u8]> = TableDefinition::new("eg_kvcache_cold");
+const PATH_INDEX: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("path_index_v1");
+const ANN_CODES: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("eg_ann");
+// The SQL catalog/row store owned by `eg-query`. Declared here because
+// RF-RULING-004 puts the complete physical table registry in the storage
+// kernel: a consumer crate that declares its own tables is a second physical
+// authority.
+const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 7] = [
+    TableDefinition::new("__sql_catalog__"),
+    TableDefinition::new("__sql_functions__"),
+    TableDefinition::new("__sql_ann_indexes__"),
+    TableDefinition::new("__sql_secondary_indexes__"),
+    TableDefinition::new("__sql_secondary_index_entries__"),
+    TableDefinition::new("__sql_hypertables__"),
+    TableDefinition::new("__sql_mutation_batches__"),
+];
+const SQL_STR_STR: [TableDefinition<'static, &str, &str>; 2] = [
+    TableDefinition::new("__sql_views__"),
+    TableDefinition::new("__sql_extensions__"),
+];
+const SQL_ROWS: TableDefinition<'static, (&str, u64), &[u8]> =
+    TableDefinition::new("__sql_rows__");
+const SQL_SEQ: TableDefinition<'static, &str, u64> = TableDefinition::new("__sql_seq__");
+const SQL_CATALOG_VERSIONS: TableDefinition<'static, &str, u64> =
+    TableDefinition::new("__sql_schema_catalog_versions__");
+const SQL_MUTATION_IDEMPOTENCY: TableDefinition<'static, (&str, &str, &str), &str> =
+    TableDefinition::new("__sql_mutation_idempotency__");
+const SQL_MUTATION_VERSION: TableDefinition<'static, (&str, &str), u64> =
+    TableDefinition::new("__sql_mutation_version__");
+const SQL_MUTATION_FENCE: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("__sql_mutation_fence__");
+const SQL_MUTATION_OUTBOX: TableDefinition<'static, (&str, u32), &[u8]> =
+    TableDefinition::new("__sql_mutation_outbox__");
+const SQL_SCHEMA_VERSIONS: TableDefinition<'static, (&str, &str), u64> =
+    TableDefinition::new("__sql_schema_versions__");
+const SQL_SCHEMA_MIGRATIONS: TableDefinition<'static, (&str, &str, &str), &[u8]> =
+    TableDefinition::new("__sql_schema_migrations__");
+const SQL_SCHEMA_MIGRATION_ORDER: TableDefinition<'static, (&str, &str, u64), &str> =
+    TableDefinition::new("__sql_schema_migration_order__");
+const SQL_SCHEMA_CATALOG_ORDER: TableDefinition<'static, (&str, u64), &str> =
+    TableDefinition::new("__sql_schema_catalog_order__");
 const BLOB_CHUNKS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cas_chunks");
 const BLOB_OBJECTS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("cas_blobs");
@@ -80,23 +121,86 @@ const SEMANTIC_ANN: TableDefinition<'static, (&str, &str, u64), &[u8]> =
 const SEMANTIC_VECTORS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_vectors_v1");
 
-macro_rules! for_each_semantic_table {
-    ($visit:ident, $($argument:expr),+) => {{
-        $visit($($argument,)* SEMANTIC_BINDINGS)?;
-        $visit($($argument,)* SEMANTIC_HEADS)?;
-        $visit($($argument,)* SEMANTIC_STAGES)?;
-        $visit($($argument,)* SEMANTIC_STATES)?;
-        $visit($($argument,)* SEMANTIC_SOURCE_PROGRESS)?;
-        $visit($($argument,)* SEMANTIC_POINTERS)?;
-        $visit($($argument,)* SEMANTIC_DEAD_LETTERS)?;
-        $visit($($argument,)* SEMANTIC_TOMBSTONES)?;
-        $visit($($argument,)* SEMANTIC_SQL_SOURCES)?;
-        $visit($($argument,)* SEMANTIC_GRAPH_PROJECTIONS)?;
-        $visit($($argument,)* SEMANTIC_AUTH_RECEIPTS)?;
-        $visit($($argument,)* SEMANTIC_CHECKPOINTS)?;
-        $visit($($argument,)* SEMANTIC_LEXICAL)?;
-        $visit($($argument,)* SEMANTIC_ANN)?;
-        $visit($($argument,)* SEMANTIC_VECTORS)
+macro_rules! visit_owner_tables {
+    ($layout:expr, $visit:ident) => {{
+        match $layout {
+            OwnerLayout::LedgerOnly => {}
+            OwnerLayout::Rbac => $visit!(RBAC),
+            OwnerLayout::Jobs => {
+                for table in JOB_TABLES_BYTES {
+                    $visit!(table);
+                }
+                for table in JOB_TABLES_STR {
+                    $visit!(table);
+                }
+                $visit!(JOB_META);
+                $visit!(READY_PRIORITY);
+                $visit!(READY_CAPABILITY);
+                $visit!(LEASE_EXPIRY);
+                $visit!(ACTIVE_TOTALS);
+                $visit!(BY_DEADLINE);
+                $visit!(CANCELLATION);
+            }
+            OwnerLayout::Statechart => {
+                for table in STATECHARTS {
+                    $visit!(table);
+                }
+            }
+            OwnerLayout::TimeSeries => {
+                $visit!(TS_CHUNKS);
+                for table in TS_ROWS {
+                    $visit!(table);
+                }
+            }
+            OwnerLayout::Kv => {
+                $visit!(KV);
+                $visit!(KV_COLD);
+            }
+            OwnerLayout::PathIndex => $visit!(PATH_INDEX),
+            OwnerLayout::Sql => {
+                for table in SQL_STR_BYTES {
+                    $visit!(table);
+                }
+                for table in SQL_STR_STR {
+                    $visit!(table);
+                }
+                $visit!(SQL_ROWS);
+                $visit!(SQL_SEQ);
+                $visit!(SQL_CATALOG_VERSIONS);
+                $visit!(SQL_MUTATION_IDEMPOTENCY);
+                $visit!(SQL_MUTATION_VERSION);
+                $visit!(SQL_MUTATION_FENCE);
+                $visit!(SQL_MUTATION_OUTBOX);
+                $visit!(SQL_SCHEMA_VERSIONS);
+                $visit!(SQL_SCHEMA_MIGRATIONS);
+                $visit!(SQL_SCHEMA_MIGRATION_ORDER);
+                $visit!(SQL_SCHEMA_CATALOG_ORDER);
+            }
+            OwnerLayout::Blob => {
+                $visit!(BLOB_CHUNKS);
+                $visit!(BLOB_OBJECTS);
+                $visit!(BLOB_REFS);
+                $visit!(BLOB_UPLOADS);
+            }
+            OwnerLayout::SemanticIndex => {
+                $visit!(SEMANTIC_BINDINGS);
+                $visit!(SEMANTIC_HEADS);
+                $visit!(SEMANTIC_STAGES);
+                $visit!(SEMANTIC_STATES);
+                $visit!(SEMANTIC_SOURCE_PROGRESS);
+                $visit!(SEMANTIC_POINTERS);
+                $visit!(SEMANTIC_DEAD_LETTERS);
+                $visit!(SEMANTIC_TOMBSTONES);
+                $visit!(SEMANTIC_SQL_SOURCES);
+                $visit!(SEMANTIC_GRAPH_PROJECTIONS);
+                $visit!(SEMANTIC_AUTH_RECEIPTS);
+                $visit!(SEMANTIC_CHECKPOINTS);
+                $visit!(SEMANTIC_LEXICAL);
+                $visit!(SEMANTIC_ANN);
+                $visit!(SEMANTIC_VECTORS);
+                $visit!(ANN_CODES);
+            }
+        }
     }};
 }
 
@@ -105,34 +209,13 @@ pub(crate) fn open_declared_owner_tables(
     layout: OwnerLayout,
 ) -> Result<(), String> {
     validate_owner_registry_equality()?;
-    match layout {
-        OwnerLayout::LedgerOnly => Ok(()),
-        OwnerLayout::Rbac => open_table(wtx, RBAC),
-        OwnerLayout::Jobs => {
-            open_each(wtx, &JOB_TABLES_BYTES)?;
-            open_each(wtx, &JOB_TABLES_STR)?;
-            open_table(wtx, JOB_META)?;
-            open_table(wtx, READY_PRIORITY)?;
-            open_table(wtx, READY_CAPABILITY)?;
-            open_table(wtx, LEASE_EXPIRY)?;
-            open_table(wtx, ACTIVE_TOTALS)?;
-            open_table(wtx, BY_DEADLINE)?;
-            open_table(wtx, CANCELLATION)
-        }
-        OwnerLayout::Statechart => open_each(wtx, &STATECHARTS),
-        OwnerLayout::TimeSeries => {
-            open_table(wtx, TS_CHUNKS)?;
-            open_each(wtx, &TS_ROWS)
-        }
-        OwnerLayout::Kv => open_table(wtx, KV),
-        OwnerLayout::Blob => {
-            open_table(wtx, BLOB_CHUNKS)?;
-            open_table(wtx, BLOB_OBJECTS)?;
-            open_table(wtx, BLOB_REFS)?;
-            open_table(wtx, BLOB_UPLOADS)
-        }
-        OwnerLayout::SemanticIndex => for_each_semantic_table!(open_table, wtx),
+    macro_rules! open {
+        ($table:expr) => {{
+            open_table(wtx, $table)?;
+        }};
     }
+    visit_owner_tables!(layout, open);
+    Ok(())
 }
 
 pub(crate) fn validate_declared_owner_tables(
@@ -140,35 +223,12 @@ pub(crate) fn validate_declared_owner_tables(
     layout: OwnerLayout,
 ) -> Result<(), String> {
     validate_owner_registry_equality()?;
-    let result = match layout {
-        OwnerLayout::LedgerOnly => Ok(()),
-        OwnerLayout::Rbac => validate_table(rtx, RBAC),
-        OwnerLayout::Jobs => {
-            validate_each(rtx, &JOB_TABLES_BYTES)?;
-            validate_each(rtx, &JOB_TABLES_STR)?;
-            validate_table(rtx, JOB_META)?;
-            validate_table(rtx, READY_PRIORITY)?;
-            validate_table(rtx, READY_CAPABILITY)?;
-            validate_table(rtx, LEASE_EXPIRY)?;
-            validate_table(rtx, ACTIVE_TOTALS)?;
-            validate_table(rtx, BY_DEADLINE)?;
-            validate_table(rtx, CANCELLATION)
-        }
-        OwnerLayout::Statechart => validate_each(rtx, &STATECHARTS),
-        OwnerLayout::TimeSeries => {
-            validate_table(rtx, TS_CHUNKS)?;
-            validate_each(rtx, &TS_ROWS)
-        }
-        OwnerLayout::Kv => validate_table(rtx, KV),
-        OwnerLayout::Blob => {
-            validate_table(rtx, BLOB_CHUNKS)?;
-            validate_table(rtx, BLOB_OBJECTS)?;
-            validate_table(rtx, BLOB_REFS)?;
-            validate_table(rtx, BLOB_UPLOADS)
-        }
-        OwnerLayout::SemanticIndex => for_each_semantic_table!(validate_table, rtx),
-    };
-    result?;
+    macro_rules! validate {
+        ($table:expr) => {{
+            validate_table(rtx, $table)?;
+        }};
+    }
+    visit_owner_tables!(layout, validate);
     validate_table_census(
         rtx.list_tables().map_err(|error| error.to_string())?,
         rtx.list_multimap_tables()
@@ -201,9 +261,8 @@ where
     M: IntoIterator,
     M::Item: redb::MultimapTableHandle,
 {
-    let expected = LEDGER_TABLE_NAMES
-        .iter()
-        .copied()
+    let expected = crate::tables::ledger_table_names()
+        .into_iter()
         .chain(owner_table_names(layout).iter().copied())
         .map(str::to_string)
         .collect::<std::collections::BTreeSet<_>>();
@@ -220,64 +279,6 @@ where
     Ok(())
 }
 
-macro_rules! visit_owner_tables {
-    ($layout:expr, $visit:ident) => {{
-        match $layout {
-            OwnerLayout::LedgerOnly => {}
-            OwnerLayout::Rbac => $visit!(RBAC),
-            OwnerLayout::Jobs => {
-                for table in JOB_TABLES_BYTES {
-                    $visit!(table);
-                }
-                for table in JOB_TABLES_STR {
-                    $visit!(table);
-                }
-                $visit!(JOB_META);
-                $visit!(READY_PRIORITY);
-                $visit!(READY_CAPABILITY);
-                $visit!(LEASE_EXPIRY);
-                $visit!(ACTIVE_TOTALS);
-                $visit!(BY_DEADLINE);
-                $visit!(CANCELLATION);
-            }
-            OwnerLayout::Statechart => {
-                for table in STATECHARTS {
-                    $visit!(table);
-                }
-            }
-            OwnerLayout::TimeSeries => {
-                $visit!(TS_CHUNKS);
-                for table in TS_ROWS {
-                    $visit!(table);
-                }
-            }
-            OwnerLayout::Kv => $visit!(KV),
-            OwnerLayout::Blob => {
-                $visit!(BLOB_CHUNKS);
-                $visit!(BLOB_OBJECTS);
-                $visit!(BLOB_REFS);
-                $visit!(BLOB_UPLOADS);
-            }
-            OwnerLayout::SemanticIndex => {
-                $visit!(SEMANTIC_BINDINGS);
-                $visit!(SEMANTIC_HEADS);
-                $visit!(SEMANTIC_STAGES);
-                $visit!(SEMANTIC_STATES);
-                $visit!(SEMANTIC_SOURCE_PROGRESS);
-                $visit!(SEMANTIC_POINTERS);
-                $visit!(SEMANTIC_DEAD_LETTERS);
-                $visit!(SEMANTIC_TOMBSTONES);
-                $visit!(SEMANTIC_SQL_SOURCES);
-                $visit!(SEMANTIC_GRAPH_PROJECTIONS);
-                $visit!(SEMANTIC_AUTH_RECEIPTS);
-                $visit!(SEMANTIC_CHECKPOINTS);
-                $visit!(SEMANTIC_LEXICAL);
-                $visit!(SEMANTIC_ANN);
-                $visit!(SEMANTIC_VECTORS);
-            }
-        }
-    }};
-}
 
 pub(crate) fn copy_declared_owner_tables(
     source: &ReadTransaction,
@@ -321,13 +322,18 @@ pub(crate) fn hash_declared_owner_tables(
 /// Snapshot providers use this projection to bind their static section
 /// manifest without duplicating the mutation-store registry.
 pub fn declared_table_names(layout: OwnerLayout) -> Vec<&'static str> {
-    let mut names = LEDGER_TABLE_NAMES.to_vec();
+    let mut names = crate::tables::ledger_table_names();
     names.extend_from_slice(owner_table_names(layout));
     names.sort_unstable();
     names
 }
 
-pub(crate) fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
+/// Exactly the owner tables one layout declares -- the ledger and the three
+/// physical-identity tables are never in this set.
+///
+/// Public because the mutation kernel needs it to bound an owner-row write to
+/// its own layout (`AdmittedOwnerWrite::open_table`).
+pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
     match layout {
         OwnerLayout::LedgerOnly => &[],
         OwnerLayout::Rbac => &["rbac_v1"],
@@ -348,7 +354,30 @@ pub(crate) fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] 
         ],
         OwnerLayout::Statechart => &["statechart_defs", "statechart_instances"],
         OwnerLayout::TimeSeries => &["series_chunks", "series_meta", "series_projection_state"],
-        OwnerLayout::Kv => &["kv"],
+        OwnerLayout::Kv => &["kv", "eg_kvcache_cold"],
+        OwnerLayout::PathIndex => &["path_index_v1"],
+        OwnerLayout::Sql => &[
+            "__sql_catalog__",
+            "__sql_functions__",
+            "__sql_ann_indexes__",
+            "__sql_secondary_indexes__",
+            "__sql_secondary_index_entries__",
+            "__sql_hypertables__",
+            "__sql_mutation_batches__",
+            "__sql_views__",
+            "__sql_extensions__",
+            "__sql_rows__",
+            "__sql_seq__",
+            "__sql_schema_catalog_versions__",
+            "__sql_mutation_idempotency__",
+            "__sql_mutation_version__",
+            "__sql_mutation_fence__",
+            "__sql_mutation_outbox__",
+            "__sql_schema_versions__",
+            "__sql_schema_migrations__",
+            "__sql_schema_migration_order__",
+            "__sql_schema_catalog_order__",
+        ],
         OwnerLayout::Blob => &["cas_chunks", "cas_blobs", "cas_refcount", "cas_uploads"],
         OwnerLayout::SemanticIndex => &[
             "semantic_bindings_v1",
@@ -366,6 +395,7 @@ pub(crate) fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] 
             "semantic_lexical_manifests_v1",
             "semantic_ann_manifests_v1",
             "semantic_vectors_v1",
+            "eg_ann",
         ],
     }
 }
@@ -375,7 +405,7 @@ pub(crate) fn is_mutation_authority_marker(name: &str) -> bool {
 }
 
 pub(crate) fn is_known_mutation_table(name: &str) -> bool {
-    LEDGER_TABLE_NAMES.contains(&name)
+    crate::tables::ledger_table_names().contains(&name)
         || owner_layouts()
             .iter()
             .any(|layout| owner_table_names(*layout).contains(&name))
@@ -423,7 +453,7 @@ where
     Ok(())
 }
 
-fn owner_layouts() -> [OwnerLayout; 8] {
+pub(crate) fn owner_layouts() -> [OwnerLayout; 10] {
     [
         OwnerLayout::LedgerOnly,
         OwnerLayout::Rbac,
@@ -433,22 +463,11 @@ fn owner_layouts() -> [OwnerLayout; 8] {
         OwnerLayout::Kv,
         OwnerLayout::Blob,
         OwnerLayout::SemanticIndex,
+        OwnerLayout::Sql,
+        OwnerLayout::PathIndex,
     ]
 }
 
-fn open_each<K, V>(
-    wtx: &WriteTransaction,
-    tables: &[TableDefinition<'static, K, V>],
-) -> Result<(), String>
-where
-    K: Key + 'static,
-    V: Value + 'static,
-{
-    for table in tables {
-        open_table(wtx, *table)?;
-    }
-    Ok(())
-}
 
 fn open_table<K, V>(
     wtx: &WriteTransaction,
@@ -463,19 +482,6 @@ where
         .map_err(|error| error.to_string())
 }
 
-fn validate_each<K, V>(
-    rtx: &ReadTransaction,
-    tables: &[TableDefinition<'static, K, V>],
-) -> Result<(), String>
-where
-    K: Key + 'static,
-    V: Value + 'static,
-{
-    for table in tables {
-        validate_table(rtx, *table)?;
-    }
-    Ok(())
-}
 
 fn validate_table<K, V>(
     rtx: &ReadTransaction,

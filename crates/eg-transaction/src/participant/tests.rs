@@ -329,3 +329,33 @@ fn parent_terminalization_requires_exact_pending_crash_recovery_evidence() {
     }
     assert!(validate_transition(Some(&pending), &changed).is_err());
 }
+
+/// `Parent.binding` is boxed only to balance the enum's variant sizes; `Box<T>`
+/// must serialize exactly as `T`. Nothing else round-trips the `Parent` variant,
+/// so this is the only evidence that the durable record format is unchanged.
+#[test]
+fn a_parent_record_round_trips_through_its_boxed_binding() {
+    let cipher = TestCipher::from_key_material(b"parent-round-trip");
+    let parent = ConsensusTransactionRecord::Parent {
+        schema_version: CONSENSUS_TRANSACTION_SCHEMA_VERSION,
+        group_id: 0,
+        coordinator_id: "round-trip".to_string(),
+        retention_key: 5,
+        binding: Box::new(ConsensusTransactionBinding {
+            logical_graph: format!("sha256:{}", "1".repeat(64)),
+            effective_graph: format!("sha256:{}", "2".repeat(64)),
+            tenant: "tenant".to_string(),
+            origin: format!("principal:sha256:{}", "3".repeat(64)),
+            effective_actor_fingerprint: format!("principal:sha256:{}", "4".repeat(64)),
+            operation_kind: ConsensusParentOperationKind::Transaction,
+            participant_count: 1,
+        }),
+        state: ConsensusTransactionParentState::Prepared {
+            sealed_parent_authority: cipher.seal(b"authority"),
+        },
+    };
+    let encoded = encode_record(&parent).unwrap();
+    assert_eq!(decode_record(&encoded).unwrap(), parent);
+    // The field name is carried, not a `Box` wrapper: a msgpack map key.
+    assert!(encoded.windows(7).any(|window| window == b"binding"));
+}

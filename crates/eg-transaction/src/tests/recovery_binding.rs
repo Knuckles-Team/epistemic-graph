@@ -7,6 +7,7 @@
 use super::*;
 use crate::admitted::AdmittedMutation;
 use crate::tables::BATCHES;
+use redb::TableDefinition;
 use eg_storage::{encode_bounded, ledger_scope_key, ScopeFence};
 
 /// Reopening must run the recovery-content check, so a corrupted row is
@@ -59,7 +60,6 @@ fn a_fence_stamped_with_a_foreign_identity_fails_to_reopen() {
         let bytes = encode_bounded(&forged, "mutation fence").unwrap();
         let key = ledger_scope_key(&identity);
         write
-            .transaction()
             .open_table(FENCES)
             .unwrap()
             .insert(key.as_str(), bytes.as_slice())
@@ -85,7 +85,6 @@ fn a_batch_row_under_an_unbound_scope_key_fails_to_reopen() {
         let write = AdmittedMutation::open(fixture.mutations_authority(), &owner).unwrap();
         let bytes = encode_bounded(&record, "mutation batch record").unwrap();
         write
-            .transaction()
             .open_table(BATCHES)
             .unwrap()
             .insert(
@@ -96,4 +95,39 @@ fn a_batch_row_under_an_unbound_scope_key_fails_to_reopen() {
         write.commit().unwrap();
     }
     assert!(reopen_error(&path).contains("unbound identity"));
+}
+
+/// The capability is not a raw transaction: the three physical-identity tables
+/// and any undeclared table are unreachable through it.
+#[test]
+fn a_capability_cannot_open_an_identity_or_undeclared_table() {
+    const ROOT: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root_v1");
+    const MANIFEST: TableDefinition<&str, &[u8]> =
+        TableDefinition::new("mutation_owner_manifest_v1");
+    const BINDINGS: TableDefinition<&str, &[u8]> =
+        TableDefinition::new("mutation_scope_bindings_v1");
+    const FOREIGN: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
+    const INVENTED: TableDefinition<&str, &[u8]> = TableDefinition::new("not_declared_v1");
+
+    let dir = tempfile::tempdir().unwrap();
+    let identity = native_identity("tenant-a", "incarnation:capability");
+    let (fixture, owner) = ledger_fixture(&dir.path().join("native.redb"), identity);
+    let write = AdmittedMutation::open(fixture.mutations_authority(), &owner).unwrap();
+    for table in [ROOT, MANIFEST, BINDINGS] {
+        assert!(write
+            .open_table(table)
+            .unwrap_err()
+            .contains("physical-identity table"));
+    }
+    for table in [FOREIGN, INVENTED] {
+        assert!(write
+            .open_table(table)
+            .unwrap_err()
+            .contains("undeclared table"));
+    }
+    write.abort().unwrap();
+
+    let read = fixture.kernel.read_scope(&owner).unwrap();
+    assert!(read.open_table(ROOT).unwrap_err().contains("physical-identity table"));
+    assert!(read.open_table(INVENTED).unwrap_err().contains("undeclared table"));
 }

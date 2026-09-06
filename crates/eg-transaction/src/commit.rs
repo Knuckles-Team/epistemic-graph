@@ -2,30 +2,27 @@
 
 use crate::ledger::{
     idempotency_batch_id, persist_idempotency, persist_record, read_record_in_write,
-    remove_private, source_version, verify_replay_identity,
-};
-use crate::replay::remove_replay_rows;
-use crate::tables::{
-    BATCHES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, REPLAY_NONCES, REPLAY_OPERATIONS,
-    SCOPE_BINDINGS, VERSIONS,
+    source_version, verify_replay_identity,
 };
 use crate::admitted::AdmittedMutation;
+use crate::tables::{visit_ledger_tables, BATCHES, CLASSES, FENCES, OUTBOX, VERSIONS};
 use crate::Begin;
 use eg_storage::{
-    decode_batch_record, decode_ledger_record, encode_bounded, ledger_scope_key, OwnerDomain,
-    ScopeFence,
+    decode_batch_record, decode_ledger_record, encode_bounded, ledger_scope_key, MutationClass,
+    MutationClassRow, OwnerDomain, ScopeFence,
 };
 use eg_types::mutation_batch::MutationCommitPhase;
 use eg_types::{
     CommittedVersion, MutationBatch, MutationBatchRecord, MutationBatchStatus,
     MutationOutboxRecord, MutationScopeIdentity, VersionExpectation, MUTATION_BATCH_VERSION,
 };
-use redb::{ReadableTable, WriteTransaction};
+use redb::ReadableTable;
 
 /// Validate binding, exact idempotency, OCC, and route fencing before owner rows change.
 pub(crate) fn begin<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
+    class: MutationClass,
 ) -> Result<Begin, String> {
     batch.validate_write_budget()?;
     write.verify_scope(&batch.identity)?;
@@ -59,9 +56,9 @@ pub(crate) fn begin<D: OwnerDomain>(
         }
     }
 
-    reject_stale_fence(write.transaction(), batch)?;
+    reject_stale_fence(write, batch)?;
     eg_types::mutation_batch::apply_certification_fault(batch, MutationCommitPhase::BeforeRows)?;
-    write.admit_apply_batch(batch)?;
+    write.admit_apply_batch(batch, class)?;
     Ok(Begin::Apply { source_version })
 }
 
@@ -83,9 +80,12 @@ fn replay_begin<D: OwnerDomain>(
     Ok(Begin::Replay(Box::new(record)))
 }
 
-fn reject_stale_fence(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<(), String> {
+fn reject_stale_fence<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+) -> Result<(), String> {
     let identity_key = ledger_scope_key(&batch.identity);
-    let table = wtx.open_table(FENCES).map_err(|error| error.to_string())?;
+    let table = write.open_table(FENCES)?;
     let current = table
         .get(identity_key.as_str())
         .map_err(|error| error.to_string())?
@@ -134,9 +134,10 @@ pub(crate) fn finish<D: OwnerDomain>(
     };
     persist_record(write, &record)?;
     persist_idempotency(write, batch)?;
-    write_version(write.transaction(), batch, committed_version)?;
-    write_fence(write.transaction(), batch)?;
-    write_outbox(write.transaction(), batch, committed_version)?;
+    write_class(write, batch)?;
+    write_version(write, batch, committed_version)?;
+    write_fence(write, batch)?;
+    write_outbox(write, batch, committed_version)?;
     write.finish_batch_admission(batch)?;
     Ok(record)
 }
@@ -157,23 +158,51 @@ fn committed_version(
     }
 }
 
-fn write_version(
-    wtx: &WriteTransaction,
+/// Label the batch with the class it was admitted under. Exactly one class row
+/// exists per receipt, so a maintenance write is explicit in the ledger rather
+/// than inferred from missing replay evidence.
+pub(crate) fn write_class<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+) -> Result<(), String> {
+    let class = write.admitted_class()?;
+    let row = MutationClassRow {
+        identity: batch.identity.clone(),
+        batch_id: batch.batch_id.clone(),
+        class,
+    };
+    let bytes = encode_bounded(&row, "mutation class row")?;
+    let identity_key = ledger_scope_key(&batch.identity);
+    write
+        .open_table(CLASSES)?
+        .insert(
+            (identity_key.as_str(), batch.batch_id.as_str()),
+            bytes.as_slice(),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn write_version<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
     committed: CommittedVersion,
 ) -> Result<(), String> {
     let Some(target) = committed.target() else {
         return Ok(());
     };
-    let binding_key = batch.identity.binding_digest().to_hex();
-    wtx.open_table(VERSIONS)
-        .map_err(|error| error.to_string())?
+    let binding_key = ledger_scope_key(&batch.identity);
+    write
+        .open_table(VERSIONS)?
         .insert(binding_key.as_str(), target)
         .map_err(|error| error.to_string())?;
     Ok(())
 }
 
-fn write_fence(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<(), String> {
+fn write_fence<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+) -> Result<(), String> {
     let fence = ScopeFence {
         identity: batch.identity.clone(),
         placement_epoch: batch.placement_epoch,
@@ -181,20 +210,20 @@ fn write_fence(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<(), Stri
     };
     let bytes = encode_bounded(&fence, "mutation fence")?;
     let identity_key = ledger_scope_key(&batch.identity);
-    wtx.open_table(FENCES)
-        .map_err(|error| error.to_string())?
+    write
+        .open_table(FENCES)?
         .insert(identity_key.as_str(), bytes.as_slice())
         .map_err(|error| error.to_string())?;
     Ok(())
 }
 
-fn write_outbox(
-    wtx: &WriteTransaction,
+fn write_outbox<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
     committed_version: CommittedVersion,
 ) -> Result<(), String> {
     let identity_key = ledger_scope_key(&batch.identity);
-    let mut table = wtx.open_table(OUTBOX).map_err(|error| error.to_string())?;
+    let mut table = write.open_table(OUTBOX)?;
     for (ordinal, intent) in batch.outbox.iter().enumerate() {
         let outbox = MutationOutboxRecord {
             schema_version: MUTATION_BATCH_VERSION,
@@ -236,26 +265,37 @@ pub(crate) fn commit<D: OwnerDomain>(
 }
 
 /// Atomically remove authority for one exact logical generation.
+///
+/// Every scoped ledger table of the authoritative list is swept, so a table
+/// this kernel declares but does not yet write (the six outbox-delivery
+/// tables) cannot leave rows behind for the next generation. The scope binding
+/// and its version row are physical identity, so the storage kernel retires
+/// them inside the same transaction.
 pub(crate) fn purge_scope<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     identity: &MutationScopeIdentity,
 ) -> Result<(), String> {
     write.verify_scope(identity)?;
     let identity_key = ledger_scope_key(identity);
-    let batch_ids = collect_batch_ids(write.transaction(), identity, &identity_key)?;
-    for batch_id in &batch_ids {
-        remove_batch_rows(write.transaction(), &identity_key, batch_id)?;
+    validate_batch_keys(write, identity, &identity_key)?;
+    macro_rules! purge {
+        ($table:expr) => {{
+            write.purge_scoped_rows($table, identity_key.as_str())?;
+        }};
     }
-    remove_scope_rows(write.transaction(), &identity_key)
+    visit_ledger_tables!(purge);
+    write.retire_scope_binding(identity)
 }
 
-fn collect_batch_ids(
-    wtx: &WriteTransaction,
+/// Every batch row under this scope key must bind its own exact identity
+/// before the scope is retired, so a misfiled row is refused rather than
+/// silently swept.
+fn validate_batch_keys<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
     identity: &MutationScopeIdentity,
     identity_key: &str,
-) -> Result<std::collections::BTreeSet<String>, String> {
-    let table = wtx.open_table(BATCHES).map_err(|error| error.to_string())?;
-    let mut ids = std::collections::BTreeSet::new();
+) -> Result<(), String> {
+    let table = write.open_table(BATCHES)?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (row_identity, batch_id) = key.value();
@@ -266,67 +306,7 @@ fn collect_batch_ids(
         if record.identity != *identity || record.batch.batch_id != batch_id {
             return Err("mutation batch key does not bind its exact identity".to_string());
         }
-        ids.insert(batch_id.to_string());
     }
-    Ok(ids)
-}
-
-fn remove_batch_rows(
-    wtx: &WriteTransaction,
-    identity_key: &str,
-    batch_id: &str,
-) -> Result<(), String> {
-    wtx.open_table(BATCHES)
-        .map_err(|error| error.to_string())?
-        .remove((identity_key, batch_id))
-        .map_err(|error| error.to_string())?;
-    let mut outbox = wtx.open_table(OUTBOX).map_err(|error| error.to_string())?;
-    let ordinals = outbox
-        .range((identity_key, batch_id, 0)..=(identity_key, batch_id, u32::MAX))
-        .map_err(|error| error.to_string())?
-        .map(|row| {
-            row.map(|(key, _)| key.value().2)
-                .map_err(|error| error.to_string())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    for ordinal in ordinals {
-        outbox
-            .remove((identity_key, batch_id, ordinal))
-            .map_err(|error| error.to_string())?;
-    }
-    remove_private(wtx, identity_key, batch_id)
-}
-
-fn remove_scope_rows(wtx: &WriteTransaction, identity_key: &str) -> Result<(), String> {
-    let mut idem = wtx
-        .open_table(IDEMPOTENCY)
-        .map_err(|error| error.to_string())?;
-    let keys = idem
-        .iter()
-        .map_err(|error| error.to_string())?
-        .filter_map(|row| match row {
-            Ok((key, _)) if key.value().0 == identity_key => Some(Ok(key.value().1.to_string())),
-            Ok(_) => None,
-            Err(error) => Some(Err(error.to_string())),
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    for key in keys {
-        idem.remove((identity_key, key.as_str()))
-            .map_err(|error| error.to_string())?;
-    }
-    wtx.open_table(FENCES)
-        .map_err(|error| error.to_string())?
-        .remove(identity_key)
-        .map_err(|error| error.to_string())?;
-    remove_replay_rows(wtx, identity_key)?;
-    wtx.open_table(VERSIONS)
-        .map_err(|error| error.to_string())?
-        .remove(identity_key)
-        .map_err(|error| error.to_string())?;
-    wtx.open_table(SCOPE_BINDINGS)
-        .map_err(|error| error.to_string())?
-        .remove(identity_key)
-        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -339,14 +319,11 @@ fn remove_scope_rows(wtx: &WriteTransaction, identity_key: &str) -> Result<(), S
 pub(crate) fn open_ledger_tables<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
 ) -> Result<(), String> {
-    let wtx = write.transaction();
-    wtx.open_table(BATCHES).map_err(|e| e.to_string())?;
-    wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
-    wtx.open_table(VERSIONS).map_err(|e| e.to_string())?;
-    wtx.open_table(FENCES).map_err(|e| e.to_string())?;
-    wtx.open_table(OUTBOX).map_err(|e| e.to_string())?;
-    wtx.open_table(PRIVATE_PAYLOADS).map_err(|e| e.to_string())?;
-    wtx.open_table(REPLAY_NONCES).map_err(|e| e.to_string())?;
-    wtx.open_table(REPLAY_OPERATIONS).map_err(|e| e.to_string())?;
+    macro_rules! open {
+        ($table:expr) => {{
+            write.open_table($table)?;
+        }};
+    }
+    visit_ledger_tables!(open);
     Ok(())
 }

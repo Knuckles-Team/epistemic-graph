@@ -224,7 +224,6 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
     };
     let owner_write = write.owner_rows(&owner, &committed_batch).unwrap();
     write
-        .transaction()
         .open_table(BLOB_ROWS)
         .unwrap()
         .insert(
@@ -281,7 +280,7 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
     let adopted = Fixture::split(adopted);
     let owner = adopted.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity);
     let read = adopted.kernel.read_scope(&owner).unwrap();
-    let table = read.transaction().open_table(BLOB_ROWS).unwrap();
+    let table = read.open_table(BLOB_ROWS).unwrap();
     assert_eq!(
         table
             .get((owner_scope.as_str(), "staged-object"))
@@ -331,5 +330,69 @@ fn ledger_table_declarations_match_the_storage_kernel_census() {
         .into_iter()
         .collect::<BTreeSet<_>>();
     assert!(mine.is_subset(&declared), "{mine:?} vs {declared:?}");
+    // The three the storage kernel keeps for itself: the store root, the owner
+    // manifest, and the scope-binding table it alone writes.
     assert_eq!(declared.len(), mine.len() + 3);
+}
+
+/// A domain crate writes owner rows through `AdmittedOwnerWrite::open_table`,
+/// which is bounded to its own layout: the ledger, the physical-identity
+/// tables and every other layout's tables fail closed.
+#[test]
+fn an_owner_write_reaches_only_its_own_layouts_tables() {
+    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+    const LEDGER: TableDefinition<(&str, &str), &[u8]> =
+        TableDefinition::new("mutation_batches_v1");
+    const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
+    const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root_v1");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("owner-rows.redb");
+    let identity = native_identity("tenant-a", "incarnation:blob:a");
+    let batch = batch(identity.clone(), "owner-row-batch");
+    {
+        let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:test", None);
+        let owner =
+            fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+        let (write, begun) = fixture.mutations.admit(&owner, &batch).unwrap();
+        let source_version = match begun {
+            Begin::Apply { source_version } => source_version,
+            Begin::Replay(_) => panic!("unexpected replay"),
+        };
+        let rows = write.owner_rows(&owner, &batch).unwrap();
+        for table in [LEDGER, TableDefinition::new("mutation_classes_v1")] {
+            assert!(rows
+                .open_table(table)
+                .unwrap_err()
+                .contains("outside its layout"));
+        }
+        assert!(rows
+            .open_table(OTHER_LAYOUT)
+            .unwrap_err()
+            .contains("outside its layout"));
+        assert!(rows
+            .open_table(IDENTITY)
+            .unwrap_err()
+            .contains("outside its layout"));
+        let scope = eg_storage::ledger_scope_key(&identity);
+        rows.open_table(BLOB_ROWS)
+            .unwrap()
+            .insert((scope.as_str(), "object"), b"domain-row".as_slice())
+            .unwrap();
+        rows.finish_owner().unwrap();
+        fixture
+            .mutations
+            .finish(&write, &batch, None, 2, source_version)
+            .unwrap();
+        fixture.mutations.commit(write, &batch).unwrap();
+    }
+    let fixture = Fixture::open::<BlobOwner>(&path, "physical:blob:test", None);
+    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+    let read = fixture.kernel.read_scope(&owner).unwrap();
+    let scope = eg_storage::ledger_scope_key(&identity);
+    let table = read.open_table(BLOB_ROWS).unwrap();
+    assert_eq!(
+        table.get((scope.as_str(), "object")).unwrap().unwrap().value(),
+        b"domain-row"
+    );
 }
