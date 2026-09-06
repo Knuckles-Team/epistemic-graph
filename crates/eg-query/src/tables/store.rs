@@ -413,20 +413,25 @@ pub enum TxnOp {
         name: String,
         if_exists: bool,
     },
-    PutAnnIndex {
-        plan: AnnIndexPlan,
-    },
-    PutHypertable {
-        plan: HypertablePlan,
-    },
-    DropAnnIndexesForColumn {
-        table: String,
-        column: String,
-    },
+    /// Index and hypertable registration: one variant so the shared dispatcher
+    /// enumerates one catalog family per arm, and so every consumer that handles
+    /// this family handles EXACTLY its members.
+    IndexCatalog(IndexCatalogTxnOp),
     /// SQL:2023 SQL/PGQ property-graph catalog DDL, applied in THIS transaction
     /// alongside the table and view DDL it depends on. The family is ONE variant
     /// so it costs the shared dispatcher exactly one arm.
     PropertyGraphDdl(PropertyGraphTxnOp),
+}
+
+/// One index-catalog registration over an existing user table.
+#[derive(Debug, Clone, PartialEq)]
+pub enum IndexCatalogTxnOp {
+    /// `CREATE INDEX … USING hnsw|ivfflat` — a pgvector ANN index.
+    PutAnnIndex { plan: AnnIndexPlan },
+    /// `create_hypertable(...)` — a Timescale-compatible hypertable.
+    PutHypertable { plan: HypertablePlan },
+    /// Drop every ANN index registered on one column.
+    DropAnnIndexesForColumn { table: String, column: String },
 }
 
 /// One SQL/PGQ property-graph catalog mutation. A property graph is a catalog
@@ -454,6 +459,57 @@ pub enum PropertyGraphTxnOp {
         if_exists: bool,
         behavior: DropBehavior,
     },
+}
+
+impl PropertyGraphTxnOp {
+    /// Lower a parsed property-graph statement onto its durable catalog
+    /// operation and the command tag a route acknowledges it with.
+    ///
+    /// This lives beside the operation it builds so every route shares ONE
+    /// mapping: `actor` is the verified principal, which becomes a new graph's
+    /// owner and resolves `OWNER TO CURRENT_USER` / `OWNER TO SESSION_USER`.
+    pub fn from_statement(
+        statement: super::property_graph::PropertyGraphStatement,
+        actor: &str,
+    ) -> (Self, &'static str) {
+        use super::property_graph::PropertyGraphStatement as Statement;
+        match statement {
+            Statement::Create(definition) => (
+                Self::Create {
+                    definition,
+                    owner: actor.to_string(),
+                },
+                "CREATE PROPERTY GRAPH",
+            ),
+            Statement::Alter {
+                name,
+                if_exists,
+                action,
+                ..
+            } => (
+                Self::Alter {
+                    name,
+                    if_exists,
+                    action,
+                    actor: actor.to_string(),
+                },
+                "ALTER PROPERTY GRAPH",
+            ),
+            Statement::Drop {
+                names,
+                if_exists,
+                behavior,
+                ..
+            } => (
+                Self::Drop {
+                    names,
+                    if_exists,
+                    behavior,
+                },
+                "DROP PROPERTY GRAPH",
+            ),
+        }
+    }
 }
 
 /// A buffered multi-statement transaction (CONCEPT:EG-KG.query.register-each-user-table). `BEGIN` creates one;
@@ -2817,23 +2873,22 @@ fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Resul
         TxnOp::DropFunction { name, if_exists } => {
             apply_txn_op_drop_function(wtx, name, *if_exists)
         }
-        index @ (TxnOp::PutAnnIndex { .. }
-        | TxnOp::PutHypertable { .. }
-        | TxnOp::DropAnnIndexesForColumn { .. }) => apply_txn_op_index_catalog(wtx, index),
+        TxnOp::IndexCatalog(index) => apply_txn_op_index_catalog(wtx, index),
         TxnOp::PropertyGraphDdl(graph) => apply_txn_op_property_graph(wtx, tenant_scope, graph),
     }
 }
 
-/// The index/hypertable registration family of [`apply_txn_op`], split out so
-/// the shared dispatcher enumerates one catalog family per arm.
-fn apply_txn_op_index_catalog(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
+/// The index/hypertable registration family of [`apply_txn_op`].
+fn apply_txn_op_index_catalog(
+    wtx: &WriteTransaction,
+    op: &IndexCatalogTxnOp,
+) -> Result<usize, String> {
     match op {
-        TxnOp::PutAnnIndex { plan } => apply_txn_op_put_ann_index(wtx, plan),
-        TxnOp::PutHypertable { plan } => apply_txn_op_put_hypertable(wtx, plan),
-        TxnOp::DropAnnIndexesForColumn { table, column } => {
+        IndexCatalogTxnOp::PutAnnIndex { plan } => apply_txn_op_put_ann_index(wtx, plan),
+        IndexCatalogTxnOp::PutHypertable { plan } => apply_txn_op_put_hypertable(wtx, plan),
+        IndexCatalogTxnOp::DropAnnIndexesForColumn { table, column } => {
             drop_ann_indexes_for_column_in(wtx, table, column)
         }
-        _ => Err("index catalog dispatch received a non-index operation".to_string()),
     }
 }
 

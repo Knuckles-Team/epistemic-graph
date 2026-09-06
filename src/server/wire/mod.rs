@@ -49,9 +49,10 @@ use eg_query::{
     AlterTableAction, AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan,
     CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes,
     DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan,
-    InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict, OnConflictAction,
-    PgColType, PropertyGraphTxnOp, StatementKind, TableSchema, TableStore, TableTxn, TxnOp,
-    TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    IndexCatalogTxnOp, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict,
+    OnConflictAction, PgColType, PropertyGraphTxnOp, StatementKind, TableSchema, TableStore,
+    TableTxn, TxnOp, TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable,
+    WhereEq,
 };
 
 use crate::isolation::AccessLevel;
@@ -462,7 +463,6 @@ fn authorize_table_txn_op(
     >,
     created_tables: &mut Vec<TableSchema>,
 ) -> WireResult<()> {
-    use crate::server::sql_catalog_acl::{self, SqlPrivilege};
     match op {
         TxnOp::CreateTable {
             schema,
@@ -484,20 +484,14 @@ fn authorize_table_txn_op(
         | TxnOp::RenameColumn { table, .. }
         | TxnOp::AlterColumnType { table, .. }
         | TxnOp::DropConstraint { table, .. }
-        | TxnOp::AddConstraint { table, .. }
-        | TxnOp::DropAnnIndexesForColumn { table, .. } => {
+        | TxnOp::AddConstraint { table, .. } => {
             authorize_alter_like(source, authority, table, provisional_creates)
         }
         TxnOp::RenameTable { table, .. } => {
             authorize_rename_table(source, table, provisional_creates)
         }
-        TxnOp::PutAnnIndex { plan } => {
-            sql_catalog_acl::authorize_ddl(source, &plan.table, SqlPrivilege::Alter)
-                .map_err(user_err)
-        }
-        TxnOp::PutHypertable { plan } => {
-            sql_catalog_acl::authorize_ddl(source, &plan.table, SqlPrivilege::Alter)
-                .map_err(user_err)
+        TxnOp::IndexCatalog(index) => {
+            authorize_index_catalog_op(source, authority, index, provisional_creates)
         }
         TxnOp::Insert {
             table,
@@ -532,6 +526,36 @@ fn authorize_table_txn_op(
                 "catalog-wide DDL (view/extension/function/property graph) over the shared tenant catalog",
             )
             .map_err(user_err),
+    }
+}
+
+/// The index-catalog family of [`authorize_table_txn_op`]. Registering an ANN
+/// index or a hypertable needs `Alter` on the target table, and dropping a
+/// column's ANN indexes is authorized exactly like any other ALTER-shaped
+/// change to a named table -- both unchanged from before the family was grouped.
+#[cfg(feature = "query")]
+fn authorize_index_catalog_op(
+    source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
+    authority: &CarrierAuthority,
+    op: &IndexCatalogTxnOp,
+    provisional_creates: &std::collections::HashMap<
+        String,
+        crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
+    >,
+) -> WireResult<()> {
+    use crate::server::sql_catalog_acl::{self, SqlPrivilege};
+    match op {
+        IndexCatalogTxnOp::PutAnnIndex { plan } => {
+            sql_catalog_acl::authorize_ddl(source, &plan.table, SqlPrivilege::Alter)
+                .map_err(user_err)
+        }
+        IndexCatalogTxnOp::PutHypertable { plan } => {
+            sql_catalog_acl::authorize_ddl(source, &plan.table, SqlPrivilege::Alter)
+                .map_err(user_err)
+        }
+        IndexCatalogTxnOp::DropAnnIndexesForColumn { table, .. } => {
+            authorize_alter_like(source, authority, table, provisional_creates)
+        }
     }
 }
 
@@ -1955,11 +1979,11 @@ impl WireSession {
                 WireOutcome::command("DROP FUNCTION"),
             ),
             StatementKind::CreateAnnIndex(plan) => (
-                TxnOp::PutAnnIndex { plan: plan.clone() },
+                TxnOp::IndexCatalog(IndexCatalogTxnOp::PutAnnIndex { plan: plan.clone() }),
                 WireOutcome::command("CREATE INDEX"),
             ),
             StatementKind::CreateHypertable(plan) => (
-                TxnOp::PutHypertable { plan: plan.clone() },
+                TxnOp::IndexCatalog(IndexCatalogTxnOp::PutHypertable { plan: plan.clone() }),
                 WireOutcome::Rows(single_text_result(
                     "create_hypertable",
                     &format!("public.{}", plan.table),
@@ -2146,7 +2170,7 @@ impl WireSession {
         let tenant = authority.tenant_scope().to_string();
         let actor = authority.actor_scope().to_string();
         let statement = eg_query::sql::parse_property_graph_ddl(sql, &tenant).map_err(user_err)?;
-        let (op, tag) = property_graph_txn_op(statement, &actor);
+        let (op, tag) = PropertyGraphTxnOp::from_statement(statement, &actor);
         let mut txn = TableTxn::new();
         txn.push(TxnOp::PropertyGraphDdl(op));
         self.commit_table_txn(graph, sql, txn).await?;
@@ -2952,7 +2976,7 @@ impl WireSession {
         plan: AnnIndexPlan,
     ) -> WireResult<WireOutcome> {
         let mut txn = TableTxn::new();
-        txn.push(TxnOp::PutAnnIndex { plan });
+        txn.push(TxnOp::IndexCatalog(IndexCatalogTxnOp::PutAnnIndex { plan }));
         self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("CREATE INDEX"))
     }
@@ -2967,7 +2991,9 @@ impl WireSession {
     ) -> WireResult<WireOutcome> {
         let text = format!("public.{}", plan.table);
         let mut txn = TableTxn::new();
-        txn.push(TxnOp::PutHypertable { plan });
+        txn.push(TxnOp::IndexCatalog(IndexCatalogTxnOp::PutHypertable {
+            plan,
+        }));
         self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::Rows(single_text_result(
             "create_hypertable",
@@ -4788,54 +4814,6 @@ enum XmodalStmt {
     /// `SPARQL <CONSTRUCT/DESCRIBE query>` — stage/commit the CONSTRUCT'd triples.
     #[cfg(feature = "sparql")]
     SparqlConstruct(String),
-}
-
-/// Lower a parsed property-graph statement onto its durable catalog operation
-/// and the command tag the wire acknowledges it with. `actor` is the verified
-/// principal: it becomes a new graph's owner and resolves `OWNER TO
-/// CURRENT_USER` / `OWNER TO SESSION_USER`.
-#[cfg(feature = "query")]
-fn property_graph_txn_op(
-    statement: eg_query::tables::PropertyGraphStatement,
-    actor: &str,
-) -> (PropertyGraphTxnOp, &'static str) {
-    use eg_query::tables::PropertyGraphStatement as S;
-    match statement {
-        S::Create(definition) => (
-            PropertyGraphTxnOp::Create {
-                definition,
-                owner: actor.to_string(),
-            },
-            "CREATE PROPERTY GRAPH",
-        ),
-        S::Alter {
-            name,
-            if_exists,
-            action,
-            ..
-        } => (
-            PropertyGraphTxnOp::Alter {
-                name,
-                if_exists,
-                action,
-                actor: actor.to_string(),
-            },
-            "ALTER PROPERTY GRAPH",
-        ),
-        S::Drop {
-            names,
-            if_exists,
-            behavior,
-            ..
-        } => (
-            PropertyGraphTxnOp::Drop {
-                names,
-                if_exists,
-                behavior,
-            },
-            "DROP PROPERTY GRAPH",
-        ),
-    }
 }
 
 /// Project a unified-query result (`[(id, score)]`) into a two-column typed row set

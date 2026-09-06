@@ -7,6 +7,7 @@ use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser as SqlParser;
 
 use super::ast::*;
+use super::expr::{BinaryOp, GraphExpr, GraphLiteral};
 use super::label::LabelExpr;
 use super::lex::{SqlNumber, MAX_GRAPH_EXPR_DEPTH, MAX_GRAPH_TABLE_BRANCHES};
 use crate::tables::property_graph::{
@@ -617,25 +618,20 @@ fn lower_expr(
             *op,
             Box::new(lower_expr(right, vars, depth + 1)?),
         )),
-        literal @ (GraphExpr::String(_)
-        | GraphExpr::Number(_)
-        | GraphExpr::Boolean(_)
-        | GraphExpr::Null
-        | GraphExpr::CurrentDate) => lower_literal(literal),
+        GraphExpr::Literal(literal) => Ok(lower_literal(literal)),
     }
 }
 
 /// The literal leaves of a graph expression. They bind no variable and consume
-/// no depth budget, so they are lowered apart from the recursive forms.
-fn lower_literal(expr: &GraphExpr) -> Result<RelationalExpr, String> {
-    Ok(match expr {
-        GraphExpr::String(value) => RelationalExpr::String(value.clone()),
-        GraphExpr::Number(value) => RelationalExpr::Number(value.clone()),
-        GraphExpr::Boolean(value) => RelationalExpr::Boolean(*value),
-        GraphExpr::Null => RelationalExpr::Null,
-        GraphExpr::CurrentDate => RelationalExpr::CurrentDate,
-        _ => return Err("graph literal lowering received a non-literal expression".into()),
-    })
+/// no depth budget, and the narrow input type means every case is real.
+fn lower_literal(literal: &GraphLiteral) -> RelationalExpr {
+    match literal {
+        GraphLiteral::String(value) => RelationalExpr::String(value.clone()),
+        GraphLiteral::Number(value) => RelationalExpr::Number(value.clone()),
+        GraphLiteral::Boolean(value) => RelationalExpr::Boolean(*value),
+        GraphLiteral::Null => RelationalExpr::Null,
+        GraphLiteral::CurrentDate => RelationalExpr::CurrentDate,
+    }
 }
 
 /// Resolve a bound graph variable to one column of its relational alias. The

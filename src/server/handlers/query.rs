@@ -5190,7 +5190,9 @@ async fn exec_sql_write(
         // by the native eg-ann pushdown planner.
         K::CreateAnnIndex(plan) => {
             let mut txn = eg_query::TableTxn::new();
-            txn.push(eg_query::TxnOp::PutAnnIndex { plan });
+            txn.push(eg_query::TxnOp::IndexCatalog(
+                eg_query::IndexCatalogTxnOp::PutAnnIndex { plan },
+            ));
             commit_sql_catalog_txn(
                 req_id,
                 SqlWriteScope {
@@ -5209,7 +5211,9 @@ async fn exec_sql_write(
         // the native hypertable declaration through the SQL MutationBatch kernel.
         K::CreateHypertable(plan) => {
             let mut txn = eg_query::TableTxn::new();
-            txn.push(eg_query::TxnOp::PutHypertable { plan });
+            txn.push(eg_query::TxnOp::IndexCatalog(
+                eg_query::IndexCatalogTxnOp::PutHypertable { plan },
+            ));
             commit_sql_catalog_txn(
                 req_id,
                 SqlWriteScope {
@@ -5318,7 +5322,7 @@ async fn exec_sql_property_graph_ddl(
         Ok(statement) => statement,
         Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
     };
-    let (op, tag) = property_graph_txn_op(statement, &actor);
+    let (op, tag) = eg_query::PropertyGraphTxnOp::from_statement(statement, &actor);
     let mut txn = eg_query::TableTxn::new();
     txn.push(eg_query::TxnOp::PropertyGraphDdl(op));
     commit_sql_catalog_txn(req_id, scope, sql_method.clone(), store, txn, tag).await
@@ -5374,55 +5378,6 @@ fn graph_table_rows(
         &record.accepted_definition,
         tenant_scope,
     )
-}
-
-/// Lower a parsed property-graph statement onto its durable catalog operation
-/// and the command tag the caller is acknowledged with. `actor` is the verified
-/// principal: it becomes a new graph's owner and resolves `OWNER TO
-/// CURRENT_USER` / `OWNER TO SESSION_USER`.
-#[cfg(feature = "query")]
-fn property_graph_txn_op(
-    statement: eg_query::tables::PropertyGraphStatement,
-    actor: &str,
-) -> (eg_query::PropertyGraphTxnOp, &'static str) {
-    use eg_query::tables::PropertyGraphStatement as S;
-    use eg_query::PropertyGraphTxnOp as Op;
-    match statement {
-        S::Create(definition) => (
-            Op::Create {
-                definition,
-                owner: actor.to_string(),
-            },
-            "CREATE PROPERTY GRAPH",
-        ),
-        S::Alter {
-            name,
-            if_exists,
-            action,
-            ..
-        } => (
-            Op::Alter {
-                name,
-                if_exists,
-                action,
-                actor: actor.to_string(),
-            },
-            "ALTER PROPERTY GRAPH",
-        ),
-        S::Drop {
-            names,
-            if_exists,
-            behavior,
-            ..
-        } => (
-            Op::Drop {
-                names,
-                if_exists,
-                behavior,
-            },
-            "DROP PROPERTY GRAPH",
-        ),
-    }
 }
 
 /// A scalar cell (from a resolved SELECT row) coerced to the string node-id form the
