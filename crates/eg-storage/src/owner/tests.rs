@@ -530,9 +530,16 @@ fn signed_semantic_layout_is_closed_domain_service_authority() {
 /// The previous declaration was a flat `&str` key whose only three keys were
 /// `meta`, `codes` and `refine`: writing generation `N+1` overwrote the rows
 /// `N` was serving from, in place. That is a correctness defect, not plumbing,
-/// and it is what this key shape fixes -- so the proof is a physical one (two
-/// generations written, both readable, one retired by its own prefix) rather
-/// than an assertion about a type string.
+/// and it is what this key shape fixes.
+///
+/// Scope of this test, stated exactly: it proves the **physical key shape** —
+/// that two generations occupy disjoint key ranges of one real table and that
+/// one is removable by its own prefix. It uses this crate's own raw handle
+/// because eg-storage cannot admit a mutation (it may not import
+/// eg-transaction). The proof that the TYPED path — `AnnCodeRows` through
+/// `AdmittedOwnerWrite`, retirement through `purge_scope_with` — behaves the
+/// same way is `eg-core`'s
+/// `semantic_ann_codes::tests::two_generations_coexist_and_retiring_one_leaves_the_other_serving`.
 #[test]
 fn the_ann_code_table_is_keyed_by_generation_so_two_can_coexist() {
     use crate::owner::table_api::{AnnCodeRows, OwnerTable};

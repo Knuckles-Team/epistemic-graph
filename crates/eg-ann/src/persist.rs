@@ -1,33 +1,26 @@
-//! Persistent on-disk format — the no-rebuild-on-load win (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
+//! Versioned metadata wire for the IVF-PQ index (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 //!
-//! An index directory holds three files:
-//!   * `meta.bin` — versioned postcard of everything EXCEPT the two bulk code buffers: the
-//!     OPQ rotation, coarse + PQ centroids, ids, `list_of`, tombstones, per-row
-//!     SQ8 min/scale, and params.
-//!   * `codes.bin` — `N*m` u8 PQ codes (the IVF-PQ bulk), mmapped on open.
-//!   * `refine.bin` — `N*dim` u8 SQ8 refine codes, mmapped on open.
+//! `Meta` is a versioned postcard record of everything EXCEPT the two bulk code
+//! buffers: the OPQ rotation, coarse + PQ centroids, ids, `list_of`, tombstones,
+//! per-row SQ8 min/scale, and params. `Meta::into_index` rebuilds an `IvfPq`
+//! from it plus the two buffers and one O(N) integer posting-list pass -- NO f32
+//! reconstruction, NO k-means, NO graph build. That is the no-rebuild property,
+//! and it is the precise contrast with `SemanticStore`'s HNSW, which is
+//! `#[serde(skip)]` and rebuilds insert-by-insert on first search after load.
 //!
-//! `open()` validates and decodes `meta.bin`, mmaps the two code files (copying the bytes
-//! into the `IvfPq` so it stays one owned struct — still NO f32 reconstruction, NO
-//! k-means, NO graph build), and rebuilds posting lists with one O(N) integer
-//! pass. Reopen does no vector arithmetic — the expensive structure (rotation +
-//! codebooks + cell assignment) is read back, not recomputed. This is the precise
-//! contrast with `SemanticStore`'s HNSW, which is `#[serde(skip)]` and rebuilds
-//! insert-by-insert on first search after load.
+//! RF-ADR-002: the three-file `meta.bin`/`codes.bin`/`refine.bin` directory
+//! format that used to live here is **deleted**. It had no caller anywhere in
+//! `crates/**` or `src/**` once semantic activation moved onto the mutation
+//! kernel, and a durable format with no reader is a second, unverified
+//! persistence authority. The same buffers are carried by
+//! `crate::durable_codes` and stored by the owner of a mutation capability.
 
 use crate::ivfpq::{IvfPq, PQ_KSUB};
-use memmap2::Mmap;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
-use std::fs::{self, File};
-use std::io::Write;
 use std::marker::PhantomData;
-use std::path::Path;
 
-const META_FILE: &str = "meta.bin";
-const CODES_FILE: &str = "codes.bin";
-const REFINE_FILE: &str = "refine.bin";
 pub(crate) const MAX_METADATA_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_DIMENSION: usize = 8_192;
 const MAX_LISTS: usize = 1_000_000;
@@ -210,69 +203,6 @@ impl Meta {
         validate_index(&idx)?;
         Ok(idx)
     }
-}
-
-/// Atomically write the index to `dir` (write-to-temp + rename per file).
-pub fn save(idx: &IvfPq, dir: &Path) -> std::io::Result<()> {
-    validate_index(idx)?;
-    fs::create_dir_all(dir)?;
-    let meta = Meta::from_index(idx);
-    let encoded = crate::codec::serialize(&meta).map_err(invalid_data)?;
-    if encoded.len() as u64 > MAX_METADATA_BYTES {
-        return Err(invalid_data("ANN metadata exceeds its safety bound"));
-    }
-    write_atomic(&dir.join(META_FILE), &encoded)?;
-    write_atomic(&dir.join(CODES_FILE), &idx.codes)?;
-    write_atomic(&dir.join(REFINE_FILE), &idx.sq_codes)?;
-    Ok(())
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    {
-        let mut f = File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-    }
-    fs::rename(&tmp, path)
-}
-
-/// Open WITHOUT rebuilding from raw f32. mmaps the two code files, loads meta,
-/// rebuilds posting lists (integer pass only). Ready to query.
-pub fn open(dir: &Path) -> std::io::Result<IvfPq> {
-    let mbytes = read_bounded(&dir.join(META_FILE), MAX_METADATA_BYTES)?;
-    let meta: Meta = crate::codec::deserialize(&mbytes).map_err(invalid_data)?;
-    let (codes_len, refine_len) = meta.expected_code_lengths()?;
-
-    let codes = mmap_to_vec(&dir.join(CODES_FILE), codes_len)?;
-    let sq_codes = mmap_to_vec(&dir.join(REFINE_FILE), refine_len)?;
-
-    let mut idx = meta.into_index(codes, sq_codes)?;
-    idx.rebuild_postings(); // O(N) integer pass — no vector math
-    Ok(idx)
-}
-
-fn read_bounded(path: &Path, maximum: u64) -> std::io::Result<Vec<u8>> {
-    let length = fs::metadata(path)?.len();
-    if length > maximum {
-        return Err(invalid_data("ANN metadata exceeds its safety bound"));
-    }
-    fs::read(path)
-}
-
-fn mmap_to_vec(path: &Path, expected: usize) -> std::io::Result<Vec<u8>> {
-    let f = File::open(path)?;
-    let len = f.metadata()?.len();
-    if len != u64::try_from(expected).map_err(invalid_data)? {
-        return Err(invalid_data(
-            "ANN code-buffer length does not match metadata",
-        ));
-    }
-    if len == 0 {
-        return Ok(Vec::new());
-    }
-    let mmap = unsafe { Mmap::map(&f)? };
-    Ok(mmap.to_vec())
 }
 
 pub(crate) fn validate_index(idx: &IvfPq) -> std::io::Result<()> {

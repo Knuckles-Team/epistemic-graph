@@ -9,19 +9,21 @@
 //! nothing today can even tell you it happened.
 //!
 //! [`EmbeddingVersion`] is the minimal tag (`model_id` + a monotonic `model_version`
-//! integer); [`EmbeddingVersionStore`] is a side-table `id -> EmbeddingVersion`,
-//! persisted independently of the PQ codes (the same strict versioned codec [`crate::persist`]
-//! already uses) so tagging remains independent of the code buffers.
+//! integer); [`EmbeddingVersionStore`] is an in-memory side-table
+//! `id -> EmbeddingVersion`, independent of the code buffers.
+//!
+//! RF-ADR-002: its `save`/`open` pair wrote a `versions.bin` file "beside the
+//! index's own `meta.bin`" -- a directory format this crate no longer produces
+//! and that had no reader anywhere in `crates/**` or `src/**`. Deleted with it.
+//! A durable tag table belongs in the semantic owner file alongside the codes,
+//! written by the holder of a mutation capability, not by this leaf crate.
 
 use serde::de::{self, SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::fmt;
-use std::fs;
-use std::path::Path;
 
-const MAX_VERSION_METADATA_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_VERSION_TAGS: usize = 5_000_000;
 const MAX_MODEL_ID_BYTES: usize = 1_024;
 
@@ -168,51 +170,6 @@ impl EmbeddingVersionStore {
         out.sort();
         out
     }
-
-    /// Persist the tag table — the same codec [`crate::persist`] uses for
-    /// the index's own `meta.bin`, so this drops beside it in an index directory.
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if self.tags.len() > MAX_VERSION_TAGS
-            || self
-                .tags
-                .values()
-                .any(|version| validate_version(version).is_err())
-        {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "embedding-version metadata exceeds its safety bounds",
-            ));
-        }
-        let bytes = crate::codec::serialize(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        if bytes.len() as u64 > MAX_VERSION_METADATA_BYTES {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "embedding-version metadata exceeds its byte limit",
-            ));
-        }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(path, bytes)
-    }
-
-    /// Reopen a persisted tag table. A missing optional side-table means that no
-    /// embedding-version tags have been materialized yet.
-    pub fn open(path: &Path) -> std::io::Result<Self> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        if fs::metadata(path)?.len() > MAX_VERSION_METADATA_BYTES {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "embedding-version metadata exceeds its byte limit",
-            ));
-        }
-        let bytes = fs::read(path)?;
-        crate::codec::deserialize(&bytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-    }
 }
 
 #[cfg(test)]
@@ -267,26 +224,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn save_open_roundtrip() {
-        let mut store = EmbeddingVersionStore::new();
-        store.tag_batch(&[1, 2, 3], &EmbeddingVersion::new("m1", 5));
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("versions.bin");
-        store.save(&path).unwrap();
-        let reopened = EmbeddingVersionStore::open(&path).unwrap();
-        assert_eq!(reopened.len(), 3);
-        assert_eq!(
-            reopened.version_of(2),
-            Some(&EmbeddingVersion::new("m1", 5))
-        );
-    }
-
-    #[test]
-    fn open_missing_file_yields_empty_store_not_error() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("does-not-exist.bin");
-        let store = EmbeddingVersionStore::open(&path).unwrap();
-        assert!(store.is_empty());
-    }
 }

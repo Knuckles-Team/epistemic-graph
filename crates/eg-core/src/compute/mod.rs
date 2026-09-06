@@ -15,3 +15,10 @@ pub mod semantic_ann;
 /// `Native(SemanticIndex)` mutation (RF-RULING-007).
 #[cfg(feature = "ann-redb")]
 pub mod semantic_ann_codes;
+
+/// RF-RULING-007 layer (c): the call-graph gate over `crates/eg-ann/src` and
+/// this directory. Test-only and NOT feature-gated -- the whole point is that
+/// it runs in every build that runs tests, including one with no storage
+/// feature enabled at all.
+#[cfg(test)]
+mod semantic_arch_gate;

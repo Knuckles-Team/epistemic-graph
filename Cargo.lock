@@ -2685,14 +2685,12 @@ dependencies = [
  "cudarc",
  "eg-modality",
  "eg-numeric",
- "memmap2",
  "ndarray 0.17.2",
  "postcard",
  "rand 0.8.7",
  "rand_chacha 0.3.1",
  "rayon",
  "serde",
- "tempfile",
  "tracing",
 ]
 

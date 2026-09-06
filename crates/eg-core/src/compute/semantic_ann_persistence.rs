@@ -76,6 +76,23 @@ pub struct SemanticGenerationImage {
     pub manifest: Vec<u8>,
 }
 
+impl SemanticGenerationImage {
+    /// The generation's declared model identity: `(dimensions, model digest)`,
+    /// decoded from its own manifest.
+    ///
+    /// This is what a durable binding authority is compared against, so it is
+    /// read from the artifact rather than from the resident store: an image
+    /// that describes a different model or width than the binding was created
+    /// with must be refusable without a resident arena to compare to.
+    pub fn identity(&self) -> std::io::Result<(usize, Option<String>)> {
+        let manifest = decode_index_manifest(&self.manifest)?;
+        Ok((
+            manifest.dimension,
+            manifest.space.as_ref().map(|space| space.digest.clone()),
+        ))
+    }
+}
+
 impl SemanticStore {
     /// Take this store's index generation as a durable image: the IVF-PQ
     /// artifact plus the exact live member/space manifest.

@@ -109,11 +109,23 @@ const SEMANTIC_HEADS: TableDefinition<'static, (&str, &str), u64> =
     TableDefinition::new("semantic_binding_heads_v1");
 const SEMANTIC_STAGES: TableDefinition<'static, (&str, &str, &str), &[u8]> =
     TableDefinition::new("semantic_stage_transitions_v1");
-const SEMANTIC_STATES: TableDefinition<'static, (&str, &str), &[u8]> =
+/// The binding's durable authority record (model identity and dimensions),
+/// keyed `(tenant, binding)` -- one per binding, not per generation.
+///
+/// Public because the semantic domain addresses it through the layout-bounded
+/// owner handles; a second hand-written declaration in a consumer crate is the
+/// drift `validate_owner_registry_equality` exists to refuse.
+pub const SEMANTIC_STATES: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("semantic_binding_state_transitions_v1");
 const SEMANTIC_SOURCE_PROGRESS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_source_progress_v1");
-const SEMANTIC_POINTERS: TableDefinition<'static, (&str, &str), &[u8]> =
+/// The binding's live-generation pointer, keyed `(tenant, binding)`. One row,
+/// so two live generations of one binding are structurally impossible.
+///
+/// Public because the semantic domain addresses it through the layout-bounded
+/// owner handles; a second hand-written declaration in a consumer crate is the
+/// drift `validate_owner_registry_equality` exists to refuse.
+pub const SEMANTIC_POINTERS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("semantic_active_pointers_v1");
 const SEMANTIC_DEAD_LETTERS: TableDefinition<'static, (&str, &str, u32), &[u8]> =
     TableDefinition::new("semantic_dead_letters_v1");
