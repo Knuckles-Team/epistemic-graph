@@ -95,7 +95,7 @@ fn shop_store() -> (TableStore, std::path::PathBuf) {
     let (store, path) = open_store();
     base_tables(&store);
     store
-        .create_property_graph(&definition(SHOP_DDL), OWNER)
+        .create_property_graph(TENANT, &definition(SHOP_DDL), OWNER)
         .expect("create property graph");
     (store, path)
 }
@@ -155,11 +155,11 @@ fn the_graph_name_shares_one_relation_namespace_with_tables_and_views() {
         "CREATE PROPERTY GRAPH customers VERTEX TABLES (orders KEY (order_id) LABEL o PROPERTIES (ordered_when))",
     );
     assert!(store
-        .create_property_graph(&collide, OWNER)
+        .create_property_graph(TENANT, &collide, OWNER)
         .unwrap_err()
         .contains("collides with a table or view"));
     assert!(store
-        .create_property_graph(&definition(SHOP_DDL), OWNER)
+        .create_property_graph(TENANT, &definition(SHOP_DDL), OWNER)
         .unwrap_err()
         .contains("already exists"));
 }
@@ -172,7 +172,7 @@ fn temporary_and_schema_qualified_graphs_are_rejected() {
         "CREATE TEMP PROPERTY GRAPH session_shop VERTEX TABLES (customers KEY (customer_id) LABEL customer PROPERTIES (name))",
     );
     assert!(store
-        .create_property_graph(&temporary, OWNER)
+        .create_property_graph(TENANT, &temporary, OWNER)
         .unwrap_err()
         .contains("connection-scoped"));
 
@@ -180,7 +180,7 @@ fn temporary_and_schema_qualified_graphs_are_rejected() {
         "CREATE PROPERTY GRAPH archive.shop VERTEX TABLES (customers KEY (customer_id) LABEL customer PROPERTIES (name))",
     );
     assert!(store
-        .create_property_graph(&qualified, OWNER)
+        .create_property_graph(TENANT, &qualified, OWNER)
         .unwrap_err()
         .contains("public"));
 }
@@ -394,6 +394,7 @@ fn the_graph_record_commits_in_the_same_catalog_transaction_as_its_base_tables()
         if_not_exists: false,
     });
     txn.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::Create {
+        tenant_scope: TENANT.to_string(),
         definition: definition(
             "CREATE PROPERTY GRAPH social VERTEX TABLES (people KEY (person_id) LABEL person PROPERTIES (name))",
         ),
@@ -413,6 +414,7 @@ fn the_graph_record_commits_in_the_same_catalog_transaction_as_its_base_tables()
         if_not_exists: false,
     });
     failing.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::Create {
+        tenant_scope: TENANT.to_string(),
         definition: definition(
             "CREATE PROPERTY GRAPH cities VERTEX TABLES (places KEY (absent_column) LABEL place PROPERTIES (place_id))",
         ),
@@ -523,6 +525,7 @@ fn element_id_stays_unique_across_a_label_disjunction_union() {
         .unwrap();
     store
         .create_property_graph(
+            TENANT,
             &definition(
                 "CREATE PROPERTY GRAPH labelled VERTEX TABLES (\
                  people KEY (person_id) LABEL person PROPERTIES (person_id), \
@@ -550,7 +553,7 @@ fn element_id_stays_unique_across_a_label_disjunction_union() {
     .unwrap();
     let mut ids: Vec<_> = result.rows.iter().map(|row| row[0].clone()).collect();
     ids.sort_by_key(|value| value.to_string());
-    assert_eq!(ids, vec![json!("people:k1"), json!("places:k1")]);
+    assert_eq!(ids, vec![json!("6:people:k1"), json!("6:places:k1")]);
 }
 
 #[test]
@@ -621,7 +624,7 @@ fn quoted_identifiers_in_a_persisted_graph_cannot_escape_the_emitted_sql() {
         r#""tab"";drop" AS "al'ias" KEY ("id"";--") LABEL "lab'el" PROPERTIES ("na'me"))"#
     );
     store
-        .create_property_graph(&definition(ddl), OWNER)
+        .create_property_graph(TENANT, &definition(ddl), OWNER)
         .unwrap();
 
     let graph = SqlName::new(vec![SqlIdentifier::quoted(r#"g";drop"#).unwrap()]).unwrap();
@@ -641,7 +644,9 @@ fn quoted_identifiers_in_a_persisted_graph_cannot_escape_the_emitted_sql() {
     // is `'`-doubled. Both dangerous bytes exist ONLY inside those quotings.
     assert!(sql.contains(r#""tab"";drop""#), "{sql}");
     assert!(sql.contains(r#""id"";--""#), "{sql}");
-    assert!(sql.contains(r#"'al''ias:'"#), "{sql}");
+    // The prefix is the RAW alias length (`al'ias` is 6 bytes); the literal
+    // shows it `'`-doubled, and evaluates back to exactly those 6 bytes.
+    assert!(sql.contains(r#"'6:al''ias:'"#), "{sql}");
     assert_eq!(sql.matches('"').count() % 2, 0, "unbalanced quoting: {sql}");
 
     // The proof that nothing escaped: the SQL parser reads this as EXACTLY ONE
@@ -716,6 +721,7 @@ fn a_composite_key_element_id_fails_closed_through_the_persisted_catalog() {
         .unwrap();
     store
         .create_property_graph(
+            TENANT,
             &definition(
                 "CREATE PROPERTY GRAPH pairs_graph VERTEX TABLES (\
                  pairs KEY (left_id, right_id) LABEL pair PROPERTIES (left_id))",
@@ -759,6 +765,7 @@ fn negation_and_conjunction_select_the_right_element_tables_from_the_catalog() {
         .unwrap();
     store
         .create_property_graph(
+            TENANT,
             &definition(
                 "CREATE PROPERTY GRAPH labelled VERTEX TABLES (\
                  people KEY (person_id) LABEL person PROPERTIES (person_id) \
@@ -772,12 +779,12 @@ fn negation_and_conjunction_select_the_right_element_tables_from_the_catalog() {
     // Which element tables each label expression actually selects, proven by the
     // rows returned -- not by the AST shape.
     for (pattern, expected) in [
-        ("(v:person & staff)", vec![json!("people:p1")]),
-        ("(v:!person)", vec![json!("places:q1")]),
+        ("(v:person & staff)", vec![json!("6:people:p1")]),
+        ("(v:!person)", vec![json!("6:places:q1")]),
         ("(v:!person & !place)", vec![]),
         (
             "(v:person | place)",
-            vec![json!("people:p1"), json!("places:q1")],
+            vec![json!("6:people:p1"), json!("6:places:q1")],
         ),
     ] {
         let sql = format!(
@@ -812,4 +819,110 @@ fn negation_and_conjunction_select_the_right_element_tables_from_the_catalog() {
         ids.sort_by_key(|value| value.to_string());
         assert_eq!(ids, expected, "{pattern}");
     }
+}
+
+#[test]
+fn element_id_stays_injective_when_an_alias_and_a_key_both_contain_the_separator() {
+    let (store, _path) = open_store();
+    // The adversarial pair for a bare `alias:key` join: alias `a` with key
+    // `b:c`, and alias `a:b` with key `c`. Both render `a:b:c` unprefixed.
+    for schema in [
+        TableSchema::new("t_one", vec![text("k", true)]),
+        TableSchema::new("t_two", vec![text("k", true)]),
+    ] {
+        store.create_table(&schema, false).unwrap();
+    }
+    store
+        .insert_rows("t_one", &["k".into()], &[vec![json!("b:c")]])
+        .unwrap();
+    store
+        .insert_rows("t_two", &["k".into()], &[vec![json!("c")]])
+        .unwrap();
+    store
+        .create_property_graph(
+            TENANT,
+            &definition(concat!(
+                r#"CREATE PROPERTY GRAPH sep VERTEX TABLES ("#,
+                r#"t_one AS "a" KEY (k) LABEL one PROPERTIES (k), "#,
+                r#"t_two AS "a:b" KEY (k) LABEL two PROPERTIES (k))"#
+            )),
+            OWNER,
+        )
+        .unwrap();
+
+    let StatementKind::GraphTableReadRequiresCatalogAdmission(query) = classify(
+        "SELECT * FROM GRAPH_TABLE (sep MATCH (v:one | two) COLUMNS (ELEMENT_ID(v) AS eid))",
+    )
+    .unwrap() else {
+        panic!("expected a GRAPH_TABLE read");
+    };
+    let record = store.property_graph(TENANT, &query.graph).unwrap().unwrap();
+    let view = GraphCore::new().analysis_snapshot();
+    let result = exec_graph_table_typed_with_tables(
+        &view,
+        &store,
+        &query,
+        &record.accepted_definition,
+        TENANT,
+    )
+    .unwrap();
+    let mut ids: Vec<_> = result.rows.iter().map(|row| row[0].clone()).collect();
+    ids.sort_by_key(|value| value.to_string());
+    // Length-prefixed, so the split point is determined and the two differ.
+    assert_eq!(ids, vec![json!("1:a:b:c"), json!("3:a:b:c")]);
+    assert_ne!(ids[0], ids[1]);
+}
+
+#[test]
+fn a_property_graph_op_whose_declared_scope_disagrees_with_its_definition_is_refused() {
+    let (store, _path) = open_store();
+    store
+        .create_table(
+            &TableSchema::new("people", vec![text("person_id", true)]),
+            false,
+        )
+        .unwrap();
+    let definition = definition(
+        "CREATE PROPERTY GRAPH social VERTEX TABLES (\
+         people KEY (person_id) LABEL person PROPERTIES (person_id))",
+    );
+
+    // Through the store API…
+    assert!(store
+        .create_property_graph("tenant/other", &definition, OWNER)
+        .unwrap_err()
+        .contains("does not match its definition"));
+
+    // …and through the catalog transaction, where the op carries its own copy
+    // of the verified scope: the two must agree or nothing is admitted.
+    let mut txn = TableTxn::new();
+    txn.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::Create {
+        tenant_scope: "tenant/other".to_string(),
+        definition: definition.clone(),
+        owner: OWNER.to_string(),
+    }));
+    assert!(store
+        .commit_txn(&txn)
+        .unwrap_err()
+        .contains("does not match its definition"));
+    assert_eq!(store.property_graph(TENANT, &name("social")).unwrap(), None);
+    assert_eq!(
+        store
+            .property_graph("tenant/other", &name("social"))
+            .unwrap(),
+        None
+    );
+
+    // The agreeing form still commits.
+    let mut txn = TableTxn::new();
+    txn.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::Create {
+        tenant_scope: TENANT.to_string(),
+        definition,
+        owner: OWNER.to_string(),
+    }));
+    store.commit_txn(&txn).unwrap();
+    assert!(store
+        .property_graph(TENANT, &name("social"))
+        .unwrap()
+        .is_some());
 }

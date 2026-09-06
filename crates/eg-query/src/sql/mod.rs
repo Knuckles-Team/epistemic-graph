@@ -123,8 +123,7 @@ pub use pgq::{
     lower_graph_table, lower_graph_table_to_datafusion, parse_graph_table, parse_graph_table_sql,
     parse_property_graph_ddl, BinaryOp as GraphBinaryOp, EdgeDirection, EdgePattern,
     ElementPattern, GraphExpr, GraphLiteral, GraphTableColumn, GraphTableQuery, LabelExpr,
-    PathPattern,
-    RelationalGraphPlan, SqlNumber, MAX_PGQ_SQL_BYTES,
+    PathPattern, RelationalGraphPlan, SqlNumber, MAX_PGQ_SQL_BYTES,
 };
 pub use spill::{default_spill_rows, CancellationToken, StreamOutcome};
 // Postgres-family extension parity plans + planners.

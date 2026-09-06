@@ -440,8 +440,11 @@ pub enum IndexCatalogTxnOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropertyGraphTxnOp {
     /// `CREATE PROPERTY GRAPH`. `owner` is the already-resolved concrete owner,
-    /// never `CURRENT_USER` text.
+    /// never `CURRENT_USER` text; `tenant_scope` is the verified request scope,
+    /// carried explicitly so it can be cross-checked against the definition's
+    /// own rather than taken on trust from it.
     Create {
+        tenant_scope: String,
         definition: PropertyGraphDefinition,
         owner: String,
     },
@@ -465,6 +468,15 @@ pub enum PropertyGraphTxnOp {
 }
 
 impl PropertyGraphTxnOp {
+    /// The verified request scope this operation was parsed under.
+    pub fn tenant_scope(&self) -> &str {
+        match self {
+            Self::Create { tenant_scope, .. }
+            | Self::Alter { tenant_scope, .. }
+            | Self::Drop { tenant_scope, .. } => tenant_scope,
+        }
+    }
+
     /// Lower a parsed property-graph statement onto its durable catalog
     /// operation and the command tag a route acknowledges it with.
     ///
@@ -479,6 +491,7 @@ impl PropertyGraphTxnOp {
         match statement {
             Statement::Create(definition) => (
                 Self::Create {
+                    tenant_scope: definition.tenant_scope.clone(),
                     definition,
                     owner: actor.to_string(),
                 },
@@ -1740,9 +1753,13 @@ impl TableStore {
     /// the already-resolved concrete owner, never `CURRENT_USER` text.
     pub fn create_property_graph(
         &self,
+        tenant_scope: &str,
         definition: &PropertyGraphDefinition,
         owner: &str,
     ) -> Result<PropertyGraphCatalogRecord, String> {
+        if definition.tenant_scope != tenant_scope {
+            return Err("property graph operation scope does not match its definition".to_string());
+        }
         let wtx = self.begin()?;
         let input = relation_catalog_input_in(&wtx, self.index_scope())?;
         let record =
@@ -2914,6 +2931,8 @@ fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Resul
             apply_txn_op_drop_function(wtx, name, *if_exists)
         }
         TxnOp::IndexCatalog(index) => apply_txn_op_index_catalog(wtx, index),
+        // `tenant_scope` here is the STORE's schema-version namespace, not a
+        // verified request tenant; the property-graph family carries its own.
         TxnOp::PropertyGraphDdl(graph) => apply_txn_op_property_graph(wtx, tenant_scope, graph),
     }
 }
@@ -2937,20 +2956,31 @@ fn apply_txn_op_index_catalog(
 /// be admitted over a table created earlier in the same transaction.
 fn apply_txn_op_property_graph(
     wtx: &WriteTransaction,
-    tenant_scope: &str,
+    store_scope: &str,
     op: &PropertyGraphTxnOp,
 ) -> Result<usize, String> {
-    let input = relation_catalog_input_in(wtx, tenant_scope)?;
+    let tenant_scope = op.tenant_scope();
+    let input = relation_catalog_input_in(wtx, store_scope)?;
     match op {
-        PropertyGraphTxnOp::Create { definition, owner } => {
+        PropertyGraphTxnOp::Create {
+            definition, owner, ..
+        } => {
+            // The definition's own scope is what the record is admitted under,
+            // so a payload whose declared scope disagrees with it is refused
+            // rather than silently admitted under whichever one is read first.
+            if definition.tenant_scope != tenant_scope {
+                return Err(
+                    "property graph operation scope does not match its definition".to_string(),
+                );
+            }
             property_graph_persist::create_property_graph_in(wtx, owner, &input, definition)?;
         }
         PropertyGraphTxnOp::Alter {
-            tenant_scope,
             name,
             if_exists,
             action,
             actor,
+            ..
         } => {
             property_graph_persist::alter_property_graph_in(
                 wtx,
@@ -2965,10 +2995,10 @@ fn apply_txn_op_property_graph(
             )?;
         }
         PropertyGraphTxnOp::Drop {
-            tenant_scope,
             names,
             if_exists,
             behavior,
+            ..
         } => {
             property_graph_persist::drop_property_graphs_in(
                 wtx,

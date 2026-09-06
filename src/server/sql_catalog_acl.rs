@@ -3750,7 +3750,7 @@ mod tests {
         };
         sql_tables::tenant_table_store(owner.tenant_scope(), dir)
             .unwrap()
-            .create_property_graph(&definition, owner.agent_id())
+            .create_property_graph(owner.tenant_scope(), &definition, owner.agent_id())
             .unwrap();
     }
 

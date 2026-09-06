@@ -44,9 +44,16 @@ pub(super) struct ColumnRef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum RelationalExpr {
     Column(ColumnRef),
-    /// `ELEMENT_ID(v)`: the element table's identity, joined to its key. Two
+    /// `ELEMENT_ID(v)`: the element table's identity joined to its key. Two
     /// element tables have independent key spaces, so a bare key would collide
     /// across the `UNION ALL` a label disjunction lowers to.
+    ///
+    /// The element segment is LENGTH-PREFIXED, which makes the encoding
+    /// injective: a bare `alias:key` join is ambiguous the moment either side
+    /// may itself contain `:` (a quoted alias `a:b` with key `c` and an alias
+    /// `a` with key `b:c` both render `a:b:c`), and a quoted SQL identifier may
+    /// contain any byte. With the byte length in front the split point is
+    /// determined, so distinct (element, key) pairs always render distinctly.
     ElementId {
         element: String,
         key: ColumnRef,
@@ -155,7 +162,8 @@ impl RelationalExpr {
         match self {
             Self::Column(value) => value.to_sql(),
             Self::ElementId { element, key } => format!(
-                "('{}:' || CAST({} AS VARCHAR))",
+                "('{}:{}:' || CAST({} AS VARCHAR))",
+                element.len(),
                 element.replace('\'', "''"),
                 key.to_sql()
             ),
