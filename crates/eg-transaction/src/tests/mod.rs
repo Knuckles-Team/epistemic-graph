@@ -15,10 +15,6 @@ use eg_storage::{
     OwnerLayout, PhysicalStoreIdentity, PrivatePayloadIntegrity, ScopeGrantVerifier,
     StorageKernelV1,
 };
-use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationDomain, MutationRequestContext, MutationSurface, TenantId,
-    VersionExpectation,
-};
 use eg_types::authority::{
     AuthorityContextV1, AuthorityScopeV1, NonceReplayKeyV1, OperationReplayIdentityV1,
     AUTHORITY_CONTEXT_SCHEMA_V1, AUTHORITY_PROTOCOL_V1,
@@ -26,18 +22,30 @@ use eg_types::authority::{
 use eg_types::contract::{
     ActorIdV1, AudienceIdV1, BoundedVecV1, Digest256V1, IdempotencyKeyV1, IngressSurfaceV1,
     MethodIdV1, MutationDispositionV1, NonceV1, OpaqueIdV1, OperationV1, PolicyRevisionV1,
-    ProtocolIdV1, PurposeKindV1, ResourceIdV1, SchemaIdV1, ScopeKindV1, TenantIdV1,
-    UtcUnixNanosV1,
+    ProtocolIdV1, PurposeKindV1, ResourceIdV1, SchemaIdV1, ScopeKindV1, TenantIdV1, UtcUnixNanosV1,
 };
 use eg_types::mutation::{MutationReceiptV1, MutationResultV1};
-use eg_types::protocol::Method;
-use eg_types::{
-    MutationBatch, MutationOperation, MutationScopeIdentity, MUTATION_BATCH_VERSION,
+use eg_types::mutation_batch::{
+    IncarnationId, LogicalName, MutationDomain, MutationRequestContext, MutationSurface, TenantId,
+    VersionExpectation,
 };
+use eg_types::protocol::Method;
+use eg_types::{MutationBatch, MutationOperation, MutationScopeIdentity, MUTATION_BATCH_VERSION};
 use redb::{TableDefinition, TableHandle};
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
+
+/// One `cas_blobs` owner-row key.
+///
+/// `OwnerLayout::Blob`'s owner tables are bounded by the LAYOUT, not by a scope
+/// component in the key (`open_owner_table`'s own doc), so a test that wants to
+/// say "this row belongs to that serving scope" writes the scope into the key
+/// text. Two scopes therefore still get two distinct rows, which is what these
+/// tests actually assert.
+fn blob_key(scope: &str, object: &str) -> String {
+    format!("{scope}|{object}")
+}
 
 const PRINCIPAL: &str =
     "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -201,9 +209,13 @@ impl Fixture {
     }
 }
 
-fn ledger_fixture(path: &Path, identity: MutationScopeIdentity) -> (Fixture, OwnedStoreHandle<LedgerOnlyOwner>) {
+fn ledger_fixture(
+    path: &Path,
+    identity: MutationScopeIdentity,
+) -> (Fixture, OwnedStoreHandle<LedgerOnlyOwner>) {
     let fixture = Fixture::create::<LedgerOnlyOwner>(path, "physical:test:ledger-only", None);
-    let owner = fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
+    let owner =
+        fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     (fixture, owner)
 }
 
@@ -218,7 +230,11 @@ fn apply_batch<D: OwnerDomain>(
         Begin::Replay(_) => panic!("unexpected replay"),
     };
     if D::LAYOUT != OwnerLayout::LedgerOnly {
-        write.owner_rows(owner, batch).unwrap().finish_owner().unwrap();
+        write
+            .owner_rows(owner, batch)
+            .unwrap()
+            .finish_owner()
+            .unwrap();
     }
     fixture
         .mutations

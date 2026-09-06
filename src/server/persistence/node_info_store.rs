@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 
-use redb::{ReadableTable, TableDefinition};
+use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -492,34 +492,6 @@ impl NodeInfoStore {
 
 /// Stream every row of one owner table off `read`'s MVCC snapshot into
 /// `destination`'s table of the same name, verbatim, returning the row count.
-/// The bundling counterpart of the crate's `copy_bundled_table!` macro for a
-/// store whose source is a kernel-issued `eg_storage::ScopedRead` rather than
-/// a raw `redb::ReadTransaction` — the source table is opened through
-/// `open_owner_table` (layout-bounded) instead of a bare `open_table`.
-fn copy_owner_table_rows<K, V>(
-    read: &eg_storage::ScopedRead<'_, eg_storage::NodeInfoOwner>,
-    destination: &redb::WriteTransaction,
-    definition: TableDefinition<'static, K, V>,
-) -> Result<u64, String>
-where
-    K: redb::Key + 'static,
-    V: redb::Value + 'static,
-{
-    let source = read.open_owner_table(definition)?;
-    let mut destination_table = destination
-        .open_table(definition)
-        .map_err(|e| e.to_string())?;
-    let mut rows = 0u64;
-    for row in source.iter().map_err(|e| e.to_string())? {
-        let (key, value) = row.map_err(|e| e.to_string())?;
-        destination_table
-            .insert(key.value(), value.value())
-            .map_err(|e| e.to_string())?;
-        rows += 1;
-    }
-    Ok(rows)
-}
-
 /// Bundle the durable cluster-topology store (CONCEPT:EG-KG.sharding.cluster-topology) into
 /// an online backup.
 ///
@@ -536,15 +508,24 @@ impl super::durable_stores::BundledStoreSource for NodeInfoStore {
         let Some(durable) = self.durable.as_ref() else {
             return Err("node info store is not durable; nothing to bundle".to_string());
         };
+        // The kernel copies the WHOLE image — the ledger plus both declared owner
+        // tables — and derives a fresh destination root, rebinding every scope to
+        // it. That is what makes the bundled copy adoptable at restore; a
+        // hand-copy of the two tables into a plain file carried no physical root
+        // or owner manifest, so the restore's staged adoption refused it.
         let read = durable.read()?;
-        let target = super::durable_stores::create_bundle_file(destination)?;
-        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        let rows = copy_owner_table_rows(&read, &wtx, NODE_INFO)?
-            .saturating_add(copy_owner_table_rows(&read, &wtx, NODE_INFO_META)?);
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(rows)
+        let rows = read
+            .open_owner_table(NODE_INFO)?
+            .len()
+            .map_err(|e| e.to_string())?
+            .saturating_add(
+                read.open_owner_table(NODE_INFO_META)?
+                    .len()
+                    .map_err(|e| e.to_string())?,
+            );
+        drop(read);
+        let counts = eg_storage::backup_recovery_store(durable.kernel(), destination)?;
+        Ok(rows.saturating_add(counts.batches))
     }
 
     fn is_durable(&self) -> bool {

@@ -213,45 +213,14 @@ pub fn excluded_store_reasons() -> BTreeMap<String, String> {
         .collect()
 }
 
-/// Create the FRESH bundle file a [`BundledStoreSource::copy_into`] writes into,
-/// refusing to overwrite an existing one (the same rule the shard copy applies).
-pub(crate) fn create_bundle_file(destination: &Path) -> Result<redb::Database, String> {
-    if destination.exists() {
-        return Err("bundled store file already exists (refusing to overwrite)".to_string());
-    }
-    redb::Database::create(destination).map_err(|error| error.to_string())
-}
-
-/// Stream every row of `$definition` from a read snapshot into the destination write
-/// txn, VERBATIM — value blobs are copied byte-for-byte, so encryption-at-rest
-/// ciphertext survives without the key. A table absent from the source is skipped
-/// (a store opened by an older build may not have created it yet).
-///
-/// `$rows` accumulates the copied row count.
-#[macro_export]
-#[doc(hidden)]
-macro_rules! copy_bundled_table {
-    ($rtx:expr, $wtx:expr, $rows:expr, $definition:expr) => {{
-        let mut destination = $wtx
-            .open_table($definition)
-            .map_err(|error| error.to_string())?;
-        if let Ok(source) = $rtx.open_table($definition) {
-            for row in source.iter().map_err(|error| error.to_string())? {
-                let (key, value) = row.map_err(|error| error.to_string())?;
-                destination
-                    .insert(key.value(), value.value())
-                    .map_err(|error| error.to_string())?;
-                $rows += 1;
-            }
-        }
-    }};
-}
-
 /// A durable store that can copy its own committed image into a fresh bundle file.
 ///
-/// Implemented next to each store's table definitions (the copy is a typed, verbatim
-/// table-by-table stream off a `begin_read()` MVCC snapshot, exactly like the shard
-/// copy), so the backup path needs no knowledge of any store's schema.
+/// Implemented next to each store's own identity, because the copy is the STORAGE
+/// KERNEL's whole-image backup (`eg_storage::backup_recovery_store`): it carries the
+/// ledger and every declared owner table, and it derives a fresh destination root and
+/// rebinds each scope to it, which is what makes the bundled file adoptable at
+/// restore. The hand-rolled table-by-table stream this replaced produced a plain redb
+/// file with no physical root or owner manifest, which a restore could not adopt.
 pub trait BundledStoreSource: Send + Sync {
     /// Bundle-local file name — MUST be a `BackupScope::Bundled` entry in
     /// [`DURABLE_STORES`].

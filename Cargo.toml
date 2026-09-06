@@ -494,7 +494,7 @@ viz-graph-tiles = ["viz-interactive", "dep:eg-viz-graph-tiles"]
 # -- the durable-execution ROUTING contract. `durable` links `eg-durable` alone (the
 # CallShape/WorkShape/DurableBackendKind routing table + the DurableExecutionUnitMirror
 # DTO, no journal/lease/2PC/state-store code -- those already exist in eg-statechart/
-# eg-jobs/eg-mutation-store and are not reimplemented here, see that crate's own docs).
+# eg-jobs/eg-transaction and are not reimplemented here, see that crate's own docs).
 # Deliberately EXCLUDED from `full`, same posture as `viz`/`quantum` above: DE0 ships
 # contracts only, nothing here is wired to a server handler yet, so folding it into the
 # one main build would add a dependency with zero behavior to show for it. `cargo
@@ -1552,7 +1552,7 @@ eg-viz-graph-tiles = { path = "crates/eg-viz-graph-tiles", optional = true }
 # D-DE-0 (feature `durable`, see that feature's own comment above): the
 # durable-execution routing contract -- CallShape/WorkShape/DurableBackendKind + the
 # DurableExecutionUnitMirror DTO. Pure serde (already resolved workspace-wide); no
-# dependency on eg-statechart/eg-jobs/eg-mutation-store -- wiring an actual call
+# dependency on eg-statechart/eg-jobs/eg-transaction -- wiring an actual call
 # through to one of those crates is DE2, not this contracts-only crate.
 eg-durable = { path = "crates/eg-durable", optional = true }
 # Clean-room graph-native LM-program contracts, deterministic kernels, and governed

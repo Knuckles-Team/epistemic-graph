@@ -1107,8 +1107,7 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
         // re-admitting an acknowledged write. The WHOLE copy — ledger plus the layout's
         // declared owner tables — is the storage kernel's, which re-stamps
         // `SCOPE_BINDINGS` for the destination's incarnation and creates the destination
-        // file itself (wiring this store into `durable_stores::create_bundle_file` is
-        // plan step 12's). Hand-listing those tables out here produced BUG-PE-054:
+        // file itself. Hand-listing those tables out here produced BUG-PE-054:
         // `VERSIONS` was copied while `STORE_ROOT`/`SCOPE_BINDINGS` were not.
         let counts = eg_storage::backup_recovery_store(&source.kernel, destination)?;
         Ok(rows

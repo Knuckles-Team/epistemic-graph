@@ -38,10 +38,8 @@ fn backup_derives_a_distinct_physical_root_and_rebinds_scopes() {
 
     let backup = Fixture::open::<LedgerOnlyOwner>(&destination, "physical:test:ledger-only", None);
     assert_ne!(backup.kernel.incarnation().identity_digest(), source_root);
-    let owner = backup.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let owner =
+        backup.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     let read = backup.kernel.read_scope(&owner).unwrap();
     assert!(read_ledger(&read, "backup-batch").unwrap().is_some());
 }
@@ -55,10 +53,8 @@ fn private_recovery_authenticity_uses_injected_canonical_authority() {
         "physical:test:ledger-only",
         Some(Arc::new(TestIntegrity)),
     );
-    let owner = fixture.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let owner =
+        fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     let (batch, sealed) = recovery_batch(owner.identity().clone(), "recovery-batch");
     fixture
         .mutations
@@ -80,10 +76,8 @@ fn forged_private_recovery_payload_fails_closed() {
         "physical:test:ledger-only",
         Some(Arc::new(TestIntegrity)),
     );
-    let owner = fixture.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let owner =
+        fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     let (batch, _) = recovery_batch(owner.identity().clone(), "forged-recovery");
     assert!(fixture
         .mutations
@@ -112,12 +106,7 @@ fn authenticated_binding_rejects_cross_tenant_and_different_actor() {
     let tenant_b = native_identity("tenant-b", "incarnation:blob:b");
     assert!(fixture
         .kernel
-        .authenticate_scope::<BlobOwner>(
-            &verifier,
-            tenant_b,
-            PRINCIPAL.to_string(),
-            b"verified"
-        )
+        .authenticate_scope::<BlobOwner>(&verifier, tenant_b, PRINCIPAL.to_string(), b"verified")
         .is_err());
 
     let identity = native_identity("tenant-a", "incarnation:blob:a");
@@ -135,7 +124,8 @@ fn unfinished_owner_capability_poisons_the_outer_write() {
     let path = dir.path().join("strict.redb");
     let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:test", None);
     let identity = native_identity("tenant-a", "incarnation:blob:a");
-    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+    let owner =
+        fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
     let batch = batch(identity, "poisoned-owner");
     let (write, begun) = fixture.mutations.admit(&owner, &batch).unwrap();
     let source = match begun {
@@ -156,7 +146,8 @@ fn strict_owner_preserves_sequential_batches_occ_and_replay() {
     let path = dir.path().join("strict.redb");
     let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:test", None);
     let identity = native_identity("tenant-a", "incarnation:blob:a");
-    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+    let owner =
+        fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
     let first = batch(identity.clone(), "strict-first");
     let mut second = batch(identity, "strict-second");
     second.version_expectation = VersionExpectation::Native(1);
@@ -165,7 +156,11 @@ fn strict_owner_preserves_sequential_batches_occ_and_replay() {
         Begin::Apply { source_version } => source_version,
         Begin::Replay(_) => panic!("unexpected replay"),
     };
-    write.owner_rows(&owner, &first).unwrap().finish_owner().unwrap();
+    write
+        .owner_rows(&owner, &first)
+        .unwrap()
+        .finish_owner()
+        .unwrap();
     fixture
         .mutations
         .finish(&write, &first, None, 2, first_source)
@@ -174,13 +169,20 @@ fn strict_owner_preserves_sequential_batches_occ_and_replay() {
         Begin::Apply { source_version } => source_version,
         Begin::Replay(_) => panic!("unexpected replay"),
     };
-    write.owner_rows(&owner, &second).unwrap().finish_owner().unwrap();
+    write
+        .owner_rows(&owner, &second)
+        .unwrap()
+        .finish_owner()
+        .unwrap();
     fixture
         .mutations
         .finish(&write, &second, None, 3, second_source)
         .unwrap();
     fixture.mutations.commit(write, &second).unwrap();
-    assert_eq!(version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(), 2);
+    assert_eq!(
+        version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(),
+        2
+    );
 
     let (replay, begun) = fixture.mutations.admit(&owner, &first).unwrap();
     assert!(matches!(begun, Begin::Replay(_)));
@@ -189,7 +191,10 @@ fn strict_owner_preserves_sequential_batches_occ_and_replay() {
 
 #[test]
 fn staged_adoption_reanchors_only_root_and_bindings() {
-    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+    // `cas_blobs` is `&str -> &[u8]`: the Blob layout's owner tables are bounded
+    // by the LAYOUT, not by a scope component in the key, so the serving scope is
+    // written into the key text here rather than being a tuple element.
+    const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
     let dir = tempfile::tempdir().unwrap();
     let source_path = dir.path().join("staged-source.redb");
     let staged_path = dir.path().join("staged-target.redb");
@@ -201,7 +206,8 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
         Some(Arc::clone(&integrity)),
     );
     let identity = native_identity("tenant-a", "incarnation:staged-adoption");
-    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+    let owner =
+        fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
     let (private_batch, sealed) = recovery_batch(identity.clone(), "staged-private");
     fixture
         .mutations
@@ -227,7 +233,7 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
         .open_table(BLOB_ROWS)
         .unwrap()
         .insert(
-            (owner_scope.as_str(), "staged-object"),
+            blob_key(owner_scope.as_str(), "staged-object").as_str(),
             b"owner-row".as_slice(),
         )
         .unwrap();
@@ -283,7 +289,7 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
     let table = read.open_owner_table(BLOB_ROWS).unwrap();
     assert_eq!(
         table
-            .get((owner_scope.as_str(), "staged-object"))
+            .get(blob_key(owner_scope.as_str(), "staged-object").as_str())
             .unwrap()
             .unwrap()
             .value(),
@@ -340,7 +346,10 @@ fn ledger_table_declarations_match_the_storage_kernel_census() {
 /// tables and every other layout's tables fail closed.
 #[test]
 fn an_owner_write_reaches_only_its_own_layouts_tables() {
-    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+    // `cas_blobs` is `&str -> &[u8]`: the Blob layout's owner tables are bounded
+    // by the LAYOUT, not by a scope component in the key, so the serving scope is
+    // written into the key text here rather than being a tuple element.
+    const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
     const LEDGER: TableDefinition<(&str, &str), &[u8]> =
         TableDefinition::new("mutation_batches_v1");
     const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
@@ -377,7 +386,10 @@ fn an_owner_write_reaches_only_its_own_layouts_tables() {
         let scope = eg_storage::ledger_scope_key(&identity);
         rows.open_table(BLOB_ROWS)
             .unwrap()
-            .insert((scope.as_str(), "object"), b"domain-row".as_slice())
+            .insert(
+                blob_key(scope.as_str(), "object").as_str(),
+                b"domain-row".as_slice(),
+            )
             .unwrap();
         rows.finish_owner().unwrap();
         fixture
@@ -387,12 +399,17 @@ fn an_owner_write_reaches_only_its_own_layouts_tables() {
         fixture.mutations.commit(write, &batch).unwrap();
     }
     let fixture = Fixture::open::<BlobOwner>(&path, "physical:blob:test", None);
-    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+    let owner =
+        fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
     let read = fixture.kernel.read_scope(&owner).unwrap();
     let scope = eg_storage::ledger_scope_key(&identity);
     let table = read.open_owner_table(BLOB_ROWS).unwrap();
     assert_eq!(
-        table.get((scope.as_str(), "object")).unwrap().unwrap().value(),
+        table
+            .get(blob_key(scope.as_str(), "object").as_str())
+            .unwrap()
+            .unwrap()
+            .value(),
         b"domain-row"
     );
 }
@@ -403,7 +420,10 @@ fn an_owner_write_reaches_only_its_own_layouts_tables() {
 /// layout's tables and the identity tables all fail closed.
 #[test]
 fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
-    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+    // `cas_blobs` is `&str -> &[u8]`: the Blob layout's owner tables are bounded
+    // by the LAYOUT, not by a scope component in the key, so the serving scope is
+    // written into the key text here rather than being a tuple element.
+    const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
     const LEDGER: TableDefinition<(&str, &str), &[u8]> =
         TableDefinition::new("mutation_batches_v1");
     const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
@@ -414,7 +434,8 @@ fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
     let identity = native_identity("tenant-a", "incarnation:blob:a");
     let scope = eg_storage::ledger_scope_key(&identity);
     let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:test", None);
-    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+    let owner =
+        fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
 
     // Seed one row through a normal admitted mutation.
     let seed = batch(identity.clone(), "seed");
@@ -426,7 +447,10 @@ fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
     let rows = write.owner_rows(&owner, &seed).unwrap();
     rows.open_table(BLOB_ROWS)
         .unwrap()
-        .insert((scope.as_str(), "object"), b"v1".as_slice())
+        .insert(
+            blob_key(scope.as_str(), "object").as_str(),
+            b"v1".as_slice(),
+        )
         .unwrap();
     rows.finish_owner().unwrap();
     fixture
@@ -437,8 +461,8 @@ fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
 
     // Decide-then-write: open the write first, read inside it, and only then
     // build the batch from what was read.
-    let write = crate::admitted::AdmittedMutation::open(fixture.mutations_authority(), &owner)
-        .unwrap();
+    let write =
+        crate::admitted::AdmittedMutation::open(fixture.mutations_authority(), &owner).unwrap();
     match write.open_read_table(LEDGER) {
         Ok(_) => panic!("an owner read must not reach the ledger"),
         Err(error) => assert!(error.contains("outside its layout"), "{error}"),
@@ -455,7 +479,7 @@ fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
     let view = write.open_read_table(BLOB_ROWS).unwrap();
     assert_eq!(view.len().unwrap(), 1);
     let observed = view
-        .get((scope.as_str(), "object"))
+        .get(blob_key(scope.as_str(), "object").as_str())
         .unwrap()
         .unwrap()
         .value()
@@ -474,12 +498,15 @@ fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
     let rows = write.owner_rows(&owner, &derived).unwrap();
     rows.open_table(BLOB_ROWS)
         .unwrap()
-        .insert((scope.as_str(), "object"), b"v2".as_slice())
+        .insert(
+            blob_key(scope.as_str(), "object").as_str(),
+            b"v2".as_slice(),
+        )
         .unwrap();
     // The uncommitted write is visible to this same transaction's read view.
     let view = write.open_read_table(BLOB_ROWS).unwrap();
     let seen = view
-        .get((scope.as_str(), "object"))
+        .get(blob_key(scope.as_str(), "object").as_str())
         .unwrap()
         .unwrap()
         .value()
@@ -497,7 +524,7 @@ fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
     assert_eq!(
         read.open_owner_table(BLOB_ROWS)
             .unwrap()
-            .get((scope.as_str(), "object"))
+            .get(blob_key(scope.as_str(), "object").as_str())
             .unwrap()
             .unwrap()
             .value(),

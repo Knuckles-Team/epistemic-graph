@@ -35,7 +35,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use redb::{ReadableTable, TableDefinition};
+use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 
 /// The one owner table of `OwnerLayout::TenantCatalog`. `eg-storage` declares it (as
@@ -249,30 +249,19 @@ impl super::durable_stores::BundledStoreSource for TenantCatalog {
         let Some(durable) = self.durable.as_ref() else {
             return Err("tenant catalog is not durable; nothing to bundle".to_string());
         };
-        // The source read goes through the kernel's own scoped read (never a second
-        // `Database::open`/`begin_read` against the owner file). Only the FRESH
-        // destination bundle file below — which is not the owner file, never served by
-        // the kernel, and exists solely as this one-shot backup target — is opened as a
-        // plain `redb::Database`, exactly as `create_bundle_file` already hands back to
-        // every other `BundledStoreSource` in this registry.
-        let read = durable.read()?;
-        let source = read.open_owner_table(CATALOG)?;
-        let target = super::durable_stores::create_bundle_file(destination)?;
-        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(redb::Durability::Immediate)
+        // The WHOLE image — the ledger plus this layout's declared owner tables —
+        // is the storage kernel's, and it derives a fresh destination root and
+        // rebinds every scope to it, which is what makes the copy adoptable at
+        // restore. A hand-copy of just `tenant_catalog` into a plain file produced
+        // a bundle with no physical root or owner manifest at all, so
+        // `inspect_staged_mutation_store` refused it and the restore failed.
+        let rows = durable
+            .read()?
+            .open_owner_table(CATALOG)?
+            .len()
             .map_err(|e| e.to_string())?;
-        let mut rows = 0u64;
-        {
-            let mut dest = wtx.open_table(CATALOG).map_err(|e| e.to_string())?;
-            for row in source.iter().map_err(|e| e.to_string())? {
-                let (k, v) = row.map_err(|e| e.to_string())?;
-                dest.insert(k.value(), v.value())
-                    .map_err(|e| e.to_string())?;
-                rows += 1;
-            }
-        }
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(rows)
+        let counts = eg_storage::backup_recovery_store(durable.kernel(), destination)?;
+        Ok(rows.saturating_add(counts.batches))
     }
 
     fn is_durable(&self) -> bool {

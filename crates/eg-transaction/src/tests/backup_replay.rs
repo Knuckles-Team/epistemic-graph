@@ -86,10 +86,8 @@ fn a_coordinator_backup_preserves_every_consumed_nonce_and_receipt() {
         first
     };
     let copy = Fixture::open::<LedgerOnlyOwner>(&destination, "physical:test:ledger-only", None);
-    let owner = copy.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let owner =
+        copy.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     assert_eq!(
         resolve(&copy, &owner, &first.operation, &first.nonce),
         ReplayResolution::NonceRejected {
@@ -128,10 +126,8 @@ fn a_strict_backup_proves_the_replay_tables_it_copied() {
     drop(fixture);
 
     let copy = Fixture::open::<LedgerOnlyOwner>(&destination, "physical:test:strict", None);
-    let owner = copy.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let owner =
+        copy.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     assert_eq!(
         resolve(&copy, &owner, &first.operation, &first.nonce),
         ReplayResolution::NonceRejected {
@@ -168,7 +164,10 @@ fn the_recovery_fingerprint_covers_the_replay_ledger() {
 /// back with every domain row missing and validated as good.
 #[test]
 fn a_coordinator_backup_round_trips_every_owner_row() {
-    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+    // `cas_blobs` is `&str -> &[u8]`: the Blob layout's owner tables are bounded
+    // by the LAYOUT, not by a scope component in the key, so the serving scope is
+    // written into the key text here rather than being a tuple element.
+    const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("owner-source.redb");
     let destination = dir.path().join("owner-backup.redb");
@@ -187,7 +186,10 @@ fn a_coordinator_backup_round_trips_every_owner_row() {
         let rows = write.owner_rows(&owner, &owner_batch).unwrap();
         rows.open_table(BLOB_ROWS)
             .unwrap()
-            .insert((scope.as_str(), "object"), b"domain-row".as_slice())
+            .insert(
+                blob_key(scope.as_str(), "object").as_str(),
+                b"domain-row".as_slice(),
+            )
             .unwrap();
         rows.finish_owner().unwrap();
         fixture
@@ -204,7 +206,7 @@ fn a_coordinator_backup_round_trips_every_owner_row() {
     let table = read.open_owner_table(BLOB_ROWS).unwrap();
     assert_eq!(
         table
-            .get((scope.as_str(), "object"))
+            .get(blob_key(scope.as_str(), "object").as_str())
             .unwrap()
             .expect("the backup must carry the owner row")
             .value(),

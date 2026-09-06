@@ -138,7 +138,10 @@ fn a_scoped_write_cannot_touch_another_tenants_ledger_rows() {
 /// be read by the next binding of the same logical name as its own.
 #[test]
 fn purging_a_layout_with_owner_tables_requires_an_owner_payload_retirement() {
-    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+    // `cas_blobs` is `&str -> &[u8]`: the Blob layout's owner tables are bounded
+    // by the LAYOUT, not by a scope component in the key, so the serving scope is
+    // written into the key text here rather than being a tuple element.
+    const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
 
     struct BlobRetirement;
     impl eg_storage::OwnerPayloadRetirement<BlobOwner> for BlobRetirement {
@@ -149,7 +152,10 @@ fn purging_a_layout_with_owner_tables_requires_an_owner_payload_retirement() {
         ) -> Result<(), String> {
             let key = ledger_scope_key(scope);
             let mut rows = write.open_owner_write(BLOB_ROWS)?;
-            rows.retain(|row, _| row.0 != key)
+            // The scope lives in the key TEXT, not in a tuple element, so the
+            // sweep is a prefix match on the same `blob_key` shape.
+            let prefix = format!("{key}|");
+            rows.retain(|row, _| !row.starts_with(&prefix))
                 .map_err(|error| error.to_string())
         }
     }
@@ -159,7 +165,8 @@ fn purging_a_layout_with_owner_tables_requires_an_owner_payload_retirement() {
     let identity = native_identity("tenant-a", "incarnation:blob:a");
     let scope = ledger_scope_key(&identity);
     let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:test", None);
-    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+    let owner =
+        fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
     let seeded = batch(identity.clone(), "payload");
     let (write, begun) = fixture.mutations.admit(&owner, &seeded).unwrap();
     let source_version = match begun {
@@ -169,7 +176,10 @@ fn purging_a_layout_with_owner_tables_requires_an_owner_payload_retirement() {
     let rows = write.owner_rows(&owner, &seeded).unwrap();
     rows.open_table(BLOB_ROWS)
         .unwrap()
-        .insert((scope.as_str(), "object"), b"payload".as_slice())
+        .insert(
+            blob_key(scope.as_str(), "object").as_str(),
+            b"payload".as_slice(),
+        )
         .unwrap();
     rows.finish_owner().unwrap();
     fixture
@@ -199,7 +209,7 @@ fn purging_a_layout_with_owner_tables_requires_an_owner_payload_retirement() {
     assert!(read
         .open_owner_table(BLOB_ROWS)
         .unwrap()
-        .get((scope.as_str(), "object"))
+        .get(blob_key(scope.as_str(), "object").as_str())
         .unwrap()
         .is_none());
 }

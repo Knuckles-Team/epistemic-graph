@@ -297,7 +297,13 @@ fn value_type_id(name: &str) -> &'static str {
         | "semantic_vectors_v1"
         | "path_index_v1"
         | "eg_ann"
-        | "eg_kvcache_cold" => "&[u8]",
+        | "eg_kvcache_cold"
+        | "viz_provenance"
+        | "cold_graphs"
+        | "tenant_catalog"
+        | "node_info"
+        | "node_info_meta"
+        | "cluster_hierarchy" => "&[u8]",
         _ => unreachable!("table outside closed owner manifest: {name}"),
     }
 }
@@ -328,11 +334,7 @@ fn logical_codec_id(name: &str) -> &'static str {
     match name {
         "mutation_private_payloads_v1" => "authenticated-sealed-bytes-v1",
         "eg_ann" | "eg_kvcache_cold" | "cold_graphs" => "raw-bytes-v1",
-        "path_index_v1"
-        | "viz_provenance"
-        | "tenant_catalog"
-        | "node_info"
-        | "node_info_meta"
+        "path_index_v1" | "viz_provenance" | "tenant_catalog" | "node_info" | "node_info_meta"
         | "cluster_hierarchy" => "msgpack-v1",
         "rbac_v1" => "json-utf8-v1",
         "kv" | "cas_chunks" => "raw-bytes-v1",
