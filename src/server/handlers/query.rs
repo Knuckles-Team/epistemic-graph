@@ -5469,7 +5469,17 @@ async fn commit_sql_catalog_txn(
         // the stored OCC observation. `commit_txn_batch` then verifies every
         // identity byte (including principal + operation digest) before returning
         // the result without applying `txn` again.
-        let expected_version = match store.mutation_batch(&batch_id)? {
+        // The receipt now lives in the mutation kernel's scope-partitioned
+        // ledger, so it is read through the very scope `compile_opaque_method`
+        // below stamps on this batch: native `SqlCatalog`, keyed by
+        // `(tenant, graph)` at `COMPILED_BATCH_INCARNATION`.
+        let batch_scope = eg_types::mutation_batch::MutationScopeIdentity::fixed_native(
+            &tenant_scope,
+            eg_types::mutation_batch::MutationDomain::SqlCatalog,
+            &graph_name,
+            eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
+        )?;
+        let expected_version = match store.mutation_batch(&batch_scope, &batch_id)? {
             Some(record) => {
                 let crate::mutation_batch::VersionExpectation::Native(version) =
                     record.batch.version_expectation
