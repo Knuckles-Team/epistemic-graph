@@ -524,9 +524,12 @@ fn authorize_table_txn_op(
         | TxnOp::CreateExtension { .. }
         | TxnOp::DropExtension { .. }
         | TxnOp::CreateFunction { .. }
-        | TxnOp::DropFunction { .. } => authority
+        | TxnOp::DropFunction { .. }
+        // SQL/PGQ property-graph DDL is catalog-wide DDL over the SAME shared
+        // tenant catalog as a view, and is authorized by the SAME check.
+        | TxnOp::PropertyGraphDdl(_) => authority
             .require_admin(
-                "catalog-wide DDL (view/extension/function) over the shared tenant catalog",
+                "catalog-wide DDL (view/extension/function/property graph) over the shared tenant catalog",
             )
             .map_err(user_err),
     }

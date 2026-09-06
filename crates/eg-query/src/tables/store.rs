@@ -64,6 +64,13 @@ use super::migration::{
     MigrationState, SchemaMigration, SchemaMigrationApply, SchemaMigrationOperation,
     SchemaMigrationRecord, SecondaryIndexPolicy,
 };
+use super::property_graph::persist::{
+    self as property_graph_persist, AlterRequest, RelationCatalogInput,
+};
+use super::property_graph::{
+    AlterPropertyGraphAction, DropBehavior, PropertyGraphCatalogRecord, PropertyGraphDefinition,
+    SqlName,
+};
 use super::schema::{
     Cell, CheckExpr, Column, ColumnType, RefAction, StoredFunction, TableConstraint, TableSchema,
 };
@@ -415,6 +422,37 @@ pub enum TxnOp {
     DropAnnIndexesForColumn {
         table: String,
         column: String,
+    },
+    /// SQL:2023 SQL/PGQ property-graph catalog DDL, applied in THIS transaction
+    /// alongside the table and view DDL it depends on. The family is ONE variant
+    /// so it costs the shared dispatcher exactly one arm.
+    PropertyGraphDdl(PropertyGraphTxnOp),
+}
+
+/// One SQL/PGQ property-graph catalog mutation. A property graph is a catalog
+/// object of this same relational catalog, so these commit through the store's
+/// ordinary SQL catalog write transaction — never a second store or database.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PropertyGraphTxnOp {
+    /// `CREATE PROPERTY GRAPH`. `owner` is the already-resolved concrete owner,
+    /// never `CURRENT_USER` text.
+    Create {
+        definition: PropertyGraphDefinition,
+        owner: String,
+    },
+    /// `ALTER PROPERTY GRAPH`. `actor` resolves `OWNER TO CURRENT_USER` and
+    /// `OWNER TO SESSION_USER`.
+    Alter {
+        name: SqlName,
+        if_exists: bool,
+        action: AlterPropertyGraphAction,
+        actor: String,
+    },
+    /// `DROP PROPERTY GRAPH`.
+    Drop {
+        names: Vec<SqlName>,
+        if_exists: bool,
+        behavior: DropBehavior,
     },
 }
 
@@ -1628,6 +1666,89 @@ impl TableStore {
         Ok(out)
     }
 
+    // ── SQL:2023 SQL/PGQ property-graph catalog ──────────────────────────────
+    //
+    // A property graph is a catalog object of THIS relational catalog, so its
+    // durable record is written by the same SQL catalog write transaction as a
+    // table or a view — never by a second database, store, or authority. The
+    // graph name shares the table/view namespace, and an admitted graph fences
+    // DDL on every base relation it pins.
+
+    /// `CREATE PROPERTY GRAPH`: admit `definition` against this store's exact
+    /// relation snapshot and persist the resulting catalog record. `owner` is
+    /// the already-resolved concrete owner, never `CURRENT_USER` text.
+    pub fn create_property_graph(
+        &self,
+        definition: &PropertyGraphDefinition,
+        owner: &str,
+    ) -> Result<PropertyGraphCatalogRecord, String> {
+        let wtx = self.begin()?;
+        let input = relation_catalog_input_in(&wtx, self.index_scope())?;
+        let record =
+            property_graph_persist::create_property_graph_in(&wtx, owner, &input, definition)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(record)
+    }
+
+    /// `ALTER PROPERTY GRAPH`: rebuild the definition and re-admit it under the
+    /// same stable object id. `actor` resolves `OWNER TO CURRENT_USER` and
+    /// `OWNER TO SESSION_USER`. `Ok(None)` only for `IF EXISTS` on an absent
+    /// graph.
+    pub fn alter_property_graph(
+        &self,
+        name: &SqlName,
+        if_exists: bool,
+        action: &AlterPropertyGraphAction,
+        actor: &str,
+    ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
+        let wtx = self.begin()?;
+        let input = relation_catalog_input_in(&wtx, self.index_scope())?;
+        let record = property_graph_persist::alter_property_graph_in(
+            &wtx,
+            actor,
+            &input,
+            AlterRequest {
+                name,
+                if_exists,
+                action,
+            },
+        )?;
+        wtx.commit().map_err(map_err)?;
+        Ok(record)
+    }
+
+    /// `DROP PROPERTY GRAPH`: remove the named graphs, returning how many rows
+    /// were removed.
+    pub fn drop_property_graph(
+        &self,
+        names: &[SqlName],
+        if_exists: bool,
+        behavior: DropBehavior,
+    ) -> Result<usize, String> {
+        let wtx = self.begin()?;
+        let dropped =
+            property_graph_persist::drop_property_graphs_in(&wtx, names, if_exists, behavior)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(dropped)
+    }
+
+    /// The admitted catalog record for `name`, or `None` when no such graph
+    /// exists in this tenant catalog. This is the authoritative resolution a
+    /// `GRAPH_TABLE` read lowers against.
+    pub fn property_graph(
+        &self,
+        name: &SqlName,
+    ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        property_graph_persist::property_graph_snapshot(&rtx, name)
+    }
+
+    /// Every admitted property-graph name (sorted for determinism).
+    pub fn list_property_graphs(&self) -> Result<Vec<String>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        property_graph_persist::list_property_graphs_snapshot(&rtx)
+    }
+
     // ── view catalog (CONCEPT:EG-KG.query.create-drop-view) ─────────────────────────────────────────
 
     /// `CREATE [OR REPLACE] VIEW name AS <select>`: record `select_sql` in the view
@@ -2696,12 +2817,109 @@ fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Resul
         TxnOp::DropFunction { name, if_exists } => {
             apply_txn_op_drop_function(wtx, name, *if_exists)
         }
+        index @ (TxnOp::PutAnnIndex { .. }
+        | TxnOp::PutHypertable { .. }
+        | TxnOp::DropAnnIndexesForColumn { .. }) => apply_txn_op_index_catalog(wtx, index),
+        TxnOp::PropertyGraphDdl(graph) => apply_txn_op_property_graph(wtx, tenant_scope, graph),
+    }
+}
+
+/// The index/hypertable registration family of [`apply_txn_op`], split out so
+/// the shared dispatcher enumerates one catalog family per arm.
+fn apply_txn_op_index_catalog(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
+    match op {
         TxnOp::PutAnnIndex { plan } => apply_txn_op_put_ann_index(wtx, plan),
         TxnOp::PutHypertable { plan } => apply_txn_op_put_hypertable(wtx, plan),
         TxnOp::DropAnnIndexesForColumn { table, column } => {
             drop_ann_indexes_for_column_in(wtx, table, column)
         }
+        _ => Err("index catalog dispatch received a non-index operation".to_string()),
     }
+}
+
+/// The SQL/PGQ property-graph family of [`apply_txn_op`]. Every action resolves
+/// against the relation namespace read through THIS transaction, so a graph can
+/// be admitted over a table created earlier in the same transaction.
+fn apply_txn_op_property_graph(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    op: &PropertyGraphTxnOp,
+) -> Result<usize, String> {
+    let input = relation_catalog_input_in(wtx, tenant_scope)?;
+    match op {
+        PropertyGraphTxnOp::Create { definition, owner } => {
+            property_graph_persist::create_property_graph_in(wtx, owner, &input, definition)?;
+        }
+        PropertyGraphTxnOp::Alter {
+            name,
+            if_exists,
+            action,
+            actor,
+        } => {
+            property_graph_persist::alter_property_graph_in(
+                wtx,
+                actor,
+                &input,
+                AlterRequest {
+                    name,
+                    if_exists: *if_exists,
+                    action,
+                },
+            )?;
+        }
+        PropertyGraphTxnOp::Drop {
+            names,
+            if_exists,
+            behavior,
+        } => {
+            property_graph_persist::drop_property_graphs_in(wtx, names, *if_exists, *behavior)?;
+        }
+    }
+    Ok(0)
+}
+
+/// The store's relation catalog as property-graph admission needs it, read
+/// THROUGH the open catalog transaction so an admission sees a table created
+/// earlier in the same transaction. `tenant_scope` reads the governed schema
+/// version; the canonical tenant a graph is admitted under comes from the
+/// definition itself, never from this physical store handle.
+fn relation_catalog_input_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+) -> Result<RelationCatalogInput, String> {
+    let mut input = RelationCatalogInput::default();
+    for name in list_tables_in(wtx)? {
+        if let Some(schema) = get_schema_in(wtx, &name)? {
+            let version = schema_version_in(wtx, tenant_scope, &name)?;
+            input.relations.push((name.clone(), schema, version));
+        }
+        input.occupied.insert(name);
+    }
+    for (name, _) in list_views_in(wtx)? {
+        input.occupied.insert(name);
+    }
+    Ok(input)
+}
+
+/// Every view as `(name, select text)`, read THROUGH the open write txn.
+fn list_views_in(wtx: &WriteTransaction) -> Result<Vec<(String, String)>, String> {
+    let views = match wtx.open_table(VIEWS) {
+        Ok(table) => table,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut out = Vec::new();
+    let mut count = 0usize;
+    let mut bytes = 0usize;
+    for row in views.iter().map_err(map_err)? {
+        let (key, value) = row.map_err(map_err)?;
+        account_collection(
+            &mut count,
+            &mut bytes,
+            key.value().len().saturating_add(value.value().len()),
+        )?;
+        out.push((key.value().to_string(), value.value().to_string()));
+    }
+    Ok(out)
 }
 
 // ── apply_txn_op per-variant bodies ────────────────────────────────────────
@@ -3670,6 +3888,7 @@ fn create_view_in(
     select_sql: &str,
     or_replace: bool,
 ) -> Result<(), String> {
+    property_graph_persist::ensure_relation_name_free_in(wtx, name)?;
     if get_schema_in(wtx, name)?.is_some() {
         return Err(format!(
             "`{name}` is a table; cannot create a view with that name"
@@ -5107,6 +5326,7 @@ fn create_in(
     if_not_exists: bool,
 ) -> Result<bool, String> {
     schema.validate()?;
+    property_graph_persist::ensure_relation_name_free_in(wtx, &schema.name)?;
     if get_schema_in(wtx, &schema.name)?.is_some() {
         if if_not_exists {
             return Ok(false);
@@ -5166,6 +5386,7 @@ fn drop_in(
         return Err(format!("table `{name}` does not exist"));
     }
     ensure_no_child_fk_references_in(wtx, name)?;
+    property_graph_persist::fence_base_relation_ddl_in(wtx, name)?;
     {
         let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
         cat.remove(name).map_err(map_err)?;
@@ -5267,6 +5488,9 @@ fn put_schema_in(
     schema: &TableSchema,
 ) -> Result<(), String> {
     schema.validate()?;
+    // Base-DDL fence: an admitted property graph pins this relation's revision
+    // and schema digest, so its schema cannot change underneath it.
+    property_graph_persist::fence_base_relation_ddl_in(wtx, &schema.name)?;
     drop_secondary_indexes_for_table_in(wtx, tenant_scope, &schema.name)?;
     let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
     if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
@@ -5705,6 +5929,8 @@ fn rekey_table_catalog_entry_in(
     schema: &mut TableSchema,
 ) -> Result<(), String> {
     drop_secondary_indexes_for_table_in(wtx, tenant_scope, table)?;
+    property_graph_persist::fence_base_relation_ddl_in(wtx, table)?;
+    property_graph_persist::ensure_relation_name_free_in(wtx, new_name)?;
     // Catalog: drop the old key, write the schema under the new name.
     schema.name = new_name.to_string();
     {

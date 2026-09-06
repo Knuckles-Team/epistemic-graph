@@ -3,8 +3,11 @@
 //! A property graph is a read-only relational view. This module owns its
 //! bounded, tenant-scoped definition and DDL model, but no data or executor.
 
+mod alter;
 mod catalog;
 mod model;
+/// Durable catalog rows, written by the store's sole SQL catalog transaction.
+pub(crate) mod persist;
 mod validate;
 
 use serde::{Deserialize, Serialize};

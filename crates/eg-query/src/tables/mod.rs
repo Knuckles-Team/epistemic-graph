@@ -57,4 +57,4 @@ pub use schema::{
     Cell, CmpOp, ColCheck, Column, ColumnType, FunctionArg, FunctionLanguage, FunctionReturns,
     StoredFunction, TableSchema,
 };
-pub use store::{ConflictAction, TableStore, TableTxn, TxnOp};
+pub use store::{ConflictAction, PropertyGraphTxnOp, TableStore, TableTxn, TxnOp};
