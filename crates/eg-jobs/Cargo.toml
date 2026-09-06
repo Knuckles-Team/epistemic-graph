@@ -23,6 +23,12 @@ name = "eg_jobs"
 [dependencies]
 eg-types = { path = "../eg-types" }
 eg-core = { path = "../eg-core" }
+# RF-RULING-004: `eg-storage` is the sole physical owner of `jobs.redb` (declared
+# `OwnerLayout::Jobs`) and `eg-transaction` the sole writer. Unconditional for the
+# same reason `redb` is: durability is this crate's whole reason to exist, so no
+# configuration ships without them.
+eg-storage = { path = "../eg-storage" }
+eg-transaction = { path = "../eg-transaction" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -38,4 +44,10 @@ tempfile = "3"
 proptest = "1"
 
 [features]
+# The development/test composition root for the store's scope grant
+# (`dev_scope_grant`). OFF by default and folded into NO tier aggregate: this
+# crate's own tests, its replay-determinism property test and `eg-quantum-jobs`'
+# fixtures need a `ScopeGrantVerifier` and have no real root, while a production
+# build must not be able to link one.
+dev-scope-grant = []
 default = []

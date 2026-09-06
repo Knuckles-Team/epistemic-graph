@@ -40,7 +40,12 @@ use eg_types::mutation_batch::{
     VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction};
+use eg_storage::{
+    JobsOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead,
+    StorageKernelV1,
+};
+use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernelV1};
+use redb::{ReadableTable, TableDefinition};
 use serde::de::DeserializeOwned;
 
 use crate::intent::JobIntent;
@@ -365,67 +370,136 @@ pub struct SubmitSpec {
 
 /// A durable local projection of [`AnalyticsJob`] records, backed by `jobs.redb`.
 pub struct JobStore {
-    /// Owns the physical `jobs.redb` (was `db: Database` before the MutationBatch
-    /// v1 migration) -- every table below (authoritative `JOBS` plus the scheduler
-    /// secondary indexes) is opened directly off `mutation_store.database()`, while
-    /// every job-transition write-through also goes through this SAME store's
-    /// mutation ledger for the fixed `analytics-jobs` native scope's version
-    /// bookkeeping.
-    mutation_store: eg_mutation_store::MutationStore,
-    /// The fixed native scope identity (see `analytics_job_scope_identity`),
-    /// reused on every transition so it is validated exactly once per open.
-    identity: MutationScopeIdentity,
+    /// Sole physical owner of `jobs.redb` (declared `OwnerLayout::Jobs`, whose 13
+    /// owner tables are the authoritative `JOBS` plus every scheduler secondary
+    /// index). Reads are the scoped reads it issues; nothing here can open a
+    /// database.
+    kernel: StorageKernelV1,
+    /// Sole writer. Holds this file's one move-once mutation authority, so every
+    /// job transition is admitted, ordered, fenced and committed through it.
+    mutations: MutationKernelV1,
+    /// The one authenticated, bound serving scope -- the fixed native identity of
+    /// `analytics_job_scope_identity`, validated exactly once per open.
+    owner: OwnedStoreHandle<JobsOwner>,
     /// No-rand monotonic id source (mirrors `src/server/txn.rs::TxnIdGen`): `"job-<hex>"`.
     next_id: AtomicU64,
 }
 
 impl JobStore {
-    /// Open (or create) the job store at an exact file path, materializing the
-    /// schema so an empty DB is queryable.
-    pub fn open(path: &Path) -> Result<Self> {
+    /// Open (or create) the job store at an exact file path through the storage
+    /// kernel.
+    ///
+    /// The kernel materializes the whole declared `OwnerLayout::Jobs` census when
+    /// the file is created and re-validates it on every open, so the 13-table
+    /// bootstrap closure the retired raw constructor needed is gone. `verifier`
+    /// is the composition root's proof authority: only it may decide that
+    /// `principal` may serve the fixed `analytics-jobs` scope.
+    pub fn open(
+        path: &Path,
+        verifier: &dyn ScopeGrantVerifier,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<Self> {
         let identity = analytics_job_scope_identity()?;
-        // `initialize` opens (or creates) the physical `jobs.redb`, establishes/
-        // validates its `StoreIncarnation` root, and binds the fixed
-        // `analytics-jobs` scope at `initial_version: 0`. The bootstrap closure
-        // runs only on the FIRST-ever bind (a fresh file) and just materializes
-        // every table this store owns so an empty DB is queryable.
-        let mutation_store = eg_mutation_store::initialize(path, &identity, 0, None, |wtx| {
-            wtx.open_table(JOBS).map_err(|e| e.to_string())?;
-            wtx.open_table(COMMITTED_RESULTS)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_INTENTS).map_err(|e| e.to_string())?;
-            wtx.open_table(IDEMPOTENCY_LEDGER)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(RESULTS).map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_META).map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_READY).map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_READY_BY_CAPABILITY)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_LEASE_BY_WORKER)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_LEASE_EXPIRY)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_TENANT_TOTALS)
-                .map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_DEADLINE).map_err(|e| e.to_string())?;
-            wtx.open_table(JOB_CANCELLATION)
-                .map_err(|e| e.to_string())?;
-            Ok(())
-        })
+        let physical = PhysicalStoreIdentity::new(JOBS_PHYSICAL_STORE).map_err(redb_err)?;
+        let kernel = if path.exists() {
+            StorageKernelV1::open_owner::<JobsOwner>(path, physical, None)
+        } else {
+            StorageKernelV1::create_owner::<JobsOwner>(path, physical, None)
+        }
         .map_err(redb_err)?;
-        let next_id = AtomicU64::new(initialize_scheduler_indexes(mutation_store.database())?);
-        Ok(Self {
-            mutation_store,
-            identity,
-            next_id,
-        })
+        let (kernel, authority) = kernel.into_read_and_mutation_authority().map_err(redb_err)?;
+        let mutations = MutationKernelV1::new(authority);
+        let grant = kernel
+            .authenticate_scope::<JobsOwner>(verifier, identity, principal.to_string(), proof)
+            .map_err(redb_err)?;
+        let owner = kernel.bind_serving_scope(grant, 0).map_err(redb_err)?;
+        mutations.bootstrap_ledger(&owner).map_err(redb_err)?;
+        let store = Self {
+            kernel,
+            mutations,
+            owner,
+            next_id: AtomicU64::new(0),
+        };
+        let next_id = initialize_scheduler_indexes(&store)?;
+        store.next_id.store(next_id, Ordering::Relaxed);
+        Ok(store)
+    }
+
+    /// One kernel-issued scoped read over this store's bound serving scope.
+    fn scoped_read(&self) -> Result<ScopedRead<'_, JobsOwner>> {
+        self.kernel.read_scope(&self.owner).map_err(redb_err)
+    }
+
+    /// The scope's authoritative mutation version, read outside any write.
+    fn live_version(&self) -> Result<u64> {
+        eg_transaction::version(&self.scoped_read()?).map_err(redb_err)
+    }
+
+    /// Run one store-level MAINTENANCE mutation (RF-RULING-005).
+    ///
+    /// The scheduler index rebuild, the two idempotency ledgers and the intent
+    /// registry carry no caller identity and are not job transitions, but there
+    /// is no un-ledgered owner-write path any more, so they land as ledgered,
+    /// fenced, version-bumping maintenance batches. The batch identity is
+    /// `(kind, scope version)`: unique per attempt and stable across a
+    /// crash-retry of that attempt, so a retry replays instead of colliding.
+    fn maintain<T, F>(&self, kind: &str, apply: F) -> Result<T>
+    where
+        F: FnOnce(&AdmittedOwnerWrite<'_, JobsOwner>) -> Result<T>,
+    {
+        let expected_version = self.live_version()?;
+        let batch = maintenance_batch(
+            kind,
+            self.owner.identity(),
+            self.owner.principal(),
+            expected_version,
+        )?;
+        let (write, begun) = self
+            .mutations
+            .admit_maintenance(&self.owner, &batch)
+            .map_err(redb_err)?;
+        let source_version = match begun {
+            Begin::Replay(_) => {
+                write.abort().map_err(redb_err)?;
+                return Err(codec_err("analytics-job maintenance batch already committed"));
+            }
+            Begin::Apply { source_version } => source_version,
+        };
+        let owner_write = write.owner_rows(&self.owner, &batch).map_err(redb_err)?;
+        let outcome = apply(&owner_write);
+        // Always close the owner capability: dropping it unfinished poisons the
+        // write and would mask the staging error.
+        owner_write.finish_owner().map_err(redb_err)?;
+        let outcome = match outcome {
+            Ok(value) => value,
+            Err(error) => {
+                write.abort().map_err(redb_err)?;
+                return Err(error);
+            }
+        };
+        self.mutations
+            .finish(&write, &batch, None, 0, source_version)
+            .map_err(redb_err)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
+        Ok(outcome)
     }
 
     /// Open `{persist_dir}/jobs.redb` — the durable location beside the graph shards.
-    pub fn open_in_dir(persist_dir: &Path) -> Result<Self> {
+    pub fn open_in_dir(
+        persist_dir: &Path,
+        verifier: &dyn ScopeGrantVerifier,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<Self> {
         std::fs::create_dir_all(persist_dir)
             .map_err(|e| JobError::Redb(format!("create persist dir: {e}")))?;
-        Self::open(&persist_dir.join("jobs.redb"))
+        Self::open(
+            &persist_dir.join("jobs.redb"),
+            verifier,
+            principal,
+            proof,
+        )
     }
 
     fn next_job_id(&self) -> JobId {
@@ -437,12 +511,8 @@ impl JobStore {
         if job_id.is_empty() || job_id.len() > MAX_JOB_ID_BYTES {
             return Err(codec_err("analytics-job identifier is invalid"));
         }
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(JOBS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(JOBS).map_err(redb_err)?;
         let blob = table
             .get(job_id)
             .map_err(redb_err)?
@@ -451,9 +521,13 @@ impl JobStore {
     }
 
     fn put_raw(&self, job: &AnalyticsJob) -> Result<()> {
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let batch = internal_job_batch(job, &self.identity, expected_version)?;
+        let expected_version = self.live_version()?;
+        let batch = internal_job_batch(
+            job,
+            self.owner.identity(),
+            self.owner.principal(),
+            expected_version,
+        )?;
         self.put_raw_batch(job, &batch, job.updated_at_ms.max(0) as u64)
             .map(|_| ())
     }
@@ -465,20 +539,22 @@ impl JobStore {
         committed_at_ms: u64,
     ) -> Result<AnalyticsJob> {
         let blob = encode_job(job)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        match eg_mutation_store::begin(&write, batch).map_err(redb_err)? {
-            eg_mutation_store::Begin::Replay(record) => {
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        match write.begin(batch).map_err(redb_err)? {
+            Begin::Replay(record) => {
                 let replayed = decode_job_result(&record)?;
-                // No public abort; dropping `write` un-committed here aborts the
-                // transaction (redb's `Drop for WriteTransaction`) -- nothing was
-                // written on a replay.
+                write.abort().map_err(redb_err)?;
                 Ok(replayed)
             }
-            eg_mutation_store::Begin::Apply { source_version } => {
-                persist_job_image(write.owner_rows(), job, blob.as_slice())?;
-                eg_mutation_store::finish(&write, batch, Some(blob), committed_at_ms, source_version)
+            Begin::Apply { source_version } => {
+                let owner_write = write.owner_rows(&self.owner, batch).map_err(redb_err)?;
+                let staged = persist_job_image(&owner_write, job, blob.as_slice());
+                owner_write.finish_owner().map_err(redb_err)?;
+                staged?;
+                self.mutations
+                    .finish(&write, batch, Some(blob), committed_at_ms, source_version)
                     .map_err(redb_err)?;
-                eg_mutation_store::commit(write, batch).map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok(job.clone())
             }
         }
@@ -523,14 +599,14 @@ impl JobStore {
         committed_at_ms: u64,
     ) -> Result<(AnalyticsJob, bool)> {
         validate_placement(&spec.policy)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        match eg_mutation_store::begin(&write, batch).map_err(redb_err)? {
-            eg_mutation_store::Begin::Replay(record) => {
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        match write.begin(batch).map_err(redb_err)? {
+            Begin::Replay(record) => {
                 let replayed = decode_job_result(&record)?;
-                // No public abort; dropping `write` un-committed aborts it.
+                write.abort().map_err(redb_err)?;
                 Ok((replayed, true))
             }
-            eg_mutation_store::Begin::Apply { source_version } => {
+            Begin::Apply { source_version } => {
                 let now = committed_at_ms as i64;
                 let job = AnalyticsJob {
                     // The batch identity is selected before Raft proposal and is
@@ -557,10 +633,14 @@ impl JobStore {
                     updated_at_ms: now,
                 };
                 let blob = encode_job(&job)?;
-                persist_job_image(write.owner_rows(), &job, blob.as_slice())?;
-                eg_mutation_store::finish(&write, batch, Some(blob), committed_at_ms, source_version)
+                let owner_write = write.owner_rows(&self.owner, batch).map_err(redb_err)?;
+                let staged = persist_job_image(&owner_write, &job, blob.as_slice());
+                owner_write.finish_owner().map_err(redb_err)?;
+                staged?;
+                self.mutations
+                    .finish(&write, batch, Some(blob), committed_at_ms, source_version)
                     .map_err(redb_err)?;
-                eg_mutation_store::commit(write, batch).map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok((job, false))
             }
         }
@@ -574,7 +654,7 @@ impl JobStore {
     /// the live version of THAT scope is always the correct answer regardless
     /// of which tenant/graph string a caller names.
     pub fn mutation_version(&self, _tenant: &str, _graph: &str) -> Result<u64> {
-        eg_mutation_store::version(&self.mutation_store, &self.identity).map_err(redb_err)
+        self.live_version()
     }
 
     /// Fetch a job's current durable record.
@@ -584,12 +664,8 @@ impl JobStore {
 
     /// List every durable job id (diagnostic/admin use).
     pub fn list_ids(&self) -> Result<Vec<JobId>> {
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(JOBS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(JOBS).map_err(redb_err)?;
         let mut out = Vec::new();
         let mut bytes = 0usize;
         for entry in table.iter().map_err(redb_err)? {
@@ -609,12 +685,8 @@ impl JobStore {
 
     /// Aggregate durable queue state without exposing job, tenant or worker ids.
     pub fn metric_counts(&self, now_ms: i64) -> Result<(i64, i64, i64)> {
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(JOBS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(JOBS).map_err(redb_err)?;
         let mut ready = 0_i64;
         let mut active = 0_i64;
         let mut publishing = 0_i64;
@@ -659,11 +731,11 @@ impl JobStore {
                 "worker claim requires an opaque worker reference and limits",
             ));
         }
-        let write = self.mutation_store.write().map_err(redb_err)?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
         // A caller may lose the Claim response after the transaction committed.
         // The worker secondary index turns this from an all-job scan into one
         // logarithmic lookup; concurrent worker slots use distinct references.
-        if let Some(claim) = live_worker_claim_in_wtx(write.owner_rows(), worker_ref, now_ms)? {
+        if let Some(claim) = live_worker_claim_in_wtx(&write, worker_ref, now_ms)? {
             // No public abort; dropping `write` un-committed here aborts the
             // transaction -- nothing was written on this early return.
             return Ok(Some(claim));
@@ -676,14 +748,13 @@ impl JobStore {
         // `expected_version` starts from a live read of this store's ONE fixed
         // native scope, taken before any write in this transaction. Each
         // reconciled/claimed job transition inside `write` advances it locally
-        // (rather than re-reading `eg_mutation_store::version`, which opens a
+        // (rather than re-reading `JobStore::live_version`, which opens a
         // FRESH read snapshot and would not observe this transaction's own
         // still-uncommitted `finish()` writes) -- see `reconcile_scheduler` /
         // `write_job_transition`.
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
+        let expected_version = self.live_version()?;
         let (reconcile_batch, expected_version) =
-            reconcile_scheduler(&write, &self.identity, now_ms, expected_version)?;
+            reconcile_scheduler(self, &write, now_ms, expected_version)?;
         let capabilities: BTreeSet<_> = worker_capabilities.iter().map(String::as_str).collect();
 
         // Each ready job has exactly one deterministic placement anchor.  Seek
@@ -691,7 +762,7 @@ impl JobStore {
         // worker supplied, then merge the first eligible row from each ordered
         // range. Jobs whose anchor the worker cannot satisfy are never decoded.
         let selected = select_ready_for_worker(
-            write.owner_rows(),
+            &write,
             worker_capabilities,
             &capabilities,
             now_ms,
@@ -699,7 +770,7 @@ impl JobStore {
         )?;
         let Some(mut job) = selected else {
             if let Some(batch) = reconcile_batch {
-                eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+                self.mutations.commit(write, &batch).map_err(redb_err)?;
             }
             // else: nothing was written in this transaction; dropping `write`
             // un-committed aborts it.
@@ -731,8 +802,8 @@ impl JobStore {
         }
         job.updated_at_ms = now_ms;
         let (batch, _next_version) =
-            write_job_transition(&write, &job, &self.identity, expected_version, None)?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+            write_job_transition(self, &write, &job, expected_version, None)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(Some(WorkerClaim { job, lease }))
     }
 
@@ -744,18 +815,17 @@ impl JobStore {
         now_ms: i64,
         lease_ms: u64,
     ) -> Result<WorkerLease> {
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+        let expected_version = self.live_version()?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        let mut job = read_job_in_wtx(&write, job_id)?;
         require_lease(&job, worker_ref, epoch, now_ms)?;
         let lease = job.lease.as_mut().expect("require_lease checked presence");
         lease.expires_at_ms = now_ms.saturating_add(lease_ms as i64);
         let renewed = lease.clone();
         job.updated_at_ms = now_ms;
         let (batch, _next_version) =
-            write_job_transition(&write, &job, &self.identity, expected_version, None)?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+            write_job_transition(self, &write, &job, expected_version, None)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(renewed)
     }
 
@@ -780,10 +850,9 @@ impl JobStore {
         checkpoint: Checkpoint,
         now_ms: i64,
     ) -> Result<AnalyticsJob> {
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+        let expected_version = self.live_version()?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        let mut job = read_job_in_wtx(&write, job_id)?;
         require_lease(&job, worker_ref, epoch, now_ms)?;
         if !matches!(&job.state, JobState::Running { .. }) {
             return Err(invalid_transition(
@@ -794,8 +863,8 @@ impl JobStore {
         job.state = JobState::Running { checkpoint };
         job.updated_at_ms = now_ms;
         let (batch, _next_version) =
-            write_job_transition(&write, &job, &self.identity, expected_version, None)?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+            write_job_transition(self, &write, &job, expected_version, None)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(job)
     }
 
@@ -813,10 +882,9 @@ impl JobStore {
         if result_bytes.len() > MAX_JOB_RESULT_BYTES {
             return Err(codec_err("typed result exceeds the storage limit"));
         }
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+        let expected_version = self.live_version()?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        let mut job = read_job_in_wtx(&write, job_id)?;
         require_lease(&job, worker_ref, epoch, now_ms)?;
         if !lineage_matches_job(&result.reproducibility, &job) {
             return Err(codec_err(
@@ -861,13 +929,13 @@ impl JobStore {
         };
         job.updated_at_ms = now_ms;
         let (batch, _next_version) = write_job_transition(
+            self,
             &write,
             &job,
-            &self.identity,
             expected_version,
             Some((&result.dataset_ref, &result_bytes)),
         )?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(job)
     }
 
@@ -879,10 +947,9 @@ impl JobStore {
         epoch: u64,
         now_ms: i64,
     ) -> Result<AnalyticsJob> {
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+        let expected_version = self.live_version()?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        let mut job = read_job_in_wtx(&write, job_id)?;
         require_lease(&job, worker_ref, epoch, now_ms)?;
         let (result_ref, mut checkpoint) = match &job.state {
             JobState::Publishing {
@@ -906,8 +973,8 @@ impl JobStore {
         job.lease = None;
         job.updated_at_ms = now_ms;
         let (batch, _next_version) =
-            write_job_transition(&write, &job, &self.identity, expected_version, None)?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+            write_job_transition(self, &write, &job, expected_version, None)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(job)
     }
 
@@ -924,10 +991,9 @@ impl JobStore {
         expected_result_ref: &str,
         committed_at_ms: i64,
     ) -> Result<AnalyticsJob> {
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+        let expected_version = self.live_version()?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        let mut job = read_job_in_wtx(&write, job_id)?;
         if job.last_worker_ref != worker_ref || job.lease_epoch != epoch {
             return Err(invalid_transition(&job, "stale publication fencing token"));
         }
@@ -964,8 +1030,8 @@ impl JobStore {
         job.lease = None;
         job.updated_at_ms = committed_at_ms;
         let (batch, _next_version) =
-            write_job_transition(&write, &job, &self.identity, expected_version, None)?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+            write_job_transition(self, &write, &job, expected_version, None)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(job)
     }
 
@@ -979,10 +1045,9 @@ impl JobStore {
         epoch: u64,
         now_ms: i64,
     ) -> Result<AnalyticsJob> {
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+        let expected_version = self.live_version()?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        let mut job = read_job_in_wtx(&write, job_id)?;
         require_lease(&job, worker_ref, epoch, now_ms)?;
         if !matches!(&job.state, JobState::Publishing { .. }) {
             return Err(invalid_transition(
@@ -993,8 +1058,8 @@ impl JobStore {
         job.lease = None;
         job.updated_at_ms = now_ms;
         let (batch, _next_version) =
-            write_job_transition(&write, &job, &self.identity, expected_version, None)?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+            write_job_transition(self, &write, &job, expected_version, None)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(job)
     }
 
@@ -1008,10 +1073,9 @@ impl JobStore {
         reason: impl Into<String>,
         now_ms: i64,
     ) -> Result<AnalyticsJob> {
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+        let expected_version = self.live_version()?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        let mut job = read_job_in_wtx(&write, job_id)?;
         require_lease(&job, worker_ref, epoch, now_ms)?;
         let checkpoint = match &job.state {
             JobState::Running { checkpoint } => checkpoint.clone(),
@@ -1041,8 +1105,8 @@ impl JobStore {
         job.lease = None;
         job.updated_at_ms = now_ms;
         let (batch, _next_version) =
-            write_job_transition(&write, &job, &self.identity, expected_version, None)?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+            write_job_transition(self, &write, &job, expected_version, None)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(job)
     }
 
@@ -1054,10 +1118,9 @@ impl JobStore {
         epoch: u64,
         now_ms: i64,
     ) -> Result<AnalyticsJob> {
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+        let expected_version = self.live_version()?;
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        let mut job = read_job_in_wtx(&write, job_id)?;
         // Cancellation acknowledgement is the one fenced worker mutation that
         // must remain legal after `cancel_requested` is set. It still requires
         // exact live ownership/epoch; only the generic cancellation rejection is
@@ -1081,8 +1144,8 @@ impl JobStore {
         job.lease = None;
         job.updated_at_ms = now_ms;
         let (batch, _next_version) =
-            write_job_transition(&write, &job, &self.identity, expected_version, None)?;
-        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+            write_job_transition(self, &write, &job, expected_version, None)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(job)
     }
 
@@ -1090,12 +1153,8 @@ impl JobStore {
         if !valid_identifier(dataset_ref) {
             return Err(codec_err("analytics-job result reference is invalid"));
         }
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(RESULTS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(RESULTS).map_err(redb_err)?;
         let row = table
             .get(dataset_ref)
             .map_err(redb_err)?
@@ -1197,28 +1256,25 @@ impl JobStore {
     where
         F: FnOnce(&mut AnalyticsJob) -> Result<()>,
     {
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        match eg_mutation_store::begin(&write, batch).map_err(redb_err)? {
-            eg_mutation_store::Begin::Replay(record) => {
+        let write = self.mutations.open_write(&self.owner).map_err(redb_err)?;
+        match write.begin(batch).map_err(redb_err)? {
+            Begin::Replay(record) => {
                 let replayed = decode_job_result(&record)?;
-                // No public abort; dropping `write` un-committed aborts it.
+                write.abort().map_err(redb_err)?;
                 Ok((replayed, true))
             }
-            eg_mutation_store::Begin::Apply { source_version } => {
-                let mut job = {
-                    let table = write.owner_rows().open_table(JOBS).map_err(redb_err)?;
-                    let blob = table
-                        .get(job_id)
-                        .map_err(redb_err)?
-                        .ok_or_else(|| JobError::NotFound(job_id.to_string()))?;
-                    decode_job(blob.value())?
-                };
+            Begin::Apply { source_version } => {
+                let mut job = read_job_in_wtx(&write, job_id)?;
                 mutate(&mut job)?;
                 let blob = encode_job(&job)?;
-                persist_job_image(write.owner_rows(), &job, blob.as_slice())?;
-                eg_mutation_store::finish(&write, batch, Some(blob), committed_at_ms, source_version)
+                let owner_write = write.owner_rows(&self.owner, batch).map_err(redb_err)?;
+                let staged = persist_job_image(&owner_write, &job, blob.as_slice());
+                owner_write.finish_owner().map_err(redb_err)?;
+                staged?;
+                self.mutations
+                    .finish(&write, batch, Some(blob), committed_at_ms, source_version)
                     .map_err(redb_err)?;
-                eg_mutation_store::commit(write, batch).map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok((job, false))
             }
         }
@@ -1236,27 +1292,20 @@ impl JobStore {
         if !valid_identifier(result_ref) || job_id.is_empty() || job_id.len() > MAX_JOB_ID_BYTES {
             return Err(codec_err("analytics-job idempotency key is invalid"));
         }
-        let wtx = self
-            .mutation_store
-            .database()
-            .begin_write()
-            .map_err(redb_err)?;
-        let first = {
+        self.maintain("result-committed", |wtx| {
             let mut table = wtx.open_table(COMMITTED_RESULTS).map_err(redb_err)?;
             let existing = table
                 .get(result_ref)
                 .map_err(redb_err)?
                 .map(|v| v.value().to_string());
             match existing {
-                Some(_) => false,
+                Some(_) => Ok(false),
                 None => {
                     table.insert(result_ref, job_id).map_err(redb_err)?;
-                    true
+                    Ok(true)
                 }
             }
-        };
-        wtx.commit().map_err(redb_err)?;
-        Ok(first)
+        })
     }
 
     /// Which job (if any) first committed `result_ref`.
@@ -1264,12 +1313,8 @@ impl JobStore {
         if !valid_identifier(result_ref) {
             return Err(codec_err("analytics-job result reference is invalid"));
         }
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(COMMITTED_RESULTS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(COMMITTED_RESULTS).map_err(redb_err)?;
         Ok(table
             .get(result_ref)
             .map_err(redb_err)?
@@ -1292,27 +1337,20 @@ impl JobStore {
         if !valid_identifier(key) || !valid_identifier(owner) {
             return Err(codec_err("analytics-job idempotency key is invalid"));
         }
-        let wtx = self
-            .mutation_store
-            .database()
-            .begin_write()
-            .map_err(redb_err)?;
-        let first = {
+        self.maintain("idempotency-claim", |wtx| {
             let mut table = wtx.open_table(IDEMPOTENCY_LEDGER).map_err(redb_err)?;
             let existing = table
                 .get(key)
                 .map_err(redb_err)?
                 .map(|v| v.value().to_string());
             match existing {
-                Some(_) => false,
+                Some(_) => Ok(false),
                 None => {
                     table.insert(key, owner).map_err(redb_err)?;
-                    true
+                    Ok(true)
                 }
             }
-        };
-        wtx.commit().map_err(redb_err)?;
-        Ok(first)
+        })
     }
 
     /// Which owner (if any) first claimed `key`.
@@ -1320,12 +1358,8 @@ impl JobStore {
         if !valid_identifier(key) {
             return Err(codec_err("analytics-job idempotency key is invalid"));
         }
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(IDEMPOTENCY_LEDGER).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(IDEMPOTENCY_LEDGER).map_err(redb_err)?;
         Ok(table
             .get(key)
             .map_err(redb_err)?
@@ -1342,12 +1376,8 @@ impl JobStore {
         if !valid_identifier(name) {
             return Err(codec_err("analytics-job intent identifier is invalid"));
         }
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(JOB_INTENTS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(JOB_INTENTS).map_err(redb_err)?;
         let blob = table
             .get(name)
             .map_err(redb_err)?
@@ -1357,19 +1387,13 @@ impl JobStore {
 
     fn put_intent_raw(&self, intent: &JobIntent) -> Result<()> {
         let blob = encode_intent(intent)?;
-        let wtx = self
-            .mutation_store
-            .database()
-            .begin_write()
-            .map_err(redb_err)?;
-        {
-            let mut table = wtx.open_table(JOB_INTENTS).map_err(redb_err)?;
-            table
+        self.maintain("intent-register", |wtx| {
+            wtx.open_table(JOB_INTENTS)
+                .map_err(redb_err)?
                 .insert(intent.name.as_str(), blob.as_slice())
                 .map_err(redb_err)?;
-        }
-        wtx.commit().map_err(redb_err)?;
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Register (or re-register) a [`JobIntent`] by `name` (upsert). Re-registering
@@ -1399,12 +1423,8 @@ impl JobStore {
     /// List every registered intent (diagnostic/admin use, and the basis for
     /// [`Self::due_intents`]).
     pub fn list_intents(&self) -> Result<Vec<JobIntent>> {
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(JOB_INTENTS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(JOB_INTENTS).map_err(redb_err)?;
         let mut out = Vec::new();
         let mut bytes = 0usize;
         for entry in table.iter().map_err(redb_err)? {
@@ -1482,10 +1502,12 @@ fn job_id_for_batch(batch: &MutationBatch) -> JobId {
     format!("job-{}", hex::encode(&digest.finalize()[..16]))
 }
 
-fn initialize_scheduler_indexes(db: &Database) -> Result<u64> {
-    let wtx = db.begin_write().map_err(redb_err)?;
-    let (version, max_sequence) = {
-        let meta = wtx.open_table(JOB_META).map_err(redb_err)?;
+fn initialize_scheduler_indexes(store: &JobStore) -> Result<u64> {
+    // Fast path: a scoped READ, so a store whose indexes are already current
+    // costs no mutation at all.
+    {
+        let read = store.scoped_read()?;
+        let meta = read.open_owner_table(JOB_META).map_err(redb_err)?;
         let version = meta
             .get(META_INDEX_VERSION)
             .map_err(redb_err)?
@@ -1494,56 +1516,57 @@ fn initialize_scheduler_indexes(db: &Database) -> Result<u64> {
             .get(META_MAX_JOB_SEQUENCE)
             .map_err(redb_err)?
             .map(|value| value.value());
-        (version, max_sequence)
-    };
-    if version == Some(SCHEDULER_INDEX_VERSION) {
-        if let Some(max_sequence) = max_sequence {
-            wtx.abort().map_err(redb_err)?;
-            return Ok(max_sequence);
+        if version == Some(SCHEDULER_INDEX_VERSION) {
+            if let Some(max_sequence) = max_sequence {
+                return Ok(max_sequence);
+            }
         }
     }
 
-    // One-time migration/backfill. Decode before clearing any index so a corrupt
-    // authoritative row aborts without publishing a partial scheduler view.
-    let jobs = {
-        let table = wtx.open_table(JOBS).map_err(redb_err)?;
-        let mut jobs = Vec::new();
-        let mut bytes = 0usize;
-        for row in table.iter().map_err(redb_err)? {
-            let (_, value) = row.map_err(redb_err)?;
-            if jobs.len() >= MAX_JOB_REBUILD_ITEMS {
-                return Err(codec_err("scheduler index rebuild exceeds limits"));
+    // One-time migration/backfill, as an admitted maintenance mutation. Decode
+    // before clearing any index so a corrupt authoritative row aborts without
+    // publishing a partial scheduler view.
+    store.maintain("index-rebuild", |wtx| {
+        let jobs = {
+            let table = wtx.open_table(JOBS).map_err(redb_err)?;
+            let mut jobs = Vec::new();
+            let mut bytes = 0usize;
+            for row in table.iter().map_err(redb_err)? {
+                let (_, value) = row.map_err(redb_err)?;
+                if jobs.len() >= MAX_JOB_REBUILD_ITEMS {
+                    return Err(codec_err("scheduler index rebuild exceeds limits"));
+                }
+                bytes = bytes
+                    .checked_add(value.value().len())
+                    .filter(|total| *total <= MAX_JOB_REBUILD_BYTES)
+                    .ok_or_else(|| codec_err("scheduler index rebuild exceeds limits"))?;
+                jobs.push(decode_job(value.value())?);
             }
-            bytes = bytes
-                .checked_add(value.value().len())
-                .filter(|total| *total <= MAX_JOB_REBUILD_BYTES)
-                .ok_or_else(|| codec_err("scheduler index rebuild exceeds limits"))?;
-            jobs.push(decode_job(value.value())?);
+            jobs
+        };
+        clear_scheduler_indexes(wtx)?;
+        let mut max_sequence = 0u64;
+        for job in &jobs {
+            add_job_indexes(wtx, job)?;
+            if let Some(sequence) = job_sequence(&job.job_id) {
+                max_sequence = max_sequence.max(sequence);
+            }
         }
-        jobs
-    };
-    clear_scheduler_indexes(&wtx)?;
-    let mut max_sequence = 0u64;
-    for job in &jobs {
-        add_job_indexes(&wtx, job)?;
-        if let Some(sequence) = job_sequence(&job.job_id) {
-            max_sequence = max_sequence.max(sequence);
+        {
+            let mut meta = wtx.open_table(JOB_META).map_err(redb_err)?;
+            meta.insert(META_MAX_JOB_SEQUENCE, max_sequence)
+                .map_err(redb_err)?;
+            // Publish the schema marker LAST. Both rows still commit atomically,
+            // while this order documents the recovery invariant for future
+            // migrations.
+            meta.insert(META_INDEX_VERSION, SCHEDULER_INDEX_VERSION)
+                .map_err(redb_err)?;
         }
-    }
-    {
-        let mut meta = wtx.open_table(JOB_META).map_err(redb_err)?;
-        meta.insert(META_MAX_JOB_SEQUENCE, max_sequence)
-            .map_err(redb_err)?;
-        // Publish the schema marker LAST. Both rows still commit atomically, while
-        // this order documents the recovery invariant for future migrations.
-        meta.insert(META_INDEX_VERSION, SCHEDULER_INDEX_VERSION)
-            .map_err(redb_err)?;
-    }
-    wtx.commit().map_err(redb_err)?;
-    Ok(max_sequence)
+        Ok(max_sequence)
+    })
 }
 
-fn clear_scheduler_indexes(wtx: &WriteTransaction) -> Result<()> {
+fn clear_scheduler_indexes(wtx: &AdmittedOwnerWrite<'_, JobsOwner>) -> Result<()> {
     wtx.open_table(JOB_READY)
         .map_err(redb_err)?
         .retain(|_, _| false)
@@ -1575,7 +1598,7 @@ fn clear_scheduler_indexes(wtx: &WriteTransaction) -> Result<()> {
     Ok(())
 }
 
-fn persist_job_image(wtx: &WriteTransaction, job: &AnalyticsJob, bytes: &[u8]) -> Result<()> {
+fn persist_job_image(wtx: &AdmittedOwnerWrite<'_, JobsOwner>, job: &AnalyticsJob, bytes: &[u8]) -> Result<()> {
     let previous = {
         let table = wtx.open_table(JOBS).map_err(redb_err)?;
         let value = table
@@ -1600,7 +1623,7 @@ fn persist_job_image(wtx: &WriteTransaction, job: &AnalyticsJob, bytes: &[u8]) -
     Ok(())
 }
 
-fn add_job_indexes(wtx: &WriteTransaction, job: &AnalyticsJob) -> Result<()> {
+fn add_job_indexes(wtx: &AdmittedOwnerWrite<'_, JobsOwner>, job: &AnalyticsJob) -> Result<()> {
     if ready_indexed(job) {
         let rank = priority_rank(job.policy.priority);
         wtx.open_table(JOB_READY)
@@ -1651,7 +1674,7 @@ fn add_job_indexes(wtx: &WriteTransaction, job: &AnalyticsJob) -> Result<()> {
     Ok(())
 }
 
-fn remove_job_indexes(wtx: &WriteTransaction, job: &AnalyticsJob) -> Result<()> {
+fn remove_job_indexes(wtx: &AdmittedOwnerWrite<'_, JobsOwner>, job: &AnalyticsJob) -> Result<()> {
     if ready_indexed(job) {
         let rank = priority_rank(job.policy.priority);
         wtx.open_table(JOB_READY)
@@ -1741,7 +1764,7 @@ fn tenant_index_key(tenant: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn adjust_tenant_total(wtx: &WriteTransaction, job: &AnalyticsJob, add: bool) -> Result<()> {
+fn adjust_tenant_total(wtx: &AdmittedOwnerWrite<'_, JobsOwner>, job: &AnalyticsJob, add: bool) -> Result<()> {
     let key = tenant_index_key(&job.policy.tenant);
     let cpu = reserved_cpu(job);
     let mut totals = wtx.open_table(JOB_TENANT_TOTALS).map_err(redb_err)?;
@@ -1785,7 +1808,7 @@ fn job_sequence(job_id: &str) -> Option<u64> {
     u64::from_str_radix(job_id.strip_prefix("job-")?, 16).ok()
 }
 
-fn update_max_job_sequence(wtx: &WriteTransaction, job_id: &str) -> Result<()> {
+fn update_max_job_sequence(wtx: &AdmittedOwnerWrite<'_, JobsOwner>, job_id: &str) -> Result<()> {
     let Some(sequence) = job_sequence(job_id) else {
         return Ok(());
     };
@@ -1803,12 +1826,12 @@ fn update_max_job_sequence(wtx: &WriteTransaction, job_id: &str) -> Result<()> {
 }
 
 fn live_worker_claim_in_wtx(
-    wtx: &WriteTransaction,
+    wtx: &AdmittedMutation<'_, JobsOwner>,
     worker_ref: &str,
     now_ms: i64,
 ) -> Result<Option<WorkerClaim>> {
     let job_id = {
-        let workers = wtx.open_table(JOB_LEASE_BY_WORKER).map_err(redb_err)?;
+        let workers = wtx.open_read_table(JOB_LEASE_BY_WORKER).map_err(redb_err)?;
         let value = workers
             .get(worker_ref)
             .map_err(redb_err)?
@@ -1829,8 +1852,8 @@ fn live_worker_claim_in_wtx(
     Ok(Some(WorkerClaim { lease, job }))
 }
 
-fn tenant_active_total(wtx: &WriteTransaction, tenant: &str) -> Result<(usize, u64)> {
-    let totals = wtx.open_table(JOB_TENANT_TOTALS).map_err(redb_err)?;
+fn tenant_active_total(wtx: &AdmittedMutation<'_, JobsOwner>, tenant: &str) -> Result<(usize, u64)> {
+    let totals = wtx.open_read_table(JOB_TENANT_TOTALS).map_err(redb_err)?;
     let (count, cpu) = totals
         .get(tenant_index_key(tenant).as_str())
         .map_err(redb_err)?
@@ -1901,7 +1924,7 @@ fn placement_anchor(job: &AnalyticsJob) -> String {
 }
 
 fn select_ready_for_worker(
-    wtx: &WriteTransaction,
+    wtx: &AdmittedMutation<'_, JobsOwner>,
     worker_capabilities: &[String],
     capabilities: &BTreeSet<&str>,
     now_ms: i64,
@@ -1914,14 +1937,14 @@ fn select_ready_for_worker(
             .map(|value| capability_index_key(value)),
     );
 
-    let ready = wtx.open_table(JOB_READY_BY_CAPABILITY).map_err(redb_err)?;
-    let jobs = wtx.open_table(JOBS).map_err(redb_err)?;
+    let ready = wtx.open_read_table(JOB_READY_BY_CAPABILITY).map_err(redb_err)?;
+    let jobs = wtx.open_read_table(JOBS).map_err(redb_err)?;
     let mut best: Option<((u32, i64, String), AnalyticsJob)> = None;
     let mut examined = 0usize;
     for anchor in anchors {
-        let range = (anchor.as_str(), u32::MIN, i64::MIN, "")
-            ..=(anchor.as_str(), u32::MAX, i64::MAX, "\u{10ffff}");
-        for row in ready.range(range).map_err(redb_err)? {
+        let low = (anchor.as_str(), u32::MIN, i64::MIN, "");
+        let high = (anchor.as_str(), u32::MAX, i64::MAX, "\u{10ffff}");
+        for row in ready.range_inclusive(low, high).map_err(redb_err)? {
             examined = examined
                 .checked_add(1)
                 .filter(|count| *count <= MAX_SCHEDULER_RECONCILE_ITEMS)
@@ -1960,7 +1983,7 @@ fn select_ready_for_worker(
 /// `select_ready_for_worker` (extract-method, cx/wD8) — same terms, same
 /// order, same short-circuiting as before.
 fn job_ready_for_claim(
-    wtx: &WriteTransaction,
+    wtx: &AdmittedMutation<'_, JobsOwner>,
     job: &AnalyticsJob,
     anchor: &str,
     worker_capabilities: &[String],
@@ -2015,8 +2038,8 @@ fn job_matches_worker(
 /// Collect the durable job ids awaiting cancellation reconciliation. Split
 /// out of `reconcile_scheduler` (extract-method, cx/wD8) — same limit check,
 /// same order as before.
-fn collect_cancellation_ids(wtx: &WriteTransaction) -> Result<Vec<String>> {
-    let table = wtx.open_table(JOB_CANCELLATION).map_err(redb_err)?;
+fn collect_cancellation_ids(wtx: &AdmittedMutation<'_, JobsOwner>) -> Result<Vec<String>> {
+    let table = wtx.open_read_table(JOB_CANCELLATION).map_err(redb_err)?;
     let mut ids = Vec::new();
     for row in table.iter().map_err(redb_err)? {
         let (key, _) = row.map_err(redb_err)?;
@@ -2033,13 +2056,13 @@ fn collect_cancellation_ids(wtx: &WriteTransaction) -> Result<Vec<String>> {
 /// batch and the version now authoritative after this call (see
 /// `write_job_transition`) when the durable record changed; `None` if not.
 fn reconcile_cancellation_job(
-    write: &eg_mutation_store::MutationWrite,
-    identity: &MutationScopeIdentity,
+    store: &JobStore,
+    write: &AdmittedMutation<'_, JobsOwner>,
     job_id: &str,
     now_ms: i64,
     expected_version: u64,
 ) -> Result<Option<(MutationBatch, u64)>> {
-    let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+    let mut job = read_job_in_wtx(write, job_id)?;
     let lease_expired = job
         .lease
         .as_ref()
@@ -2051,18 +2074,18 @@ fn reconcile_cancellation_job(
     job.state = JobState::Cancelled { checkpoint };
     job.lease = None;
     job.updated_at_ms = now_ms;
-    let outcome = write_job_transition(write, &job, identity, expected_version, None)?;
+    let outcome = write_job_transition(store, write, &job, expected_version, None)?;
     Ok(Some(outcome))
 }
 
 /// Collect the durable job ids whose lease has expired by `now_ms`. Split out
 /// of `reconcile_scheduler` (extract-method, cx/wD8) — same limit check, same
 /// order as before.
-fn collect_expired_lease_ids(wtx: &WriteTransaction, now_ms: i64) -> Result<Vec<String>> {
-    let table = wtx.open_table(JOB_LEASE_EXPIRY).map_err(redb_err)?;
+fn collect_expired_lease_ids(wtx: &AdmittedMutation<'_, JobsOwner>, now_ms: i64) -> Result<Vec<String>> {
+    let table = wtx.open_read_table(JOB_LEASE_EXPIRY).map_err(redb_err)?;
     let mut ids = Vec::new();
     for row in table
-        .range((i64::MIN, "")..=(now_ms, "\u{10ffff}"))
+        .range_inclusive((i64::MIN, ""), (now_ms, "\u{10ffff}"))
         .map_err(redb_err)?
     {
         let (key, _) = row.map_err(redb_err)?;
@@ -2079,13 +2102,13 @@ fn collect_expired_lease_ids(wtx: &WriteTransaction, now_ms: i64) -> Result<Vec<
 /// batch and the version now authoritative after this call (see
 /// `write_job_transition`) when the durable record changed; `None` if not.
 fn reconcile_expired_lease_job(
-    write: &eg_mutation_store::MutationWrite,
-    identity: &MutationScopeIdentity,
+    store: &JobStore,
+    write: &AdmittedMutation<'_, JobsOwner>,
     job_id: &str,
     now_ms: i64,
     expected_version: u64,
 ) -> Result<Option<(MutationBatch, u64)>> {
-    let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+    let mut job = read_job_in_wtx(write, job_id)?;
     if job
         .lease
         .as_ref()
@@ -2120,18 +2143,18 @@ fn reconcile_expired_lease_job(
     // ready queue. Fencing still advances only when the next worker leases it.
     job.lease = None;
     job.updated_at_ms = now_ms;
-    let outcome = write_job_transition(write, &job, identity, expected_version, None)?;
+    let outcome = write_job_transition(store, write, &job, expected_version, None)?;
     Ok(Some(outcome))
 }
 
 /// Collect the durable job ids whose deadline has passed by `now_ms`. Split
 /// out of `reconcile_scheduler` (extract-method, cx/wD8) — same limit check,
 /// same order as before.
-fn collect_deadline_ids(wtx: &WriteTransaction, now_ms: i64) -> Result<Vec<String>> {
-    let table = wtx.open_table(JOB_DEADLINE).map_err(redb_err)?;
+fn collect_deadline_ids(wtx: &AdmittedMutation<'_, JobsOwner>, now_ms: i64) -> Result<Vec<String>> {
+    let table = wtx.open_read_table(JOB_DEADLINE).map_err(redb_err)?;
     let mut ids = Vec::new();
     for row in table
-        .range((i64::MIN, "")..=(now_ms, "\u{10ffff}"))
+        .range_inclusive((i64::MIN, ""), (now_ms, "\u{10ffff}"))
         .map_err(redb_err)?
     {
         let (key, _) = row.map_err(redb_err)?;
@@ -2148,13 +2171,13 @@ fn collect_deadline_ids(wtx: &WriteTransaction, now_ms: i64) -> Result<Vec<Strin
 /// batch and the version now authoritative after this call (see
 /// `write_job_transition`) when the durable record changed; `None` if not.
 fn reconcile_deadline_job(
-    write: &eg_mutation_store::MutationWrite,
-    identity: &MutationScopeIdentity,
+    store: &JobStore,
+    write: &AdmittedMutation<'_, JobsOwner>,
     job_id: &str,
     now_ms: i64,
     expected_version: u64,
 ) -> Result<Option<(MutationBatch, u64)>> {
-    let mut job = read_job_in_wtx(write.owner_rows(), job_id)?;
+    let mut job = read_job_in_wtx(write, job_id)?;
     let lease_live = job
         .lease
         .as_ref()
@@ -2175,7 +2198,7 @@ fn reconcile_deadline_job(
     };
     job.lease = None;
     job.updated_at_ms = now_ms;
-    let outcome = write_job_transition(write, &job, identity, expected_version, None)?;
+    let outcome = write_job_transition(store, write, &job, expected_version, None)?;
     Ok(Some(outcome))
 }
 
@@ -2183,38 +2206,38 @@ fn reconcile_deadline_job(
 /// transaction. `expected_version` is this store's live authoritative version
 /// as of BEFORE `write` opened (see `claim_next`); each reconciled job that
 /// actually transitions advances it locally rather than re-reading
-/// `eg_mutation_store::version` (which would open a fresh read snapshot that
+/// `JobStore::live_version` (which would open a fresh read snapshot that
 /// cannot observe this transaction's own not-yet-committed `finish()` writes).
 /// Returns the LAST batch applied (any one is representative for the final
-/// `eg_mutation_store::commit`, since `binding_for_write` only checks scope
+/// `MutationKernelV1::commit`, since `binding_for_write` only checks scope
 /// identity, which is identical across every call here) and the version now
 /// authoritative after every reconciled transition.
 fn reconcile_scheduler(
-    write: &eg_mutation_store::MutationWrite,
-    identity: &MutationScopeIdentity,
+    store: &JobStore,
+    write: &AdmittedMutation<'_, JobsOwner>,
     now_ms: i64,
     mut expected_version: u64,
 ) -> Result<(Option<MutationBatch>, u64)> {
     let mut last_batch = None;
-    for job_id in collect_cancellation_ids(write.owner_rows())? {
+    for job_id in collect_cancellation_ids(write)? {
         if let Some((batch, next)) =
-            reconcile_cancellation_job(write, identity, &job_id, now_ms, expected_version)?
+            reconcile_cancellation_job(store, write, &job_id, now_ms, expected_version)?
         {
             last_batch = Some(batch);
             expected_version = next;
         }
     }
-    for job_id in collect_expired_lease_ids(write.owner_rows(), now_ms)? {
+    for job_id in collect_expired_lease_ids(write, now_ms)? {
         if let Some((batch, next)) =
-            reconcile_expired_lease_job(write, identity, &job_id, now_ms, expected_version)?
+            reconcile_expired_lease_job(store, write, &job_id, now_ms, expected_version)?
         {
             last_batch = Some(batch);
             expected_version = next;
         }
     }
-    for job_id in collect_deadline_ids(write.owner_rows(), now_ms)? {
+    for job_id in collect_deadline_ids(write, now_ms)? {
         if let Some((batch, next)) =
-            reconcile_deadline_job(write, identity, &job_id, now_ms, expected_version)?
+            reconcile_deadline_job(store, write, &job_id, now_ms, expected_version)?
         {
             last_batch = Some(batch);
             expected_version = next;
@@ -2231,8 +2254,8 @@ fn decode_job_result(record: &MutationBatchRecord) -> Result<AnalyticsJob> {
     decode_job(bytes)
 }
 
-fn read_job_in_wtx(wtx: &WriteTransaction, job_id: &str) -> Result<AnalyticsJob> {
-    let table = wtx.open_table(JOBS).map_err(redb_err)?;
+fn read_job_in_wtx(wtx: &AdmittedMutation<'_, JobsOwner>, job_id: &str) -> Result<AnalyticsJob> {
+    let table = wtx.open_read_table(JOBS).map_err(redb_err)?;
     let row = table
         .get(job_id)
         .map_err(redb_err)?
@@ -2298,25 +2321,30 @@ fn require_lease_ownership(
 /// `expected_version` must already be the fixed `analytics-jobs` scope's
 /// authoritative version AS OF `write`'s current state (see
 /// `reconcile_scheduler`'s doc comment for why callers track it locally
-/// instead of re-reading `eg_mutation_store::version` mid-transaction).
+/// instead of re-reading `JobStore::live_version` mid-transaction).
 /// Returns the batch that was begun (Replay or Apply) and the version that is
 /// now authoritative after this call: unchanged on a Replay (nothing was
 /// written), `expected_version + 1` on an Apply (mirrors exactly what
-/// `eg_mutation_store::finish` -> `CommittedVersion::checked_native` computes
-/// as `target`). Never calls `eg_mutation_store::commit` itself -- a single
+/// `MutationKernelV1::finish` -> `CommittedVersion::checked_native` computes
+/// as `target`). Never calls `MutationKernelV1::commit` itself -- a single
 /// `write` may carry several transitions (see `reconcile_scheduler` +
 /// `claim_next`), so only the top-level caller, once it knows no further
 /// transition is coming, commits.
 fn write_job_transition(
-    write: &eg_mutation_store::MutationWrite,
+    store: &JobStore,
+    write: &AdmittedMutation<'_, JobsOwner>,
     job: &AnalyticsJob,
-    identity: &MutationScopeIdentity,
     expected_version: u64,
     result: Option<(&str, &[u8])>,
 ) -> Result<(MutationBatch, u64)> {
-    let batch = internal_job_batch(job, identity, expected_version)?;
-    match eg_mutation_store::begin(write, &batch).map_err(redb_err)? {
-        eg_mutation_store::Begin::Replay(record) => {
+    let batch = internal_job_batch(
+        job,
+        store.owner.identity(),
+        store.owner.principal(),
+        expected_version,
+    )?;
+    match write.begin(&batch).map_err(redb_err)? {
+        Begin::Replay(record) => {
             let replayed = decode_job_result(&record)?;
             if replayed != *job {
                 return Err(codec_err(
@@ -2325,24 +2353,37 @@ fn write_job_transition(
             }
             Ok((batch, expected_version))
         }
-        eg_mutation_store::Begin::Apply { source_version } => {
+        Begin::Apply { source_version } => {
             let job_bytes = encode_job(job)?;
-            persist_job_image(write.owner_rows(), job, job_bytes.as_slice())?;
-            if let Some((dataset_ref, result_bytes)) = result {
-                if !valid_identifier(dataset_ref) || result_bytes.len() > MAX_JOB_RESULT_BYTES {
-                    return Err(codec_err("typed result exceeds the storage limit"));
+            let owner_write = write.owner_rows(&store.owner, &batch).map_err(redb_err)?;
+            let staged = (|| -> Result<()> {
+                persist_job_image(&owner_write, job, job_bytes.as_slice())?;
+                if let Some((dataset_ref, result_bytes)) = result {
+                    if !valid_identifier(dataset_ref) || result_bytes.len() > MAX_JOB_RESULT_BYTES {
+                        return Err(codec_err("typed result exceeds the storage limit"));
+                    }
+                    owner_write
+                        .open_table(RESULTS)
+                        .map_err(redb_err)?
+                        .insert(dataset_ref, result_bytes)
+                        .map_err(redb_err)?;
                 }
-                let mut table = write.owner_rows().open_table(RESULTS).map_err(redb_err)?;
-                table.insert(dataset_ref, result_bytes).map_err(redb_err)?;
-            }
-            eg_mutation_store::finish(
-                write,
-                &batch,
-                Some(job_bytes),
-                job.updated_at_ms.max(0) as u64,
-                source_version,
-            )
-            .map_err(redb_err)?;
+                Ok(())
+            })();
+            // Always close the owner capability: dropping it unfinished poisons
+            // the write and would mask the staging error.
+            owner_write.finish_owner().map_err(redb_err)?;
+            staged?;
+            store
+                .mutations
+                .finish(
+                    write,
+                    &batch,
+                    Some(job_bytes),
+                    job.updated_at_ms.max(0) as u64,
+                    source_version,
+                )
+                .map_err(redb_err)?;
             let next = expected_version
                 .checked_add(1)
                 .ok_or_else(|| codec_err("analytics-job mutation-scope version overflow"))?;
@@ -2395,20 +2436,84 @@ pub fn analytics_job_scope_identity() -> Result<MutationScopeIdentity> {
 /// evidence as submit/cancel/resume.
 ///
 /// `expected_version` is the caller-supplied live scope version this batch's
-/// `VersionExpectation::Native` must equal for `eg_mutation_store::begin`'s
+/// `VersionExpectation::Native` must equal for `AdmittedMutation::begin`'s
 /// OCC check to accept it -- see `JobStore::put_raw` and `write_job_transition`
 /// for how callers obtain it.
+/// Operator-facing identity of the ONE physical `jobs.redb` owner file. Names the
+/// physical authority boundary the storage kernel stamps into the owner manifest,
+/// independent of the logical serving scope.
+const JOBS_PHYSICAL_STORE: &str = "eg-jobs:analytics-jobs";
+
+/// The batch for one store-level maintenance mutation (RF-RULING-005).
+///
+/// The scheduler index rebuild, the two idempotency ledgers and the intent
+/// registry carry no caller identity and are not job transitions, so they are
+/// outside operation-replay semantics -- but they are still full ledgered,
+/// fenced, version-bumping mutations, because an un-ledgered owner write would be
+/// a second physical authority. `batch_id` is `(kind, scope version)`: exactly one
+/// batch commits per version, so it is unique per attempt and stable across a
+/// crash-retry of that attempt.
+fn maintenance_batch(
+    kind: &str,
+    identity: &MutationScopeIdentity,
+    principal: &str,
+    expected_version: u64,
+) -> Result<MutationBatch> {
+    let batch_id = format!("analytics-job-{kind}:v{expected_version}");
+    let batch = MutationBatch {
+        schema_version: MUTATION_BATCH_VERSION,
+        batch_id: batch_id.clone(),
+        context: MutationRequestContext {
+            request_id: 0,
+            principal: principal.to_string(),
+            purpose: None,
+            policy_fingerprint: None,
+            trace_id: None,
+            // A maintenance mutation claims no capability: a plain
+            // `Native`-versioned write, not the reserved-system `Unversioned`
+            // path. Empty is the true fact here, not a placeholder.
+            verified_capabilities: std::collections::BTreeSet::new(),
+        },
+        identity: identity.clone(),
+        placement_epoch: 0,
+        idempotency_key: batch_id.clone(),
+        version_expectation: VersionExpectation::Native(expected_version),
+        fencing_token: None,
+        authoritative_state: None,
+        operations: vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Other,
+            domain: MutationDomain::AnalyticsJob,
+            method: Method::ApplyMutation {
+                event_type: format!("analytics_job_{kind}"),
+                query: batch_id,
+            },
+        }],
+        outbox: Vec::new(),
+        created_at_ms: 0,
+    };
+    batch.validate().map_err(codec_err)?;
+    Ok(batch)
+}
+
 fn internal_job_batch(
     job: &AnalyticsJob,
     identity: &MutationScopeIdentity,
+    principal: &str,
     expected_version: u64,
 ) -> Result<MutationBatch> {
     use sha2::{Digest, Sha256};
     let encoded = encode_job(job)?;
     let digest = hex::encode(Sha256::digest(&encoded));
-    // Attribute executor-side transitions to the authenticated, server-hashed
-    // worker slot that owns (or most recently owned) the fencing epoch.  Caller
-    // identity is already pseudonymized; never fall back to a raw worker label.
+    // RF-RULING-004: the batch actor is the principal the storage kernel
+    // authenticated this store's serving scope for -- one physical file serves
+    // one bound scope and one principal, and the mutation kernel refuses any
+    // batch naming another. Executor-side attribution is not lost: the
+    // server-hashed worker slot that owns (or most recently owned) the fencing
+    // epoch travels on the outbox row below, and `lease`/`last_worker_ref` are
+    // fields of the persisted job image itself. Caller identity is already
+    // pseudonymized; never fall back to a raw worker label.
+    let principal = principal.to_string();
     let transition_actor = job
         .lease
         .as_ref()
@@ -2416,7 +2521,7 @@ fn internal_job_batch(
         .filter(|value| !value.is_empty())
         .or_else(|| (!job.last_worker_ref.is_empty()).then_some(job.last_worker_ref.as_str()))
         .unwrap_or(job.policy.actor.as_str());
-    let principal = format!(
+    let actor_digest = format!(
         "principal:sha256:{}",
         hex::encode(Sha256::digest(transition_actor.as_bytes()))
     );
@@ -2450,7 +2555,7 @@ fn internal_job_batch(
         placement_epoch: 0,
         idempotency_key: batch_id.clone(),
         // The scope's live authoritative version, supplied by the caller (see
-        // this function's doc comment) -- `eg_mutation_store::finish` requires
+        // this function's doc comment) -- `MutationKernelV1::finish` requires
         // `VersionExpectation::Native` to equal the scope's CURRENT
         // authoritative version (see
         // `crates/eg-mutation-store/src/store/apply.rs::committed_version`).
@@ -2465,7 +2570,10 @@ fn internal_job_batch(
             topic: "engine.analytics-job.transitioned".to_string(),
             key: batch_id,
             payload: rmp_serde::to_vec_named(&operation).map_err(codec_err)?,
-            headers: std::collections::BTreeMap::new(),
+            headers: std::collections::BTreeMap::from([(
+                "actor".to_string(),
+                actor_digest,
+            )]),
         }],
         created_at_ms: job.updated_at_ms.max(0) as u64,
     };
@@ -2476,6 +2584,7 @@ fn internal_job_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dev_scope_grant::{open_dev_store, open_dev_store_in_dir};
     use crate::model::{AlgoVersion, InputSnapshotHandle};
     use redb::ReadableTableMetadata;
 
@@ -2562,7 +2671,13 @@ mod tests {
         static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
         let sequence = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed);
         let identity = analytics_job_scope_identity().unwrap();
-        let mut batch = internal_job_batch(job, &identity, expected_version).unwrap();
+        let mut batch = internal_job_batch(
+            job,
+            &identity,
+            crate::dev_scope_grant::DEV_PRINCIPAL,
+            expected_version,
+        )
+        .unwrap();
         let request_id = format!("job-request:{action}:{sequence}");
         batch.batch_id = request_id.clone();
         batch.idempotency_key = request_id.clone();
@@ -2587,7 +2702,7 @@ mod tests {
     #[test]
     fn submit_starts_in_submitted_state() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let job = store.submit(spec("g1", 1)).unwrap();
         assert_eq!(job.state, JobState::Submitted);
         assert!(job.job_id.starts_with("job-"));
@@ -2596,16 +2711,20 @@ mod tests {
     #[test]
     fn replicated_submission_and_claim_converge_across_independent_projections() {
         let seed_dir = tempfile::tempdir().unwrap();
-        let seed_store = JobStore::open_in_dir(seed_dir.path()).unwrap();
+        let seed_store = open_dev_store_in_dir(seed_dir.path()).unwrap();
         let seed = seed_store.submit(spec("g1", 9)).unwrap();
-        // `left`/`right` below are both brand-new stores (version 0); the
-        // batch is built once and applied identically to both, mirroring a
-        // Raft leader compiling one batch for every replica to apply.
-        let batch = request_batch(&seed, "replicated-submit", 0);
+        // `left`/`right` below are both brand-new stores. Opening one costs
+        // exactly one committed batch: under RF-RULING-005 the scheduler-index
+        // bootstrap is a ledgered maintenance mutation, not an un-ledgered owner
+        // write, and it runs once per freshly created file -- so a fresh store is
+        // at version 1, not 0, and every replica is at the same 1. The batch is
+        // built once and applied identically to both, mirroring a Raft leader
+        // compiling one batch for every replica to apply.
+        let batch = request_batch(&seed, "replicated-submit", 1);
         let left_dir = tempfile::tempdir().unwrap();
         let right_dir = tempfile::tempdir().unwrap();
-        let left = JobStore::open_in_dir(left_dir.path()).unwrap();
-        let right = JobStore::open_in_dir(right_dir.path()).unwrap();
+        let left = open_dev_store_in_dir(left_dir.path()).unwrap();
+        let right = open_dev_store_in_dir(right_dir.path()).unwrap();
 
         let (left_job, _) = left.submit_batch(spec("g1", 9), &batch, 10_000).unwrap();
         let (right_job, _) = right.submit_batch(spec("g1", 9), &batch, 10_000).unwrap();
@@ -2638,7 +2757,7 @@ mod tests {
     #[test]
     fn full_lifecycle_submit_running_succeed() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let _job = store.submit(spec("g1", 7)).unwrap();
 
         let claim = store
@@ -2711,7 +2830,7 @@ mod tests {
     #[test]
     fn prepared_publication_finalizes_after_lease_expiry_but_not_new_epoch() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let submitted = store.submit(spec("g1", 11)).unwrap();
         let began = now_ms();
         let first = store
@@ -2788,7 +2907,7 @@ mod tests {
     #[test]
     fn cancel_mid_run_stops_it() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let submitted = store.submit(spec("g1", 1)).unwrap();
         let now = now_ms();
         let claim = store
@@ -2817,7 +2936,7 @@ mod tests {
             .unwrap();
 
         let current = store.get(&submitted.job_id).unwrap();
-        let expected = eg_mutation_store::version(&store.mutation_store, &store.identity).unwrap();
+        let expected = store.live_version().unwrap();
         let (job, replayed) = store
             .request_cancel_batch(
                 &submitted.job_id,
@@ -2848,7 +2967,7 @@ mod tests {
                 now,
             )
             .is_err());
-        let expected = eg_mutation_store::version(&store.mutation_store, &store.identity).unwrap();
+        let expected = store.live_version().unwrap();
         assert!(store
             .request_cancel_batch(
                 &job.job_id,
@@ -2868,7 +2987,7 @@ mod tests {
     #[test]
     fn fenced_worker_can_acknowledge_a_requested_cancellation() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let submitted = store.submit(spec("g1", 1)).unwrap();
         let claim = store
             .claim_next(
@@ -2880,7 +2999,7 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        let expected = eg_mutation_store::version(&store.mutation_store, &store.identity).unwrap();
+        let expected = store.live_version().unwrap();
         let batch = request_batch(&claim.job, "cancel-fenced", expected);
         store
             .request_cancel_batch(&submitted.job_id, &batch, now_ms() as u64)
@@ -2899,9 +3018,9 @@ mod tests {
     #[test]
     fn cancel_before_start_is_immediate() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let job = store.submit(spec("g1", 1)).unwrap();
-        let expected = eg_mutation_store::version(&store.mutation_store, &store.identity).unwrap();
+        let expected = store.live_version().unwrap();
         let batch = request_batch(&job, "cancel-before-start", expected);
         let (job, replayed) = store
             .request_cancel_batch(&job.job_id, &batch, now_ms() as u64)
@@ -2913,7 +3032,7 @@ mod tests {
     #[test]
     fn mark_cancelled_requires_a_prior_request() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let submitted = store.submit(spec("g1", 1)).unwrap();
         let now = now_ms();
         let claim = store
@@ -2941,7 +3060,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let started_at = now_ms();
         let job_id = {
-            let store = JobStore::open_in_dir(dir.path()).unwrap();
+            let store = open_dev_store_in_dir(dir.path()).unwrap();
             let submitted = store.submit(spec("g1", 1)).unwrap();
             let claim = store
                 .claim_next(
@@ -2974,7 +3093,7 @@ mod tests {
 
         // Reopen at the SAME path (CONCEPT:INT-P2-1 restart-durability): the
         // orphaned `Running` job + its checkpoint must have survived.
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let job = store.get(&job_id).unwrap();
         match &job.state {
             JobState::Running { checkpoint } => {
@@ -3021,7 +3140,7 @@ mod tests {
     #[test]
     fn deterministic_result_ref_same_lineage_same_ref() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         // Two DIFFERENT jobs (distinct job_id), IDENTICAL input snapshot + algo.
         let job_a = store.submit(spec("g1", 42)).unwrap();
         let job_b = store.submit(spec("g1", 42)).unwrap();
@@ -3036,7 +3155,7 @@ mod tests {
     #[test]
     fn expired_lease_reassignment_fences_the_old_worker() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let job = store.submit(spec("g1", 1)).unwrap();
         let now = now_ms();
         let first = store
@@ -3068,20 +3187,20 @@ mod tests {
     #[test]
     fn scheduler_indexes_follow_authoritative_state_atomically() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let submitted = store.submit(spec("g1", 1)).unwrap();
         {
-            let rtx = store.mutation_store.database().begin_read().unwrap();
-            assert_eq!(rtx.open_table(JOB_READY).unwrap().len().unwrap(), 1);
+            let rtx = store.scoped_read().unwrap();
+            assert_eq!(rtx.open_owner_table(JOB_READY).unwrap().len().unwrap(), 1);
             assert_eq!(
-                rtx.open_table(JOB_READY_BY_CAPABILITY)
+                rtx.open_owner_table(JOB_READY_BY_CAPABILITY)
                     .unwrap()
                     .len()
                     .unwrap(),
                 1
             );
             assert_eq!(
-                rtx.open_table(JOB_META)
+                rtx.open_owner_table(JOB_META)
                     .unwrap()
                     .get(META_MAX_JOB_SEQUENCE)
                     .unwrap()
@@ -3097,23 +3216,23 @@ mod tests {
             .unwrap()
             .unwrap();
         {
-            let rtx = store.mutation_store.database().begin_read().unwrap();
-            assert_eq!(rtx.open_table(JOB_READY).unwrap().len().unwrap(), 0);
+            let rtx = store.scoped_read().unwrap();
+            assert_eq!(rtx.open_owner_table(JOB_READY).unwrap().len().unwrap(), 0);
             assert_eq!(
-                rtx.open_table(JOB_READY_BY_CAPABILITY)
+                rtx.open_owner_table(JOB_READY_BY_CAPABILITY)
                     .unwrap()
                     .len()
                     .unwrap(),
                 0
             );
-            assert_eq!(rtx.open_table(JOB_LEASE_EXPIRY).unwrap().len().unwrap(), 1);
-            let active = rtx.open_table(JOB_TENANT_TOTALS).unwrap();
+            assert_eq!(rtx.open_owner_table(JOB_LEASE_EXPIRY).unwrap().len().unwrap(), 1);
+            let active = rtx.open_owner_table(JOB_TENANT_TOTALS).unwrap();
             assert_eq!(active.len().unwrap(), 1);
             let (key, value) = active.iter().unwrap().next().unwrap().unwrap();
             assert_ne!(key.value(), "acme", "tenant index keys stay opaque");
             assert_eq!(value.value(), (1, 0));
             assert_eq!(
-                rtx.open_table(JOB_LEASE_BY_WORKER)
+                rtx.open_owner_table(JOB_LEASE_BY_WORKER)
                     .unwrap()
                     .get("worker:index")
                     .unwrap()
@@ -3123,7 +3242,7 @@ mod tests {
             );
         }
 
-        let expected = eg_mutation_store::version(&store.mutation_store, &store.identity).unwrap();
+        let expected = store.live_version().unwrap();
         let cancel = request_batch(&claim.job, "cancel-indexed", expected);
         store
             .request_cancel_batch(&submitted.job_id, &cancel, (now + 1) as u64)
@@ -3136,28 +3255,28 @@ mod tests {
                 now + 1,
             )
             .unwrap();
-        let rtx = store.mutation_store.database().begin_read().unwrap();
-        assert_eq!(rtx.open_table(JOB_READY).unwrap().len().unwrap(), 0);
+        let rtx = store.scoped_read().unwrap();
+        assert_eq!(rtx.open_owner_table(JOB_READY).unwrap().len().unwrap(), 0);
         assert_eq!(
-            rtx.open_table(JOB_READY_BY_CAPABILITY)
+            rtx.open_owner_table(JOB_READY_BY_CAPABILITY)
                 .unwrap()
                 .len()
                 .unwrap(),
             0
         );
-        assert_eq!(rtx.open_table(JOB_LEASE_EXPIRY).unwrap().len().unwrap(), 0);
-        assert_eq!(rtx.open_table(JOB_TENANT_TOTALS).unwrap().len().unwrap(), 0);
+        assert_eq!(rtx.open_owner_table(JOB_LEASE_EXPIRY).unwrap().len().unwrap(), 0);
+        assert_eq!(rtx.open_owner_table(JOB_TENANT_TOTALS).unwrap().len().unwrap(), 0);
         assert_eq!(
-            rtx.open_table(JOB_LEASE_BY_WORKER).unwrap().len().unwrap(),
+            rtx.open_owner_table(JOB_LEASE_BY_WORKER).unwrap().len().unwrap(),
             0
         );
-        assert_eq!(rtx.open_table(JOB_CANCELLATION).unwrap().len().unwrap(), 0);
+        assert_eq!(rtx.open_owner_table(JOB_CANCELLATION).unwrap().len().unwrap(), 0);
     }
 
     #[test]
     fn ready_index_preserves_priority_then_fifo_selection() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let mut low = spec("g1", 1);
         low.policy.priority = -10;
         let low = store.submit(low).unwrap();
@@ -3182,15 +3301,15 @@ mod tests {
     #[test]
     fn capability_anchor_skips_unsatisfied_ready_jobs_without_raw_labels() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let mut gpu = spec("g1", 1);
         gpu.policy.priority = 100;
         gpu.policy.placement.required_capabilities = vec!["accelerator".to_string()];
         let gpu = store.submit(gpu).unwrap();
         let ordinary = store.submit(spec("g1", 2)).unwrap();
 
-        let rtx = store.mutation_store.database().begin_read().unwrap();
-        let capability_rows = rtx.open_table(JOB_READY_BY_CAPABILITY).unwrap();
+        let rtx = store.scoped_read().unwrap();
+        let capability_rows = rtx.open_owner_table(JOB_READY_BY_CAPABILITY).unwrap();
         assert_eq!(capability_rows.len().unwrap(), 2);
         for row in capability_rows.iter().unwrap() {
             let (key, _) = row.unwrap();
@@ -3228,7 +3347,7 @@ mod tests {
     #[test]
     fn reconciliation_commits_even_when_no_job_can_be_claimed() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let now = now_ms();
         let mut expired = spec("g1", 1);
         expired.policy.deadline_unix_ms = Some(now.saturating_sub(1));
@@ -3255,26 +3374,32 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("jobs.redb");
         let first_id = {
-            let store = JobStore::open(&path).unwrap();
+            let store = open_dev_store(&path).unwrap();
             store.submit(spec("g1", 1)).unwrap().job_id
         };
         {
-            let db = Database::create(&path).unwrap();
-            let wtx = db.begin_write().unwrap();
-            wtx.open_table(JOB_META)
-                .unwrap()
-                .remove(META_INDEX_VERSION)
+            // Regress the store to its pre-index shape, through the ONLY write
+            // path this crate now has: an admitted maintenance mutation. The
+            // next open must notice the missing schema marker and backfill.
+            let store = open_dev_store(&path).unwrap();
+            store
+                .maintain("test-drop-indexes", |wtx| {
+                    wtx.open_table(JOB_META)
+                        .map_err(redb_err)?
+                        .remove(META_INDEX_VERSION)
+                        .map_err(redb_err)?;
+                    wtx.open_table(JOB_READY)
+                        .map_err(redb_err)?
+                        .retain(|_, _| false)
+                        .map_err(redb_err)?;
+                    Ok(())
+                })
                 .unwrap();
-            wtx.open_table(JOB_READY)
-                .unwrap()
-                .retain(|_, _| false)
-                .unwrap();
-            wtx.commit().unwrap();
         }
 
-        let store = JobStore::open(&path).unwrap();
-        let rtx = store.mutation_store.database().begin_read().unwrap();
-        assert_eq!(rtx.open_table(JOB_READY).unwrap().len().unwrap(), 1);
+        let store = open_dev_store(&path).unwrap();
+        let rtx = store.scoped_read().unwrap();
+        assert_eq!(rtx.open_owner_table(JOB_READY).unwrap().len().unwrap(), 1);
         drop(rtx);
         let second = store.submit(spec("g1", 2)).unwrap();
         assert!(job_sequence(&second.job_id).unwrap() > job_sequence(&first_id).unwrap());
@@ -3283,7 +3408,7 @@ mod tests {
     #[test]
     fn tenant_active_quota_is_enforced_inside_claim_transaction() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         store.submit(spec("g1", 1)).unwrap();
         store.submit(spec("g1", 2)).unwrap();
         let now = now_ms();
@@ -3304,7 +3429,7 @@ mod tests {
     #[test]
     fn mark_result_committed_is_first_wins() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let job_a = store.submit(spec("g1", 1)).unwrap();
         let job_b = store.submit(spec("g1", 1)).unwrap();
         let result_ref = job_a.result_ref();
@@ -3327,12 +3452,12 @@ mod tests {
     fn job_store_survives_a_restart() {
         let dir = tempfile::tempdir().unwrap();
         let job_id = {
-            let store = JobStore::open_in_dir(dir.path()).unwrap();
+            let store = open_dev_store_in_dir(dir.path()).unwrap();
             store.submit(spec("g1", 1)).unwrap().job_id
         };
         // Reopen a FRESH `JobStore` at the same path — the durable record + the
         // monotonic id sequence must both survive.
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let job = store.get(&job_id).unwrap();
         assert_eq!(job.state, JobState::Submitted);
 
@@ -3346,7 +3471,7 @@ mod tests {
     #[test]
     fn get_missing_job_is_not_found() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let job_id = "job-0000000000000000";
         assert!(matches!(store.get(job_id), Err(JobError::NotFound(_))));
     }
@@ -3356,7 +3481,7 @@ mod tests {
     #[test]
     fn claim_idempotency_is_first_wins() {
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         assert!(store.claim_idempotency("tick:a", "owner-1").unwrap());
         // A second, even different, owner does not steal an already-claimed key.
         assert!(!store.claim_idempotency("tick:a", "owner-2").unwrap());
@@ -3386,7 +3511,7 @@ mod tests {
     fn register_and_fetch_intent_round_trips() {
         use crate::intent::{JobIntent, Trigger};
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         let intent = JobIntent::new(
             "nightly-sweep",
             Trigger::Interval { secs: 3600 },
@@ -3403,7 +3528,7 @@ mod tests {
     fn re_registering_an_intent_preserves_last_run_history() {
         use crate::intent::{JobIntent, Trigger};
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         store
             .register_intent(JobIntent::new(
                 "x",
@@ -3429,7 +3554,7 @@ mod tests {
     fn due_intents_only_returns_enabled_due_ones() {
         use crate::intent::{JobIntent, Trigger};
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         store
             .register_intent(JobIntent::new(
                 "never-run-yet",
@@ -3454,7 +3579,7 @@ mod tests {
     fn record_intent_tick_is_single_flight_within_a_window() {
         use crate::intent::{JobIntent, Trigger};
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
         store
             .register_intent(JobIntent::new(
                 "sweep",
@@ -3475,7 +3600,7 @@ mod tests {
     fn cold_offload_proof_of_concept_registers_disabled_and_can_be_ticked() {
         use crate::intent::cold_offload_intent;
         let dir = tempfile::tempdir().unwrap();
-        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
 
         // The proof-of-concept constructor mirrors the live sweep's exact cadence
         // knob (EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS) but registers DISABLED, so simply
