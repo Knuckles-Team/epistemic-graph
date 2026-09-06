@@ -58,8 +58,44 @@ features = [
     "geo", "tensor", "stream",
 ]
 
+# Only ever pulled in by the `contract-schema` feature: the generator needs JSON
+# Schema derivation, a JSON serializer, and a digest. A default build of this crate
+# (the one the root `epistemic-graph` package links behind `server`) links none of them.
+[dependencies.schemars]
+version = "1.2.2"
+optional = true
+
+[dependencies.serde_json]
+version = "1.0.151"
+optional = true
+
+[dependencies.sha2]
+version = "0.10.9"
+optional = true
+
+[dependencies.hex]
+version = "0.4.3"
+optional = true
+
+# The generator can never run under a partial feature profile: the registry it
+# serializes must be the complete supported wire inventory.
+[[bin]]
+name = "gen_contract"
+required-features = ["contract", "canonical-ledger", "contract-schema"]
+
 [features]
 default = []
+# RF-RULING-003 — the exact profile `gen_contract` regenerates and `--check` verifies.
+contract = ["canonical-ledger", "contract-schema"]
+# JSON Schema derivation for the wire request/result bodies. Default OFF on both this
+# crate and `eg-types`, exactly like the ~90 other pure-serde Method-gating features.
+contract-schema = [
+    "dep:schemars",
+    "dep:serde_json",
+    "dep:sha2",
+    "dep:hex",
+    "eg-types/contract-schema",
+]
 # The checked-in ledger is the complete supported wire inventory, not a
 # projection of whichever optional surfaces happened to be enabled for one build.
 # Use this named profile for regeneration and its exact drift test; ordinary

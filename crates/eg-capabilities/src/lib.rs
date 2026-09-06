@@ -23,7 +23,8 @@
 //! a missing or duplicate `Method` declaration.
 //!
 //! This crate defines the domain policy registry, the generated
-//! Markdown ledger (see [`gen_ledger`]), and consistency tests against the remaining
+//! Markdown ledger (rendered by [`gen_ledger`], written by the `gen_contract`
+//! generator), and consistency tests against the remaining
 //! classifiers. Served mutation planning consumes this policy directly; the snapshot
 //! cross-checks remain as drift alarms for classifiers that have not yet been deleted.
 //!
@@ -33,6 +34,8 @@
 //! turned on -- see `Cargo.toml` for why). It is not a dependency of the main
 //! `epistemic-graph` package's default build; see the root `Cargo.toml`'s `members` comment.
 
+#[cfg(feature = "contract-schema")]
+pub mod contract;
 mod descriptor;
 mod domains;
 
@@ -326,7 +329,7 @@ pub fn gen_ledger() -> String {
     out.push_str(
         "> **This file is GENERATED and is the AUTHORITATIVE machine-checked capability \n\
          > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities \n\
-         > --features canonical-ledger --bin gen_ledger`. It is derived directly from the eleven current domain `ROWS` \n\
+         > --features contract --bin gen_contract`. It is derived directly from the eleven current domain `ROWS` \n\
          > declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep \n\
          > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature \n\
          > parity; this generated table is authoritative for per-method policy.\n>\n\

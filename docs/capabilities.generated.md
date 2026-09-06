@@ -2,7 +2,7 @@
 
 > **This file is GENERATED and is the AUTHORITATIVE machine-checked capability
 > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities
-> --features canonical-ledger --bin gen_ledger`. It is derived directly from the eleven current domain `ROWS`
+> --features contract --bin gen_contract`. It is derived directly from the eleven current domain `ROWS`
 > declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep
 > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature
 > parity; this generated table is authoritative for per-method policy.
