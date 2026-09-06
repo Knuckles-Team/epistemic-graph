@@ -30,6 +30,12 @@ _QUERY_HANDLER = _ROOT / "src" / "server" / "handlers" / "query.rs"
 _RDF_HANDLER = _ROOT / "src" / "server" / "handlers" / "rdf.rs"
 _REDB_STORE = _ROOT / "src" / "redb_store.rs"
 _AMQP_WIRE = _ROOT / "src" / "server" / "amqp_wire" / "mod.rs"
+_HOOKS = _ROOT / ".pre-commit-config.yaml"
+_RELEASE = _ROOT / ".github" / "workflows" / "release.yml"
+
+# A cargo subcommand that resolves dependencies can REWRITE Cargo.lock; `--locked` is what
+# stops it. Anything else (`fmt`) cannot.
+_RESOLVING_SUBCOMMANDS = ("run", "test", "check", "build", "clippy")
 
 
 def _rust_sources(*roots: Path) -> str:
@@ -42,6 +48,66 @@ def _rust_sources(*roots: Path) -> str:
             path.read_text(encoding="utf-8") for path in sorted(root.rglob("*.rs"))
         )
     return "\n".join(chunks)
+
+
+def _cargo_invocations(path: Path) -> list[tuple[int, str]]:
+    """`(line number, command)` for every resolving cargo invocation in a gate file."""
+    found: list[tuple[int, str]] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        for match in re.finditer(r"cargo\s+(\w[\w-]*)", line):
+            if match.group(1) in _RESOLVING_SUBCOMMANDS:
+                found.append((number, line.strip()))
+                break
+    return found
+
+
+class GateInvocationGuards(unittest.TestCase):
+    """A `--locked` gate proves nothing if something in the same job may write the lock.
+
+    This lane learned it the expensive way: the engine-contract gate ran
+    `cargo run … gen_contract -- --check` with no `--locked`, that unlocked run repaired
+    `Cargo.lock` on disk, and the `--locked` step after it then validated cargo's own
+    repair and reported clean while four dependency entries were genuinely missing.
+    """
+
+    def test_every_engine_contract_gate_invocation_is_locked(self) -> None:
+        unlocked = [
+            f"{path.name}:{number}: {command}"
+            for path in (_HOOKS, _RELEASE)
+            for number, command in _cargo_invocations(path)
+            if ("gen_contract" in command or "eg-capabilities" in command)
+            and "--locked" not in command
+        ]
+        self.assertEqual(unlocked, [], "\n".join(unlocked))
+
+    def test_the_scan_sees_both_gate_files(self) -> None:
+        """A scanner that matches nothing would pass the assertion above vacuously."""
+        for path in (_HOOKS, _RELEASE):
+            self.assertTrue(path.is_file(), f"{path} is missing")
+            self.assertGreater(len(_cargo_invocations(path)), 3, f"{path.name}")
+
+    def test_the_wider_lock_hygiene_gap_is_visible(self) -> None:
+        """Report, do not ratchet.
+
+        Most cargo invocations in these two files predate this lane and carry no
+        `--locked`; asserting the rule repo-wide here would block the repo on other
+        lanes' work, and pinning today's count would be the ratchet this project bans.
+        The assertion is scoped to the invocations this lane owns; this test prints the
+        rest so the gap is visible rather than silently accepted.
+        """
+        unlocked = [
+            f"{path.name}:{number}: {command}"
+            for path in (_HOOKS, _RELEASE)
+            for number, command in _cargo_invocations(path)
+            if "--locked" not in command
+        ]
+        if unlocked:
+            print(
+                "\nlock-hygiene gap (not owned by the engine-contract lane):\n  "
+                + "\n  ".join(unlocked)
+            )
 
 
 class RustSourceGuards(unittest.TestCase):
