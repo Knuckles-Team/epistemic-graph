@@ -331,7 +331,7 @@ impl StatechartStore {
         // idempotency key -- an `IDEMPOTENCY_CONFLICT`, not a replay.
         {
             let read = self.scoped_read()?;
-            let table = read.open_table(DEFS).map_err(redb_err)?;
+            let table = read.open_owner_table(DEFS).map_err(redb_err)?;
             if table.get(def_id.as_str()).map_err(redb_err)?.is_some() {
                 return Ok(def_id);
             }
@@ -377,7 +377,7 @@ impl StatechartStore {
             return Err(codec_err("statechart definition id is invalid"));
         }
         let read = self.scoped_read()?;
-        let table = read.open_table(DEFS).map_err(redb_err)?;
+        let table = read.open_owner_table(DEFS).map_err(redb_err)?;
         let blob = table
             .get(def_id)
             .map_err(redb_err)?
@@ -388,7 +388,7 @@ impl StatechartStore {
     /// List every stored definition id.
     pub fn list_def_ids(&self) -> Result<Vec<DefId>> {
         let read = self.scoped_read()?;
-        let table = read.open_table(DEFS).map_err(redb_err)?;
+        let table = read.open_owner_table(DEFS).map_err(redb_err)?;
         let mut out = Vec::new();
         for entry in table.iter().map_err(redb_err)? {
             let (k, _) = entry.map_err(redb_err)?;
@@ -571,7 +571,7 @@ impl StatechartStore {
             return Err(codec_err("statechart instance id is invalid"));
         }
         let read = self.scoped_read()?;
-        let table = read.open_table(INSTANCES).map_err(redb_err)?;
+        let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
         let blob = table
             .get(instance_id)
             .map_err(redb_err)?
@@ -738,7 +738,7 @@ impl StatechartStore {
     /// ownership filtering is the caller's responsibility (see the dispatch handler).
     pub fn list_instance_ids(&self, def_id: Option<&str>) -> Result<Vec<InstanceId>> {
         let read = self.scoped_read()?;
-        let table = read.open_table(INSTANCES).map_err(redb_err)?;
+        let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
         let mut out = Vec::new();
         for entry in table.iter().map_err(redb_err)? {
             let (k, v) = entry.map_err(redb_err)?;
@@ -769,7 +769,7 @@ impl StatechartStore {
         def_id: Option<&str>,
     ) -> Result<Vec<MachineInstance>> {
         let read = self.scoped_read()?;
-        let table = read.open_table(INSTANCES).map_err(redb_err)?;
+        let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
         let mut out = Vec::new();
         for entry in table.iter().map_err(redb_err)? {
             let (_, v) = entry.map_err(redb_err)?;
@@ -799,7 +799,7 @@ fn map_transition_error(instance_id: &str, error: TransitionError) -> Statechart
 /// Seed the monotonic id counter from the highest `sc-<hex>` id already present, so ids
 /// never collide across restarts (mirrors `eg-jobs`' `max_job_sequence` backfill).
 fn initialize_next_id(read: &ScopedRead<'_, StatechartOwner>) -> Result<u64> {
-    let table = read.open_table(INSTANCES).map_err(redb_err)?;
+    let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
     let mut max = 0u64;
     for entry in table.iter().map_err(redb_err)? {
         let (k, _) = entry.map_err(redb_err)?;

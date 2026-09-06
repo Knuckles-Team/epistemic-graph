@@ -64,7 +64,7 @@ fn is_current(
     encoded: &EncodedAuthorityState,
 ) -> Result<bool, RbacPersistError> {
     let read = store.scoped_read()?;
-    let table = read.open_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
+    let table = read.open_owner_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
     let policy_matches = table
         .get(POLICY_KEY)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?

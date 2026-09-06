@@ -309,7 +309,7 @@ mod redb_store {
                 .read_scope(&self.owner)
                 .map_err(PathPersistError::Redb)?;
             let t = read
-                .open_table(PATH_TABLE)
+                .open_owner_table(PATH_TABLE)
                 .map_err(PathPersistError::Redb)?;
             match t
                 .get(SNAPSHOT_KEY)

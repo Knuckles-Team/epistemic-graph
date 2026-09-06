@@ -302,7 +302,7 @@ impl<K: ColdKey> ColdStore<K> for RedbColdStore {
             .kernel
             .read_scope(&self.owner)
             .map_err(io::Error::other)?;
-        let t = read.open_table(COLD).map_err(io::Error::other)?;
+        let t = read.open_owner_table(COLD).map_err(io::Error::other)?;
         let v = t
             .get(key.cold_key().as_slice())
             .map_err(|e| io::Error::other(e.to_string()))?

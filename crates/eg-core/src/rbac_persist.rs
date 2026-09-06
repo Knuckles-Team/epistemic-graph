@@ -215,7 +215,7 @@ fn authority_identity_digest(
 fn read_authority_image(
     read: &ScopedRead<'_, RbacOwner>,
 ) -> Result<(RbacPolicy, BTreeMap<String, AgentIdentity>), RbacPersistError> {
-    let state = read.open_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
+    let state = read.open_owner_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
     let policy = state
         .get(POLICY_KEY)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?
@@ -444,7 +444,7 @@ impl RbacStore {
     /// of an authorization state transition.
     fn bootstrap_current_state(&self) -> Result<(), RbacPersistError> {
         let read = self.scoped_read()?;
-        let table = read.open_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
+        let table = read.open_owner_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
         let policy_present = table
             .get(POLICY_KEY)
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?
@@ -486,7 +486,7 @@ impl RbacStore {
         RbacPersistError,
     > {
         let read = self.scoped_read()?;
-        let t = read.open_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
+        let t = read.open_owner_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
         let policy = match t
             .get(POLICY_KEY)
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?

@@ -179,7 +179,9 @@ impl SeriesTableReader for ScopedRead<'_, TimeSeriesOwner> {
         K: redb::Key + 'static,
         V: redb::Value + 'static,
     {
-        self.open_table(definition).map_err(redb_err)
+        // The three series tables are OWNER rows whose keys carry no scope
+        // component, so the bound is the layout, not the serving scope.
+        self.open_owner_table(definition).map_err(redb_err)
     }
 
     fn open_series_table_if_present<K, V>(
