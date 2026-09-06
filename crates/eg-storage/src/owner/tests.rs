@@ -28,6 +28,9 @@ fn owner_layout_registry_has_frozen_cardinality() {
     assert_eq!(owner_table_names(OwnerLayout::TimeSeries).len(), 3);
     assert_eq!(owner_table_names(OwnerLayout::Kv).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::Blob).len(), 4);
+    // Sixteen, unchanged: `eg_ann` gained a typed `OwnerTable` row
+    // (`AnnCodeRows`) and a generation-scoped key, but it was already declared
+    // physically, so no table was added or removed by that change.
     assert_eq!(owner_table_names(OwnerLayout::SemanticIndex).len(), 16);
     assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 20);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
@@ -80,6 +83,7 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // `__sql_*`) are declared here rather than by the crates that read them.
     // +7 over the previous 62: the seven tables of the six root-binary
     // sidecar owner files, which stopped being raw `Database::create` sites.
+    // `eg_ann` becoming typed and generation-keyed moved no table in or out.
     assert_eq!((names.len(), service, shared), (69, 67, 2));
 }
 
@@ -517,6 +521,88 @@ fn signed_semantic_layout_is_closed_domain_service_authority() {
             }
         );
     }
+}
+
+/// RF-RULING-007 / plan L1. `eg_ann` is keyed
+/// `(tenant, binding, generation, part)`, so the generation being built and the
+/// generation still serving occupy disjoint key ranges of one physical table.
+///
+/// The previous declaration was a flat `&str` key whose only three keys were
+/// `meta`, `codes` and `refine`: writing generation `N+1` overwrote the rows
+/// `N` was serving from, in place. That is a correctness defect, not plumbing,
+/// and it is what this key shape fixes -- so the proof is a physical one (two
+/// generations written, both readable, one retired by its own prefix) rather
+/// than an assertion about a type string.
+#[test]
+fn the_ann_code_table_is_keyed_by_generation_so_two_can_coexist() {
+    use crate::owner::table_api::{AnnCodeRows, OwnerTable};
+    use crate::owner::registry::ANN_CODES;
+    use crate::owner::domain::SemanticIndexOwner;
+
+    assert_eq!(
+        <AnnCodeRows as OwnerTable<SemanticIndexOwner>>::TABLE_ID,
+        "eg_ann"
+    );
+    let contract = owner_contract(OwnerLayout::SemanticIndex, "eg_ann");
+    assert_eq!(contract.key_type_id, "(&str,&str,u64,&str)");
+    assert_eq!(contract.value_type_id, "&[u8]");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("semantic.redb");
+    let physical = PhysicalStoreIdentity::new("physical:test:semantic-ann").unwrap();
+    let store = create_physical(&path, physical, None, OwnerLayout::SemanticIndex).unwrap();
+    let wtx = store.database().begin_write().unwrap();
+    {
+        let mut codes = wtx.open_table(ANN_CODES).unwrap();
+        for generation in [1u64, 2] {
+            for part in ["meta", "codes", "refine"] {
+                codes
+                    .insert(
+                        ("tenant-a", "binding-a", generation, part),
+                        [generation as u8].as_slice(),
+                    )
+                    .unwrap();
+            }
+        }
+    }
+    wtx.commit().unwrap();
+
+    let rtx = store.database().begin_read().unwrap();
+    let codes = rtx.open_table(ANN_CODES).unwrap();
+    for generation in [1u64, 2] {
+        assert_eq!(
+            codes
+                .get(("tenant-a", "binding-a", generation, "codes"))
+                .unwrap()
+                .unwrap()
+                .value(),
+            [generation as u8].as_slice(),
+            "generation {generation} must survive the other being written"
+        );
+    }
+    drop(codes);
+    drop(rtx);
+
+    // Retiring one generation is a bounded range over its own prefix and leaves
+    // the serving generation whole.
+    let wtx = store.database().begin_write().unwrap();
+    {
+        let mut codes = wtx.open_table(ANN_CODES).unwrap();
+        codes
+            .retain(|key, _| key.2 != 1)
+            .unwrap();
+    }
+    wtx.commit().unwrap();
+    let rtx = store.database().begin_read().unwrap();
+    let codes = rtx.open_table(ANN_CODES).unwrap();
+    assert!(codes
+        .get(("tenant-a", "binding-a", 1, "codes"))
+        .unwrap()
+        .is_none());
+    assert!(codes
+        .get(("tenant-a", "binding-a", 2, "codes"))
+        .unwrap()
+        .is_some());
 }
 
 #[test]

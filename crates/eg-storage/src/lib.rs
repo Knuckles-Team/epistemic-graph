@@ -43,7 +43,7 @@ pub use owner::grant::{AuthenticatedScopeGrant, ScopeGrantVerifier};
 pub use owner::handle::OwnedStoreHandle;
 pub use owner::identity::PhysicalStoreIdentity;
 pub use owner::layout::OwnerLayout;
-pub use owner::registry::{declared_table_names, owner_table_names};
+pub use owner::registry::{declared_table_names, owner_table_names, ANN_CODES};
 pub use owner::table_api::*;
 pub use payload::private_payload_digest;
 pub use physical::binding::ledger_scope_key;

@@ -78,6 +78,7 @@ declared_owner_tables!(
     SemanticLexicalRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_lexical_manifests_v1"),
     SemanticAnnRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_ann_manifests_v1"),
     SemanticVectorRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_vectors_v1"),
+    AnnCodeRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "eg_ann"),
 );
 
 /// Closed dispatch over the declared owner tables. The `unreachable!` arm is a

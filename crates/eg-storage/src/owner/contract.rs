@@ -180,7 +180,6 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         "cas_chunks" | "cas_refcount" | "cas_blobs" => Some("&str"),
         "rbac_v1"
         | "path_index_v1"
-        | "eg_ann"
         | "statechart_defs"
         | "statechart_instances"
         | "series_meta"
@@ -217,7 +216,10 @@ fn semantic_key_type(name: &str) -> Option<&'static str> {
         | "semantic_graph_projection_manifests_v1"
         | "semantic_authorization_receipts_v1"
         | "semantic_generation_checkpoints_v1"
-        | "semantic_vectors_v1" => Some("(&str,&str,u64,&str)"),
+        | "semantic_vectors_v1"
+        // `eg_ann` is keyed `(tenant, binding, generation, part)` like the rest
+        // of the generation-scoped semantic payload, not by a flat name.
+        | "eg_ann" => Some("(&str,&str,u64,&str)"),
         "semantic_stage_transitions_v1" => Some("(&str,&str,&str)"),
         "semantic_dead_letters_v1" => Some("(&str,&str,u32)"),
         "semantic_bindings_v1"

@@ -45,7 +45,22 @@ const TS_ROWS: [TableDefinition<'static, &str, &[u8]>; 2] = [
 pub(crate) const KV: TableDefinition<'static, (&str, &str), &[u8]> = TableDefinition::new("kv");
 const KV_COLD: TableDefinition<'static, &[u8], &[u8]> = TableDefinition::new("eg_kvcache_cold");
 const PATH_INDEX: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("path_index_v1");
-const ANN_CODES: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("eg_ann");
+/// The ANN code buffers of one semantic index generation.
+///
+/// Keyed `(tenant, binding, generation, part)` -- the generation component is
+/// what lets two generations of one binding coexist in the file while `N+1` is
+/// built and `N` is still serving. A flat key could not: the previous durable
+/// form wrote the fixed names `meta`/`codes`/`refine`, so a second generation
+/// overwrote the serving one in place. The `part` component bounds a single
+/// stored value, so a code buffer is chunked rather than written as one
+/// multi-hundred-megabyte row.
+///
+/// Public because it is the one declaration of this table: the semantic domain
+/// addresses it through the layout-bounded owner write/read handles, and a
+/// second hand-written `TableDefinition` in a consumer crate is exactly the
+/// drift `validate_owner_registry_equality` exists to refuse.
+pub const ANN_CODES: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
+    TableDefinition::new("eg_ann");
 // The SQL catalog/row store owned by `eg-query`. Declared here because
 // RF-RULING-004 puts the complete physical table registry in the storage
 // kernel: a consumer crate that declares its own tables is a second physical
