@@ -127,7 +127,14 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "semantic_vectors_v1"
         | "eg_ann"
         | "eg_kvcache_cold"
-        | "path_index_v1" => OwnerTableAccess::DomainService,
+        | "path_index_v1"
+        | "verified_request_replay_v2"
+        | "viz_provenance"
+        | "cold_graphs"
+        | "tenant_catalog"
+        | "node_info"
+        | "node_info_meta"
+        | "cluster_hierarchy" => OwnerTableAccess::DomainService,
         name if name.starts_with("__sql_") => OwnerTableAccess::DomainService,
         _ => unreachable!("table outside closed owner access registry: {table}"),
     }

@@ -8,74 +8,79 @@
 //! lean `cold-tier` build links NO object-store SDK and the Pi contract holds.
 //!
 //! A cold graph's whole serialized `to_msgpack` blob is stored as ONE keyed value:
-//!   * redb: a row in a `cold_graphs` table in `{persist_dir}/cold.redb`.
+//!   * redb: a row in a `cold_graphs` table in `{persist_dir}/cold.redb`, served
+//!     through the shared storage/mutation kernels as its own kernel-owned owner
+//!     file (RF-RULING-004/005) — this module never opens a `redb::Database`.
 //!   * S3:   one object at `{prefix}/{sanitized_graph}` in the configured bucket.
 
 use eg_core::cold_tier::ColdTier;
-use redb::{Database, ReadableDatabase, TableDefinition};
-use std::sync::Arc;
+use redb::TableDefinition;
 
 /// `graph_name → serialized graph blob`. One table; one row per offloaded graph.
 const COLD_GRAPHS: TableDefinition<&str, &[u8]> = TableDefinition::new("cold_graphs");
+const COLD_TIER_PHYSICAL_STORE: &str = "epistemic-graph:cold-tier";
+const COLD_TIER_SCOPE_RESOURCE: &str = "cold-tier";
+const COLD_TIER_SCOPE_INCARNATION: &str = "cold-tier:v1";
 
 /// redb-backed durable cold tier. Survives a restart — an offloaded graph stays
 /// offloaded across process lifetimes until rehydrated. Self-contained in
-/// `{persist_dir}/cold.redb` (separate file, like the blob CAS).
+/// `{persist_dir}/cold.redb` (separate file, like the blob CAS), reached only
+/// through the two kernels via the single `cold_graphs` owner table.
 #[derive(Debug)]
 pub struct RedbColdTier {
-    db: Arc<Database>,
+    durable: crate::sidecar_store::SidecarStore<eg_storage::ColdTierOwner>,
 }
 
 impl RedbColdTier {
-    /// Open (or create) `{persist_dir}/cold.redb` and ensure the table exists.
+    /// Open (or create) `{persist_dir}/cold.redb` and bind its `cold_graphs`
+    /// owner scope. `SidecarStore::open` creates `persist_dir` if needed.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
-        std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
         let path = std::path::Path::new(persist_dir).join("cold.redb");
-        let db = Database::create(&path).map_err(|e| e.to_string())?;
-        let wtx = db.begin_write().map_err(|e| e.to_string())?;
-        wtx.open_table(COLD_GRAPHS).map_err(|e| e.to_string())?;
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(Self { db: Arc::new(db) })
+        let durable = crate::sidecar_store::SidecarStore::open(
+            &path,
+            COLD_TIER_PHYSICAL_STORE,
+            COLD_TIER_SCOPE_RESOURCE,
+            COLD_TIER_SCOPE_INCARNATION,
+            crate::store_authority::process_authority(),
+        )?;
+        Ok(Self { durable })
     }
 }
 
 impl ColdTier for RedbColdTier {
     fn offload(&self, graph_name: &str, bytes: &[u8]) -> Result<(), String> {
-        let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        {
-            let mut t = wtx.open_table(COLD_GRAPHS).map_err(|e| e.to_string())?;
-            t.insert(graph_name, bytes).map_err(|e| e.to_string())?;
-        }
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(())
+        self.durable.maintain("cold_tier_offload", |owner| {
+            owner
+                .open_table(COLD_GRAPHS)?
+                .insert(graph_name, bytes)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
     }
 
     fn rehydrate(&self, graph_name: &str) -> Result<Option<Vec<u8>>, String> {
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
-        let t = rtx.open_table(COLD_GRAPHS).map_err(|e| e.to_string())?;
-        Ok(t.get(graph_name)
+        let read = self.durable.read()?;
+        let table = read.open_owner_table(COLD_GRAPHS)?;
+        Ok(table
+            .get(graph_name)
             .map_err(|e| e.to_string())?
             .map(|g| g.value().to_vec()))
     }
 
     fn is_offloaded(&self, graph_name: &str) -> Result<bool, String> {
-        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
-        let t = rtx.open_table(COLD_GRAPHS).map_err(|e| e.to_string())?;
-        Ok(t.get(graph_name).map_err(|e| e.to_string())?.is_some())
+        let read = self.durable.read()?;
+        let table = read.open_owner_table(COLD_GRAPHS)?;
+        Ok(table.get(graph_name).map_err(|e| e.to_string())?.is_some())
     }
 
     fn remove(&self, graph_name: &str) -> Result<(), String> {
-        let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        {
-            let mut t = wtx.open_table(COLD_GRAPHS).map_err(|e| e.to_string())?;
-            t.remove(graph_name).map_err(|e| e.to_string())?;
-        }
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(())
+        self.durable.maintain("cold_tier_remove", |owner| {
+            owner
+                .open_table(COLD_GRAPHS)?
+                .remove(graph_name)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
     }
 }
 

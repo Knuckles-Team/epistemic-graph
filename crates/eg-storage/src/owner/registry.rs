@@ -120,6 +120,22 @@ const SEMANTIC_ANN: TableDefinition<'static, (&str, &str, u64), &[u8]> =
     TableDefinition::new("semantic_ann_manifests_v1");
 const SEMANTIC_VECTORS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_vectors_v1");
+// Root-binary sidecar owner files. Each is one physical file with one fixed
+// native `ControlPlane` serving scope, so each declares its own layout rather
+// than sharing one: the census is exact, and a shared layout would force every
+// one of these files to carry every other's table.
+const REQUEST_REPLAY: TableDefinition<'static, &str, u64> =
+    TableDefinition::new("verified_request_replay_v2");
+const VIZ_PROVENANCE: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("viz_provenance");
+const COLD_GRAPHS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cold_graphs");
+const TENANT_CATALOG: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("tenant_catalog");
+const NODE_INFO: TableDefinition<'static, u64, &[u8]> = TableDefinition::new("node_info");
+const NODE_INFO_META: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("node_info_meta");
+const CLUSTER_HIERARCHY: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("cluster_hierarchy");
 
 macro_rules! visit_owner_tables {
     ($layout:expr, $visit:ident) => {{
@@ -200,6 +216,15 @@ macro_rules! visit_owner_tables {
                 $visit!(SEMANTIC_VECTORS);
                 $visit!(ANN_CODES);
             }
+            OwnerLayout::RequestReplay => $visit!(REQUEST_REPLAY),
+            OwnerLayout::VizProvenance => $visit!(VIZ_PROVENANCE),
+            OwnerLayout::ColdTier => $visit!(COLD_GRAPHS),
+            OwnerLayout::TenantCatalog => $visit!(TENANT_CATALOG),
+            OwnerLayout::NodeInfo => {
+                $visit!(NODE_INFO);
+                $visit!(NODE_INFO_META);
+            }
+            OwnerLayout::ClusterHierarchy => $visit!(CLUSTER_HIERARCHY),
         }
     }};
 }
@@ -397,6 +422,12 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "semantic_vectors_v1",
             "eg_ann",
         ],
+        OwnerLayout::RequestReplay => &["verified_request_replay_v2"],
+        OwnerLayout::VizProvenance => &["viz_provenance"],
+        OwnerLayout::ColdTier => &["cold_graphs"],
+        OwnerLayout::TenantCatalog => &["tenant_catalog"],
+        OwnerLayout::NodeInfo => &["node_info", "node_info_meta"],
+        OwnerLayout::ClusterHierarchy => &["cluster_hierarchy"],
     }
 }
 
@@ -484,7 +515,7 @@ where
     Ok(())
 }
 
-pub(crate) fn owner_layouts() -> [OwnerLayout; 10] {
+pub(crate) fn owner_layouts() -> [OwnerLayout; 16] {
     [
         OwnerLayout::LedgerOnly,
         OwnerLayout::Rbac,
@@ -496,6 +527,12 @@ pub(crate) fn owner_layouts() -> [OwnerLayout; 10] {
         OwnerLayout::SemanticIndex,
         OwnerLayout::Sql,
         OwnerLayout::PathIndex,
+        OwnerLayout::RequestReplay,
+        OwnerLayout::VizProvenance,
+        OwnerLayout::ColdTier,
+        OwnerLayout::TenantCatalog,
+        OwnerLayout::NodeInfo,
+        OwnerLayout::ClusterHierarchy,
     ]
 }
 

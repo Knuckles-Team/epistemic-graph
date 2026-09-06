@@ -25,18 +25,24 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Durable table: `node_id -> msgpack(NodeInfo)` (CONCEPT:EG-KG.sharding.cluster-topology). One row per
-/// cluster node — bounded by [`MAX_NODE_INFO_ENTRIES`], never per-tenant data.
+/// The two owner tables of `OwnerLayout::NodeInfo` (RF-RULING-004). `eg-storage`
+/// declares the layout; this module only names the tables it holds.
+/// `node_id -> msgpack(NodeInfo)`. One row per cluster node — bounded by
+/// [`MAX_NODE_INFO_ENTRIES`], never per-tenant data.
 const NODE_INFO: TableDefinition<u64, &[u8]> = TableDefinition::new("node_info");
 const NODE_INFO_META: TableDefinition<&str, &[u8]> = TableDefinition::new("node_info_meta");
 const NODE_INFO_META_KEY: &str = "v1";
 const MAX_NODE_INFO_ENTRIES: usize = 4_096;
 const MAX_NODE_INFO_FIELD_BYTES: usize = 4 * 1024;
 const MAX_CERTIFICATE_ID_BYTES: usize = 512;
+
+const NODE_INFO_PHYSICAL_STORE: &str = "epistemic-graph:node-info";
+const NODE_INFO_SCOPE_RESOURCE: &str = "node-info";
+const NODE_INFO_SCOPE_INCARNATION: &str = "node-info:v1";
 
 /// Stable identity for a member. Endpoint and certificate rotation metadata
 /// are intentionally absent: those values are mutable observations, while
@@ -238,7 +244,7 @@ fn decode_node_info(bytes: &[u8]) -> Result<NodeInfo, String> {
 /// group-commit writer's hot path.
 pub struct NodeInfoStore {
     entries: RwLock<HashMap<u64, NodeInfo>>,
-    db: Option<Database>,
+    durable: Option<crate::sidecar_store::SidecarStore<eg_storage::NodeInfoOwner>>,
     cluster_id: RwLock<Option<String>>,
     /// Local monotonic generation counter, bumped on every successful `upsert`
     /// (CONCEPT:EG-KG.sharding.cluster-topology). Since an upsert replicates identically to every
@@ -255,7 +261,7 @@ impl NodeInfoStore {
     pub fn in_memory() -> Self {
         NodeInfoStore {
             entries: RwLock::new(HashMap::new()),
-            db: None,
+            durable: None,
             cluster_id: RwLock::new(None),
             generation: AtomicU64::new(0),
         }
@@ -266,19 +272,18 @@ impl NodeInfoStore {
     /// empty store — `Method::ClusterMembers` answers an empty topology until a
     /// node self-reports.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
-        std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
         let path = std::path::Path::new(persist_dir).join("node_info.redb");
-        let db = Database::create(&path).map_err(|e| e.to_string())?;
-        {
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            wtx.open_table(NODE_INFO).map_err(|e| e.to_string())?;
-            wtx.open_table(NODE_INFO_META).map_err(|e| e.to_string())?;
-            wtx.commit().map_err(|e| e.to_string())?;
-        }
+        let durable = crate::sidecar_store::SidecarStore::open(
+            &path,
+            NODE_INFO_PHYSICAL_STORE,
+            NODE_INFO_SCOPE_RESOURCE,
+            NODE_INFO_SCOPE_INCARNATION,
+            crate::store_authority::process_authority(),
+        )?;
         let mut entries = HashMap::new();
         {
-            let rtx = db.begin_read().map_err(|e| e.to_string())?;
-            let table = rtx.open_table(NODE_INFO).map_err(|e| e.to_string())?;
+            let read = durable.read()?;
+            let table = read.open_owner_table(NODE_INFO)?;
             for row in table.iter().map_err(|e| e.to_string())? {
                 if entries.len() >= MAX_NODE_INFO_ENTRIES {
                     return Err("node info store exceeds resource limits".to_string());
@@ -297,8 +302,8 @@ impl NodeInfoStore {
             }
         }
         let (metadata_cluster_id, metadata_generation) = {
-            let rtx = db.begin_read().map_err(|e| e.to_string())?;
-            let table = rtx.open_table(NODE_INFO_META).map_err(|e| e.to_string())?;
+            let read = durable.read()?;
+            let table = read.open_owner_table(NODE_INFO_META)?;
             table
                 .get(NODE_INFO_META_KEY)
                 .map_err(|e| e.to_string())?
@@ -345,7 +350,7 @@ impl NodeInfoStore {
         let cluster_id = metadata_cluster_id.or(entry_cluster_id);
         Ok(NodeInfoStore {
             entries: RwLock::new(entries),
-            db: Some(db),
+            durable: Some(durable),
             cluster_id: RwLock::new(cluster_id),
             generation: AtomicU64::new(metadata_generation),
         })
@@ -377,23 +382,24 @@ impl NodeInfoStore {
             .load(Ordering::Acquire)
             .checked_add(1)
             .ok_or_else(|| "node info generation exhausted".to_string())?;
-        if let Some(db) = &self.db {
+        if let Some(durable) = &self.durable {
             let blob = rmp_serde::to_vec_named(&info).map_err(|e| e.to_string())?;
             let meta_blob = rmp_serde::to_vec_named(&NodeInfoMeta {
                 cluster_id: info.cluster_id.clone(),
                 generation: next_generation,
             })
             .map_err(|e| e.to_string())?;
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            {
-                let mut t = wtx.open_table(NODE_INFO).map_err(|e| e.to_string())?;
-                t.insert(info.node_id, blob.as_slice())
+            durable.maintain("node_info_upsert", |owner| {
+                let mut node_table = owner.open_table(NODE_INFO)?;
+                node_table
+                    .insert(info.node_id, blob.as_slice())
                     .map_err(|e| e.to_string())?;
-                let mut meta = wtx.open_table(NODE_INFO_META).map_err(|e| e.to_string())?;
-                meta.insert(NODE_INFO_META_KEY, meta_blob.as_slice())
+                let mut meta_table = owner.open_table(NODE_INFO_META)?;
+                meta_table
+                    .insert(NODE_INFO_META_KEY, meta_blob.as_slice())
                     .map_err(|e| e.to_string())?;
-            }
-            wtx.commit().map_err(|e| e.to_string())?;
+                Ok(())
+            })?;
         }
         entries.insert(info.node_id, info);
         *cluster_id = entries
@@ -484,6 +490,36 @@ impl NodeInfoStore {
     }
 }
 
+/// Stream every row of one owner table off `read`'s MVCC snapshot into
+/// `destination`'s table of the same name, verbatim, returning the row count.
+/// The bundling counterpart of the crate's `copy_bundled_table!` macro for a
+/// store whose source is a kernel-issued `eg_storage::ScopedRead` rather than
+/// a raw `redb::ReadTransaction` — the source table is opened through
+/// `open_owner_table` (layout-bounded) instead of a bare `open_table`.
+fn copy_owner_table_rows<K, V>(
+    read: &eg_storage::ScopedRead<'_, eg_storage::NodeInfoOwner>,
+    destination: &redb::WriteTransaction,
+    definition: TableDefinition<'static, K, V>,
+) -> Result<u64, String>
+where
+    K: redb::Key + 'static,
+    V: redb::Value + 'static,
+{
+    let source = read.open_owner_table(definition)?;
+    let mut destination_table = destination
+        .open_table(definition)
+        .map_err(|e| e.to_string())?;
+    let mut rows = 0u64;
+    for row in source.iter().map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        destination_table
+            .insert(key.value(), value.value())
+            .map_err(|e| e.to_string())?;
+        rows += 1;
+    }
+    Ok(rows)
+}
+
 /// Bundle the durable cluster-topology store (CONCEPT:EG-KG.sharding.cluster-topology) into
 /// an online backup.
 ///
@@ -497,23 +533,22 @@ impl super::durable_stores::BundledStoreSource for NodeInfoStore {
     }
 
     fn copy_into(&self, destination: &std::path::Path) -> Result<u64, String> {
-        let Some(source) = self.db.as_ref() else {
+        let Some(durable) = self.durable.as_ref() else {
             return Err("node info store is not durable; nothing to bundle".to_string());
         };
-        let rtx = source.begin_read().map_err(|e| e.to_string())?;
+        let read = durable.read()?;
         let target = super::durable_stores::create_bundle_file(destination)?;
         let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
         wtx.set_durability(redb::Durability::Immediate)
             .map_err(|e| e.to_string())?;
-        let mut rows = 0u64;
-        crate::copy_bundled_table!(rtx, wtx, rows, NODE_INFO);
-        crate::copy_bundled_table!(rtx, wtx, rows, NODE_INFO_META);
+        let rows = copy_owner_table_rows(&read, &wtx, NODE_INFO)?
+            .saturating_add(copy_owner_table_rows(&read, &wtx, NODE_INFO_META)?);
         wtx.commit().map_err(|e| e.to_string())?;
         Ok(rows)
     }
 
     fn is_durable(&self) -> bool {
-        self.db.is_some()
+        self.durable.is_some()
     }
 }
 

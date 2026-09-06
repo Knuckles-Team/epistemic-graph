@@ -37,10 +37,18 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "redb")]
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::TableDefinition;
 
+/// The one owner table of `OwnerLayout::VizProvenance`. `eg-storage` declares
+/// it; this module only names it (RF-RULING-004).
 #[cfg(feature = "redb")]
 const PROVENANCE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("viz_provenance");
+#[cfg(feature = "redb")]
+const PROVENANCE_PHYSICAL_STORE: &str = "epistemic-graph:viz-provenance";
+#[cfg(feature = "redb")]
+const PROVENANCE_SCOPE_RESOURCE: &str = "viz-provenance";
+#[cfg(feature = "redb")]
+const PROVENANCE_SCOPE_INCARNATION: &str = "viz-provenance:v1";
 
 const MAX_ENTRIES: usize = 100_000;
 const MAX_RESULT_REF_BYTES: usize = 512;
@@ -93,7 +101,7 @@ fn validate_key(key: &str) -> Result<(), String> {
 pub(crate) struct VizProvenanceStore {
     entries: RwLock<HashMap<String, VizProvenanceRecord>>,
     #[cfg(feature = "redb")]
-    db: Option<Database>,
+    durable: Option<crate::sidecar_store::SidecarStore<eg_storage::VizProvenanceOwner>>,
 }
 
 impl VizProvenanceStore {
@@ -104,7 +112,7 @@ impl VizProvenanceStore {
         VizProvenanceStore {
             entries: RwLock::new(HashMap::new()),
             #[cfg(feature = "redb")]
-            db: None,
+            durable: None,
         }
     }
 
@@ -114,22 +122,19 @@ impl VizProvenanceStore {
     /// configured persist dir) use [`Self::in_memory`] instead.
     #[cfg(feature = "redb")]
     pub(crate) fn open(persist_dir: &str) -> Result<Self, String> {
-        std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
         let path = std::path::Path::new(persist_dir).join("viz_provenance.redb");
-        let db = Database::create(&path).map_err(|e| e.to_string())?;
-        {
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            wtx.open_table(PROVENANCE_TABLE)
-                .map_err(|e| e.to_string())?;
-            wtx.commit().map_err(|e| e.to_string())?;
-        }
+        let durable = crate::sidecar_store::SidecarStore::open(
+            &path,
+            PROVENANCE_PHYSICAL_STORE,
+            PROVENANCE_SCOPE_RESOURCE,
+            PROVENANCE_SCOPE_INCARNATION,
+            crate::store_authority::process_authority(),
+        )?;
         let mut entries = HashMap::new();
         {
-            let rtx = db.begin_read().map_err(|e| e.to_string())?;
-            let table = rtx
-                .open_table(PROVENANCE_TABLE)
-                .map_err(|e| e.to_string())?;
-            for row in table.iter().map_err(|e| e.to_string())? {
+            let read = durable.read()?;
+            let table = read.open_owner_table(PROVENANCE_TABLE)?;
+            for row in table.iter()? {
                 if entries.len() >= MAX_ENTRIES {
                     return Err("viz provenance store exceeds resource limits".to_string());
                 }
@@ -151,7 +156,7 @@ impl VizProvenanceStore {
         }
         Ok(VizProvenanceStore {
             entries: RwLock::new(entries),
-            db: Some(db),
+            durable: Some(durable),
         })
     }
 
@@ -169,18 +174,15 @@ impl VizProvenanceStore {
             }
         }
         #[cfg(feature = "redb")]
-        if let Some(db) = &self.db {
+        if let Some(durable) = &self.durable {
             let bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            {
-                let mut table = wtx
-                    .open_table(PROVENANCE_TABLE)
-                    .map_err(|e| e.to_string())?;
-                table
+            durable.maintain("viz_provenance_record", |owner| {
+                owner
+                    .open_table(PROVENANCE_TABLE)?
                     .insert(record.result_ref.as_str(), bytes.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-            wtx.commit().map_err(|e| e.to_string())?;
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            })?;
         }
         let mut entries = self.entries.write();
         if entries.len() >= MAX_ENTRIES && !entries.contains_key(&record.result_ref) {

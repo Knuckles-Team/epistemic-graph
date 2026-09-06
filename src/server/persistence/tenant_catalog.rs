@@ -35,9 +35,11 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 
+/// The one owner table of `OwnerLayout::TenantCatalog`. `eg-storage` declares it (as
+/// `eg_storage::TenantCatalogOwner`); this module only names it (RF-RULING-004).
 /// Durable catalog table: `sanitized_graph_name → msgpack(ShardAssignment)`
 /// (CONCEPT:EG-KG.sharding.empty-catalog-routing). One row per explicitly-placed tenant/graph. A graph with NO row
 /// is routed by EG-026 FNV-1a, so the table only ever holds the *exceptions* to the
@@ -45,6 +47,11 @@ use serde::{Deserialize, Serialize};
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("tenant_catalog");
 const MAX_CATALOG_ENTRIES: usize = 1_000_000;
 const MAX_CATALOG_KEY_BYTES: usize = 4 * 1024;
+
+/// The `SidecarStore` identity for the catalog's kernel-owned owner file.
+const CATALOG_PHYSICAL_STORE: &str = "epistemic-graph:tenant-catalog";
+const CATALOG_SCOPE_RESOURCE: &str = "tenant-catalog";
+const CATALOG_SCOPE_INCARNATION: &str = "tenant-catalog:v1";
 
 fn decode_assignment(bytes: &[u8]) -> Result<ShardAssignment, String> {
     eg_types::msgpack::decode_bounded(
@@ -87,11 +94,13 @@ impl ShardAssignment {
 /// while `assign`/`reassign` mutate it off-band. Lookups are O(1) hash-map hits; the
 /// durable write (when backed) is a single small redb commit, off the per-op path.
 pub struct TenantCatalog {
-    /// In-memory authoritative view (loaded from `db` at open, written-through on
+    /// In-memory authoritative view (loaded from `durable` at open, written-through on
     /// every mutation). Empty map ⇒ pure EG-026 routing.
     entries: RwLock<HashMap<String, ShardAssignment>>,
-    /// Optional durable backing (`catalog.redb`). `None` ⇒ in-memory only.
-    db: Option<Database>,
+    /// Optional durable backing (`catalog.redb`), served through the composition-root
+    /// kernels (`SidecarStore`) rather than a directly-opened `redb::Database`. `None`
+    /// ⇒ in-memory only.
+    durable: Option<crate::sidecar_store::SidecarStore<eg_storage::TenantCatalogOwner>>,
 }
 
 impl TenantCatalog {
@@ -100,7 +109,7 @@ impl TenantCatalog {
     pub fn in_memory() -> Self {
         TenantCatalog {
             entries: RwLock::new(HashMap::new()),
-            db: None,
+            durable: None,
         }
     }
 
@@ -108,19 +117,18 @@ impl TenantCatalog {
     /// load every assignment into memory (CONCEPT:EG-KG.sharding.empty-catalog-routing). A fresh dir yields an EMPTY
     /// catalog ⇒ pure EG-026 routing until something is assigned.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
-        std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
         let path = std::path::Path::new(persist_dir).join("catalog.redb");
-        let db = Database::create(&path).map_err(|e| e.to_string())?;
-        // Ensure the table exists so a first-ever read txn doesn't error.
-        {
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            wtx.open_table(CATALOG).map_err(|e| e.to_string())?;
-            wtx.commit().map_err(|e| e.to_string())?;
-        }
+        let durable = crate::sidecar_store::SidecarStore::open(
+            &path,
+            CATALOG_PHYSICAL_STORE,
+            CATALOG_SCOPE_RESOURCE,
+            CATALOG_SCOPE_INCARNATION,
+            crate::store_authority::process_authority(),
+        )?;
         let mut entries = HashMap::new();
         {
-            let rtx = db.begin_read().map_err(|e| e.to_string())?;
-            let table = rtx.open_table(CATALOG).map_err(|e| e.to_string())?;
+            let read = durable.read()?;
+            let table = read.open_owner_table(CATALOG)?;
             for row in table.iter().map_err(|e| e.to_string())? {
                 if entries.len() >= MAX_CATALOG_ENTRIES {
                     return Err("tenant catalog exceeds resource limits".to_string());
@@ -133,7 +141,7 @@ impl TenantCatalog {
         }
         Ok(TenantCatalog {
             entries: RwLock::new(entries),
-            db: Some(db),
+            durable: Some(durable),
         })
     }
 
@@ -167,15 +175,15 @@ impl TenantCatalog {
             return Err("tenant catalog exceeds resource limits".to_string());
         }
         let a = ShardAssignment { shard, node };
-        if let Some(db) = &self.db {
+        if let Some(durable) = &self.durable {
             let blob = rmp_serde::to_vec_named(&a).map_err(|e| e.to_string())?;
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            {
-                let mut t = wtx.open_table(CATALOG).map_err(|e| e.to_string())?;
-                t.insert(graph_fname, blob.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-            wtx.commit().map_err(|e| e.to_string())?;
+            durable.maintain("tenant_catalog_assign", |owner| {
+                owner
+                    .open_table(CATALOG)?
+                    .insert(graph_fname, blob.as_slice())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            })?;
         }
         entries.insert(graph_fname.to_string(), a);
         Ok(())
@@ -191,13 +199,14 @@ impl TenantCatalog {
     /// Drop the explicit assignment for `graph_fname` (it reverts to EG-026 routing).
     pub fn remove(&self, graph_fname: &str) -> Result<(), String> {
         validate_catalog_key(graph_fname)?;
-        if let Some(db) = &self.db {
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            {
-                let mut t = wtx.open_table(CATALOG).map_err(|e| e.to_string())?;
-                t.remove(graph_fname).map_err(|e| e.to_string())?;
-            }
-            wtx.commit().map_err(|e| e.to_string())?;
+        if let Some(durable) = &self.durable {
+            durable.maintain("tenant_catalog_remove", |owner| {
+                owner
+                    .open_table(CATALOG)?
+                    .remove(graph_fname)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            })?;
         }
         self.entries.write().unwrap().remove(graph_fname);
         Ok(())
@@ -237,22 +246,37 @@ impl super::durable_stores::BundledStoreSource for TenantCatalog {
     }
 
     fn copy_into(&self, destination: &std::path::Path) -> Result<u64, String> {
-        let Some(source) = self.db.as_ref() else {
+        let Some(durable) = self.durable.as_ref() else {
             return Err("tenant catalog is not durable; nothing to bundle".to_string());
         };
-        let rtx = source.begin_read().map_err(|e| e.to_string())?;
+        // The source read goes through the kernel's own scoped read (never a second
+        // `Database::open`/`begin_read` against the owner file). Only the FRESH
+        // destination bundle file below — which is not the owner file, never served by
+        // the kernel, and exists solely as this one-shot backup target — is opened as a
+        // plain `redb::Database`, exactly as `create_bundle_file` already hands back to
+        // every other `BundledStoreSource` in this registry.
+        let read = durable.read()?;
+        let source = read.open_owner_table(CATALOG)?;
         let target = super::durable_stores::create_bundle_file(destination)?;
         let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
         wtx.set_durability(redb::Durability::Immediate)
             .map_err(|e| e.to_string())?;
         let mut rows = 0u64;
-        crate::copy_bundled_table!(rtx, wtx, rows, CATALOG);
+        {
+            let mut dest = wtx.open_table(CATALOG).map_err(|e| e.to_string())?;
+            for row in source.iter().map_err(|e| e.to_string())? {
+                let (k, v) = row.map_err(|e| e.to_string())?;
+                dest.insert(k.value(), v.value())
+                    .map_err(|e| e.to_string())?;
+                rows += 1;
+            }
+        }
         wtx.commit().map_err(|e| e.to_string())?;
         Ok(rows)
     }
 
     fn is_durable(&self) -> bool {
-        self.db.is_some()
+        self.durable.is_some()
     }
 }
 

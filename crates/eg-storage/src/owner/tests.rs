@@ -4,7 +4,7 @@ use crate::owner::identity::PhysicalStoreIdentity;
 use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
 use crate::tables::ledger_table_names;
 use crate::owner::registry::{
-    declared_table_names, is_known_mutation_table, owner_table_names, KV,
+    declared_table_names, is_known_mutation_table, owner_layouts, owner_table_names, KV,
 };
 use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
 use crate::physical::manifest::{OwnerManifest, TableContract, TableOwnership, TableScope};
@@ -31,22 +31,22 @@ fn owner_layout_registry_has_frozen_cardinality() {
     assert_eq!(owner_table_names(OwnerLayout::SemanticIndex).len(), 16);
     assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 20);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
+    // Six root-binary sidecar layouts. Each is one physical file with one
+    // fixed native ControlPlane scope, so each declares only its own table(s):
+    // `request-replay.redb`, `viz_provenance.redb`, `cold.redb`,
+    // `catalog.redb`, `node_info.redb`, `cluster_hierarchy.redb`.
+    assert_eq!(owner_table_names(OwnerLayout::RequestReplay).len(), 1);
+    assert_eq!(owner_table_names(OwnerLayout::VizProvenance).len(), 1);
+    assert_eq!(owner_table_names(OwnerLayout::ColdTier).len(), 1);
+    assert_eq!(owner_table_names(OwnerLayout::TenantCatalog).len(), 1);
+    assert_eq!(owner_table_names(OwnerLayout::NodeInfo).len(), 2);
+    assert_eq!(owner_table_names(OwnerLayout::ClusterHierarchy).len(), 1);
+    assert_eq!(owner_layouts().len(), 16);
 }
 
 #[test]
 fn public_declared_table_projection_is_exact_and_sorted() {
-    for layout in [
-        OwnerLayout::LedgerOnly,
-        OwnerLayout::Rbac,
-        OwnerLayout::Jobs,
-        OwnerLayout::Statechart,
-        OwnerLayout::TimeSeries,
-        OwnerLayout::Kv,
-        OwnerLayout::Blob,
-        OwnerLayout::SemanticIndex,
-        OwnerLayout::Sql,
-        OwnerLayout::PathIndex,
-    ] {
+    for layout in owner_layouts() {
         let names = declared_table_names(layout);
         assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
         assert_eq!(
@@ -63,18 +63,7 @@ fn public_declared_table_projection_is_exact_and_sorted() {
 #[test]
 fn every_owner_surface_has_one_closed_cutover_disposition() {
     let mut names: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
-    for layout in [
-        OwnerLayout::LedgerOnly,
-        OwnerLayout::Rbac,
-        OwnerLayout::Jobs,
-        OwnerLayout::Statechart,
-        OwnerLayout::TimeSeries,
-        OwnerLayout::Kv,
-        OwnerLayout::Blob,
-        OwnerLayout::SemanticIndex,
-        OwnerLayout::Sql,
-        OwnerLayout::PathIndex,
-    ] {
+    for layout in owner_layouts() {
         names.extend(owner_table_names(layout));
     }
     let service = names
@@ -85,11 +74,13 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
         .iter()
         .filter(|name| owner_table_access(name) == OwnerTableAccess::SharedService)
         .count();
-    // 62 owner tables across the ten layouts: RF-RULING-004 puts the complete
-    // physical registry in the storage kernel, so the consumer-owned tables
-    // (`path_index_v1`, `eg_ann`, `eg_kvcache_cold`, and the 20 `__sql_*`)
-    // are declared here rather than by the crates that read them.
-    assert_eq!((names.len(), service, shared), (62, 60, 2));
+    // 69 owner tables across the sixteen layouts: RF-RULING-004 puts the
+    // complete physical registry in the storage kernel, so the consumer-owned
+    // tables (`path_index_v1`, `eg_ann`, `eg_kvcache_cold`, and the 20
+    // `__sql_*`) are declared here rather than by the crates that read them.
+    // +7 over the previous 62: the seven tables of the six root-binary
+    // sidecar owner files, which stopped being raw `Database::create` sites.
+    assert_eq!((names.len(), service, shared), (69, 67, 2));
 }
 
 #[test]
@@ -153,18 +144,7 @@ fn manifest_registry_records_exact_unit_and_tuple_value_types() {
 
 #[test]
 fn manifest_registry_is_closed_for_every_layout() {
-    for layout in [
-        OwnerLayout::LedgerOnly,
-        OwnerLayout::Rbac,
-        OwnerLayout::Jobs,
-        OwnerLayout::Statechart,
-        OwnerLayout::TimeSeries,
-        OwnerLayout::Kv,
-        OwnerLayout::Blob,
-        OwnerLayout::SemanticIndex,
-        OwnerLayout::Sql,
-        OwnerLayout::PathIndex,
-    ] {
+    for layout in owner_layouts() {
         let manifest = OwnerManifest::new(
             PhysicalStoreIdentity::new(format!("physical:test:{}", layout.canonical_name()))
                 .unwrap(),
@@ -192,17 +172,10 @@ fn manifest_registry_is_closed_for_every_layout() {
 
 #[test]
 fn every_owner_table_declares_its_partition_boundary() {
-    for layout in [
-        OwnerLayout::Rbac,
-        OwnerLayout::Jobs,
-        OwnerLayout::Statechart,
-        OwnerLayout::TimeSeries,
-        OwnerLayout::Kv,
-        OwnerLayout::Blob,
-        OwnerLayout::SemanticIndex,
-        OwnerLayout::Sql,
-        OwnerLayout::PathIndex,
-    ] {
+    for layout in owner_layouts()
+        .into_iter()
+        .filter(|layout| !owner_table_names(*layout).is_empty())
+    {
         let manifest = OwnerManifest::new(
             PhysicalStoreIdentity::new(format!(
                 "physical:test:scope-key:{}",
@@ -234,6 +207,12 @@ fn every_owner_table_declares_its_partition_boundary() {
                             | OwnerLayout::Statechart
                             | OwnerLayout::Kv
                             | OwnerLayout::PathIndex
+                            | OwnerLayout::RequestReplay
+                            | OwnerLayout::VizProvenance
+                            | OwnerLayout::ColdTier
+                            | OwnerLayout::TenantCatalog
+                            | OwnerLayout::NodeInfo
+                            | OwnerLayout::ClusterHierarchy
                     ));
                 }
                 TableScope::SharedService => {
@@ -591,25 +570,15 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     let mut names = ledger_table_names()
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
-    for layout in [
-        OwnerLayout::LedgerOnly,
-        OwnerLayout::Rbac,
-        OwnerLayout::Jobs,
-        OwnerLayout::Statechart,
-        OwnerLayout::TimeSeries,
-        OwnerLayout::Kv,
-        OwnerLayout::Blob,
-        OwnerLayout::SemanticIndex,
-        OwnerLayout::Sql,
-        OwnerLayout::PathIndex,
-    ] {
+    for layout in owner_layouts() {
         names.extend(owner_table_names(layout));
     }
-    // 18 ledger + 39 owner tables across the ten layouts. The consumer-owned
-    // tables `path_index_v1`, `eg_ann`, `eg_kvcache_cold` and the 20 `__sql_*`
-    // tables joined the registry because RF-RULING-004 puts the complete
-    // physical table registry in the storage kernel.
-    assert_eq!(names.len(), 80);
+    // 18 ledger + 69 owner tables across the sixteen layouts. The
+    // consumer-owned tables `path_index_v1`, `eg_ann`, `eg_kvcache_cold` and
+    // the 20 `__sql_*` tables joined the registry because RF-RULING-004 puts
+    // the complete physical table registry in the storage kernel; the seven
+    // root-binary sidecar tables joined it when their raw opens were cut.
+    assert_eq!(names.len(), 87);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

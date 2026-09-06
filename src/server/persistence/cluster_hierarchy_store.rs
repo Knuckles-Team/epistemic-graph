@@ -27,13 +27,19 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::TableDefinition;
 
-/// Durable table: `graph_name -> msgpack(ClusterHierarchyResult)`. One row per
-/// graph that has ever called `ClusterHierarchyRefresh` — bounded by
-/// [`MAX_ENTRIES`], never per-node data (the row VALUE scales with graph size,
-/// the table's ROW COUNT does not).
+/// The one owner table of `OwnerLayout::ClusterHierarchy`. `eg-storage`
+/// declares it; this module only names it (RF-RULING-004).
+///
+/// `graph_name -> msgpack(ClusterHierarchyResult)`. One row per graph that has
+/// ever called `ClusterHierarchyRefresh` — bounded by [`MAX_ENTRIES`], never
+/// per-node data (the row VALUE scales with graph size, the table's ROW COUNT
+/// does not).
 const CLUSTER_HIERARCHY: TableDefinition<&str, &[u8]> = TableDefinition::new("cluster_hierarchy");
+const CLUSTER_HIERARCHY_PHYSICAL_STORE: &str = "epistemic-graph:cluster-hierarchy";
+const CLUSTER_HIERARCHY_SCOPE_RESOURCE: &str = "cluster-hierarchy";
+const CLUSTER_HIERARCHY_SCOPE_INCARNATION: &str = "cluster-hierarchy:v1";
 
 /// Bounds how many distinct graphs may have a cached hierarchy at once — a
 /// resource limit, not a product limit (mirrors `node_info_store::
@@ -50,12 +56,12 @@ const MAX_ENTRIES: usize = 8_192;
 const MAX_BLOB_BYTES: usize = 512 * 1024 * 1024;
 
 /// Durable per-graph cluster-hierarchy cache (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1).
-/// Cheap in-RAM `get`/`put`; the optional `db` mirrors every write through so it
-/// survives a restart. `PersistenceBackend::{save,load}_cluster_hierarchy`
+/// Cheap in-RAM `get`/`put`; the optional `durable` sidecar store mirrors every
+/// write through so it survives a restart. `PersistenceBackend::{save,load}_cluster_hierarchy`
 /// (`RedbBackend`'s impl) are this store's only callers.
 pub struct ClusterHierarchyStore {
     entries: RwLock<HashMap<String, Vec<u8>>>,
-    db: Option<Database>,
+    durable: Option<crate::sidecar_store::SidecarStore<eg_storage::ClusterHierarchyOwner>>,
 }
 
 impl ClusterHierarchyStore {
@@ -64,7 +70,7 @@ impl ClusterHierarchyStore {
     pub fn in_memory() -> Self {
         ClusterHierarchyStore {
             entries: RwLock::new(HashMap::new()),
-            db: None,
+            durable: None,
         }
     }
 
@@ -73,22 +79,19 @@ impl ClusterHierarchyStore {
     /// `ClusterHierarchyClusters`/`Expand` call for any graph then reports "no
     /// hierarchy cached yet, call ClusterHierarchyRefresh first".
     pub fn open(persist_dir: &str) -> Result<Self, String> {
-        std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
         let path = std::path::Path::new(persist_dir).join("cluster_hierarchy.redb");
-        let db = Database::create(&path).map_err(|e| e.to_string())?;
-        {
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            wtx.open_table(CLUSTER_HIERARCHY)
-                .map_err(|e| e.to_string())?;
-            wtx.commit().map_err(|e| e.to_string())?;
-        }
+        let durable = crate::sidecar_store::SidecarStore::open(
+            &path,
+            CLUSTER_HIERARCHY_PHYSICAL_STORE,
+            CLUSTER_HIERARCHY_SCOPE_RESOURCE,
+            CLUSTER_HIERARCHY_SCOPE_INCARNATION,
+            crate::store_authority::process_authority(),
+        )?;
         let mut entries = HashMap::new();
         {
-            let rtx = db.begin_read().map_err(|e| e.to_string())?;
-            let table = rtx
-                .open_table(CLUSTER_HIERARCHY)
-                .map_err(|e| e.to_string())?;
-            for row in table.iter().map_err(|e| e.to_string())? {
+            let read = durable.read()?;
+            let table = read.open_owner_table(CLUSTER_HIERARCHY)?;
+            for row in table.iter()? {
                 if entries.len() >= MAX_ENTRIES {
                     return Err("cluster hierarchy store exceeds resource limits".to_string());
                 }
@@ -102,7 +105,7 @@ impl ClusterHierarchyStore {
         }
         Ok(ClusterHierarchyStore {
             entries: RwLock::new(entries),
-            db: Some(db),
+            durable: Some(durable),
         })
     }
 
@@ -115,17 +118,14 @@ impl ClusterHierarchyStore {
         if blob.len() > MAX_BLOB_BYTES {
             return Err("cluster hierarchy blob exceeds resource limits".to_string());
         }
-        if let Some(db) = &self.db {
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            {
-                let mut table = wtx
-                    .open_table(CLUSTER_HIERARCHY)
-                    .map_err(|e| e.to_string())?;
-                table
+        if let Some(durable) = &self.durable {
+            durable.maintain("cluster_hierarchy_put", |owner| {
+                owner
+                    .open_table(CLUSTER_HIERARCHY)?
                     .insert(graph, blob.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-            wtx.commit().map_err(|e| e.to_string())?;
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            })?;
         }
         let mut entries = self
             .entries

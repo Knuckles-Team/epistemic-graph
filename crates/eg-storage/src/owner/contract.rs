@@ -83,6 +83,12 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
                     | OwnerLayout::Statechart
                     | OwnerLayout::Kv
                     | OwnerLayout::PathIndex
+                    | OwnerLayout::RequestReplay
+                    | OwnerLayout::VizProvenance
+                    | OwnerLayout::ColdTier
+                    | OwnerLayout::TenantCatalog
+                    | OwnerLayout::NodeInfo
+                    | OwnerLayout::ClusterHierarchy
             )
         ) {
             TableScope::StorePrivate
@@ -170,6 +176,7 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         "kv" | "cas_blobs" => Some("(&str,&str)"),
         "cas_uploads" => Some("(&str,u64)"),
         "eg_kvcache_cold" => Some("&[u8]"),
+        "node_info" => Some("u64"),
         "cas_chunks" | "cas_refcount" => Some("&str"),
         "rbac_v1"
         | "path_index_v1"
@@ -177,7 +184,13 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         | "statechart_defs"
         | "statechart_instances"
         | "series_meta"
-        | "series_projection_state" => Some("&str"),
+        | "series_projection_state"
+        | "verified_request_replay_v2"
+        | "viz_provenance"
+        | "cold_graphs"
+        | "tenant_catalog"
+        | "node_info_meta"
+        | "cluster_hierarchy" => Some("&str"),
         _ => None,
     }
 }
@@ -225,6 +238,7 @@ fn value_type_id(name: &str) -> &'static str {
         "mutation_versions_v1"
         | "analytics_job_scheduler_meta"
         | "cas_refcount"
+        | "verified_request_replay_v2"
         | "semantic_binding_heads_v1" => "u64",
         "analytics_job_active_totals_by_tenant" => "(u64,u64)",
         "mutation_outbox_topic_index_v1"
@@ -311,8 +325,13 @@ fn logical_codec_id(name: &str) -> &'static str {
     }
     match name {
         "mutation_private_payloads_v1" => "authenticated-sealed-bytes-v1",
-        "eg_ann" | "eg_kvcache_cold" => "raw-bytes-v1",
-        "path_index_v1" => "msgpack-v1",
+        "eg_ann" | "eg_kvcache_cold" | "cold_graphs" => "raw-bytes-v1",
+        "path_index_v1"
+        | "viz_provenance"
+        | "tenant_catalog"
+        | "node_info"
+        | "node_info_meta"
+        | "cluster_hierarchy" => "msgpack-v1",
         "rbac_v1" => "json-utf8-v1",
         "kv" | "cas_chunks" => "raw-bytes-v1",
         "series_chunks" => "packed-timeseries-chunk-v1",
@@ -332,6 +351,7 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "analytics_job_by_deadline"
         | "analytics_job_cancellation_reconcile"
         | "cas_refcount"
+        | "verified_request_replay_v2"
         | "semantic_binding_heads_v1" => "redb-scalar-v1",
         "semantic_bindings_v1"
         | "semantic_stage_transitions_v1"
@@ -385,7 +405,8 @@ fn table_capabilities(name: &str) -> u16 {
         | "analytics_job_committed_results"
         | "job_idempotency_ledger"
         | "analytics_job_knowledge_batches"
-        | "statechart_defs" => CAP_READ | CAP_INSERT,
+        | "statechart_defs"
+        | "viz_provenance" => CAP_READ | CAP_INSERT,
         "cas_chunks" | "cas_blobs" => CAP_READ | CAP_INSERT | CAP_DELETE,
         "rbac_v1"
         | "analytics_jobs"
@@ -403,7 +424,8 @@ fn table_capabilities(name: &str) -> u16 {
         | "semantic_binding_heads_v1"
         | "semantic_lexical_manifests_v1"
         | "semantic_ann_manifests_v1"
-        | "semantic_vectors_v1" => CAP_READ | CAP_INSERT | CAP_DELETE,
+        | "semantic_vectors_v1"
+        | "verified_request_replay_v2" => CAP_READ | CAP_INSERT | CAP_DELETE,
         "mutation_versions_v1" | "mutation_fences_v1" | "kv" | "cas_refcount" => {
             CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE | CAP_CAS
         }
@@ -414,6 +436,11 @@ fn table_capabilities(name: &str) -> u16 {
         | "series_chunks"
         | "series_meta"
         | "series_projection_state"
+        | "cold_graphs"
+        | "tenant_catalog"
+        | "node_info"
+        | "node_info_meta"
+        | "cluster_hierarchy"
         | "cas_uploads" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
         "mutation_scope_bindings_v1"
         | "mutation_batches_v1"

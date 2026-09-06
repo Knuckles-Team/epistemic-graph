@@ -465,6 +465,18 @@ where
             .map_err(|error| error.to_string())
     }
 
+    /// Rows from `start` to the end of the table.
+    ///
+    /// Strictly weaker than [`Self::iter`], which already returns every row of
+    /// this layout-bounded table: it adds no reach, only a starting position,
+    /// so a prefix scan over a composite key does not have to read from the
+    /// first row. Needed because several owner tables key on
+    /// `(partition, key)` and a prefix scan of one partition has no natural
+    /// inclusive upper bound.
+    pub fn range_from<'k>(&self, start: K::SelfType<'k>) -> Result<Range<'_, K, V>, String> {
+        self.table.range(start..).map_err(|error| error.to_string())
+    }
+
     pub fn iter(&self) -> Result<Range<'_, K, V>, String> {
         self.table.iter().map_err(|error| error.to_string())
     }

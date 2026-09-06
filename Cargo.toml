@@ -321,7 +321,7 @@ server-tls = ["server", "dep:rustls", "dep:tokio-rustls"]
 # is layered ON TOP and is itself gated on `server` (it talks to `ServerState`
 # + the Tokio dispatch). So `redb` alone (no `server`) compiles a usable durable
 # store — exactly what the EMBEDDED API drives on an edge host with no Tokio.
-redb = ["dep:redb"]
+redb = ["dep:redb", "dep:eg-storage", "dep:eg-transaction"]
 # Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206): the bytes tier
 # under multimodal `:Media`/`:Blob`. Pulls `redb` (the native CAS lives in
 # `blob.redb`) + `server` (the streaming protocol rides the Tokio transport). The
@@ -1708,6 +1708,15 @@ tracing-subscriber = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 # Durable embedded KV for the redb write-through substrate (feature `redb`).
 redb = { version = "4.1", optional = true }
+# RF-RULING-004: `eg-storage` is the SOLE physical authority that opens any
+# durable file this binary owns (every `OwnerLayout` its stores declare), and
+# `eg-transaction` is the SOLE mutation authority over them. The root binary is
+# the composition root: it mints the one `ScopeGrantVerifier`, holds the one
+# `MutationOwnerAuthority` per store, and hands domain crates only the
+# capabilities those two kernels issue. Both ride the `redb` feature because
+# that is the feature the durable substrate itself rides.
+eg-storage = { path = "crates/eg-storage", optional = true }
+eg-transaction = { path = "crates/eg-transaction", optional = true }
 # Encryption-at-rest AEAD for the redb durable value blobs (feature `security`,
 # included in the main build, CONCEPT:KG-2.231). RustCrypto ChaCha20-Poly1305 is
 # pure Rust and links no ring, OpenSSL, or C crate. Cluster builds also use the

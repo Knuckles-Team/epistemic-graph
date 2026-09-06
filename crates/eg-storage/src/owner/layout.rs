@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const OWNER_LAYOUT_DOMAIN: &[u8] = b"eg/mutation-owner-layout/v1\0";
-const OWNER_LAYOUT_NAMES: [&str; 10] = [
+const OWNER_LAYOUT_NAMES: [&str; 16] = [
     "ledger_only",
     "rbac",
     "jobs",
@@ -18,8 +18,14 @@ const OWNER_LAYOUT_NAMES: [&str; 10] = [
     "semantic_index",
     "sql",
     "path_index",
+    "request_replay",
+    "viz_provenance",
+    "cold_tier",
+    "tenant_catalog",
+    "node_info",
+    "cluster_hierarchy",
 ];
-pub(crate) const OWNER_LAYOUT_DOMAINS: [MutationDomain; 10] = [
+pub(crate) const OWNER_LAYOUT_DOMAINS: [MutationDomain; 16] = [
     MutationDomain::ControlPlane,
     MutationDomain::ControlPlane,
     MutationDomain::AnalyticsJob,
@@ -29,6 +35,12 @@ pub(crate) const OWNER_LAYOUT_DOMAINS: [MutationDomain; 10] = [
     MutationDomain::BlobStore,
     MutationDomain::SemanticIndex,
     MutationDomain::SqlCatalog,
+    MutationDomain::ControlPlane,
+    MutationDomain::ControlPlane,
+    MutationDomain::ControlPlane,
+    MutationDomain::ControlPlane,
+    MutationDomain::ControlPlane,
+    MutationDomain::ControlPlane,
     MutationDomain::ControlPlane,
 ];
 
@@ -49,6 +61,18 @@ pub enum OwnerLayout {
     Sql,
     /// The durable logical-path index owned by `eg-core`'s path persistence.
     PathIndex,
+    /// One node's durable signed-request replay ledger (`request-replay.redb`).
+    RequestReplay,
+    /// The durable render-provenance side store (`viz_provenance.redb`).
+    VizProvenance,
+    /// The cold-tier offloaded-graph cache (`cold.redb`).
+    ColdTier,
+    /// The durable tenant catalog (`catalog.redb`).
+    TenantCatalog,
+    /// The durable cluster node-info directory (`node_info.redb`).
+    NodeInfo,
+    /// The durable Leiden cluster-hierarchy cache (`cluster_hierarchy.redb`).
+    ClusterHierarchy,
 }
 
 impl OwnerLayout {
@@ -71,6 +95,12 @@ impl OwnerLayout {
                 | (Self::SemanticIndex, Some(MutationDomain::SemanticIndex))
                 | (Self::Sql, Some(MutationDomain::SqlCatalog))
                 | (Self::PathIndex, Some(MutationDomain::ControlPlane))
+                | (Self::RequestReplay, Some(MutationDomain::ControlPlane))
+                | (Self::VizProvenance, Some(MutationDomain::ControlPlane))
+                | (Self::ColdTier, Some(MutationDomain::ControlPlane))
+                | (Self::TenantCatalog, Some(MutationDomain::ControlPlane))
+                | (Self::NodeInfo, Some(MutationDomain::ControlPlane))
+                | (Self::ClusterHierarchy, Some(MutationDomain::ControlPlane))
         )
     }
 

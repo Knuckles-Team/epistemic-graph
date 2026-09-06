@@ -1241,27 +1241,37 @@ impl ReplayLedger for ReplayCache {
 #[cfg(feature = "security")]
 const REPLAY_TABLE: redb::TableDefinition<&str, u64> =
     redb::TableDefinition::new("verified_request_replay_v2");
+#[cfg(feature = "security")]
+const REPLAY_PHYSICAL_STORE: &str = "epistemic-graph:request-replay";
+#[cfg(feature = "security")]
+const REPLAY_SCOPE_RESOURCE: &str = "request-replay";
+#[cfg(feature = "security")]
+const REPLAY_SCOPE_INCARNATION: &str = "request-replay:v1";
 
-/// Durable replay adapter used by secure mode.  A successful insert is
-/// committed with immediate durability before the request is dispatched, so a
-/// process restart cannot make a previously accepted nonce usable again.
+/// Durable replay adapter used by secure mode. A successful `check_and_record`
+/// commits before the request is dispatched, so a process restart cannot make
+/// a previously accepted nonce usable again; durability itself belongs to the
+/// kernel (`eg_transaction::MutationKernelV1::commit`, reached through
+/// `sidecar_store::SidecarStore::maintain`), not a `redb::Durability` this
+/// file sets on its own transaction.
 ///
 /// **KNOWN GAP — per-node only, NOT replicated across a `cluster`/`raft`
 /// deployment** (tracked in `reports/seam-identity-closure.md`, "Raft
 /// replay-ledger replication" section; called out by
 /// `reports/seam-closure-audit-2026-07-22.md`'s Identity row). This ledger is
-/// a local `redb` table scoped to ONE node's `EPISTEMIC_GRAPH_SECURITY_STATE_DIR`.
-/// It is checked entirely BEFORE any Raft/consensus code runs (see
-/// `dispatch_inner` in `server/dispatch.rs`, which calls
-/// `verify_request_with_security_dir` — and therefore this ledger — before
-/// any `#[cfg(feature = "raft")]` code executes). In a hypothetical
-/// multi-node `cluster` deployment, a captured, still-signature-valid signed
-/// envelope COULD be replayed once against every node independently within
-/// the clock-skew window (`envelope_skew_secs()`, default 300s), because each
-/// node's `seen`-nonce set is disjoint. Closing this requires routing the
-/// nonce check-and-record through the SAME Raft-log consensus path ordinary
-/// mutations use (`crate::raft::ReplicatedMutation` / `NativeMutationCommand`
-/// in `src/raft/mod.rs`) rather than a purely local pre-check — a genuine new
+/// a local kernel-owned owner file scoped to ONE node's
+/// `EPISTEMIC_GRAPH_SECURITY_STATE_DIR`. It is checked entirely BEFORE any
+/// Raft/consensus code runs (see `dispatch_inner` in `server/dispatch.rs`,
+/// which calls `verify_request_with_security_dir` — and therefore this
+/// ledger — before any `#[cfg(feature = "raft")]` code executes). In a
+/// hypothetical multi-node `cluster` deployment, a captured, still-
+/// signature-valid signed envelope COULD be replayed once against every node
+/// independently within the clock-skew window (`envelope_skew_secs()`,
+/// default 300s), because each node's `seen`-nonce set is disjoint. Closing
+/// this requires routing the nonce check-and-record through the SAME
+/// Raft-log consensus path ordinary mutations use
+/// (`crate::raft::ReplicatedMutation` / `NativeMutationCommand` in
+/// `src/raft/mod.rs`) rather than a purely local pre-check — a genuine new
 /// integration point on the hot path of EVERY authenticated request
 /// (including reads), not merely "replicate existing state." As of this
 /// writing the homelab's production `epistemic-graph` deployment does not run
@@ -1271,27 +1281,23 @@ const REPLAY_TABLE: redb::TableDefinition<&str, u64> =
 /// in production — but MUST be closed before any multi-node `cluster` rollout.
 #[cfg(feature = "security")]
 struct RedbReplayLedger {
-    db: redb::Database,
+    durable: crate::sidecar_store::SidecarStore<eg_storage::RequestReplayOwner>,
     last_prune: Mutex<u64>,
 }
 
 #[cfg(feature = "security")]
 impl RedbReplayLedger {
     fn open(dir: &std::path::Path) -> Result<Self, String> {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("could not create security state directory: {e}"))?;
         let path = dir.join("request-replay.redb");
-        let db = redb::Database::create(path)
-            .map_err(|e| format!("could not open durable replay ledger: {e}"))?;
-        let wtx = db
-            .begin_write()
-            .map_err(|e| format!("could not initialize durable replay ledger: {e}"))?;
-        wtx.open_table(REPLAY_TABLE)
-            .map_err(|e| format!("could not initialize durable replay table: {e}"))?;
-        wtx.commit()
-            .map_err(|e| format!("could not commit durable replay table: {e}"))?;
+        let durable = crate::sidecar_store::SidecarStore::open(
+            &path,
+            REPLAY_PHYSICAL_STORE,
+            REPLAY_SCOPE_RESOURCE,
+            REPLAY_SCOPE_INCARNATION,
+            crate::store_authority::process_authority(),
+        )?;
         Ok(RedbReplayLedger {
-            db,
+            durable,
             last_prune: Mutex::new(0),
         })
     }
@@ -1299,6 +1305,13 @@ impl RedbReplayLedger {
 
 #[cfg(feature = "security")]
 impl ReplayLedger for RedbReplayLedger {
+    /// The prune scan and the nonce check-and-insert are ONE logical
+    /// operation, so both happen inside ONE `maintain` call rather than a
+    /// call per row. `maintain` bumps the scope version on every call
+    /// (RF-RULING-005), which is the intent here, not a side effect: this
+    /// nonce ledger carries no caller identity, but it is still ledgered like
+    /// every other owner write, so a replay-refusal decision becomes an
+    /// auditable, versioned fact instead of an un-ledgered side channel.
     fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String> {
         use redb::ReadableTable;
 
@@ -1311,49 +1324,31 @@ impl ReplayLedger for RedbReplayLedger {
                 false
             }
         };
-        let mut wtx = self
-            .db
-            .begin_write()
-            .map_err(|e| format!("durable replay transaction failed: {e}"))?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| format!("durable replay configuration failed: {e}"))?;
-        {
-            let mut table = wtx
-                .open_table(REPLAY_TABLE)
-                .map_err(|e| format!("durable replay table failed: {e}"))?;
-            if should_prune {
-                let cutoff = now.saturating_sub(window.saturating_mul(2));
-                let mut expired = Vec::new();
-                for row in table
-                    .iter()
-                    .map_err(|e| format!("durable replay scan failed: {e}"))?
-                {
-                    let (key, timestamp) =
-                        row.map_err(|e| format!("durable replay row failed: {e}"))?;
-                    if timestamp.value() < cutoff {
-                        expired.push(key.value().to_string());
+        let mut accepted = false;
+        self.durable
+            .maintain("request_replay_check_and_record", |owner| {
+                let mut table = owner.open_table(REPLAY_TABLE)?;
+                if should_prune {
+                    let cutoff = now.saturating_sub(window.saturating_mul(2));
+                    let mut expired = Vec::new();
+                    for row in table.iter().map_err(|e| e.to_string())? {
+                        let (key, timestamp) = row.map_err(|e| e.to_string())?;
+                        if timestamp.value() < cutoff {
+                            expired.push(key.value().to_string());
+                        }
+                    }
+                    for key in expired {
+                        table.remove(key.as_str()).map_err(|e| e.to_string())?;
                     }
                 }
-                for key in expired {
-                    table
-                        .remove(key.as_str())
-                        .map_err(|e| format!("durable replay prune failed: {e}"))?;
+                if table.get(nonce).map_err(|e| e.to_string())?.is_some() {
+                    return Ok(());
                 }
-            }
-            if table
-                .get(nonce)
-                .map_err(|e| format!("durable replay lookup failed: {e}"))?
-                .is_some()
-            {
-                return Ok(false);
-            }
-            table
-                .insert(nonce, now)
-                .map_err(|e| format!("durable replay insert failed: {e}"))?;
-        }
-        wtx.commit()
-            .map_err(|e| format!("durable replay commit failed: {e}"))?;
-        Ok(true)
+                table.insert(nonce, now).map_err(|e| e.to_string())?;
+                accepted = true;
+                Ok(())
+            })?;
+        Ok(accepted)
     }
 }
 

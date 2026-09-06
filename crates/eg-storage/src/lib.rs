@@ -35,8 +35,9 @@ pub use owner::blob_shared::{
     CasChunkRows, CasRefcountRows,
 };
 pub use owner::domain::{
-    BlobOwner, JobsOwner, KvOwner, LedgerOnlyOwner, OwnerDomain, PathIndexOwner, RbacOwner,
-    SemanticIndexOwner, SqlOwner, StatechartOwner, TimeSeriesOwner,
+    BlobOwner, ClusterHierarchyOwner, ColdTierOwner, JobsOwner, KvOwner, LedgerOnlyOwner,
+    NodeInfoOwner, OwnerDomain, PathIndexOwner, RbacOwner, RequestReplayOwner, SemanticIndexOwner,
+    SqlOwner, StatechartOwner, TenantCatalogOwner, TimeSeriesOwner, VizProvenanceOwner,
 };
 pub use owner::grant::{AuthenticatedScopeGrant, ScopeGrantVerifier};
 pub use owner::handle::OwnedStoreHandle;

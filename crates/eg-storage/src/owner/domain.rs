@@ -30,4 +30,10 @@ owner_domains!(
     SemanticIndexOwner => SemanticIndex,
     SqlOwner => Sql,
     PathIndexOwner => PathIndex,
+    RequestReplayOwner => RequestReplay,
+    VizProvenanceOwner => VizProvenance,
+    ColdTierOwner => ColdTier,
+    TenantCatalogOwner => TenantCatalog,
+    NodeInfoOwner => NodeInfo,
+    ClusterHierarchyOwner => ClusterHierarchy,
 );
