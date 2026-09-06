@@ -69,7 +69,7 @@ fn spec() -> SubmitSpec {
 
 /// The fixed native scope every `JOBS` row transition binds to.
 ///
-/// Taken from the crate itself rather than re-declared here. An earlier copy
+/// Taken from the crate itself rather than redeclared here. An earlier copy
 /// duplicated all three scope constants verbatim because they were private, and
 /// noted that the values "MUST match exactly" -- a correctness requirement kept
 /// only by a comment. `internal_job_batch`'s executor-driven transitions

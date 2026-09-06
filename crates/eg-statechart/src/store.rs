@@ -208,7 +208,7 @@ pub struct StatechartStore {
     /// `statechart-instances` native scope's version bookkeeping.
     mutation_store: eg_mutation_store::MutationStore,
     /// The fixed native scope identity (see `instance_mutation_identity`),
-    /// re-used on every transition so it is validated exactly once per open.
+    /// reused on every transition so it is validated exactly once per open.
     identity: MutationScopeIdentity,
     /// Monotonic instance-id source (mirrors `eg-jobs`' `next_id`): `"sc-<hex>"`.
     next_id: AtomicU64,

@@ -373,7 +373,7 @@ pub struct JobStore {
     /// bookkeeping.
     mutation_store: eg_mutation_store::MutationStore,
     /// The fixed native scope identity (see `analytics_job_scope_identity`),
-    /// re-used on every transition so it is validated exactly once per open.
+    /// reused on every transition so it is validated exactly once per open.
     identity: MutationScopeIdentity,
     /// No-rand monotonic id source (mirrors `src/server/txn.rs::TxnIdGen`): `"job-<hex>"`.
     next_id: AtomicU64,
@@ -1376,7 +1376,7 @@ impl JobStore {
     /// an EXISTING name preserves its durable `last_run_ms`/`created_at_ms` history
     /// (only `trigger`/`policy`/`enabled` are overwritten) — the same
     /// "dual-write is idempotent" property AU's own schedule registration relies on,
-    /// so a restart that re-declares its intents never resets their due-ness clock.
+    /// so a restart that redeclares its intents never resets their due-ness clock.
     pub fn register_intent(&self, mut intent: JobIntent) -> Result<JobIntent> {
         match self.get_intent_raw(&intent.name) {
             Ok(existing) => {
@@ -2374,7 +2374,7 @@ const ANALYTICS_JOB_SCOPE_INCARNATION: &str = "incarnation:eg-jobs:analytics-job
 /// `native_security_control_identity`).
 /// The one analytics-job scope identity.
 ///
-/// Exported deliberately. The integration test previously re-declared the three
+/// Exported deliberately. The integration test previously redeclared the three
 /// scope constants verbatim because they were private, so production and test
 /// could drift apart silently while both compiled. Exporting the IDENTITY rather
 /// than the constants makes that drift unrepresentable.
@@ -3414,7 +3414,7 @@ mod tests {
         assert!(store.record_intent_tick("x", 1_000).unwrap());
         assert_eq!(store.get_intent("x").unwrap().last_run_ms, Some(1_000));
 
-        // Re-declaring the SAME intent (e.g. on restart) must not reset the clock.
+        // Redeclaring the SAME intent (e.g. on restart) must not reset the clock.
         store
             .register_intent(JobIntent::new(
                 "x",
