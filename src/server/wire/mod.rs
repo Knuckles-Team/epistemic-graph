@@ -777,7 +777,24 @@ fn committed_sql_replay_receipt(
     let Some(record) = store.mutation_batch(&scope, batch_id)? else {
         return Ok(None);
     };
-    let principal = crate::server::mutation_batch::principal_fingerprint(authority.actor_scope())?;
+    let caller = crate::server::mutation_batch::principal_fingerprint(authority.actor_scope())?;
+    // The caller is the outbox row's `actor` header, not `context.principal`.
+    // RF-RULING-006 made the SQL catalog a kernel-owned owner store, so
+    // `AdmittedMutation::owner_rows` requires `context.principal` to be the
+    // file's bound SERVING principal (`store_authority::ENGINE_PRINCIPAL`) and
+    // `mutation_batch::compile::ledger_principal` stamps it there. Attribution
+    // has exactly one home for every compiled batch -- the `actor` header --
+    // so that is where this receipt reads the caller back from. Comparing
+    // `context.principal` would compare the engine against the caller and
+    // refuse EVERY replay of a SQL statement this engine itself committed.
+    let recorded_actor = record
+        .batch
+        .outbox
+        .iter()
+        .find_map(|intent| intent.headers.get("actor"))
+        .ok_or_else(|| {
+            "committed SQL MutationBatch carries no actor attribution".to_string()
+        })?;
     let encoded = rmp_serde::to_vec_named(operation).map_err(|error| error.to_string())?;
     let expected_query = format!("sha256:{}", hex::encode(Sha256::digest(encoded)));
     let exact_operation = matches!(
@@ -793,7 +810,7 @@ fn committed_sql_replay_receipt(
         && record.batch.batch_id == batch_id
         && record.batch.idempotency_key == batch_id
         && record.batch.context.request_id == request_id
-        && record.batch.context.principal == principal
+        && recorded_actor == &caller
         && record.batch.identity.tenant().as_str() == authority.tenant_scope()
         // A SQL-catalog batch is NATIVE-scoped by producer default
         // (`MutationDomain::SqlCatalog` is in `requires_native_scope`), so it
@@ -6275,6 +6292,117 @@ mod wired_catalog_tests {
             .await
             .expect("read the recovered table");
         assert_eq!(rows.rows.len(), 1, "replay must not duplicate DML");
+    }
+
+    /// RF-RULING-006 made the SQL catalog a kernel-owned owner store, so
+    /// `mutation_batch::compile::ledger_principal` stamps the FILE's bound
+    /// serving principal on `context.principal` and the verified caller travels
+    /// as the outbox row's `actor` header. This pins both halves of that on a
+    /// real committed receipt: the recorded `context.principal` is the engine's,
+    /// NOT the caller's — so the pre-ruling comparison would refuse every replay
+    /// of a statement this engine itself committed — and
+    /// `committed_sql_replay_receipt` matches the owner while still refusing a
+    /// different actor, because it reads the caller from the `actor` header.
+    #[tokio::test]
+    async fn sql_replay_receipt_matches_the_caller_on_the_outbox_actor_header() {
+        let tenant = "wired-catalog-actor-header";
+        let state = test_state(&[CREATOR, "actor-header-owner", "actor-header-foreign"]);
+        let graph = "wired-catalog-actor-header-graph";
+        create_test_graph(&state, graph, 61).await;
+        let persist_dir = test_persist_dir_of(&state).await;
+        let owner = authority("actor-header-owner", tenant);
+        let stranger = authority("actor-header-foreign", tenant);
+        let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir)
+            .expect("open tenant table store");
+
+        let operation = crate::protocol::Method::Sql {
+            query: "CREATE TABLE actor_header_target (id TEXT PRIMARY KEY)".to_string(),
+            params_msgpack: Vec::new(),
+        };
+        let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
+            "wire-sql-owner",
+            owner.owner_scope(),
+            "actor-header-receipt",
+        );
+        let request_id = 0x5150_4143_4b45_5401_u64;
+        let created_at_ms = crate::server::txn::now_ms();
+        let expected_version = store
+            .mutation_version(tenant, graph)
+            .expect("read SQL mutation version");
+        let batch = crate::server::mutation_batch::compile_opaque_method(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &batch_id,
+                request_id,
+                principal: Some(owner.actor_scope()),
+                tenant,
+                graph,
+                placement_epoch: 0,
+                idempotency_key: &batch_id,
+                expected_graph_version: Some(expected_version),
+                fencing_token: None,
+                created_at_ms,
+                default_surface: crate::mutation_batch::MutationSurface::Query,
+                authoritative_state: None,
+            },
+            &operation,
+            crate::mutation_batch::MutationSurface::Query,
+            crate::mutation_batch::MutationDomain::SqlCatalog,
+            "sql_catalog_operation",
+        )
+        .expect("compile the SQL receipt");
+
+        let owner_fingerprint =
+            crate::server::mutation_batch::principal_fingerprint(owner.actor_scope())
+                .expect("fingerprint the owner");
+        // The ledger principal is the SQL owner file's, not the caller's.
+        assert_eq!(
+            batch.context.principal,
+            crate::store_authority::ENGINE_PRINCIPAL,
+            "a SqlCatalog batch must name the owner file's serving principal"
+        );
+        assert_ne!(batch.context.principal, owner_fingerprint);
+        // ... and the caller is not lost: it is the outbox row's actor header.
+        assert_eq!(
+            batch.outbox[0].headers.get("actor"),
+            Some(&owner_fingerprint),
+            "the verified caller must travel as the outbox actor header"
+        );
+
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::CreateTable {
+            schema: TableSchema::new(
+                "actor_header_target",
+                vec![Column::new("id", ColumnType::Text, false, true)],
+            ),
+            if_not_exists: false,
+        });
+        store
+            .commit_txn_batch(&txn, &batch, created_at_ms)
+            .expect("commit the SQL batch through the kernel ledger");
+
+        let matched = committed_sql_replay_receipt(
+            &store,
+            &owner,
+            graph,
+            &batch_id,
+            request_id,
+            &operation,
+        )
+        .expect("the owner's own receipt matches")
+        .expect("the receipt is present");
+        assert_eq!(matched.batch.batch_id, batch_id);
+
+        // Planted known-bad input: a different actor, everything else identical.
+        let refused = committed_sql_replay_receipt(
+            &store,
+            &stranger,
+            graph,
+            &batch_id,
+            request_id,
+            &operation,
+        )
+        .expect_err("another actor may not claim this receipt");
+        assert!(refused.contains("does not match owner-scoped intent"));
     }
 
     // ── owner / grant / deny-indistinguishable-from-absence ────────────────

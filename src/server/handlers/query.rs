@@ -5467,12 +5467,21 @@ async fn commit_sql_catalog_txn(
             .unwrap_or(0);
         // Recovery after commit-before-ack rebuilds the exact proposed batch with
         // the stored OCC observation. `commit_txn_batch` then verifies every
-        // identity byte (including principal + operation digest) before returning
-        // the result without applying `txn` again.
+        // identity byte (including the operation digest) before returning the
+        // result without applying `txn` again.
+        //
         // The receipt now lives in the mutation kernel's scope-partitioned
         // ledger, so it is read through the very scope `compile_opaque_method`
         // below stamps on this batch: native `SqlCatalog`, keyed by
-        // `(tenant, graph)` at `COMPILED_BATCH_INCARNATION`.
+        // `(tenant, graph)` at `COMPILED_BATCH_INCARNATION`. And the caller is
+        // read back from the outbox row's `actor` header, NOT from
+        // `context.principal`: RF-RULING-006 made the SQL catalog a kernel-owned
+        // owner store, so `context.principal` is now the file's bound serving
+        // principal on every compiled SQL batch and would compare the engine
+        // against the caller. Adopting another caller's OCC observation would
+        // silently plan this statement against a version it never observed, so
+        // that is refused here by name rather than left to surface as an
+        // anonymous `IDEMPOTENCY_CONFLICT` from the kernel's byte comparison.
         let batch_scope = eg_types::mutation_batch::MutationScopeIdentity::fixed_native(
             &tenant_scope,
             eg_types::mutation_batch::MutationDomain::SqlCatalog,
@@ -5481,6 +5490,25 @@ async fn commit_sql_catalog_txn(
         )?;
         let expected_version = match store.mutation_batch(&batch_scope, &batch_id)? {
             Some(record) => {
+                let caller_actor = crate::server::mutation_batch::principal_fingerprint(
+                    caller.as_deref().ok_or_else(|| {
+                        "durable mutation authority requires a verified principal".to_string()
+                    })?,
+                )?;
+                let recorded_actor = record
+                    .batch
+                    .outbox
+                    .iter()
+                    .find_map(|intent| intent.headers.get("actor"))
+                    .ok_or_else(|| {
+                        "committed SQL MutationBatch carries no actor attribution".to_string()
+                    })?;
+                if recorded_actor != &caller_actor {
+                    return Err(
+                        "IDEMPOTENCY_CONFLICT: SQL batch identity is owned by another actor"
+                            .to_string(),
+                    );
+                }
                 let crate::mutation_batch::VersionExpectation::Native(version) =
                     record.batch.version_expectation
                 else {

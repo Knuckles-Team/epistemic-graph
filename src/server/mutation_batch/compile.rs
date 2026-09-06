@@ -467,6 +467,28 @@ fn finish_batch(
     Ok(batch)
 }
 
+/// Does this operation's ledger live in a kernel-owned owner store?
+///
+/// `MutationDomain::forbidden_in_graph_scope` answers it for every domain whose
+/// authoritative state has ALWAYS been its own store — plus `SqlCatalog`, which
+/// became one when RF-RULING-006 retired the SQL `TableStore`'s private
+/// `__sql_mutation_*__` ledger onto the mutation kernel. `OwnerLayout::Sql` now
+/// declares the SQL catalog's tables, so a compiled `SqlCatalog` batch is
+/// admitted through `eg_transaction::AdmittedMutation::owner_rows` exactly like
+/// a KV or blob batch and is refused unless `context.principal` is the file's
+/// bound serving principal.
+///
+/// It is NOT folded into `forbidden_in_graph_scope` itself: that predicate also
+/// drives `MutationBatch::validate`'s scope rule and `derive_compiled_methods_
+/// scope`'s refusal, and `SqlCatalog` genuinely is not forbidden in a graph
+/// scope — a SQL statement is compiled by `compile_opaque_method`, which already
+/// gives it a native scope through `requires_native_scope`. What changed is the
+/// LEDGER that commits it, which is the only question this module asks here.
+fn is_store_authoritative(operation: &MutationOperation) -> bool {
+    operation.domain.forbidden_in_graph_scope()
+        || operation.domain == MutationDomain::SqlCatalog
+}
+
 /// The principal the ledger that will commit `operations` requires — the one
 /// rule documented on [`CompileBatch`].
 ///
@@ -482,10 +504,7 @@ fn finish_batch(
 /// disagrees with its operations, so answering over the operation list gives the
 /// same answer as answering over the scope for every batch that can validate.
 fn ledger_principal(operations: &[MutationOperation], actor: &str) -> Result<String, String> {
-    if !operations
-        .iter()
-        .any(|operation| operation.domain.forbidden_in_graph_scope())
-    {
+    if !operations.iter().any(is_store_authoritative) {
         return Ok(actor.to_string());
     }
     // Every store-authoritative domain is reachable only under a feature that
