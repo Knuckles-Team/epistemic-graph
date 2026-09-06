@@ -54,8 +54,8 @@ use crate::epistemic_operations::{
 use crate::mutation_batch::{
     CommittedVersion, LogicalName, MutationBatch, MutationBatchCommit, MutationBatchRecord,
     MutationBatchStatus, MutationDomain, MutationOperation, MutationOutboxIntent,
-    MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationSurface,
-    VersionExpectation, MUTATION_BATCH_VERSION,
+    MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationScope,
+    MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use crate::protocol::{GraphType, Method};
 
@@ -370,10 +370,41 @@ fn decode_durable<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, Str
         .map_err(|_| "durable value is invalid or exceeds resource limits".to_string())
 }
 
-fn decode_mutation_batch_record(bytes: &[u8]) -> Result<MutationBatchRecord, String> {
+fn decode_mutation_batch_record(
+    bytes: &[u8],
+    expected_graph_fname: &str,
+    expected_batch_id: &str,
+) -> Result<MutationBatchRecord, String> {
     let record: MutationBatchRecord = decode_durable(bytes)?;
-    record.batch.validate()?;
+    record.validate()?;
+    validate_graph_mutation_record_binding(&record, expected_graph_fname, expected_batch_id)?;
     Ok(record)
+}
+
+fn validate_graph_mutation_record_binding(
+    record: &MutationBatchRecord,
+    expected_graph_fname: &str,
+    expected_batch_id: &str,
+) -> Result<(), String> {
+    let graph_name = match (
+        record.status,
+        record.identity.scope(),
+        record.committed_version,
+    ) {
+        (
+            MutationBatchStatus::Committed,
+            MutationScope::Graph { graph, .. },
+            CommittedVersion::Graph { .. },
+        ) => graph.as_str(),
+        _ => return Err("graph mutation store contains a non-graph committed record".to_string()),
+    };
+    if sanitize(graph_name) != expected_graph_fname {
+        return Err("graph mutation record does not match its requested graph route".to_string());
+    }
+    if record.batch.batch_id != expected_batch_id {
+        return Err("graph mutation record does not match its physical lookup key".to_string());
+    }
+    Ok(())
 }
 
 fn decode_mutation_outbox_record(bytes: &[u8]) -> Result<MutationOutboxRecord, String> {
@@ -392,6 +423,16 @@ fn decode_mutation_projection_cursor(bytes: &[u8]) -> Result<MutationProjectionC
         return Err("graph mutation store contains a non-graph projection cursor".to_string());
     }
     Ok(cursor)
+}
+
+fn validate_graph_mutation_record_sizes(plaintext: &[u8], stored: &[u8]) -> Result<(), String> {
+    if plaintext.len() > MAX_DURABLE_MSGPACK_BYTES {
+        return Err("graph mutation record exceeds durable resource limits".to_string());
+    }
+    if stored.len() > MAX_DURABLE_STORED_BYTES {
+        return Err("sealed graph mutation record exceeds durable resource limits".to_string());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1835,11 +1876,13 @@ fn apply_mutation_batch_in_wtx(
     // `wtx.commit()` / audit-tail writeback / AfterCommitBeforeAck) is owned by the
     // caller so the shared-transaction batch path can commit MANY applied envelopes
     // with ONE fsync. This function only stages rows into `wtx`.
-    Ok(MutationBatchCommit {
+    let commit = MutationBatchCommit {
         record,
         identity: batch.identity.clone(),
         replayed: false,
-    })
+    };
+    commit.validate()?;
+    Ok(commit)
 }
 
 fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bool {
@@ -2201,7 +2244,7 @@ fn check_idempotency_replay(
             )
         })?;
     let bytes = crypto.unseal(stored.value())?;
-    let record = decode_mutation_batch_record(&bytes)?;
+    let record = decode_mutation_batch_record(&bytes, graph_fname, &existing_id)?;
     if !mutation_batch_replay_matches(
         &record.batch,
         batch,
@@ -2224,11 +2267,13 @@ fn check_idempotency_replay(
     if let Some(change) = change {
         check_replay_envelope_matches(wtx, graph_fname, change, mutation_batch_graph_name(batch)?, crypto)?;
     }
-    Ok(Some(MutationBatchCommit {
+    let commit = MutationBatchCommit {
         record,
         identity: batch.identity.clone(),
         replayed: true,
-    }))
+    };
+    commit.validate()?;
+    Ok(Some(commit))
 }
 
 fn check_batch_id_uniqueness(wtx: &redb::WriteTransaction, batch_id: &str) -> Result<(), String> {
@@ -3497,7 +3542,7 @@ fn prepare_and_validate_mutation_batch(
     crossmodal_present: bool,
     crypto: DurableCrypto<'_>,
 ) -> Result<MutationBatchPrepareOutcome, String> {
-    batch.validate()?;
+    batch.validate_write_budget()?;
     let native_terminal_work_item_cas = compute_native_terminal_work_item_cas(batch);
     let staged_state = resolve_mutation_authoritative_state(batch, authoritative_state_msgpack)?;
     let integrity_policy_update = resolve_integrity_policy_update(staged_state.as_ref());
@@ -4387,8 +4432,10 @@ fn write_mutation_batch_commit_rows(
         result_msgpack: generated_result.or_else(|| result_msgpack.map(ToOwned::to_owned)),
         committed_at_ms,
     };
+    record.validate_write_budget()?;
     let record_bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
     let sealed_record = crypto.seal(&record_bytes);
+    validate_graph_mutation_record_sizes(&record_bytes, sealed_record.as_ref())?;
 
     let next_graph_version = mutation_batch_next_graph_version(batch, current_graph_version)?;
 
@@ -10648,20 +10695,37 @@ where
         .transpose()
 }
 
-/// Read one durable batch record from a snapshot.  Used by retry/recovery and by
-/// tests that close/reopen the database to model process death.
+/// Read one durable batch record from a requested graph snapshot. The decoded
+/// receipt must bind to that physical graph route before it is returned.
+pub(crate) fn read_mutation_batch_for_graph(
+    db: &Database,
+    graph_fname: &str,
+    batch_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<MutationBatchRecord>, String> {
+    read_typed_durable_row(db, MUTATION_BATCHES, batch_id, crypto, |bytes| {
+        decode_mutation_batch_record(bytes, graph_fname, batch_id)
+    })
+}
+
+/// Test-only fixture reader for typed-row tests that have no server route.
+#[cfg(test)]
 pub(crate) fn read_mutation_batch(
     db: &Database,
     batch_id: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<MutationBatchRecord>, String> {
-    read_typed_durable_row(
-        db,
-        MUTATION_BATCHES,
-        batch_id,
-        crypto,
-        decode_mutation_batch_record,
-    )
+    read_typed_durable_row(db, MUTATION_BATCHES, batch_id, crypto, |bytes| {
+        let record: MutationBatchRecord = decode_durable(bytes)?;
+        let graph_fname = record
+            .identity
+            .scope()
+            .graph_name()
+            .map(LogicalName::as_str)
+            .map(sanitize)
+            .ok_or_else(|| "graph mutation record is not graph-scoped".to_string())?;
+        decode_mutation_batch_record(bytes, &graph_fname, batch_id)
+    })
 }
 
 pub(crate) fn read_change_envelope(
@@ -10937,7 +11001,16 @@ fn load_ack_source_batch(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "outbox event has no committed mutation batch".to_string())?;
     let bytes = crypto.unseal(row.value())?;
-    let batch = decode_mutation_batch_record(&bytes)?;
+    let expected_graph_fname = lease
+        .record
+        .identity
+        .scope()
+        .graph_name()
+        .map(LogicalName::as_str)
+        .map(sanitize)
+        .ok_or_else(|| "outbox event is not graph-scoped".to_string())?;
+    let batch =
+        decode_mutation_batch_record(&bytes, &expected_graph_fname, &lease.record.batch_id)?;
     if !ack_source_batch_is_bound(&batch, lease) {
         return Err("outbox event is not bound to its committed mutation batch".to_string());
     }
@@ -16997,6 +17070,58 @@ mod mutation_batch_tests {
         }
     }
 
+    #[test]
+    fn graph_record_decoder_validates_the_complete_receipt() {
+        let batch = batch("decode-record", "decode-record-key");
+        let mut record = MutationBatchRecord {
+            identity: batch.identity.clone(),
+            batch,
+            status: MutationBatchStatus::Committed,
+            committed_version: CommittedVersion::Graph {
+                source: 3,
+                target: 4,
+            },
+            result_msgpack: None,
+            committed_at_ms: 101,
+        };
+        let encoded = rmp_serde::to_vec_named(&record).unwrap();
+        decode_mutation_batch_record(&encoded, "graph-a", "decode-record").unwrap();
+        assert!(decode_mutation_batch_record(&encoded, "graph-b", "decode-record").is_err());
+        assert!(decode_mutation_batch_record(&encoded, "graph-a", "moved-record").is_err());
+
+        for status in [MutationBatchStatus::Prepared, MutationBatchStatus::Aborted] {
+            record.status = status;
+            record.committed_version = CommittedVersion::None;
+            record.validate().unwrap();
+            let non_terminal = rmp_serde::to_vec_named(&record).unwrap();
+            assert!(
+                decode_mutation_batch_record(&non_terminal, "graph-a", "decode-record").is_err()
+            );
+        }
+
+        let native_identity = MutationScopeIdentity::native(
+            TenantId::new("tenant-a").unwrap(),
+            MutationDomain::SqlCatalog,
+            LogicalName::new("graph-a").unwrap(),
+            IncarnationId::new("incarnation:test:redb-store").unwrap(),
+        )
+        .unwrap();
+        record.batch.identity = native_identity.clone();
+        record.identity = native_identity;
+        record.batch.version_expectation = VersionExpectation::Native(3);
+        for operation in &mut record.batch.operations {
+            operation.domain = MutationDomain::SqlCatalog;
+        }
+        record.status = MutationBatchStatus::Committed;
+        record.committed_version = CommittedVersion::Native {
+            source: 3,
+            target: 4,
+        };
+        record.validate().unwrap();
+        let wrong_store = rmp_serde::to_vec_named(&record).unwrap();
+        assert!(decode_mutation_batch_record(&wrong_store, "graph-a", "decode-record").is_err());
+    }
+
     fn ready_work_item_method(work_item_id: &str, max_attempts: u64) -> Method {
         Method::AddNode {
             node_id: work_item_id.to_string(),
@@ -17123,6 +17248,25 @@ mod mutation_batch_tests {
         )
     }
 
+    fn commit_with_result(
+        db: &Database,
+        batch: &MutationBatch,
+        result: &[u8],
+    ) -> Result<MutationBatchCommit, String> {
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        commit_mutation_batch(
+            db,
+            "graph-a",
+            batch,
+            Some(result),
+            101,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+        )
+    }
+
     fn commit_crossmodal_at(
         db: &Database,
         batch: &MutationBatch,
@@ -17196,6 +17340,37 @@ mod mutation_batch_tests {
             assert_absent_after_reopen(&path, "batch-pre");
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    #[test]
+    fn mutation_batch_write_budgets_leave_no_graph_or_receipt_effects() {
+        let oversized_path = temp_path("oversized-result");
+        {
+            let db = open(&oversized_path);
+            let mutation = batch("batch-oversized-result", "idem-oversized-result");
+            let result = vec![0; (64 * 1024 * 1024) + 1];
+            assert!(commit_with_result(&db, &mutation, &result).is_err());
+            assert_eq!(
+                read_mutation_graph_version(&db, "graph-a").unwrap(),
+                Some(3)
+            );
+        }
+        assert_absent_after_reopen(&oversized_path, "batch-oversized-result");
+        let _ = std::fs::remove_file(oversized_path);
+
+        let collection_path = temp_path("excessive-collection");
+        {
+            let db = open(&collection_path);
+            let mut mutation = batch("batch-excessive-collection", "idem-excessive-collection");
+            mutation.outbox = vec![mutation.outbox[0].clone(); 100_001];
+            assert!(commit_at(&db, &mutation, None).is_err());
+            assert_eq!(
+                read_mutation_graph_version(&db, "graph-a").unwrap(),
+                Some(3)
+            );
+        }
+        assert_absent_after_reopen(&collection_path, "batch-excessive-collection");
+        let _ = std::fs::remove_file(collection_path);
     }
 
     #[test]

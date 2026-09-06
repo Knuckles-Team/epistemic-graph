@@ -74,7 +74,7 @@ use crate::redb_store::{
     read_change_cursor as read_change_cursor_record,
     read_change_envelope as read_change_envelope_record,
     read_content_version as read_content_version_record, read_graph_dump,
-    read_mutation_batch as read_mutation_batch_record,
+    read_mutation_batch_for_graph as read_mutation_batch_record,
     read_mutation_graph_version as read_mutation_graph_version_record,
     read_mutation_lifecycle_head as read_mutation_lifecycle_head_record,
     read_mutation_outbox as read_mutation_outbox_records,
@@ -2816,8 +2816,9 @@ impl PersistenceBackend for RedbBackend {
         batch_id: &str,
     ) -> Result<Option<MutationBatchRecord>, String> {
         let batch_id = batch_id.to_owned();
+        let requested_graph = graph_fname.to_owned();
         self.read_snapshot(graph_fname, move |db, crypto| {
-            read_mutation_batch_record(db, &batch_id, crypto)
+            read_mutation_batch_record(db, &requested_graph, &batch_id, crypto)
         })
         .await
     }

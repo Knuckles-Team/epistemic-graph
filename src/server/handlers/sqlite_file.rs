@@ -195,7 +195,7 @@ fn import_sqlite_lifecycle(
             crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
         let batch = compile_import_batch(&store, req_id, authority, method, now)?;
         if let Some(record) = store.mutation_batch(&batch.batch_id)? {
-            if !same_import_identity(&batch, &record.batch) {
+            if !store.mutation_batch_replay_matches(&record.batch, &batch)? {
                 return Err(
                     "IDEMPOTENCY_CONFLICT: SQLite import request identity changed".to_string(),
                 );
@@ -274,22 +274,6 @@ fn compile_import_batch(
     Ok(batch)
 }
 
-fn same_import_identity(proposed: &MutationBatch, stored: &MutationBatch) -> bool {
-    proposed.batch_id == stored.batch_id
-        && proposed.context.principal == stored.context.principal
-        && proposed.identity == stored.identity
-        && serialized_import_operations_match(proposed, stored)
-}
-
-fn serialized_import_operations_match(proposed: &MutationBatch, stored: &MutationBatch) -> bool {
-    match (
-        rmp_serde::to_vec_named(&proposed.operations),
-        rmp_serde::to_vec_named(&stored.operations),
-    ) {
-        (Ok(proposed), Ok(stored)) => proposed == stored,
-        _ => false,
-    }
-}
 
 /// Register ownership from the durable result on both the fresh-commit and replay
 /// paths. Registration is idempotent, so a retry repairs a crash or failure that

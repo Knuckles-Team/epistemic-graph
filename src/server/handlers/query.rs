@@ -5405,10 +5405,10 @@ async fn commit_sql_catalog_txn(
         // the result without applying `txn` again.
         let expected_version = match store.mutation_batch(&batch_id)? {
             Some(record) => {
-                let crate::mutation_batch::VersionExpectation::Graph(version) =
+                let crate::mutation_batch::VersionExpectation::Native(version) =
                     record.batch.version_expectation
                 else {
-                    return Err("committed SQL MutationBatch has no OCC version".to_string());
+                    return Err("committed SQL MutationBatch has no native OCC version".to_string());
                 };
                 version
             }

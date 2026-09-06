@@ -1884,9 +1884,11 @@ where
     };
 
     let fname = crate::persist::sanitize(ctx.graph_name);
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
+    let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
         "rpc",
+        ctx.tenant_scope,
         ctx.graph_name,
+        ctx.caller,
         ctx.req_id,
         method,
     );
@@ -1895,7 +1897,7 @@ where
     // projection from authority and returns the exact stored result. No handler is
     // re-executed and no duplicate outbox row is produced.
     if let Some(response) =
-        commit_mutation_body_replay_check(ctx, persistence, &fname, &batch_id, &prep).await
+        commit_mutation_body_replay_check(ctx, method, persistence, &fname, &batch_id, &prep).await
     {
         return response;
     }
@@ -1946,15 +1948,25 @@ where
 /// to actually apply the mutation.
 async fn commit_mutation_body_replay_check(
     ctx: &MutationCtx<'_>,
+    method: &Method,
     persistence: &Arc<dyn PersistenceBackend>,
     fname: &str,
     batch_id: &str,
     prep: &CommitPrep,
 ) -> Option<Response> {
     match persistence.read_mutation_batch(fname, batch_id).await {
-        Ok(Some(record)) => {
-            Some(commit_mutation_body_replay_response(ctx, persistence, fname, record, prep).await)
-        }
+        Ok(Some(record)) => Some(
+            validated_commit_mutation_body_replay_response(
+                ctx,
+                method,
+                persistence,
+                fname,
+                batch_id,
+                record,
+                prep,
+            )
+            .await,
+        ),
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
@@ -1963,9 +1975,82 @@ async fn commit_mutation_body_replay_check(
     }
 }
 
+fn validate_graph_replay_request(
+    ctx: &MutationCtx<'_>,
+    method: &Method,
+    batch_id: &str,
+    default_surface: crate::mutation_batch::MutationSurface,
+    record: &eg_types::mutation_batch::MutationBatchRecord,
+) -> Result<(), String> {
+    record.validate()?;
+    let expected_graph_version = match record.batch.version_expectation {
+        crate::mutation_batch::VersionExpectation::Graph(version) => version,
+        _ => return Err("graph replay has a non-graph version expectation".to_string()),
+    };
+    let expected = crate::server::mutation_batch::compile_methods(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id,
+            request_id: ctx.req_id,
+            principal: ctx.caller,
+            tenant: ctx.tenant_scope,
+            graph: ctx.graph_name,
+            placement_epoch: 0,
+            idempotency_key: batch_id,
+            expected_graph_version: Some(expected_graph_version),
+            fencing_token: None,
+            created_at_ms: record.batch.created_at_ms,
+            default_surface,
+            authoritative_state: record.batch.authoritative_state.clone(),
+        },
+        vec![method.clone()],
+    )?;
+    let stored = rmp_serde::to_vec_named(&record.batch).map_err(|error| error.to_string())?;
+    let expected = rmp_serde::to_vec_named(&expected).map_err(|error| error.to_string())?;
+    if stored != expected {
+        return Err("record does not match the current request envelope".to_string());
+    }
+    Ok(())
+}
+
 /// Reconcile the serving projection to the already-committed `record` and decode
 /// its durable result — the found-a-replay half of
 /// [`commit_mutation_body_replay_check`].
+async fn validated_commit_mutation_body_replay_response(
+    ctx: &MutationCtx<'_>,
+    method: &Method,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    record: eg_types::mutation_batch::MutationBatchRecord,
+    prep: &CommitPrep,
+) -> Response {
+    let replay_method = ordinary_replay_method(&record, method);
+    if let Err(error) = validate_graph_replay_request(
+        ctx,
+        &replay_method,
+        batch_id,
+        crate::mutation_batch::MutationSurface::Graph,
+        &record,
+    ) {
+        return Response::err(
+            ctx.req_id,
+            format!("committed MutationBatch replay mismatch: {error}"),
+        );
+    }
+    commit_mutation_body_replay_response(ctx, persistence, fname, record, prep).await
+}
+
+fn ordinary_replay_method(
+    record: &eg_types::mutation_batch::MutationBatchRecord,
+    method: &Method,
+) -> Method {
+    if record.batch.authoritative_state.is_some() {
+        durable_receipt_method(method)
+    } else {
+        method.clone()
+    }
+}
+
 async fn commit_mutation_body_replay_response(
     ctx: &MutationCtx<'_>,
     persistence: &Arc<dyn PersistenceBackend>,
@@ -2705,14 +2790,16 @@ where
     };
 
     let fname = crate::persist::sanitize(ctx.graph_name);
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
+    let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
         "rpc-async",
+        ctx.tenant_scope,
         ctx.graph_name,
+        ctx.caller,
         ctx.req_id,
         method,
     );
     if let Some(response) =
-        commit_conditional_replay_check(ctx, persistence, &fname, &batch_id, &prep).await
+        commit_conditional_replay_check(ctx, method, persistence, &fname, &batch_id, &prep).await
     {
         return response;
     }
@@ -2768,15 +2855,25 @@ where
 /// batch exists.
 async fn commit_conditional_replay_check(
     ctx: &MutationCtx<'_>,
+    method: &Method,
     persistence: &Arc<dyn PersistenceBackend>,
     fname: &str,
     batch_id: &str,
     prep: &CommitPrep,
 ) -> Option<Response> {
     match persistence.read_mutation_batch(fname, batch_id).await {
-        Ok(Some(record)) => {
-            Some(commit_conditional_replay_response(ctx, persistence, fname, record, prep).await)
-        }
+        Ok(Some(record)) => Some(
+            validated_commit_conditional_replay_response(
+                ctx,
+                method,
+                persistence,
+                fname,
+                batch_id,
+                record,
+                prep,
+            )
+            .await,
+        ),
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
@@ -2788,6 +2885,31 @@ async fn commit_conditional_replay_check(
 /// Reconcile the serving projection to the already-committed `record` and decode
 /// its durable result — the found-a-replay half of
 /// [`commit_conditional_replay_check`].
+async fn validated_commit_conditional_replay_response(
+    ctx: &MutationCtx<'_>,
+    method: &Method,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    record: eg_types::mutation_batch::MutationBatchRecord,
+    prep: &CommitPrep,
+) -> Response {
+    let default_surface = if is_rdf_gateway_method(method) {
+        crate::mutation_batch::MutationSurface::Rdf
+    } else {
+        crate::mutation_batch::MutationSurface::Query
+    };
+    if let Err(error) =
+        validate_graph_replay_request(ctx, method, batch_id, default_surface, &record)
+    {
+        return Response::err(
+            ctx.req_id,
+            format!("committed MutationBatch replay mismatch: {error}"),
+        );
+    }
+    commit_conditional_replay_response(ctx, persistence, fname, record, prep).await
+}
+
 async fn commit_conditional_replay_response(
     ctx: &MutationCtx<'_>,
     persistence: &Arc<dyn PersistenceBackend>,
@@ -3095,6 +3217,195 @@ mod tests {
             operations_msgpack: vec![0xc1],
         };
         assert!(prepublish_success(&core, &malformed).is_none());
+    }
+
+    #[test]
+    fn graph_replay_is_bound_to_the_authenticated_request_envelope() {
+        let isolation = isolation_with_system_agent();
+        let core = Arc::new(GraphCore::new());
+        let method = Method::RemoveNode {
+            node_id: "node-a".to_string(),
+        };
+        let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
+            "rpc",
+            "tenant-a",
+            "graph-a",
+            Some("system-agent"),
+            7,
+            &method,
+        );
+        let batch = crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &batch_id,
+                request_id: 7,
+                principal: Some("system-agent"),
+                tenant: "tenant-a",
+                graph: "graph-a",
+                placement_epoch: 0,
+                idempotency_key: &batch_id,
+                expected_graph_version: Some(3),
+                fencing_token: None,
+                created_at_ms: 11,
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            vec![method.clone()],
+        )
+        .unwrap();
+        let record = eg_types::mutation_batch::MutationBatchRecord {
+            identity: batch.identity.clone(),
+            batch,
+            status: crate::mutation_batch::MutationBatchStatus::Committed,
+            committed_version: crate::mutation_batch::CommittedVersion::Graph {
+                source: 3,
+                target: 4,
+            },
+            result_msgpack: Some(vec![1]),
+            committed_at_ms: 12,
+        };
+        let ctx = MutationCtx {
+            req_id: 7,
+            caller: Some("system-agent"),
+            tenant_scope: "tenant-a",
+            graph_name: "graph-a",
+            graph_type: GraphType::Commons,
+            owner: None,
+            isolation: &isolation,
+            core: &core,
+            persistence: None,
+            #[cfg(feature = "streaming")]
+            cdc: None,
+            materialization_manifest: None,
+            write_coalescer: None,
+        };
+        assert!(validate_graph_replay_request(
+            &ctx,
+            &method,
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_ok());
+
+        let other_principal_key = crate::server::mutation_batch::opaque_request_key_for_context(
+            "rpc",
+            "tenant-a",
+            "graph-a",
+            Some("other-agent"),
+            7,
+            &method,
+        );
+        assert_ne!(batch_id, other_principal_key);
+        let mut other = ctx;
+        other.caller = Some("other-agent");
+        assert!(validate_graph_replay_request(
+            &other,
+            &method,
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_err());
+        other.caller = Some("system-agent");
+        other.tenant_scope = "tenant-b";
+        assert!(validate_graph_replay_request(
+            &other,
+            &method,
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_err());
+    }
+
+    #[cfg(feature = "modality-serving")]
+    #[test]
+    fn ordinary_staged_replay_reuses_the_durable_modality_receipt() {
+        let isolation = isolation_with_system_agent();
+        let core = Arc::new(GraphCore::new());
+        let method = Method::ServedModality {
+            op: eg_types::ServedModalityOp::Delete {
+                modality: eg_types::ServedModalityKind::Document,
+                idempotency_ref: "delete-a".to_string(),
+                occurrence_id: "occurrence-a".to_string(),
+                expected_version: 3,
+            },
+        };
+        let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
+            "rpc",
+            "tenant-a",
+            "graph-a",
+            Some("system-agent"),
+            7,
+            &method,
+        );
+        let descriptor = crate::mutation_batch::MutationStateDescriptor {
+            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            digest: "0".repeat(64),
+            source_graph_version: 3,
+            target_graph_version: 4,
+        };
+        let batch = crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &batch_id,
+                request_id: 7,
+                principal: Some("system-agent"),
+                tenant: "tenant-a",
+                graph: "graph-a",
+                placement_epoch: 0,
+                idempotency_key: &batch_id,
+                expected_graph_version: Some(3),
+                fencing_token: None,
+                created_at_ms: 11,
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: Some(descriptor),
+            },
+            vec![durable_receipt_method(&method)],
+        )
+        .unwrap();
+        let record = eg_types::mutation_batch::MutationBatchRecord {
+            identity: batch.identity.clone(),
+            batch,
+            status: crate::mutation_batch::MutationBatchStatus::Committed,
+            committed_version: crate::mutation_batch::CommittedVersion::Graph {
+                source: 3,
+                target: 4,
+            },
+            result_msgpack: Some(vec![1]),
+            committed_at_ms: 12,
+        };
+        let ctx = MutationCtx {
+            req_id: 7,
+            caller: Some("system-agent"),
+            tenant_scope: "tenant-a",
+            graph_name: "graph-a",
+            graph_type: GraphType::Commons,
+            owner: None,
+            isolation: &isolation,
+            core: &core,
+            persistence: None,
+            #[cfg(feature = "streaming")]
+            cdc: None,
+            materialization_manifest: None,
+            write_coalescer: None,
+        };
+
+        assert!(validate_graph_replay_request(
+            &ctx,
+            &ordinary_replay_method(&record, &method),
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_ok());
+        assert!(validate_graph_replay_request(
+            &ctx,
+            &method,
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_err());
     }
 
     /// (a) A GATEWAY_ROUTED, audited+CDC-emitting mutation (`AddNode`) produces a
@@ -3785,8 +4096,14 @@ mod tests {
         );
 
         let fname = crate::persist::sanitize(graph_name);
-        let batch_id =
-            crate::server::mutation_batch::opaque_request_key("rpc", graph_name, 11, &method);
+        let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
+            "rpc",
+            "opaque-test-tenant",
+            graph_name,
+            Some("system-agent"),
+            11,
+            &method,
+        );
         let record = persistence
             .read_mutation_batch(&fname, &batch_id)
             .await

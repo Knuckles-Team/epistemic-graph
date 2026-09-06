@@ -2,16 +2,17 @@
 
 use std::sync::{Arc, OnceLock};
 
+use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::change_envelope::ChangeEnvelope;
 use crate::graph::GraphCore;
-use crate::mutation_batch::{LogicalName, MutationStateDescriptor, MutationSurface};
+use crate::mutation_batch::{MutationBatch, MutationStateDescriptor, MutationSurface};
 use crate::protocol::{Method, ResultPayload};
 use crate::server::persistence::PersistenceBackend;
 
 use super::compile::{authoritative_graph_version, compile_methods, CompileBatch};
-use super::digest::{lifecycle_batch_id, principal_fingerprint, work_item_batch_identity};
+use super::digest::{lifecycle_batch_id, work_item_batch_identity};
 
 /// One deterministic async serialization lane for each logical graph. Transaction
 /// Commit and the ordinary mutation gateway both acquire it, so OCC validation
@@ -53,64 +54,36 @@ pub(crate) async fn commit_internal_graph_methods(
     })?;
     let _guard = lock_graph(graph).await;
     let fname = crate::persist::sanitize(graph);
-    let expected_principal = principal_fingerprint(
-        principal
-            .ok_or_else(|| "internal graph write requires a verified principal".to_string())?,
-    )?;
+    let principal = principal
+        .ok_or_else(|| "internal graph write requires a verified principal".to_string())?;
 
     if let Some(record) = persistence.read_mutation_batch(&fname, batch_id).await? {
-        use sha2::{Digest, Sha256};
-        let operations_match = record.batch.operations.len() == methods.len()
-            && record
-                .batch
-                .operations
-                .iter()
-                .zip(methods.iter())
-                .enumerate()
-                .all(|(ordinal, (operation, method))| {
-                    let encoded = rmp_serde::to_vec_named(method).ok();
-                    let expected = encoded
-                        .map(|bytes| format!("sha256:{}", hex::encode(Sha256::digest(bytes))));
-                    operation.ordinal == ordinal as u32
-                        && matches!(
-                            &operation.method,
-                            Method::ApplyMutation { event_type, query }
-                                if event_type == "authoritative_state_operation"
-                                    && expected.as_deref() == Some(query.as_str())
-                        )
-                });
-        if record.status != crate::mutation_batch::MutationBatchStatus::Committed
-            || record.batch.batch_id != batch_id
-            || record
-                .batch
-                .identity
-                .scope()
-                .graph_name()
-                .map(LogicalName::as_str)
-                != Some(graph)
-            || record.batch.identity.tenant().as_str() != graph
-            || record.batch.context.principal != expected_principal
-            || !operations_match
-        {
-            return Err("internal child receipt does not match its parent scope".to_string());
+        let descriptor = record
+            .batch
+            .authoritative_state
+            .clone()
+            .ok_or_else(|| "internal child receipt has no authoritative state".to_string())?;
+        let expected_batch =
+            rebuild_internal_replay_batch(&record.batch, principal, graph, batch_id, methods)?;
+        if !same_internal_replay_batch(&record.batch, &expected_batch)? {
+            return Err("internal child receipt does not match its expected envelope".to_string());
         }
         let expected_result = rmp_serde::to_vec_named(result).map_err(|error| error.to_string())?;
         if record.result_msgpack.as_deref() != Some(expected_result.as_slice()) {
             return Err("internal child receipt has a conflicting terminal result".to_string());
         }
+        let committed = crate::mutation_batch::MutationBatchCommit {
+            identity: record.identity.clone(),
+            record,
+            replayed: true,
+        };
+        committed.validate()?;
         let (snapshot, version) = persistence
             .read_authoritative_graph_snapshot(&fname)
             .await?
             .ok_or_else(|| "committed internal graph image is missing".to_string())?;
-        core.install_committed_snapshot(snapshot, version)?;
-        // `MutationBatchCommit.identity` is a new v1 field: a self-checking
-        // envelope copy that must equal `record.identity` (see its doc comment
-        // in `crates/eg-types/src/mutation_batch/model/records.rs`).
-        return Ok(crate::mutation_batch::MutationBatchCommit {
-            identity: record.identity.clone(),
-            record,
-            replayed: true,
-        });
+        install_validated_internal_replay_snapshot(core, snapshot, version, &descriptor)?;
+        return Ok(committed);
     }
 
     let (base_snapshot, source_version) = match persistence
@@ -132,7 +105,6 @@ pub(crate) async fn commit_internal_graph_methods(
     let row_delta =
         crate::graph_delta::GraphRowDelta::between(&base_snapshot_for_delta, &staged_snapshot)?;
     let state_msgpack = row_delta.to_msgpack()?;
-    use sha2::{Digest, Sha256};
     let target_graph_version = source_version
         .checked_add(1)
         .ok_or_else(|| "authoritative graph version overflow".to_string())?;
@@ -147,7 +119,7 @@ pub(crate) async fn commit_internal_graph_methods(
         CompileBatch {
             batch_id,
             request_id,
-            principal,
+            principal: Some(principal),
             tenant: graph,
             graph,
             placement_epoch: 0,
@@ -156,7 +128,7 @@ pub(crate) async fn commit_internal_graph_methods(
             fencing_token: None,
             created_at_ms,
             default_surface: MutationSurface::Job,
-            authoritative_state: Some(descriptor),
+            authoritative_state: Some(descriptor.clone()),
         },
         methods,
     )?;
@@ -179,12 +151,13 @@ pub(crate) async fn commit_internal_graph_methods(
             true,
         )
         .await?;
+    committed.validate()?;
     if committed.replayed {
         let (snapshot, version) = persistence
             .read_authoritative_graph_snapshot(&fname)
             .await?
             .ok_or_else(|| "committed internal graph image is missing".to_string())?;
-        core.install_committed_snapshot(snapshot, version)?;
+        install_validated_internal_replay_snapshot(core, snapshot, version, &descriptor)?;
     } else {
         crate::server::mutation::publish_committed_row_delta(
             persistence,
@@ -201,6 +174,81 @@ pub(crate) async fn commit_internal_graph_methods(
         }
     }
     Ok(committed)
+}
+
+fn same_internal_replay_batch(
+    stored: &MutationBatch,
+    expected: &MutationBatch,
+) -> Result<bool, String> {
+    let stored = rmp_serde::to_vec_named(stored).map_err(|e| e.to_string())?;
+    let expected = rmp_serde::to_vec_named(expected).map_err(|e| e.to_string())?;
+    Ok(stored == expected)
+}
+
+fn rebuild_internal_replay_batch(
+    stored: &MutationBatch,
+    principal: &str,
+    graph: &str,
+    batch_id: &str,
+    methods: Vec<Method>,
+) -> Result<MutationBatch, String> {
+    let descriptor = stored
+        .authoritative_state
+        .clone()
+        .ok_or_else(|| "internal child receipt has no authoritative state".to_string())?;
+    compile_methods(
+        CompileBatch {
+            batch_id,
+            request_id: stored.context.request_id,
+            principal: Some(principal),
+            tenant: graph,
+            graph,
+            placement_epoch: 0,
+            idempotency_key: batch_id,
+            expected_graph_version: Some(descriptor.source_graph_version),
+            fencing_token: None,
+            created_at_ms: stored.created_at_ms,
+            default_surface: MutationSurface::Job,
+            authoritative_state: Some(descriptor),
+        },
+        methods,
+    )
+}
+
+fn install_validated_internal_replay_snapshot(
+    core: &GraphCore,
+    snapshot: crate::graph::GraphSnapshot,
+    version: u64,
+    descriptor: &MutationStateDescriptor,
+) -> Result<(), String> {
+    if descriptor.algorithm != crate::graph_delta::ROW_DELTA_ALGORITHM
+        || version != descriptor.target_graph_version
+    {
+        return Err(
+            "committed internal graph image does not match its state transition".to_string(),
+        );
+    }
+    match core.version() {
+        current if current == descriptor.source_graph_version => {
+            let delta = crate::graph_delta::GraphRowDelta::between(&core.snapshot(), &snapshot)?;
+            let bytes = delta.to_msgpack()?;
+            if hex::encode(Sha256::digest(bytes)) != descriptor.digest {
+                return Err(
+                    "committed internal graph image does not match its state digest".to_string(),
+                );
+            }
+            core.install_committed_snapshot(snapshot, version)
+        }
+        current if current == descriptor.target_graph_version => {
+            let serving = core.snapshot().to_msgpack()?;
+            let durable = snapshot.to_msgpack()?;
+            if Sha256::digest(serving) != Sha256::digest(durable) {
+                return Err("serving graph image differs from its committed replay".to_string());
+            }
+            Ok(())
+        }
+        _ => Err("serving graph version cannot accept the committed replay".to_string()),
+    }
 }
 
 fn apply_projectable_method(core: &GraphCore, method: &Method) -> Result<(), String> {
@@ -679,4 +727,113 @@ pub(crate) async fn lifecycle_was_committed(
         .await?
         .as_deref()
         == Some(batch_id.as_str()))
+}
+
+#[cfg(test)]
+mod internal_replay_tests {
+    use super::*;
+
+    #[test]
+    fn internal_replay_requires_the_exact_compiled_batch() {
+        let descriptor = MutationStateDescriptor {
+            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            digest: "0".repeat(64),
+            source_graph_version: 3,
+            target_graph_version: 4,
+        };
+        let methods = vec![Method::RemoveNode {
+            node_id: "node-a".to_string(),
+        }];
+        let batch = compile_methods(
+            CompileBatch {
+                batch_id: "internal-replay",
+                request_id: 7,
+                principal: Some("caller-a"),
+                tenant: "graph-a",
+                graph: "graph-a",
+                placement_epoch: 0,
+                idempotency_key: "internal-replay",
+                expected_graph_version: Some(3),
+                fencing_token: None,
+                created_at_ms: 11,
+                default_surface: MutationSurface::Job,
+                authoritative_state: Some(descriptor),
+            },
+            methods.clone(),
+        )
+        .unwrap();
+        assert!(same_internal_replay_batch(&batch, &batch).unwrap());
+
+        let changed_transport_request_id = 19;
+        assert_ne!(changed_transport_request_id, batch.context.request_id);
+        let rebuilt = rebuild_internal_replay_batch(
+            &batch,
+            "caller-a",
+            "graph-a",
+            "internal-replay",
+            methods,
+        )
+        .unwrap();
+        assert_eq!(rebuilt.context.request_id, 7);
+        assert!(same_internal_replay_batch(&batch, &rebuilt).unwrap());
+
+        let mut changed = batch.clone();
+        changed.idempotency_key = "different".to_string();
+        assert!(!same_internal_replay_batch(&batch, &changed).unwrap());
+
+        let mut changed = batch.clone();
+        changed.context.purpose = Some("different".to_string());
+        assert!(!same_internal_replay_batch(&batch, &changed).unwrap());
+
+        let mut changed = batch.clone();
+        changed.outbox.clear();
+        assert!(!same_internal_replay_batch(&batch, &changed).unwrap());
+    }
+
+    #[test]
+    fn internal_replay_snapshot_is_digest_and_version_bound_before_install() {
+        let empty = GraphCore::new().snapshot();
+        let serving = GraphCore::from_snapshot(empty.clone(), 3).unwrap();
+        let staged = GraphCore::from_snapshot(empty, 3).unwrap();
+        apply_projectable_method(
+            &staged,
+            &Method::AddNode {
+                node_id: "node-a".to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": 1}))
+                    .unwrap(),
+            },
+        )
+        .unwrap();
+        let snapshot = staged.snapshot();
+        let delta =
+            crate::graph_delta::GraphRowDelta::between(&serving.snapshot(), &snapshot).unwrap();
+        let descriptor = MutationStateDescriptor {
+            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            digest: hex::encode(Sha256::digest(delta.to_msgpack().unwrap())),
+            source_graph_version: 3,
+            target_graph_version: 4,
+        };
+
+        let mut wrong_digest = descriptor.clone();
+        wrong_digest.digest = "0".repeat(64);
+        assert!(install_validated_internal_replay_snapshot(
+            &serving,
+            snapshot.clone(),
+            4,
+            &wrong_digest,
+        )
+        .is_err());
+        assert_eq!(serving.version(), 3);
+        assert!(install_validated_internal_replay_snapshot(
+            &serving,
+            snapshot.clone(),
+            5,
+            &descriptor,
+        )
+        .is_err());
+        assert_eq!(serving.version(), 3);
+
+        install_validated_internal_replay_snapshot(&serving, snapshot, 4, &descriptor).unwrap();
+        assert_eq!(serving.version(), 4);
+    }
 }

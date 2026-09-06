@@ -297,8 +297,12 @@ impl MutationProjectionCursor {
 
 impl MutationBatchCommit {
     pub fn validate(&self) -> Result<(), String> {
+        self.record.validate()?;
         self.validate_identity()?;
-        self.record.validate()
+        if self.record.status != MutationBatchStatus::Committed {
+            return Err("mutation commit envelope must contain a committed receipt".to_string());
+        }
+        Ok(())
     }
 }
 
@@ -355,5 +359,99 @@ fn validate_committed_scope(
         Err(format!(
             "mutation {record_name} committed version does not match its typed scope"
         ))
+    }
+}
+
+#[cfg(test)]
+mod commit_tests {
+    use std::collections::BTreeSet;
+
+    use crate::protocol::Method;
+
+    use super::*;
+
+    fn graph_batch(identity: MutationScopeIdentity) -> MutationBatch {
+        MutationBatch {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: "commit-validation".to_string(),
+            context: MutationRequestContext {
+                request_id: 7,
+                principal: format!("principal:sha256:{}", "a".repeat(64)),
+                purpose: None,
+                policy_fingerprint: None,
+                trace_id: None,
+                verified_capabilities: BTreeSet::new(),
+            },
+            identity,
+            placement_epoch: 0,
+            idempotency_key: "commit-validation-key".to_string(),
+            version_expectation: VersionExpectation::Graph(4),
+            fencing_token: None,
+            authoritative_state: None,
+            operations: vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Graph,
+                domain: MutationDomain::GraphRows,
+                method: Method::RemoveNode {
+                    node_id: "node-a".to_string(),
+                },
+            }],
+            outbox: Vec::new(),
+            created_at_ms: 10,
+        }
+    }
+
+    fn graph_commit(status: MutationBatchStatus) -> MutationBatchCommit {
+        let identity = MutationScopeIdentity::graph(
+            TenantId::new("tenant-a").unwrap(),
+            LogicalName::new("graph-a").unwrap(),
+            IncarnationId::new("incarnation:commit-validation").unwrap(),
+        );
+        MutationBatchCommit {
+            record: MutationBatchRecord {
+                batch: graph_batch(identity.clone()),
+                identity: identity.clone(),
+                status,
+                committed_version: if status == MutationBatchStatus::Committed {
+                    CommittedVersion::Graph {
+                        source: 4,
+                        target: 5,
+                    }
+                } else {
+                    CommittedVersion::None
+                },
+                result_msgpack: None,
+                committed_at_ms: 11,
+            },
+            identity,
+            replayed: false,
+        }
+    }
+
+    #[test]
+    fn commit_envelope_requires_a_complete_committed_record() {
+        graph_commit(MutationBatchStatus::Committed)
+            .validate()
+            .unwrap();
+
+        for status in [MutationBatchStatus::Prepared, MutationBatchStatus::Aborted] {
+            let error = graph_commit(status).validate().unwrap_err();
+            assert!(error.contains("must contain a committed receipt"));
+        }
+
+        let mut wrong_version = graph_commit(MutationBatchStatus::Committed);
+        wrong_version.record.committed_version = CommittedVersion::Native {
+            source: 4,
+            target: 5,
+        };
+        assert!(wrong_version.validate().is_err());
+
+        let mut wrong_identity = graph_commit(MutationBatchStatus::Committed);
+        wrong_identity.identity = MutationScopeIdentity::graph(
+            TenantId::new("tenant-b").unwrap(),
+            LogicalName::new("graph-a").unwrap(),
+            IncarnationId::new("incarnation:commit-validation").unwrap(),
+        );
+        assert!(wrong_identity.validate().is_err());
     }
 }

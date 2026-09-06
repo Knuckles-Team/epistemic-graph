@@ -200,10 +200,41 @@ fn decode_stored<T: serde::de::DeserializeOwned>(
     .map_err(|_| format!("stored SQL {kind} is invalid or exceeds resource limits"))
 }
 
-fn decode_mutation_record(bytes: &[u8]) -> Result<MutationBatchRecord, String> {
+fn decode_mutation_record(
+    bytes: &[u8],
+    expected_batch_id: &str,
+) -> Result<MutationBatchRecord, String> {
     let record: MutationBatchRecord = decode_stored(bytes, "mutation record")?;
-    record.batch.validate()?;
+    record.validate()?;
+    validate_sql_mutation_record_binding(&record, expected_batch_id)?;
     Ok(record)
+}
+
+fn validate_sql_mutation_record_binding(
+    record: &MutationBatchRecord,
+    expected_batch_id: &str,
+) -> Result<(), String> {
+    match (
+        record.status,
+        record.identity.scope(),
+        record.committed_version,
+    ) {
+        (
+            MutationBatchStatus::Committed,
+            MutationScope::Native {
+                domain: MutationDomain::SqlCatalog,
+                ..
+            },
+            CommittedVersion::Native { .. },
+        ) => {}
+        _ => {
+            return Err("SQL mutation store contains a non-SqlCatalog committed record".to_string())
+        }
+    }
+    if record.batch.batch_id != expected_batch_id {
+        return Err("SQL mutation record does not match its physical lookup key".to_string());
+    }
+    Ok(())
 }
 
 fn decode_mutation_outbox(bytes: &[u8]) -> Result<MutationOutboxRecord, String> {
@@ -213,6 +244,13 @@ fn decode_mutation_outbox(bytes: &[u8]) -> Result<MutationOutboxRecord, String> 
         return Err("SQL mutation store contains a graph-scoped outbox record".to_string());
     }
     Ok(record)
+}
+
+fn validate_sql_mutation_record_size(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() > MAX_SQL_STORED_VALUE_BYTES {
+        return Err("SQL mutation record exceeds durable resource limits".to_string());
+    }
+    Ok(())
 }
 
 /// The `(tenant, resource)` version-key pair every SQL-domain mutation batch is
@@ -2011,7 +2049,7 @@ impl TableStore {
         crashpoint: Option<SqlMutationCrashpoint>,
         result_override: Option<Vec<u8>>,
     ) -> Result<MutationBatchCommit, String> {
-        batch.validate()?;
+        batch.validate_write_budget()?;
         verify_batch_is_sql_catalog_only(batch)?;
         let wtx = self.begin()?;
 
@@ -2046,6 +2084,13 @@ impl TableStore {
                 affected,
                 current_version,
             )?;
+        let identity = record.identity.clone();
+        let commit = MutationBatchCommit {
+            record,
+            identity,
+            replayed: false,
+        };
+        commit.validate()?;
         write_mutation_commit_tables_in(
             &wtx,
             batch,
@@ -2057,12 +2102,7 @@ impl TableStore {
         )?;
 
         commit_mutation_txn_with_crashpoints(wtx, batch, crashpoint)?;
-        let identity = record.identity.clone();
-        Ok(MutationBatchCommit {
-            record,
-            identity,
-            replayed: false,
-        })
+        Ok(commit)
     }
 
     /// Current authoritative SQL-domain OCC version for batch planning.
@@ -2152,9 +2192,25 @@ impl TableStore {
         let record = table
             .get(batch_id)
             .map_err(map_err)?
-            .map(|value| decode_mutation_record(value.value()))
+            .map(|value| decode_mutation_record(value.value(), batch_id))
             .transpose()?;
         Ok(record)
+    }
+
+    /// Compare a reconstructed SQL-domain retry with its validated durable
+    /// record using the same complete identity rule as the commit path.
+    pub fn mutation_batch_replay_matches(
+        &self,
+        stored: &MutationBatch,
+        proposed: &MutationBatch,
+    ) -> Result<bool, String> {
+        stored.validate_write_budget()?;
+        proposed.validate_write_budget()?;
+        verify_batch_is_sql_catalog_only(stored)?;
+        verify_batch_is_sql_catalog_only(proposed)?;
+        let (tenant, resource) = sql_scope_key(proposed)?;
+        let current_version = self.mutation_version(tenant, resource)?;
+        same_batch_identity(stored, proposed, current_version)
     }
 
     /// Read the SQL-domain transactional outbox for one committed batch.
@@ -2257,7 +2313,9 @@ fn finalize_mutation_commit_metadata(
         affected,
         committed_version,
     )?;
+    record.validate_write_budget()?;
     let record_bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
+    validate_sql_mutation_record_size(&record_bytes)?;
     let next_version = current_version
         .checked_add(1)
         .ok_or_else(|| "SQL mutation domain version overflow".to_string())?;
@@ -2316,7 +2374,7 @@ fn check_mutation_idempotency_replay_in(
         })?
         .value()
         .to_vec();
-    let record = decode_mutation_record(&bytes)?;
+    let record = decode_mutation_record(&bytes, &existing)?;
     if !same_batch_identity(&record.batch, batch, current_version)? {
         return Err(format!(
             "IDEMPOTENCY_CONFLICT: SQL key '{}' is already committed as batch '{}'",
@@ -2324,11 +2382,13 @@ fn check_mutation_idempotency_replay_in(
         ));
     }
     let identity = record.identity.clone();
-    Ok(Some(MutationBatchCommit {
+    let commit = MutationBatchCommit {
         record,
         identity,
         replayed: true,
-    }))
+    };
+    commit.validate()?;
+    Ok(Some(commit))
 }
 
 fn check_mutation_batch_id_not_exists_in(
@@ -7100,6 +7160,10 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
 mod tests {
     use super::*;
     use crate::tables::schema::{CmpOp, ColCheck, ColumnType};
+    use eg_types::mutation_batch::{
+        IncarnationId, LogicalName, MutationOperation, MutationRequestContext,
+        MutationScopeIdentity, MutationSurface, TenantId, MUTATION_BATCH_VERSION,
+    };
 
     #[test]
     fn stored_sql_decoder_rejects_declared_allocation_bombs() {
@@ -7789,10 +7853,6 @@ mod tests {
     }
 
     fn sql_batch(batch_id: &str) -> MutationBatch {
-        use eg_types::mutation_batch::{
-            IncarnationId, LogicalName, MutationOperation, MutationRequestContext,
-            MutationScopeIdentity, MutationSurface, TenantId, MUTATION_BATCH_VERSION,
-        };
         MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: batch_id.to_string(),
@@ -7837,6 +7897,122 @@ mod tests {
         }
     }
 
+    #[test]
+    fn sql_record_decoder_validates_native_receipt_semantics() {
+        let batch = sql_batch("decode-record");
+        let mut record = MutationBatchRecord {
+            identity: batch.identity.clone(),
+            batch,
+            status: MutationBatchStatus::Committed,
+            committed_version: CommittedVersion::Native {
+                source: 0,
+                target: 1,
+            },
+            result_msgpack: None,
+            committed_at_ms: 101,
+        };
+        let encoded = rmp_serde::to_vec_named(&record).unwrap();
+        decode_mutation_record(&encoded, "decode-record").unwrap();
+        assert!(decode_mutation_record(&encoded, "moved-record").is_err());
+
+        for status in [MutationBatchStatus::Prepared, MutationBatchStatus::Aborted] {
+            record.status = status;
+            record.committed_version = CommittedVersion::None;
+            record.validate().unwrap();
+            let non_terminal = rmp_serde::to_vec_named(&record).unwrap();
+            assert!(decode_mutation_record(&non_terminal, "decode-record").is_err());
+        }
+
+        let graph_identity = MutationScopeIdentity::graph(
+            TenantId::new("tenant-a").unwrap(),
+            LogicalName::new("graph-a").unwrap(),
+            IncarnationId::new("incarnation-1").unwrap(),
+        );
+        record.batch.identity = graph_identity.clone();
+        record.identity = graph_identity;
+        record.batch.version_expectation = VersionExpectation::Graph(0);
+        record.status = MutationBatchStatus::Committed;
+        record.committed_version = CommittedVersion::Graph {
+            source: 0,
+            target: 1,
+        };
+        record.validate().unwrap();
+        let wrong_store = rmp_serde::to_vec_named(&record).unwrap();
+        assert!(decode_mutation_record(&wrong_store, "decode-record").is_err());
+
+        let wrong_domain = MutationScopeIdentity::native(
+            TenantId::new("tenant-a").unwrap(),
+            MutationDomain::KvStore,
+            LogicalName::new("graph-a").unwrap(),
+            IncarnationId::new("incarnation-1").unwrap(),
+        )
+        .unwrap();
+        record.batch.identity = wrong_domain.clone();
+        record.identity = wrong_domain;
+        record.batch.version_expectation = VersionExpectation::Native(0);
+        for operation in &mut record.batch.operations {
+            operation.domain = MutationDomain::KvStore;
+        }
+        record.committed_version = CommittedVersion::Native {
+            source: 0,
+            target: 1,
+        };
+        record.validate().unwrap();
+        let wrong_domain_store = rmp_serde::to_vec_named(&record).unwrap();
+        assert!(decode_mutation_record(&wrong_domain_store, "decode-record").is_err());
+    }
+
+    #[test]
+    fn sql_replay_comparator_covers_the_complete_batch_identity() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        let stored = sql_batch("complete-replay-identity");
+        assert!(store
+            .mutation_batch_replay_matches(&stored, &stored)
+            .unwrap());
+
+        let mut changed = stored.clone();
+        changed.idempotency_key = "different".to_string();
+        assert!(!store
+            .mutation_batch_replay_matches(&stored, &changed)
+            .unwrap());
+
+        let mut changed = stored.clone();
+        changed.context.purpose = Some("different".to_string());
+        assert!(!store
+            .mutation_batch_replay_matches(&stored, &changed)
+            .unwrap());
+
+        let mut changed = stored.clone();
+        changed.placement_epoch = 1;
+        changed.fencing_token = Some(1);
+        assert!(!store
+            .mutation_batch_replay_matches(&stored, &changed)
+            .unwrap());
+
+        let mut changed = stored.clone();
+        changed.fencing_token = Some(1);
+        assert!(!store
+            .mutation_batch_replay_matches(&stored, &changed)
+            .unwrap());
+
+        let mut changed = stored.clone();
+        changed.authoritative_state = Some(eg_types::mutation_batch::MutationStateDescriptor {
+            algorithm: "sha256".to_string(),
+            digest: "0".repeat(64),
+            source_graph_version: 0,
+            target_graph_version: 1,
+        });
+        assert!(store
+            .mutation_batch_replay_matches(&stored, &changed)
+            .is_err());
+
+        let mut changed = stored.clone();
+        changed.outbox.clear();
+        assert!(!store
+            .mutation_batch_replay_matches(&stored, &changed)
+            .unwrap());
+    }
+
     fn create_metrics_txn() -> TableTxn {
         let mut txn = TableTxn::new();
         txn.push(TxnOp::CreateTable {
@@ -7868,6 +8044,37 @@ mod tests {
                 .is_empty());
             assert_eq!(reopened.mutation_version("tenant-a", "graph-a").unwrap(), 0);
         }
+    }
+
+    #[test]
+    fn mutation_batch_write_budgets_leave_no_sql_or_receipt_effects() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        let oversized = sql_batch("oversized-result");
+        // The result alone fits the shared 64 MiB write budget, while the
+        // complete encoded receipt necessarily exceeds the decoder ceiling.
+        let result = vec![0; MAX_SQL_STORED_VALUE_BYTES];
+        assert!(store
+            .commit_txn_batch_result(&create_metrics_txn(), &oversized, result, 101)
+            .is_err());
+        assert!(store.get_schema("metrics").unwrap().is_none());
+        assert!(store.mutation_batch(&oversized.batch_id).unwrap().is_none());
+        assert!(store
+            .mutation_outbox(&oversized.batch_id)
+            .unwrap()
+            .is_empty());
+        assert_eq!(store.mutation_version("tenant-a", "graph-a").unwrap(), 0);
+
+        let mut excessive_collection = sql_batch("excessive-collection");
+        excessive_collection.outbox = vec![excessive_collection.outbox[0].clone(); 100_001];
+        assert!(store
+            .commit_txn_batch(&create_metrics_txn(), &excessive_collection, 102)
+            .is_err());
+        assert!(store.get_schema("metrics").unwrap().is_none());
+        assert!(store
+            .mutation_batch(&excessive_collection.batch_id)
+            .unwrap()
+            .is_none());
+        assert_eq!(store.mutation_version("tenant-a", "graph-a").unwrap(), 0);
     }
 
     #[test]

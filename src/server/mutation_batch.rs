@@ -24,7 +24,8 @@ pub(crate) use compile::{
     compile_opaque_method, CompileBatch, COMPILED_BATCH_INCARNATION,
 };
 pub(crate) use digest::{
-    lifecycle_batch_id, opaque_coordinator_key, opaque_request_key, principal_fingerprint,
+    lifecycle_batch_id, opaque_coordinator_key, opaque_request_key, opaque_request_key_for_context,
+    principal_fingerprint,
 };
 
 #[cfg(test)]

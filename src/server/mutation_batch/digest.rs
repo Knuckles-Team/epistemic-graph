@@ -54,6 +54,30 @@ pub(crate) fn opaque_request_key(
     format!("{namespace}:{}", hex::encode(digest.finalize()))
 }
 
+pub(crate) fn opaque_request_key_for_context(
+    namespace: &str,
+    tenant: &str,
+    graph: &str,
+    principal: Option<&str>,
+    request_id: u64,
+    method: &Method,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    for field in [
+        namespace.as_bytes(),
+        tenant.as_bytes(),
+        graph.as_bytes(),
+        principal.unwrap_or_default().as_bytes(),
+    ] {
+        digest.update((field.len() as u64).to_be_bytes());
+        digest.update(field);
+    }
+    digest.update(request_id.to_be_bytes());
+    digest.update(rmp_serde::to_vec_named(method).unwrap_or_default());
+    format!("{namespace}:{}", hex::encode(digest.finalize()))
+}
+
 /// Durable identity for one WorkItem transition.
 ///
 /// Terminal transitions carry an explicit caller-stable idempotency key. Their

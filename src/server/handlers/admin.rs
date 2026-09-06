@@ -16,7 +16,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "redb")]
-use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
+use crate::mutation_batch::{
+    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationDomain, MutationScopeIdentity,
+    MutationSurface,
+};
 use crate::protocol::{Method, Response};
 use crate::server::state::ServerState;
 
@@ -659,6 +662,8 @@ fn admin_saga_request_stamp(
     let Some(existing) = eg_mutation_store::read_record(db, identity, batch_id)? else {
         return Ok((eg_mutation_store::version(db, identity)?, req_id, now));
     };
+    validate_admin_record(&existing, identity)?;
+    validate_admin_lookup_key(&existing, batch_id)?;
     let expected = match existing.batch.version_expectation {
         eg_types::VersionExpectation::Graph(version)
         | eg_types::VersionExpectation::Native(version) => version,
@@ -715,11 +720,8 @@ pub(crate) fn begin_named_admin_saga(
     )?;
     let replayed = match eg_mutation_store::prepare_saga(db, &batch, now)? {
         eg_mutation_store::SagaBegin::Committed(record) => {
-            let bytes = record
-                .result_msgpack
-                .as_deref()
-                .ok_or_else(|| "committed admin saga has no result".to_string())?;
-            Some(rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?)
+            let (_, result) = decode_admin_commit(record, &identity, true)?;
+            Some(result)
         }
         eg_mutation_store::SagaBegin::Execute | eg_mutation_store::SagaBegin::Resume(_) => None,
     };
@@ -791,11 +793,8 @@ pub(crate) fn begin_named_admin_saga_with_private_payload(
         Some(encrypted_payload),
     )? {
         eg_mutation_store::SagaBegin::Committed(record) => {
-            let bytes = record
-                .result_msgpack
-                .as_deref()
-                .ok_or_else(|| "committed admin saga has no result".to_string())?;
-            Some(rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?)
+            let (_, result) = decode_admin_commit(record, &identity, true)?;
+            Some(result)
         }
         eg_mutation_store::SagaBegin::Execute | eg_mutation_store::SagaBegin::Resume(_) => None,
     };
@@ -824,21 +823,20 @@ pub(crate) fn resume_named_admin_saga(
     else {
         return Ok(None);
     };
-    record.batch.validate()?;
-    if record.batch.batch_id != batch_id || record.batch.idempotency_key != batch_id {
-        return Err("coordinator receipt identity is corrupt".to_string());
-    }
+    validate_admin_record(&record, &identity)?;
+    validate_admin_lookup_key(&record, batch_id)?;
     if record.batch.context.principal != expected_principal {
         return Err("coordinator receipt does not match caller scope".to_string());
     }
     let replayed = match record.status {
         crate::mutation_batch::MutationBatchStatus::Prepared => None,
         crate::mutation_batch::MutationBatchStatus::Committed => {
-            let bytes = record
-                .result_msgpack
-                .as_deref()
-                .ok_or_else(|| "committed admin saga has no result".to_string())?;
-            Some(rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?)
+            let (record, result) = decode_admin_commit(record, &identity, true)?;
+            return Ok(Some(AdminSaga {
+                batch: record.batch,
+                created_at_ms: record.committed_at_ms,
+                replayed: Some(result),
+            }));
         }
         crate::mutation_batch::MutationBatchStatus::Aborted => {
             return Err("coordinator receipt was aborted".to_string())
@@ -868,19 +866,16 @@ pub(crate) fn read_named_admin_saga_result(
     else {
         return Ok(None);
     };
+    validate_admin_record(&record, &identity)?;
+    validate_admin_lookup_key(&record, batch_id)?;
     if record.status != crate::mutation_batch::MutationBatchStatus::Committed {
         return Ok(None);
     }
     if record.batch.context.principal != expected_principal {
         return Err("committed coordinator receipt does not match caller scope".to_string());
     }
-    let bytes = record
-        .result_msgpack
-        .as_deref()
-        .ok_or_else(|| "committed admin saga has no result".to_string())?;
-    rmp_serde::from_slice(bytes)
-        .map(Some)
-        .map_err(|error| error.to_string())
+    let (_, result) = decode_admin_commit(record, &identity, true)?;
+    Ok(Some(result))
 }
 
 #[cfg(feature = "redb")]
@@ -897,15 +892,49 @@ pub(crate) fn finish_admin_saga(
         encoded,
         committed_at_ms,
     )?;
-    if replayed {
-        let bytes = record
-            .result_msgpack
-            .as_deref()
-            .ok_or_else(|| "committed admin saga has no result".to_string())?;
-        rmp_serde::from_slice(bytes).map_err(|error| error.to_string())
-    } else {
-        Ok(result)
+    let (_, durable_result) = decode_admin_commit(record, &batch.identity, replayed)?;
+    Ok(durable_result)
+}
+
+#[cfg(feature = "redb")]
+fn validate_admin_record(
+    record: &MutationBatchRecord,
+    expected_identity: &MutationScopeIdentity,
+) -> Result<(), String> {
+    record.validate()?;
+    if &record.identity != expected_identity {
+        return Err("admin saga receipt does not match its requested scope".to_string());
     }
+    Ok(())
+}
+
+#[cfg(feature = "redb")]
+fn validate_admin_lookup_key(record: &MutationBatchRecord, batch_id: &str) -> Result<(), String> {
+    if record.batch.batch_id != batch_id || record.batch.idempotency_key != batch_id {
+        return Err("coordinator receipt identity is corrupt".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "redb")]
+fn decode_admin_commit(
+    record: MutationBatchRecord,
+    expected_identity: &MutationScopeIdentity,
+    replayed: bool,
+) -> Result<(MutationBatchRecord, crate::protocol::ResultPayload), String> {
+    let commit = MutationBatchCommit {
+        record,
+        identity: expected_identity.clone(),
+        replayed,
+    };
+    commit.validate()?;
+    let bytes = commit
+        .record
+        .result_msgpack
+        .as_deref()
+        .ok_or_else(|| "committed admin saga has no result".to_string())?;
+    let result = rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?;
+    Ok((commit.record, result))
 }
 
 #[cfg(feature = "redb")]
