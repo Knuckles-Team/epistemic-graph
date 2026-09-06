@@ -15,7 +15,11 @@ use eg_query::tables::{
 };
 use serde_json::json;
 
-const TENANT: &str = "tenant/acme";
+// The store's owner scope is now the mutation TENANT of its bootstrap scope
+// (RF-RULING-004), and `TenantId` rejects path semantics as a persistence-privacy
+// rule, so a `/`-bearing scope is no longer expressible. The dot keeps the
+// structured, non-bare-word shape this fixture is testing against.
+const TENANT: &str = "tenant.acme";
 const OWNER: &str = "role/analytics";
 
 const SHOP_DDL: &str = r#"
@@ -63,7 +67,14 @@ fn open_store() -> (TableStore, std::path::PathBuf) {
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
-    let store = TableStore::open_scoped(&path, TENANT).expect("open scoped store");
+    let store = TableStore::open_scoped(
+        &path,
+        TENANT,
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .expect("open scoped store");
     (store, path)
 }
 
@@ -132,7 +143,14 @@ fn a_created_graph_is_durable_with_tenant_identity_owner_and_dependencies() {
 
     // The record survives a reopen of the same durable catalog file.
     drop(store);
-    let reopened = TableStore::open_scoped(&_path, TENANT).unwrap();
+    let reopened = TableStore::open_scoped(
+        &_path,
+        TENANT,
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .unwrap();
     assert_eq!(
         reopened.property_graph(TENANT, &name("shop")).unwrap(),
         Some(record)

@@ -14,7 +14,9 @@
 use std::collections::BTreeSet;
 use std::fmt::Display;
 
-use redb::{ReadTransaction, ReadableTable, TableDefinition, TableHandle, WriteTransaction};
+use redb::{ReadableTable, TableDefinition};
+
+use crate::tables::store::{SqlRead, SqlWrite};
 
 use crate::tables::schema::TableSchema;
 
@@ -27,8 +29,8 @@ use super::{
 };
 
 /// `graph object name -> canonical catalog-record bytes`.
-const PROPERTY_GRAPHS_TABLE: &str = "__sql_property_graphs__";
-const PROPERTY_GRAPHS: TableDefinition<&str, &[u8]> = TableDefinition::new(PROPERTY_GRAPHS_TABLE);
+const PROPERTY_GRAPHS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("__sql_property_graphs__");
 /// `counter -> next value`: the catalog-wide stable object-id and
 /// catalog-revision allocators. Both are monotonic and never reused, so a
 /// renamed graph keeps its object id while its revisions strictly advance.
@@ -66,7 +68,7 @@ pub(crate) struct AlterRequest<'a> {
 
 /// Read one record only when it belongs to `tenant_scope`.
 fn record_for_tenant_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     key: &str,
 ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
@@ -160,53 +162,30 @@ where
     Ok(records)
 }
 
-/// Whether this catalog has ever held a property graph.
-///
-/// `WriteTransaction::open_table` CREATES a missing table, so every `DROP
-/// TABLE`/`ALTER TABLE` on a store that uses no property graphs would otherwise
-/// materialise this one as a side effect of being fenced.
-fn graphs_exist(wtx: &WriteTransaction) -> Result<bool, String> {
-    for handle in wtx.list_tables().map_err(store_error)? {
-        if handle.name() == PROPERTY_GRAPHS_TABLE {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn record_in(
-    wtx: &WriteTransaction,
-    key: &str,
-) -> Result<Option<PropertyGraphCatalogRecord>, String> {
-    if !graphs_exist(wtx)? {
-        return Ok(None);
-    }
-    let table = wtx.open_table(PROPERTY_GRAPHS).map_err(store_error)?;
+/// The graph catalog is a declared owner table of `OwnerLayout::Sql`, so the
+/// storage kernel materializes it when the file is created. It is always
+/// present and simply empty on a store that uses no property graphs; the
+/// existence probe that used to guard every fenced DDL against materialising it
+/// as a side effect has nothing left to guard.
+fn record_in(wtx: &SqlWrite<'_>, key: &str) -> Result<Option<PropertyGraphCatalogRecord>, String> {
+    let table = wtx.open_table(PROPERTY_GRAPHS)?;
     lookup(&table, key)
 }
 
 /// Read one admitted record from a read snapshot, only for `tenant_scope`.
 pub(crate) fn property_graph_snapshot(
-    rtx: &ReadTransaction,
+    rtx: &SqlRead<'_>,
     tenant_scope: &str,
     name: &SqlName,
 ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
     let key = canonical_key(name)?;
-    let table = match rtx.open_table(PROPERTY_GRAPHS) {
-        Ok(table) => table,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(error) => return Err(store_error(error)),
-    };
+    let table = rtx.open_owner_table(PROPERTY_GRAPHS)?;
     Ok(lookup(&table, &key)?.filter(|record| record.name.tenant_scope == tenant_scope))
 }
 
 /// Every admitted graph name, sorted for determinism.
-pub(crate) fn list_property_graphs_snapshot(rtx: &ReadTransaction) -> Result<Vec<String>, String> {
-    let table = match rtx.open_table(PROPERTY_GRAPHS) {
-        Ok(table) => table,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(error) => return Err(store_error(error)),
-    };
+pub(crate) fn list_property_graphs_snapshot(rtx: &SqlRead<'_>) -> Result<Vec<String>, String> {
+    let table = rtx.open_owner_table(PROPERTY_GRAPHS)?;
     let mut names: Vec<String> = scan(&table)?
         .into_iter()
         .map(|record| record.name.object.value().to_string())
@@ -215,8 +194,8 @@ pub(crate) fn list_property_graphs_snapshot(rtx: &ReadTransaction) -> Result<Vec
     Ok(names)
 }
 
-fn next_counter(wtx: &WriteTransaction, counter: &str) -> Result<u64, String> {
-    let mut seq = wtx.open_table(PROPERTY_GRAPH_SEQ).map_err(store_error)?;
+fn next_counter(wtx: &SqlWrite<'_>, counter: &str) -> Result<u64, String> {
+    let mut seq = wtx.open_table(PROPERTY_GRAPH_SEQ)?;
     let next = seq
         .get(counter)
         .map_err(store_error)?
@@ -229,7 +208,7 @@ fn next_counter(wtx: &WriteTransaction, counter: &str) -> Result<u64, String> {
 }
 
 fn put_record(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     key: &str,
     record: &PropertyGraphCatalogRecord,
 ) -> Result<(), String> {
@@ -237,19 +216,19 @@ fn put_record(
     if bytes.len() > MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES {
         return Err("property graph catalog record exceeds its storage bound".to_string());
     }
-    let mut table = wtx.open_table(PROPERTY_GRAPHS).map_err(store_error)?;
+    let mut table = wtx.open_table(PROPERTY_GRAPHS)?;
     table.insert(key, bytes.as_slice()).map_err(store_error)?;
     Ok(())
 }
 
-fn remove_record(wtx: &WriteTransaction, key: &str) -> Result<(), String> {
-    let mut table = wtx.open_table(PROPERTY_GRAPHS).map_err(store_error)?;
+fn remove_record(wtx: &SqlWrite<'_>, key: &str) -> Result<(), String> {
+    let mut table = wtx.open_table(PROPERTY_GRAPHS)?;
     table.remove(key).map_err(store_error)?;
     Ok(())
 }
 
 fn ensure_name_free(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     key: &str,
     input: &RelationCatalogInput,
 ) -> Result<(), String> {
@@ -268,7 +247,7 @@ fn ensure_name_free(
 /// stamp it with a fresh stable object id, owner and catalog revision, and write
 /// the record in this catalog transaction.
 pub(crate) fn create_property_graph_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     owner: &str,
     input: &RelationCatalogInput,
     draft: &PropertyGraphDefinition,
@@ -295,7 +274,7 @@ pub(crate) fn create_property_graph_in(
 /// SAME object id with strictly advancing revisions, so every change re-resolves
 /// its base relations rather than trusting the stored dependency digest.
 pub(crate) fn alter_property_graph_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     actor: &str,
     input: &RelationCatalogInput,
     request: AlterRequest<'_>,
@@ -351,7 +330,7 @@ fn next_owner(
 /// graph. `drop_cascade_and_restrict_are_equivalent_for_a_leaf_graph` asserts
 /// this rather than leaving the ignored parameter unexplained.
 pub(crate) fn drop_property_graphs_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     names: &[SqlName],
     if_exists: bool,
@@ -374,13 +353,10 @@ pub(crate) fn drop_property_graphs_in(
 
 /// Every admitted graph that pins `relation`'s revision and schema digest.
 pub(crate) fn property_graph_dependents_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     relation: &str,
 ) -> Result<Vec<String>, String> {
-    if !graphs_exist(wtx)? {
-        return Ok(Vec::new());
-    }
-    let table = wtx.open_table(PROPERTY_GRAPHS).map_err(store_error)?;
+    let table = wtx.open_table(PROPERTY_GRAPHS)?;
     let mut dependents: Vec<String> = scan(&table)?
         .into_iter()
         .filter(|record| {
@@ -398,10 +374,7 @@ pub(crate) fn property_graph_dependents_in(
 /// A base relation cannot be dropped or have its schema changed while an
 /// admitted property graph pins its revision and schema digest. The graph must
 /// be dropped or altered first; there is no silent invalidation.
-pub(crate) fn fence_base_relation_ddl_in(
-    wtx: &WriteTransaction,
-    relation: &str,
-) -> Result<(), String> {
+pub(crate) fn fence_base_relation_ddl_in(wtx: &SqlWrite<'_>, relation: &str) -> Result<(), String> {
     let dependents = property_graph_dependents_in(wtx, relation)?;
     if dependents.is_empty() {
         return Ok(());
@@ -413,10 +386,7 @@ pub(crate) fn fence_base_relation_ddl_in(
 }
 
 /// A table or view may not take a name an admitted property graph already holds.
-pub(crate) fn ensure_relation_name_free_in(
-    wtx: &WriteTransaction,
-    name: &str,
-) -> Result<(), String> {
+pub(crate) fn ensure_relation_name_free_in(wtx: &SqlWrite<'_>, name: &str) -> Result<(), String> {
     if record_in(wtx, name)?.is_some() {
         return Err(format!(
             "`{name}` is a property graph; a table or view cannot share that name"

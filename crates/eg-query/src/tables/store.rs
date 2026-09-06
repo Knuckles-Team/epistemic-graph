@@ -42,16 +42,21 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+use eg_storage::ScopeGrantVerifier;
 use eg_types::mutation_batch::{
     CommittedVersion, MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus,
     MutationDomain, MutationOutboxIntent, MutationOutboxRecord, MutationScope, VersionExpectation,
     MUTATION_BATCH_VERSION,
 };
-use redb::{
-    Database, Durability, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition,
-    WriteTransaction,
-};
+use redb::{ReadableTable, TableDefinition};
 use serde_json::Value;
+
+mod authority;
+#[cfg(any(test, feature = "dev-scope-grant"))]
+pub mod dev_scope_grant;
+
+use authority::{SqlAuthority, SqlMutation};
+pub(crate) use authority::{SqlRead, SqlWrite};
 
 use super::index::{
     catalog_key as secondary_catalog_key, entry_key as secondary_entry_key,
@@ -547,15 +552,19 @@ impl TableTxn {
     }
 }
 
-/// One durable user-table catalog. Cheap to clone (`Arc<Database>`), so the served
-/// owner-scoped registry can hand the verified tenant+actor's handle to each
-/// surface — including a [`crate::sql::providers::EdgesTableProvider`]-style lazy
-/// `TableProvider` (`crate::tables::provider::UserTableProvider`) that holds its
-/// own owned handle instead of a borrow. `Debug` is derived (via `redb::Database`'s
-/// own impl) because `datafusion::catalog::TableProvider` requires it.
+/// One durable user-table catalog. Cheap to clone (`Arc<SqlAuthority>`), so the
+/// served owner-scoped registry can hand the verified tenant+actor's handle to
+/// each surface — including a [`crate::sql::providers::EdgesTableProvider`]-style
+/// lazy `TableProvider` (`crate::tables::provider::UserTableProvider`) that holds
+/// its own owned handle instead of a borrow. `Debug` is derived because
+/// `datafusion::catalog::TableProvider` requires it; the authority's own `Debug`
+/// prints its physical identity and nothing that could leak a capability.
 #[derive(Debug, Clone)]
 pub struct TableStore {
-    db: Arc<Database>,
+    /// The store's ONE physical/mutation authority (RF-RULING-004). Every read is
+    /// a `ScopedRead` it issued and every write an admitted mutation it admitted;
+    /// there is no other path to the file.
+    authority: Arc<SqlAuthority>,
     /// Process-local coordination seam for source metadata whose durable rows
     /// live in this exact store. Clones share the same lock, so the cached
     /// tenant ACL handle can serialize mutations and serve coherent snapshots
@@ -600,25 +609,44 @@ pub struct TableRowSnapshot {
 
 impl TableStore {
     /// Open (creating if absent) the user-table store at `path`.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
-        Self::open_scoped(path, "__legacy_store__")
+    ///
+    /// `verifier` is the composition root's proof authority (RF-RULING-004):
+    /// only it may decide that `principal` is entitled to serve this store's
+    /// scopes. The proof bytes are opaque here and are never inspected.
+    pub fn open(
+        path: impl AsRef<Path>,
+        verifier: Arc<dyn ScopeGrantVerifier>,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<Self, String> {
+        Self::open_scoped(path, "__legacy_store__", verifier, principal, proof)
     }
 
     /// Open a store with an explicit owner scope for its secondary-index
     /// catalog. The scope is persisted in every index identity and is checked
     /// on CREATE/read/drop, preventing a cross-tenant name collision when a
-    /// physical redb file is shared by more than one owner.
+    /// physical redb file is shared by more than one owner. It is also the
+    /// tenant half of the bootstrap mutation scope every catalog read and every
+    /// one-shot DDL/DML maintenance write of this store runs under.
     pub fn open_scoped(
         path: impl AsRef<Path>,
         tenant_scope: impl Into<String>,
+        verifier: Arc<dyn ScopeGrantVerifier>,
+        principal: &str,
+        proof: &[u8],
     ) -> Result<Self, String> {
         let tenant_scope = tenant_scope.into();
-        if tenant_scope.is_empty() || tenant_scope.contains('\0') {
-            return Err("SQL table-store tenant scope must be non-empty and NUL-free".to_string());
-        }
-        let db = Database::create(path).map_err(|e| format!("open sql table store: {e}"))?;
+        // The owner scope is now the mutation TENANT of this store's bootstrap
+        // scope, so it has to be a valid `TenantId` -- non-empty, NUL-free, and
+        // free of the path- and address-shaped text `eg-types` refuses to
+        // persist. Checked here so the failure names the argument rather than
+        // surfacing from inside the storage kernel.
+        eg_types::mutation_batch::TenantId::new(&tenant_scope)
+            .map_err(|error| format!("SQL table-store tenant scope is invalid: {error}"))?;
+        let authority =
+            SqlAuthority::open(path.as_ref(), &tenant_scope, verifier, principal, proof)?;
         let store = Self {
-            db: Arc::new(db),
+            authority: Arc::new(authority),
             source_authority: Arc::new(RwLock::new(())),
             index_scope: Arc::new(tenant_scope.clone()),
             scope: Arc::from(tenant_scope),
@@ -628,6 +656,11 @@ impl TableStore {
     }
 
     /// Open a fresh store at a unique temp path — for tests and ephemeral use.
+    ///
+    /// Compiled only under `cfg(test)` or the off-by-default `dev-scope-grant`
+    /// feature: it supplies its own [`dev_scope_grant`] composition root, and a
+    /// production build of this crate must not be able to link one.
+    #[cfg(any(test, feature = "dev-scope-grant"))]
     pub fn open_temp() -> Result<(Self, std::path::PathBuf), String> {
         use std::sync::atomic::{AtomicU64, Ordering};
         static CTR: AtomicU64 = AtomicU64::new(0);
@@ -640,7 +673,13 @@ impl TableStore {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0),
         ));
-        Ok((Self::open(&path)?, path))
+        let store = Self::open(
+            &path,
+            dev_scope_grant::dev_verifier(),
+            dev_scope_grant::DEV_PRINCIPAL,
+            dev_scope_grant::DEV_PROOF,
+        )?;
+        Ok((store, path))
     }
 
     /// The authenticated owner namespace used by secondary-index DDL. This is
@@ -663,28 +702,29 @@ impl TableStore {
     /// `CREATE TABLE`: record `schema` in the catalog. `Ok(true)` when created,
     /// `Ok(false)` when it already existed and `if_not_exists` was set.
     pub fn create_table(&self, schema: &TableSchema, if_not_exists: bool) -> Result<bool, String> {
-        let wtx = self.begin()?;
-        let created = create_in(&wtx, schema, if_not_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(created)
+        self.authority
+            .maintain("create-table", &schema.name, |wtx| {
+                let created = create_in(wtx, schema, if_not_exists)?;
+                Ok(created)
+            })
     }
 
     /// `DROP TABLE`: remove the catalog entry, the sequence, and EVERY row.
     pub fn drop_table(&self, name: &str, if_exists: bool) -> Result<bool, String> {
         self.ensure_legacy_schema_ddl_allowed(name)?;
-        let wtx = self.begin()?;
-        let dropped = drop_in(&wtx, self.index_scope(), name, if_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(dropped)
+        self.authority.maintain("drop-table", name, |wtx| {
+            let dropped = drop_in(wtx, self.index_scope(), name, if_exists)?;
+            Ok(dropped)
+        })
     }
 
     /// `ALTER TABLE ADD COLUMN`: append `column` to the table's schema.
     pub fn add_column(&self, table: &str, column: Column) -> Result<(), String> {
         self.ensure_legacy_schema_ddl_allowed(table)?;
-        let wtx = self.begin()?;
-        add_column_in(&wtx, self.index_scope(), table, &column)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority.maintain("add-column", table, |wtx| {
+            add_column_in(wtx, self.index_scope(), table, &column)?;
+            Ok(())
+        })
     }
 
     /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP COLUMN`: remove `column` from the schema and
@@ -692,10 +732,10 @@ impl TableStore {
     /// column (or table) does not exist unless `if_exists`.
     pub fn drop_column(&self, table: &str, column: &str, if_exists: bool) -> Result<(), String> {
         self.ensure_legacy_schema_ddl_allowed(table)?;
-        let wtx = self.begin()?;
-        drop_column_in(&wtx, self.index_scope(), table, column, if_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority.maintain("drop-column", table, |wtx| {
+            drop_column_in(wtx, self.index_scope(), table, column, if_exists)?;
+            Ok(())
+        })
     }
 
     /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE RENAME COLUMN a TO b`: rename a column in place.
@@ -703,10 +743,10 @@ impl TableStore {
     /// or `to` already exists.
     pub fn rename_column(&self, table: &str, from: &str, to: &str) -> Result<(), String> {
         self.ensure_legacy_schema_ddl_allowed(table)?;
-        let wtx = self.begin()?;
-        rename_column_in(&wtx, self.index_scope(), table, from, to)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority.maintain("rename-column", table, |wtx| {
+            rename_column_in(wtx, self.index_scope(), table, from, to)?;
+            Ok(())
+        })
     }
 
     /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE RENAME TO newtable`: move the table's catalog entry,
@@ -714,10 +754,10 @@ impl TableStore {
     /// table is absent or `new_name` already exists.
     pub fn rename_table(&self, table: &str, new_name: &str) -> Result<(), String> {
         self.ensure_legacy_schema_ddl_allowed(table)?;
-        let wtx = self.begin()?;
-        rename_table_in(&wtx, self.index_scope(), table, new_name)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority.maintain("rename-table", table, |wtx| {
+            rename_table_in(wtx, self.index_scope(), table, new_name)?;
+            Ok(())
+        })
     }
 
     /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE ALTER COLUMN col TYPE newtype`: change a column's
@@ -730,10 +770,10 @@ impl TableStore {
         new_type: ColumnType,
     ) -> Result<(), String> {
         self.ensure_legacy_schema_ddl_allowed(table)?;
-        let wtx = self.begin()?;
-        alter_column_type_in(&wtx, self.index_scope(), table, column, new_type)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority.maintain("alter-column-type", table, |wtx| {
+            alter_column_type_in(wtx, self.index_scope(), table, column, new_type)?;
+            Ok(())
+        })
     }
 
     /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP CONSTRAINT name`: drop the named constraint
@@ -747,10 +787,10 @@ impl TableStore {
         if_exists: bool,
     ) -> Result<(), String> {
         self.ensure_legacy_schema_ddl_allowed(table)?;
-        let wtx = self.begin()?;
-        drop_constraint_in(&wtx, self.index_scope(), table, constraint, if_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority.maintain("drop-constraint", table, |wtx| {
+            drop_constraint_in(wtx, self.index_scope(), table, constraint, if_exists)?;
+            Ok(())
+        })
     }
 
     /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `ALTER TABLE ADD CONSTRAINT`: append a table-level
@@ -762,21 +802,18 @@ impl TableStore {
     /// behavior of refusing to add a constraint the current data already violates.
     pub fn add_constraint(&self, table: &str, constraint: TableConstraint) -> Result<(), String> {
         self.ensure_legacy_schema_ddl_allowed(table)?;
-        let wtx = self.begin()?;
-        add_constraint_in(&wtx, self.index_scope(), table, constraint)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority.maintain("add-constraint", table, |wtx| {
+            add_constraint_in(wtx, self.index_scope(), table, constraint)?;
+            Ok(())
+        })
     }
 
     // ── catalog reads (own read txn) ──────────────────────────────────────────
 
     /// The schema of `name`, or `None` if no such user table exists.
     pub fn get_schema(&self, name: &str) -> Result<Option<TableSchema>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let cat = match rtx.open_table(CATALOG) {
-            Ok(t) => t,
-            Err(_) => return Ok(None),
-        };
+        let rtx = self.authority.read()?;
+        let cat = rtx.open_owner_table(CATALOG)?;
         match cat.get(name).map_err(map_err)? {
             Some(v) => {
                 let schema: TableSchema = decode_stored(v.value(), "schema")?;
@@ -795,13 +832,13 @@ impl TableStore {
         &self,
         table: &str,
     ) -> Result<Option<super::migration::SchemaSnapshot>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         self.schema_snapshot_in(&rtx, table)
     }
 
     fn schema_snapshot_in(
         &self,
-        rtx: &ReadTransaction,
+        rtx: &SqlRead<'_>,
         table: &str,
     ) -> Result<Option<super::migration::SchemaSnapshot>, String> {
         Ok(self
@@ -811,28 +848,21 @@ impl TableStore {
 
     fn schema_and_snapshot_in(
         &self,
-        rtx: &ReadTransaction,
+        rtx: &SqlRead<'_>,
         table: &str,
     ) -> Result<Option<(TableSchema, super::migration::SchemaSnapshot)>, String> {
-        let catalog = match rtx.open_table(CATALOG) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-            Err(error) => return Err(map_err(error)),
-        };
+        let catalog = rtx.open_owner_table(CATALOG)?;
         let Some(encoded) = catalog.get(table).map_err(map_err)? else {
             return Ok(None);
         };
         let schema: TableSchema = decode_stored(encoded.value(), "schema")?;
         schema.validate()?;
-        let version = match rtx.open_table(SCHEMA_VERSIONS) {
-            Ok(versions) => versions
-                .get((self.scope.as_ref(), table))
-                .map_err(map_err)?
-                .map(|value| value.value())
-                .unwrap_or(0),
-            Err(redb::TableError::TableDoesNotExist(_)) => 0,
-            Err(error) => return Err(map_err(error)),
-        };
+        let version = rtx
+            .open_owner_table(SCHEMA_VERSIONS)?
+            .get((self.scope.as_ref(), table))
+            .map_err(map_err)?
+            .map(|value| value.value())
+            .unwrap_or(0);
         let snapshot = super::migration::SchemaSnapshot {
             tenant_scope: self.scope.to_string(),
             table: schema.name.clone(),
@@ -854,13 +884,13 @@ impl TableStore {
         after_row_id: Option<u64>,
         visibility: Option<&eg_types::RowPredicate>,
     ) -> Result<TableRowSnapshot, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         self.row_snapshot_in(&rtx, table, after_row_id, visibility)
     }
 
     fn row_snapshot_in(
         &self,
-        rtx: &ReadTransaction,
+        rtx: &SqlRead<'_>,
         table: &str,
         after_row_id: Option<u64>,
         visibility: Option<&eg_types::RowPredicate>,
@@ -880,21 +910,7 @@ impl TableStore {
                 scanned_bytes: 0,
             });
         };
-        let rows_table = match rtx.open_table(ROWS) {
-            Ok(rows) => rows,
-            Err(redb::TableError::TableDoesNotExist(_)) => {
-                return Ok(TableRowSnapshot {
-                    schema,
-                    schema_revision: snapshot.version,
-                    schema_digest: snapshot.schema_digest,
-                    rows: Vec::new(),
-                    next_cursor: None,
-                    encoded_bytes: 0,
-                    scanned_bytes: 0,
-                });
-            }
-            Err(error) => return Err(map_err(error)),
-        };
+        let rows_table = rtx.open_owner_table(ROWS)?;
         let (rows, next_cursor, encoded_bytes, scanned_bytes) =
             read_snapshot_rows(&rows_table, table, &schema, first_row_id, visibility)?;
         Ok(TableRowSnapshot {
@@ -912,12 +928,8 @@ impl TableStore {
     /// older engine versions have an implicit version zero until their first
     /// governed migration commits.
     pub fn schema_version(&self, table: &str) -> Result<u64, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let versions = match rtx.open_table(SCHEMA_VERSIONS) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-            Err(error) => return Err(map_err(error)),
-        };
+        let rtx = self.authority.read()?;
+        let versions = rtx.open_owner_table(SCHEMA_VERSIONS)?;
         Ok(versions
             .get((self.scope.as_ref(), table))
             .map_err(map_err)?
@@ -929,12 +941,8 @@ impl TableStore {
     /// exactly once for every committed migration and is suitable as a cache
     /// invalidation token for readers that materialize more than one table.
     pub fn schema_catalog_version(&self) -> Result<u64, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let versions = match rtx.open_table(SCHEMA_CATALOG_VERSIONS) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-            Err(error) => return Err(map_err(error)),
-        };
+        let rtx = self.authority.read()?;
+        let versions = rtx.open_owner_table(SCHEMA_CATALOG_VERSIONS)?;
         Ok(versions
             .get(self.scope.as_ref())
             .map_err(map_err)?
@@ -959,27 +967,20 @@ impl TableStore {
         &self,
         migration: &SchemaMigration,
     ) -> Result<SchemaMigrationApply, String> {
-        let wtx = self.begin()?;
-        let result = apply_schema_migration_in(&wtx, self.scope.as_ref(), migration)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(result)
+        self.authority
+            .maintain("schema-migration", &migration.migration_id, |wtx| {
+                let result = apply_schema_migration_in(wtx, self.scope.as_ref(), migration)?;
+                Ok(result)
+            })
     }
 
     /// Return the durable ordered migration chain for `table`, oldest first.
     /// The records are immutable; callers can use the checksums as a compact
     /// audit/provenance proof without retrieving row data.
     pub fn schema_migrations(&self, table: &str) -> Result<Vec<SchemaMigrationRecord>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let order = match rtx.open_table(SCHEMA_MIGRATION_ORDER) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-            Err(error) => return Err(map_err(error)),
-        };
-        let records = match rtx.open_table(SCHEMA_MIGRATIONS) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-            Err(error) => return Err(map_err(error)),
-        };
+        let rtx = self.authority.read()?;
+        let order = rtx.open_owner_table(SCHEMA_MIGRATION_ORDER)?;
+        let records = rtx.open_owner_table(SCHEMA_MIGRATIONS)?;
         let mut out = Vec::new();
         for row in order
             .range((self.scope.as_ref(), table, 0u64)..=(self.scope.as_ref(), table, u64::MAX))
@@ -1002,16 +1003,14 @@ impl TableStore {
     }
 
     /// Verify the complete schema migration chain after opening a database.
-    /// Missing tables are valid for old stores, but an existing chain must have
+    /// The chain must have
     /// contiguous versions, matching checksums, matching tenant/table bindings,
     /// and a final digest equal to the catalog schema.  This is intentionally
     /// fail-closed: a corrupt or partially copied migration catalog prevents a
     /// store from serving stale schema state.
     pub fn verify_schema_migrations(&self) -> Result<(), String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let Some(tables) = self.open_schema_migration_tables(&rtx)? else {
-            return Ok(());
-        };
+        let rtx = self.authority.read()?;
+        let tables = self.open_schema_migration_tables(&rtx)?;
         let catalog_records = self.build_schema_migration_record_map(&tables.records)?;
         self.verify_schema_catalog_order_chain(
             &tables.catalog_versions,
@@ -1027,226 +1026,27 @@ impl TableStore {
         Ok(())
     }
 
-    /// Opens every table `verify_schema_migrations` needs, or `None` when an
-    /// early "nothing to verify" fallback in one of the two grouped opens
-    /// (version-chain tables, then catalog-chain tables) already resolved
-    /// the whole check. Split from `verify_schema_migrations` itself purely
-    /// to keep that caller's own CCN low; all the actual fallback/corruption
-    /// logic lives in `open_schema_version_tables`/`open_schema_catalog_tables`
-    /// and the six single-table openers below them.
+    /// Opens every table `verify_schema_migrations` needs.
+    ///
+    /// It used to tolerate any of the six being absent, with a per-table
+    /// fallback that decided whether the absence was an old store or
+    /// corruption. The storage kernel materializes the whole declared
+    /// `OwnerLayout::Sql` census when the file is created and re-validates it on
+    /// every open (`validate_live_recovery_store`), so a missing owner table now
+    /// fails closed before any SQL code runs: the orphan-catalog reasoning has
+    /// exactly one owner, and it is no longer here.
     fn open_schema_migration_tables(
         &self,
-        rtx: &ReadTransaction,
-    ) -> Result<Option<SchemaMigrationTables>, String> {
-        let Some((versions, order, records)) = self.open_schema_version_tables(rtx)? else {
-            return Ok(None);
-        };
-        let Some((catalog_versions, catalog_order, catalog)) =
-            self.open_schema_catalog_tables(rtx, &versions)?
-        else {
-            return Ok(None);
-        };
-        Ok(Some(SchemaMigrationTables {
-            versions,
-            order,
-            records,
-            catalog_versions,
-            catalog_order,
-            catalog,
-        }))
-    }
-
-    /// Opens `SCHEMA_VERSIONS`/`SCHEMA_MIGRATION_ORDER`/`SCHEMA_MIGRATIONS`
-    /// together, short-circuiting to `None` the moment any one of them
-    /// reports "nothing to verify" (each opener's own `None` already means
-    /// the whole chain is trivially valid, see their doc comments).
-    fn open_schema_version_tables(
-        &self,
-        rtx: &ReadTransaction,
-    ) -> Result<Option<(SchemaVersionsTable, SchemaOrderTable, SchemaRecordsTable)>, String> {
-        let Some(versions) = self.open_schema_versions_or_ok(rtx)? else {
-            return Ok(None);
-        };
-        let Some(order) = self.open_schema_migration_order_or_ok(rtx, &versions)? else {
-            return Ok(None);
-        };
-        let Some(records) = self.open_schema_migration_records_or_ok(rtx, &versions)? else {
-            return Ok(None);
-        };
-        Ok(Some((versions, order, records)))
-    }
-
-    /// Opens `SCHEMA_CATALOG_VERSIONS`/`SCHEMA_CATALOG_ORDER`/`CATALOG`
-    /// together, mirroring `open_schema_version_tables`.
-    fn open_schema_catalog_tables(
-        &self,
-        rtx: &ReadTransaction,
-        versions: &SchemaVersionsTable,
-    ) -> Result<
-        Option<(
-            SchemaCatalogVersionsTable,
-            SchemaCatalogOrderTable,
-            SchemaCatalogTable,
-        )>,
-        String,
-    > {
-        let Some(catalog_versions) = self.open_schema_catalog_versions_or_ok(rtx, versions)? else {
-            return Ok(None);
-        };
-        let Some(catalog_order) = self.open_schema_catalog_order_or_ok(rtx, &catalog_versions)?
-        else {
-            return Ok(None);
-        };
-        let Some(catalog) = self.open_schema_catalog_or_ok(rtx)? else {
-            return Ok(None);
-        };
-        Ok(Some((catalog_versions, catalog_order, catalog)))
-    }
-
-    /// Opens `SCHEMA_VERSIONS`. Missing is valid for an old store UNLESS an
-    /// orphaned migration-order or migration-records catalog exists without
-    /// it, which is corruption. `Ok(None)` signals the caller to return
-    /// `Ok(())` immediately (nothing further to check).
-    fn open_schema_versions_or_ok(
-        &self,
-        rtx: &ReadTransaction,
-    ) -> Result<Option<SchemaVersionsTable>, String> {
-        match rtx.open_table(SCHEMA_VERSIONS) {
-            Ok(table) => Ok(Some(table)),
-            Err(redb::TableError::TableDoesNotExist(_)) => {
-                let orphan_order = !matches!(
-                    rtx.open_table(SCHEMA_MIGRATION_ORDER),
-                    Err(redb::TableError::TableDoesNotExist(_))
-                );
-                let orphan_records = !matches!(
-                    rtx.open_table(SCHEMA_MIGRATIONS),
-                    Err(redb::TableError::TableDoesNotExist(_))
-                );
-                if orphan_order || orphan_records {
-                    return Err(
-                        "schema migration catalogs exist without the authoritative version catalog"
-                            .to_string(),
-                    );
-                }
-                Ok(None)
-            }
-            Err(error) => Err(map_err(error)),
-        }
-    }
-
-    /// Opens `SCHEMA_MIGRATION_ORDER`. Missing is valid only when every
-    /// tracked version in `versions` is still zero (a store that has never
-    /// migrated anything).
-    fn open_schema_migration_order_or_ok(
-        &self,
-        rtx: &ReadTransaction,
-        versions: &SchemaVersionsTable,
-    ) -> Result<Option<SchemaOrderTable>, String> {
-        match rtx.open_table(SCHEMA_MIGRATION_ORDER) {
-            Ok(table) => Ok(Some(table)),
-            Err(redb::TableError::TableDoesNotExist(_)) => {
-                for row in versions.iter().map_err(map_err)? {
-                    let (key, value) = row.map_err(map_err)?;
-                    if value.value() != 0 {
-                        return Err(format!(
-                            "schema version `{}/{}' has no migration order catalog",
-                            key.value().0,
-                            key.value().1
-                        ));
-                    }
-                }
-                Ok(None)
-            }
-            Err(error) => Err(map_err(error)),
-        }
-    }
-
-    /// Opens `SCHEMA_MIGRATIONS`, mirroring `open_schema_migration_order_or_ok`.
-    fn open_schema_migration_records_or_ok(
-        &self,
-        rtx: &ReadTransaction,
-        versions: &SchemaVersionsTable,
-    ) -> Result<Option<SchemaRecordsTable>, String> {
-        match rtx.open_table(SCHEMA_MIGRATIONS) {
-            Ok(table) => Ok(Some(table)),
-            Err(redb::TableError::TableDoesNotExist(_)) => {
-                for row in versions.iter().map_err(map_err)? {
-                    let (key, value) = row.map_err(map_err)?;
-                    if value.value() != 0 {
-                        return Err(format!(
-                            "schema version `{}/{}' has no migration record catalog",
-                            key.value().0,
-                            key.value().1
-                        ));
-                    }
-                }
-                Ok(None)
-            }
-            Err(error) => Err(map_err(error)),
-        }
-    }
-
-    /// Opens `SCHEMA_CATALOG_VERSIONS`. Missing is valid only when no
-    /// migration versions have been recorded at all.
-    fn open_schema_catalog_versions_or_ok(
-        &self,
-        rtx: &ReadTransaction,
-        versions: &SchemaVersionsTable,
-    ) -> Result<Option<SchemaCatalogVersionsTable>, String> {
-        match rtx.open_table(SCHEMA_CATALOG_VERSIONS) {
-            Ok(table) => Ok(Some(table)),
-            Err(redb::TableError::TableDoesNotExist(_)) => {
-                for row in versions.iter().map_err(map_err)? {
-                    let (_, value) = row.map_err(map_err)?;
-                    if value.value() != 0 {
-                        return Err(
-                            "schema migration records exist without a catalog version counter"
-                                .to_string(),
-                        );
-                    }
-                }
-                Ok(None)
-            }
-            Err(error) => Err(map_err(error)),
-        }
-    }
-
-    /// Opens `SCHEMA_CATALOG_ORDER`. Missing is valid only when every scope's
-    /// catalog version in `catalog_versions` is still zero.
-    fn open_schema_catalog_order_or_ok(
-        &self,
-        rtx: &ReadTransaction,
-        catalog_versions: &SchemaCatalogVersionsTable,
-    ) -> Result<Option<SchemaCatalogOrderTable>, String> {
-        match rtx.open_table(SCHEMA_CATALOG_ORDER) {
-            Ok(table) => Ok(Some(table)),
-            Err(redb::TableError::TableDoesNotExist(_)) => {
-                for row in catalog_versions.iter().map_err(map_err)? {
-                    let (scope, value) = row.map_err(map_err)?;
-                    if value.value() != 0 {
-                        return Err(format!(
-                            "schema catalog scope `{}` has no catalog order chain",
-                            scope.value()
-                        ));
-                    }
-                }
-                Ok(None)
-            }
-            Err(error) => Err(map_err(error)),
-        }
-    }
-
-    /// Opens the user-table `CATALOG`. Missing means no user tables exist at
-    /// all, so there is trivially nothing to verify.
-    fn open_schema_catalog_or_ok(
-        &self,
-        rtx: &ReadTransaction,
-    ) -> Result<Option<SchemaCatalogTable>, String> {
-        match rtx.open_table(CATALOG) {
-            Ok(table) => Ok(Some(table)),
-            Err(redb::TableError::TableDoesNotExist(_)) => Ok(None),
-            Err(error) => Err(map_err(error)),
-        }
+        rtx: &SqlRead<'_>,
+    ) -> Result<SchemaMigrationTables, String> {
+        Ok(SchemaMigrationTables {
+            versions: rtx.open_owner_table(SCHEMA_VERSIONS)?,
+            order: rtx.open_owner_table(SCHEMA_MIGRATION_ORDER)?,
+            records: rtx.open_owner_table(SCHEMA_MIGRATIONS)?,
+            catalog_versions: rtx.open_owner_table(SCHEMA_CATALOG_VERSIONS)?,
+            catalog_order: rtx.open_owner_table(SCHEMA_CATALOG_ORDER)?,
+            catalog: rtx.open_owner_table(CATALOG)?,
+        })
     }
 
     /// Validates every migration record's scope binding, identity, and
@@ -1562,11 +1362,8 @@ impl TableStore {
 
     /// The names of every user table (sorted for determinism).
     pub fn list_tables(&self) -> Result<Vec<String>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let cat = match rtx.open_table(CATALOG) {
-            Ok(t) => t,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let rtx = self.authority.read()?;
+        let cat = rtx.open_owner_table(CATALOG)?;
         let mut names = Vec::new();
         let mut count = 0usize;
         let mut bytes = 0usize;
@@ -1586,14 +1383,11 @@ impl TableStore {
             .get_schema(table)?
             .ok_or_else(|| format!("table `{table}` does not exist"))?;
         let width = schema.columns().len();
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         // The physical row table is created lazily on the first committed INSERT; a
         // table that only ever had its schema created (or whose inserts rolled back)
         // has no `__sql_rows__` table yet → an empty scan, not an error.
-        let rows = match rtx.open_table(ROWS) {
-            Ok(t) => t,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let rows = rtx.open_owner_table(ROWS)?;
         let mut out = Vec::new();
         let mut encoded_bytes = 0usize;
         for r in rows
@@ -1635,12 +1429,9 @@ impl TableStore {
             .get_schema(table)?
             .ok_or_else(|| format!("table `{table}` does not exist"))?;
         let width = schema.columns().len();
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         // Mirrors `scan`: no committed INSERT yet ⇒ no physical row table ⇒ no row.
-        let rows = match rtx.open_table(ROWS) {
-            Ok(t) => t,
-            Err(_) => return Ok(None),
-        };
+        let rows = rtx.open_owner_table(ROWS)?;
         match rows.get((table, rowid)).map_err(map_err)? {
             Some(v) => {
                 let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
@@ -1673,10 +1464,10 @@ impl TableStore {
         col_order: &[String],
         rows: &[Vec<Value>],
     ) -> Result<Vec<Vec<Cell>>, String> {
-        let wtx = self.begin()?;
-        let out = insert_in(&wtx, self.index_scope(), table, col_order, rows)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(out)
+        self.authority.maintain("insert-rows", table, |wtx| {
+            let out = insert_in(wtx, self.index_scope(), table, col_order, rows)?;
+            Ok(out)
+        })
     }
 
     /// `INSERT … ON CONFLICT (…) DO NOTHING|DO UPDATE` (CONCEPT:EG-KG.query.delete-returning-sees-row). Returns the
@@ -1688,10 +1479,12 @@ impl TableStore {
         rows: &[Vec<Value>],
         action: &ConflictAction,
     ) -> Result<Vec<Vec<Cell>>, String> {
-        let wtx = self.begin()?;
-        let out = insert_on_conflict_in(&wtx, self.index_scope(), table, col_order, rows, action)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(out)
+        self.authority
+            .maintain("insert-rows-on-conflict", table, |wtx| {
+                let out =
+                    insert_on_conflict_in(wtx, self.index_scope(), table, col_order, rows, action)?;
+                Ok(out)
+            })
     }
 
     /// `UPDATE table SET <set> WHERE <predicate>` with constraint re-validation
@@ -1712,10 +1505,10 @@ impl TableStore {
         set: &serde_json::Map<String, Value>,
         selector: &eg_types::RowPredicate,
     ) -> Result<Vec<Vec<Cell>>, String> {
-        let wtx = self.begin()?;
-        let out = update_in(&wtx, self.index_scope(), table, set, selector)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(out)
+        self.authority.maintain("update-rows", table, |wtx| {
+            let out = update_in(wtx, self.index_scope(), table, set, selector)?;
+            Ok(out)
+        })
     }
 
     /// `DELETE FROM table WHERE <predicate>` (CONCEPT:EG-KG.query.compound-predicate-decode). Returns rows removed.
@@ -1734,10 +1527,10 @@ impl TableStore {
         table: &str,
         selector: &eg_types::RowPredicate,
     ) -> Result<Vec<Vec<Cell>>, String> {
-        let wtx = self.begin()?;
-        let out = delete_in(&wtx, self.index_scope(), table, selector)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(out)
+        self.authority.maintain("delete-rows", table, |wtx| {
+            let out = delete_in(wtx, self.index_scope(), table, selector)?;
+            Ok(out)
+        })
     }
 
     // ── SQL:2023 SQL/PGQ property-graph catalog ──────────────────────────────
@@ -1760,12 +1553,14 @@ impl TableStore {
         if definition.tenant_scope != tenant_scope {
             return Err("property graph operation scope does not match its definition".to_string());
         }
-        let wtx = self.begin()?;
-        let input = relation_catalog_input_in(&wtx, self.index_scope())?;
-        let record =
-            property_graph_persist::create_property_graph_in(&wtx, owner, &input, definition)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(record)
+        self.authority
+            .maintain("create-property-graph", owner, |wtx| {
+                let input = relation_catalog_input_in(wtx, self.index_scope())?;
+                let record = property_graph_persist::create_property_graph_in(
+                    wtx, owner, &input, definition,
+                )?;
+                Ok(record)
+            })
     }
 
     /// `ALTER PROPERTY GRAPH`: rebuild the definition and re-admit it under the
@@ -1780,21 +1575,22 @@ impl TableStore {
         action: &AlterPropertyGraphAction,
         actor: &str,
     ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
-        let wtx = self.begin()?;
-        let input = relation_catalog_input_in(&wtx, self.index_scope())?;
-        let record = property_graph_persist::alter_property_graph_in(
-            &wtx,
-            actor,
-            &input,
-            AlterRequest {
-                tenant_scope,
-                name,
-                if_exists,
-                action,
-            },
-        )?;
-        wtx.commit().map_err(map_err)?;
-        Ok(record)
+        self.authority
+            .maintain("alter-property-graph", actor, |wtx| {
+                let input = relation_catalog_input_in(wtx, self.index_scope())?;
+                let record = property_graph_persist::alter_property_graph_in(
+                    wtx,
+                    actor,
+                    &input,
+                    AlterRequest {
+                        tenant_scope,
+                        name,
+                        if_exists,
+                        action,
+                    },
+                )?;
+                Ok(record)
+            })
     }
 
     /// `DROP PROPERTY GRAPH`: remove the named graphs, returning how many rows
@@ -1806,16 +1602,17 @@ impl TableStore {
         if_exists: bool,
         behavior: DropBehavior,
     ) -> Result<usize, String> {
-        let wtx = self.begin()?;
-        let dropped = property_graph_persist::drop_property_graphs_in(
-            &wtx,
-            tenant_scope,
-            names,
-            if_exists,
-            behavior,
-        )?;
-        wtx.commit().map_err(map_err)?;
-        Ok(dropped)
+        self.authority
+            .maintain("drop-property-graph", tenant_scope, |wtx| {
+                let dropped = property_graph_persist::drop_property_graphs_in(
+                    wtx,
+                    tenant_scope,
+                    names,
+                    if_exists,
+                    behavior,
+                )?;
+                Ok(dropped)
+            })
     }
 
     /// The admitted catalog record for `name`, or `None` when no such graph
@@ -1826,7 +1623,7 @@ impl TableStore {
         tenant_scope: &str,
         name: &SqlName,
     ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         property_graph_persist::property_graph_snapshot(&rtx, tenant_scope, name)
     }
 
@@ -1858,7 +1655,7 @@ impl TableStore {
 
     /// Every admitted property-graph name (sorted for determinism).
     pub fn list_property_graphs(&self) -> Result<Vec<String>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         property_graph_persist::list_property_graphs_snapshot(&rtx)
     }
 
@@ -1873,28 +1670,25 @@ impl TableStore {
         select_sql: &str,
         or_replace: bool,
     ) -> Result<(), String> {
-        let wtx = self.begin()?;
-        create_view_in(&wtx, name, select_sql, or_replace)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority.maintain("create-view", name, |wtx| {
+            create_view_in(wtx, name, select_sql, or_replace)?;
+            Ok(())
+        })
     }
 
     /// `DROP VIEW [IF EXISTS] name`: remove the view catalog entry. `Ok(true)` when a
     /// view was removed, `Ok(false)` when absent and `if_exists` was set.
     pub fn drop_view(&self, name: &str, if_exists: bool) -> Result<bool, String> {
-        let wtx = self.begin()?;
-        let existed = drop_view_in(&wtx, name, if_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(existed)
+        self.authority.maintain("drop-view", name, |wtx| {
+            let existed = drop_view_in(wtx, name, if_exists)?;
+            Ok(existed)
+        })
     }
 
     /// The stored SELECT text of view `name`, or `None` if no such view exists.
     pub fn get_view(&self, name: &str) -> Result<Option<String>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let views = match rtx.open_table(VIEWS) {
-            Ok(t) => t,
-            Err(_) => return Ok(None),
-        };
+        let rtx = self.authority.read()?;
+        let views = rtx.open_owner_table(VIEWS)?;
         Ok(views
             .get(name)
             .map_err(map_err)?
@@ -1903,11 +1697,8 @@ impl TableStore {
 
     /// Every view as `(name, select_sql)` (sorted by name for determinism).
     pub fn list_views(&self) -> Result<Vec<(String, String)>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let views = match rtx.open_table(VIEWS) {
-            Ok(t) => t,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let rtx = self.authority.read()?;
+        let views = rtx.open_owner_table(VIEWS)?;
         let mut out = Vec::new();
         let mut count = 0usize;
         let mut bytes = 0usize;
@@ -1933,38 +1724,32 @@ impl TableStore {
     /// which errors only on a genuine re-create; the wire shim treats an existing
     /// extension as a benign success so a re-run setup script proceeds).
     pub fn create_extension(&self, name: &str, _if_not_exists: bool) -> Result<bool, String> {
-        let wtx = self.begin()?;
-        let created = create_extension_in(&wtx, name, _if_not_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(created)
+        self.authority.maintain("create-extension", name, |wtx| {
+            let created = create_extension_in(wtx, name, _if_not_exists)?;
+            Ok(created)
+        })
     }
 
     /// `DROP EXTENSION [IF EXISTS] name`: remove the catalog entry. `Ok(true)` when an
     /// extension was removed, `Ok(false)` when absent and `if_exists` was set (else Err).
     pub fn drop_extension(&self, name: &str, if_exists: bool) -> Result<bool, String> {
-        let wtx = self.begin()?;
-        let existed = drop_extension_in(&wtx, name, if_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(existed)
+        self.authority.maintain("drop-extension", name, |wtx| {
+            let existed = drop_extension_in(wtx, name, if_exists)?;
+            Ok(existed)
+        })
     }
 
     /// Whether extension `name` is currently enabled.
     pub fn has_extension(&self, name: &str) -> Result<bool, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let exts = match rtx.open_table(EXTENSIONS) {
-            Ok(t) => t,
-            Err(_) => return Ok(false),
-        };
+        let rtx = self.authority.read()?;
+        let exts = rtx.open_owner_table(EXTENSIONS)?;
         Ok(exts.get(name).map_err(map_err)?.is_some())
     }
 
     /// Every enabled extension name (sorted for determinism).
     pub fn list_extensions(&self) -> Result<Vec<String>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let exts = match rtx.open_table(EXTENSIONS) {
-            Ok(t) => t,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let rtx = self.authority.read()?;
+        let exts = rtx.open_owner_table(EXTENSIONS)?;
         let mut out = Vec::new();
         let mut count = 0usize;
         let mut bytes = 0usize;
@@ -1984,28 +1769,26 @@ impl TableStore {
     /// and `or_replace` is false, or if a user table already claims the name (a function
     /// and a table cannot share a name — a call `name(args)` would be ambiguous).
     pub fn create_function(&self, func: &StoredFunction, or_replace: bool) -> Result<(), String> {
-        let wtx = self.begin()?;
-        create_function_in(&wtx, func, or_replace)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority
+            .maintain("create-function", &func.name, |wtx| {
+                create_function_in(wtx, func, or_replace)?;
+                Ok(())
+            })
     }
 
     /// `DROP FUNCTION [IF EXISTS] name`: remove the function catalog entry. `Ok(true)`
     /// when a function was removed, `Ok(false)` when absent and `if_exists` was set.
     pub fn drop_function(&self, name: &str, if_exists: bool) -> Result<bool, String> {
-        let wtx = self.begin()?;
-        let existed = drop_function_in(&wtx, name, if_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(existed)
+        self.authority.maintain("drop-function", name, |wtx| {
+            let existed = drop_function_in(wtx, name, if_exists)?;
+            Ok(existed)
+        })
     }
 
     /// The stored definition of function `name`, or `None` if no such function exists.
     pub fn get_function(&self, name: &str) -> Result<Option<StoredFunction>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let funcs = match rtx.open_table(FUNCTIONS) {
-            Ok(t) => t,
-            Err(_) => return Ok(None),
-        };
+        let rtx = self.authority.read()?;
+        let funcs = rtx.open_owner_table(FUNCTIONS)?;
         match funcs.get(name).map_err(map_err)? {
             Some(v) => {
                 let f: StoredFunction = decode_stored(v.value(), "function")?;
@@ -2018,11 +1801,8 @@ impl TableStore {
     /// Every stored function (sorted by name for determinism) — the set the SQL exec
     /// path expands into a query at plan time (CONCEPT:EG-KG.query.create-drop-function).
     pub fn list_functions(&self) -> Result<Vec<StoredFunction>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let funcs = match rtx.open_table(FUNCTIONS) {
-            Ok(t) => t,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let rtx = self.authority.read()?;
+        let funcs = rtx.open_owner_table(FUNCTIONS)?;
         let mut out = Vec::new();
         let mut count = 0usize;
         let mut bytes = 0usize;
@@ -2054,29 +1834,27 @@ impl TableStore {
     /// same key is a benign success); an existing key without `if_not_exists` is replaced
     /// (the newest DDL wins — pgvector's `CREATE INDEX` build is idempotent in practice).
     pub fn put_ann_index(&self, plan: &AnnIndexPlan) -> Result<(), String> {
-        let wtx = self.begin()?;
-        put_ann_index_in(&wtx, plan)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority
+            .maintain("put-ann-index", &plan.table, |wtx| {
+                put_ann_index_in(wtx, plan)?;
+                Ok(())
+            })
     }
 
     /// `DROP INDEX name` (CONCEPT:EG-KG.query.real-ann-top-k): remove every ANN index registered for
     /// `table`.`column` (all metrics). `Ok(n)` = number of entries removed.
     pub fn drop_ann_indexes_for_column(&self, table: &str, column: &str) -> Result<usize, String> {
-        let wtx = self.begin()?;
-        let removed = drop_ann_indexes_for_column_in(&wtx, table, column)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(removed)
+        self.authority.maintain("drop-ann-indexes", table, |wtx| {
+            let removed = drop_ann_indexes_for_column_in(wtx, table, column)?;
+            Ok(removed)
+        })
     }
 
     /// Every registered ANN index (sorted by key for determinism) — the set the SQL
     /// exec path consults to decide the pgvector pushdown (CONCEPT:EG-KG.query.real-pgvector-ann-top).
     pub fn list_ann_indexes(&self) -> Result<Vec<AnnIndexPlan>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let idxs = match rtx.open_table(ANN_INDEXES) {
-            Ok(t) => t,
-            Err(_) => return Ok(Vec::new()),
-        };
+        let rtx = self.authority.read()?;
+        let idxs = rtx.open_owner_table(ANN_INDEXES)?;
         let mut pairs = Vec::new();
         let mut count = 0usize;
         let mut bytes = 0usize;
@@ -2122,10 +1900,12 @@ impl TableStore {
         spec: &SecondaryIndexSpec,
         if_not_exists: bool,
     ) -> Result<bool, String> {
-        let wtx = self.begin()?;
-        let created = create_secondary_index_in(&wtx, self.index_scope(), spec, if_not_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(created)
+        self.authority
+            .maintain("create-secondary-index", &spec.table, |wtx| {
+                let created =
+                    create_secondary_index_in(wtx, self.index_scope(), spec, if_not_exists)?;
+                Ok(created)
+            })
     }
 
     /// `DROP INDEX` by owner scope, table, and index name. The physical entry
@@ -2136,10 +1916,12 @@ impl TableStore {
         name: &str,
         if_exists: bool,
     ) -> Result<bool, String> {
-        let wtx = self.begin()?;
-        let removed = drop_secondary_index_in(&wtx, self.index_scope(), table, name, if_exists)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(removed)
+        self.authority
+            .maintain("drop-secondary-index", table, |wtx| {
+                let removed =
+                    drop_secondary_index_in(wtx, self.index_scope(), table, name, if_exists)?;
+                Ok(removed)
+            })
     }
 
     /// List ordinary indexes in deterministic catalog order. A table filter is
@@ -2149,7 +1931,7 @@ impl TableStore {
         &self,
         table: Option<&str>,
     ) -> Result<Vec<SecondaryIndexSpec>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         list_secondary_indexes_in(&rtx, self.index_scope(), table)
     }
 
@@ -2162,7 +1944,7 @@ impl TableStore {
         table: &str,
         lookup: &SecondaryIndexLookup,
     ) -> Result<Option<Vec<Vec<Cell>>>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         secondary_index_rows_in(&rtx, self.index_scope(), table, lookup)
     }
 
@@ -2179,7 +1961,7 @@ impl TableStore {
         offset: usize,
         limit: Option<usize>,
     ) -> Result<Option<Vec<Vec<Cell>>>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
+        let rtx = self.authority.read()?;
         secondary_index_ordered_rows_in(
             &rtx,
             self.index_scope(),
@@ -2196,20 +1978,17 @@ impl TableStore {
     /// Persist a hypertable declaration after validating its table and time
     /// column against the current catalog.
     pub fn put_hypertable(&self, plan: &HypertablePlan) -> Result<(), String> {
-        let wtx = self.begin()?;
-        put_hypertable_in(&wtx, plan)?;
-        wtx.commit().map_err(map_err)?;
-        Ok(())
+        self.authority
+            .maintain("put-hypertable", &plan.table, |wtx| {
+                put_hypertable_in(wtx, plan)?;
+                Ok(())
+            })
     }
 
     /// Return every native hypertable declaration in stable table-name order.
     pub fn list_hypertables(&self) -> Result<Vec<HypertablePlan>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let hypertables = match rtx.open_table(HYPERTABLES) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-            Err(error) => return Err(map_err(error)),
-        };
+        let rtx = self.authority.read()?;
+        let hypertables = rtx.open_owner_table(HYPERTABLES)?;
         let mut rows = Vec::new();
         let mut count = 0usize;
         let mut bytes = 0usize;
@@ -2240,13 +2019,14 @@ impl TableStore {
     /// write txn mean later ops in the batch SEE earlier ops' staged writes (e.g. a
     /// later UNIQUE check sees an earlier insert in the same transaction).
     pub fn commit_txn(&self, txn: &TableTxn) -> Result<usize, String> {
-        let wtx = self.begin()?;
-        let mut affected = 0usize;
-        for op in &txn.ops {
-            affected = affected.saturating_add(apply_txn_op(&wtx, self.index_scope(), op)?);
-        }
-        wtx.commit().map_err(map_err)?;
-        Ok(affected)
+        self.authority
+            .maintain("commit-txn", self.index_scope(), |wtx| {
+                let mut affected = 0usize;
+                for op in &txn.ops {
+                    affected = affected.saturating_add(apply_txn_op(wtx, self.index_scope(), op)?);
+                }
+                Ok(affected)
+            })
     }
 
     /// Commit a SQL table/catalog transaction together with the universal durable
@@ -2285,8 +2065,50 @@ impl TableStore {
     ) -> Result<MutationBatchCommit, String> {
         batch.validate_write_budget()?;
         verify_batch_is_sql_catalog_only(batch)?;
-        let wtx = self.begin()?;
+        let (tenant, resource) = sql_scope_key(batch)?;
+        let mutation = self.authority.begin_maintenance_for(
+            &batch.identity,
+            "commit-txn-batch",
+            &format!("{tenant}/{resource}"),
+        )?;
+        let commit = match mutation.owner_rows(|wtx| {
+            self.commit_txn_batch_rows(
+                wtx,
+                txn,
+                batch,
+                committed_at_ms,
+                crashpoint,
+                result_override,
+            )
+        }) {
+            Ok(commit) => commit,
+            Err(error) => {
+                mutation.abort()?;
+                return Err(error);
+            }
+        };
+        if commit.replayed {
+            // An idempotent replay wrote nothing, so there is nothing to commit
+            // and no version to advance: the durable record already exists.
+            mutation.abort()?;
+            return Ok(commit);
+        }
+        commit_sql_mutation_with_crashpoints(mutation, batch, crashpoint)?;
+        Ok(commit)
+    }
 
+    /// Every owner row one SQL mutation batch changes, inside the admitted
+    /// write: the OCC/idempotency/fence prelude, the txn ops themselves, and the
+    /// durable batch/idempotency/version/fence/outbox metadata.
+    fn commit_txn_batch_rows(
+        &self,
+        wtx: &SqlWrite<'_>,
+        txn: &TableTxn,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+        crashpoint: Option<SqlMutationCrashpoint>,
+        result_override: Option<Vec<u8>>,
+    ) -> Result<MutationBatchCommit, String> {
         // Capture the authoritative version once for both the OCC gate and the
         // idempotency replay gate.  A retry reconstructed after an ack-loss may
         // carry this current observation rather than the original version stored
@@ -2295,7 +2117,7 @@ impl TableStore {
         // concurrent double-execution race.
         let version_key = sql_scope_key(batch)?;
         let (current_version, proposed_fence) =
-            match prepare_mutation_commit_in(&wtx, version_key, batch)? {
+            match prepare_mutation_commit_in(wtx, version_key, batch)? {
                 MutationCommitPrelude::Replay(replay) => return Ok(*replay),
                 MutationCommitPrelude::Fresh {
                     current_version,
@@ -2304,7 +2126,7 @@ impl TableStore {
             };
 
         let affected = apply_mutation_txn_ops_with_crashpoints(
-            &wtx,
+            wtx,
             self.index_scope(),
             txn,
             batch,
@@ -2326,7 +2148,7 @@ impl TableStore {
         };
         commit.validate()?;
         write_mutation_commit_tables_in(
-            &wtx,
+            wtx,
             batch,
             version_key,
             next_version,
@@ -2335,18 +2157,13 @@ impl TableStore {
             &record_bytes,
         )?;
 
-        commit_mutation_txn_with_crashpoints(wtx, batch, crashpoint)?;
         Ok(commit)
     }
 
     /// Current authoritative SQL-domain OCC version for batch planning.
     pub fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let table = match rtx.open_table(MUTATION_VERSION) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-            Err(error) => return Err(map_err(error)),
-        };
+        let rtx = self.authority.read()?;
+        let table = rtx.open_owner_table(MUTATION_VERSION)?;
         let version = match table.get((tenant, graph)).map_err(map_err)? {
             Some(value) => value.value(),
             None => INITIAL_SQL_DOMAIN_VERSION,
@@ -2354,75 +2171,66 @@ impl TableStore {
         Ok(version)
     }
 
-    /// A single fingerprint over EVERY durable SQL-domain OCC counter and
-    /// schema/catalog version this store
-    /// currently holds, across every `(tenant, scope)` entry in [`MUTATION_VERSION`]
-    /// -- not just one caller-named scope. [`Self::mutation_version`] reads ONE
-    /// `(tenant, graph)` counter; a served SQL write always bumps SOME entry in this
-    /// table on commit (`commit_txn`/`commit_txn_batch`/`commit_txn_batch_result`,
-    /// the SQL-catalog gateway every `CREATE|DROP|ALTER TABLE|VIEW|FUNCTION|
+    /// A single fingerprint over EVERY SQL mutation scope this store has bound
+    /// plus every durable schema/catalog version it holds -- not just one
+    /// caller-named scope.
+    ///
+    /// [`Self::mutation_version`] reads ONE `(tenant, graph)` counter; a served
+    /// SQL write always advances SOME scope's authoritative version on commit
+    /// (`commit_txn`/`commit_txn_batch`/`commit_txn_batch_result`, the
+    /// SQL-catalog gateway every `CREATE|DROP|ALTER TABLE|VIEW|FUNCTION|
     /// EXTENSION`, `CREATE INDEX`, `CREATE HYPERTABLE`, and user-table
     /// `INSERT|UPDATE|DELETE` route through) -- but NOT always under the literal
-    /// `graph` name a caller happens to be asking about: the sqlite-import gateway
-    /// (`src/server/handlers/sqlite_file.rs::compile_import_batch`) commits under a
-    /// FIXED cross-graph scope (`authority.namespace("sqlite-import",
-    /// "global-user-tables")`), independent of whichever graph issued the import.
-    /// A cache keyed on `mutation_version(tenant, graph)` alone would miss that
-    /// commit and serve a stale (pre-import) user-table batch. Scanning every scope
-    /// closes that gap AND is future-proof: a new write path introduced later that
-    /// picks yet another scope string is still covered automatically, with no
-    /// caller-side list of "every scope name in use" to keep in sync.
+    /// `graph` name a caller happens to be asking about: the sqlite-import
+    /// gateway (`src/server/handlers/sqlite_file.rs::compile_import_batch`)
+    /// commits under a FIXED cross-graph scope
+    /// (`authority.namespace("sqlite-import", "global-user-tables")`),
+    /// independent of whichever graph issued the import. A cache keyed on
+    /// `mutation_version(tenant, graph)` alone would miss that commit and serve
+    /// a stale (pre-import) user-table batch.
     ///
-    /// Cheap: distinct scopes per store are small (one per graph the tenant has run
-    /// `Method::Sql`/pgwire DDL/DML against, plus a handful of fixed cross-graph
-    /// scopes like the sqlite-import one) -- a full scan of this table is a tiny
-    /// fraction of the cost `register_views`/`register_system_catalogs` amortize
-    /// away. Deterministic (redb's `iter()` yields keys in sorted order): the same
-    /// stored state always hashes to the same fingerprint, and ANY row added or
-    /// changed changes it (a version only ever increases monotonically per scope,
-    /// and scopes are only ever added, never removed, so the fingerprint can never
-    /// coincidentally repeat a prior value after a real commit).
+    /// The version table is now the mutation kernel's, and a scoped read may not
+    /// address another scope's rows, so this walks the scopes this store has
+    /// BOUND rather than iterating the whole table. That is the same set: a
+    /// commit is only reachable through a bound scope handle, and redb permits
+    /// exactly one process to hold the file, so no write this fingerprint must
+    /// see can have happened through any other binding. It is still future-proof
+    /// -- a write path introduced later that picks yet another scope string
+    /// binds it here first and is covered automatically.
+    ///
+    /// Cheap: distinct scopes per store are small (one per graph the tenant has
+    /// run `Method::Sql`/pgwire DDL/DML against, plus a handful of fixed
+    /// cross-graph scopes like the sqlite-import one) -- reading one version row
+    /// each is a tiny fraction of the cost `register_views`/
+    /// `register_system_catalogs` amortize away. Deterministic: the scope list
+    /// is sorted by ledger key and redb's `iter()` yields keys in sorted order,
+    /// so the same stored state always hashes to the same fingerprint, and ANY
+    /// row added or changed changes it (a scope version only ever increases,
+    /// and scopes are only ever added, never removed, so the fingerprint can
+    /// never coincidentally repeat a prior value after a real commit).
     pub fn catalog_fingerprint(&self) -> Result<u64, String> {
         use std::hash::{Hash, Hasher};
-        let rtx = self.db.begin_read().map_err(map_err)?;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        match rtx.open_table(MUTATION_VERSION) {
-            Err(redb::TableError::TableDoesNotExist(_)) => {}
-            Err(error) => return Err(map_err(error)),
-            Ok(table) => {
-                for row in table.iter().map_err(map_err)? {
-                    let (key, value) = row.map_err(map_err)?;
-                    let (tenant, scope) = key.value();
-                    b"mutation".hash(&mut hasher);
-                    tenant.hash(&mut hasher);
-                    scope.hash(&mut hasher);
-                    value.value().hash(&mut hasher);
-                }
-            }
+        for (scope_key, version) in self.authority.bound_scope_versions()? {
+            b"mutation".hash(&mut hasher);
+            scope_key.hash(&mut hasher);
+            version.hash(&mut hasher);
         }
-        match rtx.open_table(SCHEMA_CATALOG_VERSIONS) {
-            Err(redb::TableError::TableDoesNotExist(_)) => {}
-            Err(error) => return Err(map_err(error)),
-            Ok(table) => {
-                for row in table.iter().map_err(map_err)? {
-                    let (scope, value) = row.map_err(map_err)?;
-                    b"schema".hash(&mut hasher);
-                    scope.value().hash(&mut hasher);
-                    value.value().hash(&mut hasher);
-                }
-            }
+        let rtx = self.authority.read()?;
+        let table = rtx.open_owner_table(SCHEMA_CATALOG_VERSIONS)?;
+        for row in table.iter().map_err(map_err)? {
+            let (scope, value) = row.map_err(map_err)?;
+            b"schema".hash(&mut hasher);
+            scope.value().hash(&mut hasher);
+            value.value().hash(&mut hasher);
         }
         Ok(hasher.finish())
     }
 
     /// Read durable SQL-domain batch status/result for retry and restart recovery.
     pub fn mutation_batch(&self, batch_id: &str) -> Result<Option<MutationBatchRecord>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let table = match rtx.open_table(MUTATION_BATCHES) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-            Err(error) => return Err(map_err(error)),
-        };
+        let rtx = self.authority.read()?;
+        let table = rtx.open_owner_table(MUTATION_BATCHES)?;
         let record = table
             .get(batch_id)
             .map_err(map_err)?
@@ -2449,12 +2257,8 @@ impl TableStore {
 
     /// Read the SQL-domain transactional outbox for one committed batch.
     pub fn mutation_outbox(&self, batch_id: &str) -> Result<Vec<MutationOutboxRecord>, String> {
-        let rtx = self.db.begin_read().map_err(map_err)?;
-        let table = match rtx.open_table(MUTATION_OUTBOX) {
-            Ok(table) => table,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-            Err(error) => return Err(map_err(error)),
-        };
+        let rtx = self.authority.read()?;
+        let table = rtx.open_owner_table(MUTATION_OUTBOX)?;
         let mut rows = Vec::new();
         let mut count = 0usize;
         let mut bytes = 0usize;
@@ -2467,13 +2271,6 @@ impl TableStore {
             rows.push(decode_mutation_outbox(value.value())?);
         }
         Ok(rows)
-    }
-
-    /// Begin an immediate-durability write transaction (commit-before-ack).
-    fn begin(&self) -> Result<WriteTransaction, String> {
-        let mut wtx = self.db.begin_write().map_err(map_err)?;
-        wtx.set_durability(Durability::Immediate).map_err(map_err)?;
-        Ok(wtx)
     }
 }
 
@@ -2505,7 +2302,7 @@ enum MutationCommitPrelude {
 /// batch-id-not-taken / OCC-version / fence checks. Bundled into one enum
 /// return purely to keep `commit_txn_batch_inner`'s own CCN low.
 fn prepare_mutation_commit_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     version_key: (&str, &str),
     batch: &MutationBatch,
 ) -> Result<MutationCommitPrelude, String> {
@@ -2568,10 +2365,10 @@ fn verify_batch_is_sql_catalog_only(batch: &MutationBatch) -> Result<(), String>
 }
 
 fn read_current_mutation_version_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     version_key: (&str, &str),
 ) -> Result<u64, String> {
-    let versions = wtx.open_table(MUTATION_VERSION).map_err(map_err)?;
+    let versions = wtx.open_table(MUTATION_VERSION)?;
     // Bind the guard: as a tail expression its temporary would outlive
     // `versions` and borrow a dropped table handle.
     let found = versions.get(version_key).map_err(map_err)?;
@@ -2586,12 +2383,12 @@ fn read_current_mutation_version_in(
 /// for a genuinely new batch. Errs on IDEMPOTENCY_CONFLICT (same key,
 /// different identity).
 fn check_mutation_idempotency_replay_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     version_key: (&str, &str),
     batch: &MutationBatch,
     current_version: u64,
 ) -> Result<Option<MutationBatchCommit>, String> {
-    let idem = wtx.open_table(MUTATION_IDEMPOTENCY).map_err(map_err)?;
+    let idem = wtx.open_table(MUTATION_IDEMPOTENCY)?;
     let existing = idem
         .get((version_key.0, version_key.1, batch.idempotency_key.as_str()))
         .map_err(map_err)?
@@ -2599,7 +2396,7 @@ fn check_mutation_idempotency_replay_in(
     let Some(existing) = existing else {
         return Ok(None);
     };
-    let records = wtx.open_table(MUTATION_BATCHES).map_err(map_err)?;
+    let records = wtx.open_table(MUTATION_BATCHES)?;
     let bytes = records
         .get(existing.as_str())
         .map_err(map_err)?
@@ -2626,10 +2423,10 @@ fn check_mutation_idempotency_replay_in(
 }
 
 fn check_mutation_batch_id_not_exists_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     batch: &MutationBatch,
 ) -> Result<(), String> {
-    let records = wtx.open_table(MUTATION_BATCHES).map_err(map_err)?;
+    let records = wtx.open_table(MUTATION_BATCHES)?;
     if records
         .get(batch.batch_id.as_str())
         .map_err(map_err)?
@@ -2668,12 +2465,12 @@ fn verify_mutation_occ_version(
 /// Reads the current fence and confirms `batch`'s proposed fence has not
 /// been superseded by a newer placement epoch / fencing token.
 fn resolve_and_verify_mutation_fence_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     version_key: (&str, &str),
     batch: &MutationBatch,
 ) -> Result<SqlMutationFence, String> {
     let current_fence = {
-        let fences = wtx.open_table(MUTATION_FENCE).map_err(map_err)?;
+        let fences = wtx.open_table(MUTATION_FENCE)?;
         let value = fences
             .get(version_key)
             .map_err(map_err)?
@@ -2699,7 +2496,7 @@ fn resolve_and_verify_mutation_fence_in(
 /// points either side of the row work (CONCEPT: chaos/durability
 /// certification -- production always calls this with `crashpoint: None`).
 fn apply_mutation_txn_ops_with_crashpoints(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     index_scope: &str,
     txn: &TableTxn,
     batch: &MutationBatch,
@@ -2754,7 +2551,7 @@ fn build_mutation_batch_record(
 /// advanced OCC version, the fence, and the outbox intents (one per
 /// operation, plus any explicit `batch.outbox` entries).
 fn write_mutation_commit_tables_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     batch: &MutationBatch,
     version_key: (&str, &str),
     next_version: u64,
@@ -2762,22 +2559,22 @@ fn write_mutation_commit_tables_in(
     proposed_fence: &SqlMutationFence,
     record_bytes: &[u8],
 ) -> Result<(), String> {
-    let mut records = wtx.open_table(MUTATION_BATCHES).map_err(map_err)?;
+    let mut records = wtx.open_table(MUTATION_BATCHES)?;
     records
         .insert(batch.batch_id.as_str(), record_bytes)
         .map_err(map_err)?;
-    let mut idem = wtx.open_table(MUTATION_IDEMPOTENCY).map_err(map_err)?;
+    let mut idem = wtx.open_table(MUTATION_IDEMPOTENCY)?;
     idem.insert(
         (version_key.0, version_key.1, batch.idempotency_key.as_str()),
         batch.batch_id.as_str(),
     )
     .map_err(map_err)?;
-    let mut versions = wtx.open_table(MUTATION_VERSION).map_err(map_err)?;
+    let mut versions = wtx.open_table(MUTATION_VERSION)?;
     versions
         .insert(version_key, next_version)
         .map_err(map_err)?;
     let fence_bytes = rmp_serde::to_vec_named(proposed_fence).map_err(|e| e.to_string())?;
-    let mut fences = wtx.open_table(MUTATION_FENCE).map_err(map_err)?;
+    let mut fences = wtx.open_table(MUTATION_FENCE)?;
     fences
         .insert(version_key, fence_bytes.as_slice())
         .map_err(map_err)?;
@@ -2785,11 +2582,11 @@ fn write_mutation_commit_tables_in(
 }
 
 fn append_mutation_outbox_intents_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     batch: &MutationBatch,
     committed_version: CommittedVersion,
 ) -> Result<(), String> {
-    let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(map_err)?;
+    let mut outbox = wtx.open_table(MUTATION_OUTBOX)?;
     let ordinal = append_operation_outbox_intents_in(&mut outbox, batch, 0, committed_version)?;
     append_explicit_outbox_intents_in(&mut outbox, batch, ordinal, committed_version)
 }
@@ -2830,10 +2627,14 @@ fn append_explicit_outbox_intents_in(
     Ok(())
 }
 
-/// Commits `wtx`, honoring the two crash-injection points either side of
-/// the actual redb commit (CONCEPT: chaos/durability certification).
-fn commit_mutation_txn_with_crashpoints(
-    wtx: WriteTransaction,
+/// Commits `mutation`, honoring the two crash-injection points either side of
+/// the actual kernel commit (CONCEPT: chaos/durability certification).
+///
+/// An injected crash BEFORE the commit returns without committing, and dropping
+/// the unconsumed mutation drops its write transaction, so redb discards every
+/// staged row -- the same true rollback the raw transaction gave.
+fn commit_sql_mutation_with_crashpoints(
+    mutation: SqlMutation<'_>,
     batch: &MutationBatch,
     crashpoint: Option<SqlMutationCrashpoint>,
 ) -> Result<(), String> {
@@ -2844,7 +2645,7 @@ fn commit_mutation_txn_with_crashpoints(
         batch,
         eg_types::mutation_batch::MutationCommitPhase::BeforeCommit,
     )?;
-    wtx.commit().map_err(map_err)?;
+    mutation.commit()?;
     if crashpoint == Some(SqlMutationCrashpoint::AfterCommitBeforeAck) {
         return Err("injected crash after SQL mutation commit before ack".to_string());
     }
@@ -2861,7 +2662,7 @@ fn commit_mutation_txn_with_crashpoints(
 // the catalog/rows THROUGH the same `wtx` (read-your-writes) is what lets a later op
 // in a multi-statement transaction see an earlier op's staged writes.
 
-fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Result<usize, String> {
+fn apply_txn_op(wtx: &SqlWrite<'_>, tenant_scope: &str, op: &TxnOp) -> Result<usize, String> {
     match op {
         TxnOp::CreateTable {
             schema,
@@ -2938,10 +2739,7 @@ fn apply_txn_op(wtx: &WriteTransaction, tenant_scope: &str, op: &TxnOp) -> Resul
 }
 
 /// The index/hypertable registration family of [`apply_txn_op`].
-fn apply_txn_op_index_catalog(
-    wtx: &WriteTransaction,
-    op: &IndexCatalogTxnOp,
-) -> Result<usize, String> {
+fn apply_txn_op_index_catalog(wtx: &SqlWrite<'_>, op: &IndexCatalogTxnOp) -> Result<usize, String> {
     match op {
         IndexCatalogTxnOp::PutAnnIndex { plan } => apply_txn_op_put_ann_index(wtx, plan),
         IndexCatalogTxnOp::PutHypertable { plan } => apply_txn_op_put_hypertable(wtx, plan),
@@ -2955,7 +2753,7 @@ fn apply_txn_op_index_catalog(
 /// against the relation namespace read through THIS transaction, so a graph can
 /// be admitted over a table created earlier in the same transaction.
 fn apply_txn_op_property_graph(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     store_scope: &str,
     op: &PropertyGraphTxnOp,
 ) -> Result<usize, String> {
@@ -3018,7 +2816,7 @@ fn apply_txn_op_property_graph(
 /// version; the canonical tenant a graph is admitted under comes from the
 /// definition itself, never from this physical store handle.
 fn relation_catalog_input_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
 ) -> Result<RelationCatalogInput, String> {
     let mut input = RelationCatalogInput::default();
@@ -3036,11 +2834,8 @@ fn relation_catalog_input_in(
 }
 
 /// Every view as `(name, select text)`, read THROUGH the open write txn.
-fn list_views_in(wtx: &WriteTransaction) -> Result<Vec<(String, String)>, String> {
-    let views = match wtx.open_table(VIEWS) {
-        Ok(table) => table,
-        Err(_) => return Ok(Vec::new()),
-    };
+fn list_views_in(wtx: &SqlWrite<'_>) -> Result<Vec<(String, String)>, String> {
+    let views = wtx.open_table(VIEWS)?;
     let mut out = Vec::new();
     let mut count = 0usize;
     let mut bytes = 0usize;
@@ -3065,7 +2860,7 @@ fn list_views_in(wtx: &WriteTransaction) -> Result<Vec<(String, String)>, String
 // change: every helper's body is the original arm's body verbatim.
 
 fn apply_txn_op_create_table(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     schema: &TableSchema,
     if_not_exists: bool,
 ) -> Result<usize, String> {
@@ -3074,7 +2869,7 @@ fn apply_txn_op_create_table(
 }
 
 fn apply_txn_op_drop_table(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     name: &str,
     if_exists: bool,
@@ -3085,7 +2880,7 @@ fn apply_txn_op_drop_table(
 }
 
 fn apply_txn_op_add_column(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     column: &Column,
@@ -3096,7 +2891,7 @@ fn apply_txn_op_add_column(
 }
 
 fn apply_txn_op_drop_column(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     column: &str,
@@ -3108,7 +2903,7 @@ fn apply_txn_op_drop_column(
 }
 
 fn apply_txn_op_rename_column(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     from: &str,
@@ -3120,7 +2915,7 @@ fn apply_txn_op_rename_column(
 }
 
 fn apply_txn_op_rename_table(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     new_name: &str,
@@ -3131,7 +2926,7 @@ fn apply_txn_op_rename_table(
 }
 
 fn apply_txn_op_alter_column_type(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     column: &str,
@@ -3143,7 +2938,7 @@ fn apply_txn_op_alter_column_type(
 }
 
 fn apply_txn_op_drop_constraint(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     constraint: &str,
@@ -3155,7 +2950,7 @@ fn apply_txn_op_drop_constraint(
 }
 
 fn apply_txn_op_add_constraint(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     constraint: TableConstraint,
@@ -3166,7 +2961,7 @@ fn apply_txn_op_add_constraint(
 }
 
 fn apply_txn_op_create_view(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     name: &str,
     select_sql: &str,
     or_replace: bool,
@@ -3176,7 +2971,7 @@ fn apply_txn_op_create_view(
 }
 
 fn apply_txn_op_drop_view(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     name: &str,
     if_exists: bool,
 ) -> Result<usize, String> {
@@ -3185,7 +2980,7 @@ fn apply_txn_op_drop_view(
 }
 
 fn apply_txn_op_create_extension(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     name: &str,
     if_not_exists: bool,
 ) -> Result<usize, String> {
@@ -3194,7 +2989,7 @@ fn apply_txn_op_create_extension(
 }
 
 fn apply_txn_op_drop_extension(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     name: &str,
     if_exists: bool,
 ) -> Result<usize, String> {
@@ -3203,7 +2998,7 @@ fn apply_txn_op_drop_extension(
 }
 
 fn apply_txn_op_create_function(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     function: &StoredFunction,
     or_replace: bool,
 ) -> Result<usize, String> {
@@ -3212,7 +3007,7 @@ fn apply_txn_op_create_function(
 }
 
 fn apply_txn_op_drop_function(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     name: &str,
     if_exists: bool,
 ) -> Result<usize, String> {
@@ -3220,18 +3015,12 @@ fn apply_txn_op_drop_function(
     Ok(0)
 }
 
-fn apply_txn_op_put_ann_index(
-    wtx: &WriteTransaction,
-    plan: &AnnIndexPlan,
-) -> Result<usize, String> {
+fn apply_txn_op_put_ann_index(wtx: &SqlWrite<'_>, plan: &AnnIndexPlan) -> Result<usize, String> {
     put_ann_index_in(wtx, plan)?;
     Ok(0)
 }
 
-fn apply_txn_op_put_hypertable(
-    wtx: &WriteTransaction,
-    plan: &HypertablePlan,
-) -> Result<usize, String> {
+fn apply_txn_op_put_hypertable(wtx: &SqlWrite<'_>, plan: &HypertablePlan) -> Result<usize, String> {
     put_hypertable_in(wtx, plan)?;
     Ok(0)
 }
@@ -3298,11 +3087,8 @@ fn insert_sql_outbox(
 }
 
 /// Read a table schema through an open write txn (sees staged CREATE/ALTER).
-fn get_schema_in(wtx: &WriteTransaction, name: &str) -> Result<Option<TableSchema>, String> {
-    let cat = match wtx.open_table(CATALOG) {
-        Ok(t) => t,
-        Err(_) => return Ok(None),
-    };
+fn get_schema_in(wtx: &SqlWrite<'_>, name: &str) -> Result<Option<TableSchema>, String> {
+    let cat = wtx.open_table(CATALOG)?;
     let blob = match cat.get(name).map_err(map_err)? {
         Some(v) => v.value().to_vec(),
         None => return Ok(None),
@@ -3314,18 +3100,14 @@ fn get_schema_in(wtx: &WriteTransaction, name: &str) -> Result<Option<TableSchem
 
 /// Read a table's migration version through the current write transaction.  A
 /// missing row is the compatibility value for a pre-migration store.
-fn schema_version_in(
-    wtx: &WriteTransaction,
-    tenant_scope: &str,
-    table: &str,
-) -> Result<u64, String> {
-    let versions = wtx.open_table(SCHEMA_VERSIONS).map_err(map_err)?;
+fn schema_version_in(wtx: &SqlWrite<'_>, tenant_scope: &str, table: &str) -> Result<u64, String> {
+    let versions = wtx.open_table(SCHEMA_VERSIONS)?;
     let found = versions.get((tenant_scope, table)).map_err(map_err)?;
     Ok(found.map(|value| value.value()).unwrap_or(0))
 }
 
-fn schema_catalog_version_in(wtx: &WriteTransaction, tenant_scope: &str) -> Result<u64, String> {
-    let versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS).map_err(map_err)?;
+fn schema_catalog_version_in(wtx: &SqlWrite<'_>, tenant_scope: &str) -> Result<u64, String> {
+    let versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS)?;
     let found = versions.get(tenant_scope).map_err(map_err)?;
     Ok(found.map(|value| value.value()).unwrap_or(0))
 }
@@ -3337,7 +3119,7 @@ fn catalog_order_identity(table: &str, migration_id: &str) -> String {
 }
 
 fn ensure_legacy_schema_ddl_allowed_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
 ) -> Result<(), String> {
@@ -3354,7 +3136,7 @@ fn ensure_legacy_schema_ddl_allowed_in(
 /// version/order/identity.  This is the only write path for governed schema
 /// transitions; no server handler or SQL parser may partially apply a plan.
 fn apply_schema_migration_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     migration: &SchemaMigration,
 ) -> Result<SchemaMigrationApply, String> {
@@ -3424,7 +3206,7 @@ fn validate_migration_identity_in(
 /// `migration.table`, read once so the OCC and replay checks below observe
 /// a consistent snapshot.
 fn resolve_current_schema_state_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     migration: &SchemaMigration,
 ) -> Result<(TableSchema, String, u64, u64), String> {
@@ -3445,7 +3227,7 @@ fn resolve_current_schema_state_in(
 /// current catalog state still matches its target (a safe idempotent
 /// replay); `None` when this is a genuinely new migration to apply.
 fn check_migration_replay_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     migration: &SchemaMigration,
     current_version: u64,
@@ -3473,11 +3255,11 @@ fn check_migration_replay_in(
 }
 
 fn load_existing_migration_record_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     migration: &SchemaMigration,
 ) -> Result<Option<SchemaMigrationRecord>, String> {
-    let records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
+    let records = wtx.open_table(SCHEMA_MIGRATIONS)?;
     let found = records
         .get((
             tenant_scope,
@@ -3567,7 +3349,7 @@ fn verify_migration_occ_state_in(
 /// plus the dependency/added-column validation that only makes sense
 /// against that projection.
 fn prepare_migration_projection_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     migration: &SchemaMigration,
     current: &TableSchema,
     current_catalog_version: u64,
@@ -3588,7 +3370,7 @@ fn prepare_migration_projection_in(
 }
 
 fn apply_migration_operations_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     migration: &SchemaMigration,
 ) -> Result<(), String> {
@@ -3620,7 +3402,7 @@ fn apply_migration_operations_in(
 }
 
 fn apply_migration_add_column_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     column: &Column,
@@ -3636,7 +3418,7 @@ fn apply_migration_add_column_in(
 /// digest, and encodes the durable record -- but does not write it (see
 /// `write_migration_commit_in`).
 fn finalize_migration_record_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     migration: &SchemaMigration,
     next_catalog_version: u64,
 ) -> Result<(String, Vec<u8>), String> {
@@ -3665,7 +3447,7 @@ fn finalize_migration_record_in(
 /// in both ordered chains (each guarded against a concurrent claim), and
 /// the migration record itself.
 fn write_migration_commit_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     migration: &SchemaMigration,
     record_bytes: &[u8],
@@ -3692,7 +3474,7 @@ fn write_migration_commit_in(
         &migration.migration_id,
         next_catalog_version,
     )?;
-    let mut records = wtx.open_table(SCHEMA_MIGRATIONS).map_err(map_err)?;
+    let mut records = wtx.open_table(SCHEMA_MIGRATIONS)?;
     records
         .insert(
             (
@@ -3707,19 +3489,19 @@ fn write_migration_commit_in(
 }
 
 fn write_schema_and_catalog_version_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     target_schema_version: u64,
     next_catalog_version: u64,
 ) -> Result<(), String> {
     {
-        let mut versions = wtx.open_table(SCHEMA_VERSIONS).map_err(map_err)?;
+        let mut versions = wtx.open_table(SCHEMA_VERSIONS)?;
         versions
             .insert((tenant_scope, table), target_schema_version)
             .map_err(map_err)?;
     }
-    let mut versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS).map_err(map_err)?;
+    let mut versions = wtx.open_table(SCHEMA_CATALOG_VERSIONS)?;
     versions
         .insert(tenant_scope, next_catalog_version)
         .map_err(map_err)?;
@@ -3727,13 +3509,13 @@ fn write_schema_and_catalog_version_in(
 }
 
 fn claim_migration_order_slot_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     target_schema_version: u64,
     migration_id: &str,
 ) -> Result<(), String> {
-    let mut order = wtx.open_table(SCHEMA_MIGRATION_ORDER).map_err(map_err)?;
+    let mut order = wtx.open_table(SCHEMA_MIGRATION_ORDER)?;
     if let Some(previous) = order
         .get((tenant_scope, table, target_schema_version))
         .map_err(map_err)?
@@ -3751,13 +3533,13 @@ fn claim_migration_order_slot_in(
 }
 
 fn claim_catalog_order_slot_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     migration_id: &str,
     next_catalog_version: u64,
 ) -> Result<(), String> {
-    let mut order = wtx.open_table(SCHEMA_CATALOG_ORDER).map_err(map_err)?;
+    let mut order = wtx.open_table(SCHEMA_CATALOG_ORDER)?;
     if let Some(previous) = order
         .get((tenant_scope, next_catalog_version))
         .map_err(map_err)?
@@ -3877,7 +3659,7 @@ fn validate_migration_child_table_fks(
 /// The same conservative rule as [`validate_migration_local_fks`], applied to
 /// every OTHER table that references `current`.
 fn validate_migration_child_fks_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     current: &TableSchema,
     migration: &SchemaMigration,
     affected: &HashSet<&str>,
@@ -3902,12 +3684,12 @@ fn validate_migration_child_fks_in(
 /// present: a caller may acknowledge a coordinated rebuild, but this transaction
 /// never silently drops or leaves a stale index behind.
 fn validate_migration_ann_indexes_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     current: &TableSchema,
     migration: &SchemaMigration,
     affected: &HashSet<&str>,
 ) -> Result<(), String> {
-    let indexes = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+    let indexes = wtx.open_table(ANN_INDEXES)?;
     for row in indexes.iter().map_err(map_err)? {
         let (_, value) = row.map_err(map_err)?;
         let index: AnnIndexPlan = decode_stored(value.value(), "ANN index")?;
@@ -3934,7 +3716,7 @@ fn validate_migration_ann_indexes_in(
 /// migration API does not rewrite both sides atomically.  RLS is an external
 /// authority; an affected plan must carry an explicit binding digest.
 fn validate_migration_dependencies_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     current: &TableSchema,
     migration: &SchemaMigration,
 ) -> Result<(), String> {
@@ -3961,7 +3743,7 @@ fn validate_migration_dependencies_in(
 /// invalid.  Validate that condition before the first catalog write; the normal
 /// `add_column_in` helper intentionally remains permissive for legacy SQL DDL.
 fn validate_added_columns_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     current: &TableSchema,
     projected: &TableSchema,
@@ -3970,9 +3752,7 @@ fn validate_added_columns_in(
     if projected.columns().len() <= current.columns().len() {
         return Ok(());
     }
-    let Some(rows) = wtx.open_table(ROWS).ok() else {
-        return Ok(());
-    };
+    let rows = wtx.open_table(ROWS)?;
     let added = &projected.columns()[current.columns().len()..];
     if added.iter().all(|column| column.nullable) {
         return Ok(());
@@ -3996,11 +3776,8 @@ fn validate_added_columns_in(
 /// The names of every user table, read THROUGH the open write txn (staged-write-aware
 /// — CONCEPT:EG-KG.query.table-schema-constraints/NE-001, the FK reverse-lookup this feeds needs to see a table
 /// created earlier in the SAME transaction).
-fn list_tables_in(wtx: &WriteTransaction) -> Result<Vec<String>, String> {
-    let cat = match wtx.open_table(CATALOG) {
-        Ok(t) => t,
-        Err(_) => return Ok(Vec::new()),
-    };
+fn list_tables_in(wtx: &SqlWrite<'_>) -> Result<Vec<String>, String> {
+    let cat = wtx.open_table(CATALOG)?;
     let mut names = Vec::new();
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
@@ -4017,7 +3794,7 @@ fn list_tables_in(wtx: &WriteTransaction) -> Result<Vec<String>, String> {
 }
 
 fn create_view_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     name: &str,
     select_sql: &str,
     or_replace: bool,
@@ -4028,7 +3805,7 @@ fn create_view_in(
             "`{name}` is a table; cannot create a view with that name"
         ));
     }
-    let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
+    let mut views = wtx.open_table(VIEWS)?;
     if !or_replace && views.get(name).map_err(map_err)?.is_some() {
         return Err(format!("view `{name}` already exists"));
     }
@@ -4036,17 +3813,17 @@ fn create_view_in(
     Ok(())
 }
 
-fn drop_view_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
-    let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
+fn drop_view_in(wtx: &SqlWrite<'_>, name: &str, if_exists: bool) -> Result<bool, String> {
+    let mut views = wtx.open_table(VIEWS)?;
     drop_catalog_entry_in(&mut views, name, if_exists, "view")
 }
 
 fn create_extension_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     name: &str,
     _if_not_exists: bool,
 ) -> Result<bool, String> {
-    let mut extensions = wtx.open_table(EXTENSIONS).map_err(map_err)?;
+    let mut extensions = wtx.open_table(EXTENSIONS)?;
     let existed = extensions.get(name).map_err(map_err)?.is_some();
     if !existed {
         extensions.insert(name, "").map_err(map_err)?;
@@ -4054,13 +3831,13 @@ fn create_extension_in(
     Ok(!existed)
 }
 
-fn drop_extension_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
-    let mut extensions = wtx.open_table(EXTENSIONS).map_err(map_err)?;
+fn drop_extension_in(wtx: &SqlWrite<'_>, name: &str, if_exists: bool) -> Result<bool, String> {
+    let mut extensions = wtx.open_table(EXTENSIONS)?;
     drop_catalog_entry_in(&mut extensions, name, if_exists, "extension")
 }
 
 fn create_function_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     function: &StoredFunction,
     or_replace: bool,
 ) -> Result<(), String> {
@@ -4071,7 +3848,7 @@ fn create_function_in(
         ));
     }
     let bytes = rmp_serde::to_vec_named(function).map_err(|e| format!("encode function: {e}"))?;
-    let mut functions = wtx.open_table(FUNCTIONS).map_err(map_err)?;
+    let mut functions = wtx.open_table(FUNCTIONS)?;
     if !or_replace
         && functions
             .get(function.name.as_str())
@@ -4086,8 +3863,8 @@ fn create_function_in(
     Ok(())
 }
 
-fn drop_function_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
-    let mut functions = wtx.open_table(FUNCTIONS).map_err(map_err)?;
+fn drop_function_in(wtx: &SqlWrite<'_>, name: &str, if_exists: bool) -> Result<bool, String> {
+    let mut functions = wtx.open_table(FUNCTIONS)?;
     drop_catalog_entry_in(&mut functions, name, if_exists, "function")
 }
 
@@ -4108,17 +3885,17 @@ fn drop_catalog_entry_in<V: redb::Value + 'static>(
     Ok(true)
 }
 
-fn put_ann_index_in(wtx: &WriteTransaction, plan: &AnnIndexPlan) -> Result<(), String> {
+fn put_ann_index_in(wtx: &SqlWrite<'_>, plan: &AnnIndexPlan) -> Result<(), String> {
     let key = TableStore::ann_index_key(plan);
     let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode ann index: {e}"))?;
-    let mut indexes = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+    let mut indexes = wtx.open_table(ANN_INDEXES)?;
     indexes
         .insert(key.as_str(), bytes.as_slice())
         .map_err(map_err)?;
     Ok(())
 }
 
-fn put_hypertable_in(wtx: &WriteTransaction, plan: &HypertablePlan) -> Result<(), String> {
+fn put_hypertable_in(wtx: &SqlWrite<'_>, plan: &HypertablePlan) -> Result<(), String> {
     let schema = get_schema_in(wtx, &plan.table)?
         .ok_or_else(|| format!("table `{}` does not exist", plan.table))?;
     let time_column = schema.column(&plan.time_column).ok_or_else(|| {
@@ -4134,7 +3911,7 @@ fn put_hypertable_in(wtx: &WriteTransaction, plan: &HypertablePlan) -> Result<()
         ));
     }
     let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode hypertable: {e}"))?;
-    let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+    let mut hypertables = wtx.open_table(HYPERTABLES)?;
     if let Some(existing) = hypertables.get(plan.table.as_str()).map_err(map_err)? {
         let existing = decode_stored::<HypertablePlan>(existing.value(), "hypertable")?;
         if existing != *plan {
@@ -4152,7 +3929,7 @@ fn put_hypertable_in(wtx: &WriteTransaction, plan: &HypertablePlan) -> Result<()
 }
 
 fn drop_ann_indexes_for_column_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     column: &str,
 ) -> Result<usize, String> {
@@ -4161,7 +3938,7 @@ fn drop_ann_indexes_for_column_in(
         table.to_ascii_lowercase(),
         column.to_ascii_lowercase()
     );
-    let mut indexes = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+    let mut indexes = wtx.open_table(ANN_INDEXES)?;
     let keys = indexes
         .iter()
         .map_err(map_err)?
@@ -4176,11 +3953,8 @@ fn drop_ann_indexes_for_column_in(
 
 // ── ordinary scalar secondary-index catalog and directory ───────────────────
 
-fn get_schema_read(rtx: &ReadTransaction, name: &str) -> Result<Option<TableSchema>, String> {
-    let cat = match rtx.open_table(CATALOG) {
-        Ok(table) => table,
-        Err(_) => return Ok(None),
-    };
+fn get_schema_read(rtx: &SqlRead<'_>, name: &str) -> Result<Option<TableSchema>, String> {
+    let cat = rtx.open_owner_table(CATALOG)?;
     let Some(value) = cat.get(name).map_err(map_err)? else {
         return Ok(None);
     };
@@ -4190,14 +3964,11 @@ fn get_schema_read(rtx: &ReadTransaction, name: &str) -> Result<Option<TableSche
 }
 
 fn list_secondary_indexes_in(
-    rtx: &ReadTransaction,
+    rtx: &SqlRead<'_>,
     tenant_scope: &str,
     table: Option<&str>,
 ) -> Result<Vec<SecondaryIndexSpec>, String> {
-    let indexes = match rtx.open_table(SECONDARY_INDEXES) {
-        Ok(table) => table,
-        Err(_) => return Ok(Vec::new()),
-    };
+    let indexes = rtx.open_owner_table(SECONDARY_INDEXES)?;
     let mut out = Vec::new();
     let mut count = 0usize;
     let mut bytes = 0usize;
@@ -4229,14 +4000,11 @@ fn list_secondary_indexes_in(
 }
 
 fn list_secondary_indexes_write(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
 ) -> Result<Vec<SecondaryIndexSpec>, String> {
-    let indexes = match wtx.open_table(SECONDARY_INDEXES) {
-        Ok(table) => table,
-        Err(_) => return Ok(Vec::new()),
-    };
+    let indexes = wtx.open_table(SECONDARY_INDEXES)?;
     let mut out = Vec::new();
     for row in indexes.iter().map_err(map_err)? {
         let (_, value) = row.map_err(map_err)?;
@@ -4252,7 +4020,7 @@ fn list_secondary_indexes_write(
 }
 
 fn create_secondary_index_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     spec: &SecondaryIndexSpec,
     if_not_exists: bool,
@@ -4268,7 +4036,7 @@ fn create_secondary_index_in(
     validate_secondary_spec(spec, &schema)?;
     let key = secondary_catalog_key(spec);
     {
-        let indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+        let indexes = wtx.open_table(SECONDARY_INDEXES)?;
         if indexes.get(key.as_str()).map_err(map_err)?.is_some() {
             if if_not_exists {
                 return Ok(false);
@@ -4286,7 +4054,7 @@ fn create_secondary_index_in(
 
     let bytes = rmp_serde::to_vec_named(spec)
         .map_err(|error| format!("encode secondary index: {error}"))?;
-    let mut indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+    let mut indexes = wtx.open_table(SECONDARY_INDEXES)?;
     indexes
         .insert(key.as_str(), bytes.as_slice())
         .map_err(map_err)?;
@@ -4295,7 +4063,7 @@ fn create_secondary_index_in(
     let Some(row_items) = secondary_index_build_rows_in(wtx, spec)? else {
         return Ok(true);
     };
-    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES)?;
     for (rowid, cells) in row_items {
         let entry = secondary_entry_key(spec, &schema, &cells, rowid)?;
         entries.insert(entry.as_str(), &[][..]).map_err(map_err)?;
@@ -4314,13 +4082,10 @@ type IndexBuildRows = Vec<(u64, Vec<Cell>)>;
 /// build/partition it explicitly rather than leaving a silently partial index
 /// behind. `Ok(None)` means the rows table is absent, so there is nothing to build.
 fn secondary_index_build_rows_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     spec: &SecondaryIndexSpec,
 ) -> Result<Option<IndexBuildRows>, String> {
-    let rows = match wtx.open_table(ROWS) {
-        Ok(table) => table,
-        Err(_) => return Ok(None),
-    };
+    let rows = wtx.open_table(ROWS)?;
     let mut row_items = Vec::new();
     let mut row_count = 0usize;
     let mut row_bytes = 0usize;
@@ -4346,7 +4111,7 @@ fn secondary_index_build_rows_in(
 }
 
 fn drop_secondary_index_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     name: &str,
@@ -4354,7 +4119,7 @@ fn drop_secondary_index_in(
 ) -> Result<bool, String> {
     let key = format!("{tenant_scope}\0{table}\0{name}");
     let exists = {
-        let indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+        let indexes = wtx.open_table(SECONDARY_INDEXES)?;
         let found = indexes.get(key.as_str()).map_err(map_err)?;
         found.is_some()
     };
@@ -4365,13 +4130,13 @@ fn drop_secondary_index_in(
         return Err(format!("secondary index `{name}` does not exist"));
     }
     {
-        let mut indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+        let mut indexes = wtx.open_table(SECONDARY_INDEXES)?;
         indexes.remove(key.as_str()).map_err(map_err)?;
     }
     let prefix = format!("{key}\0");
     let high = format!("{prefix}\u{10ffff}");
     let entry_keys = {
-        let entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+        let entries = wtx.open_table(SECONDARY_INDEX_ENTRIES)?;
         let mut keys = Vec::new();
         for row in entries
             .range(prefix.as_str()..high.as_str())
@@ -4385,7 +4150,7 @@ fn drop_secondary_index_in(
         }
         keys
     };
-    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES)?;
     for entry in entry_keys {
         entries.remove(entry.as_str()).map_err(map_err)?;
     }
@@ -4397,7 +4162,7 @@ fn drop_secondary_index_in(
 /// the stale catalog also makes a later CREATE INDEX deterministic and bounds
 /// orphan growth across repeated ALTER/DROP operations.
 fn drop_secondary_indexes_for_table_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
 ) -> Result<usize, String> {
@@ -4407,14 +4172,14 @@ fn drop_secondary_indexes_for_table_in(
     }
     let keys: Vec<String> = specs.iter().map(secondary_catalog_key).collect();
     {
-        let mut indexes = wtx.open_table(SECONDARY_INDEXES).map_err(map_err)?;
+        let mut indexes = wtx.open_table(SECONDARY_INDEXES)?;
         for key in &keys {
             indexes.remove(key.as_str()).map_err(map_err)?;
         }
     }
     let prefixes: Vec<String> = specs.iter().map(secondary_entry_prefix).collect();
     let entry_keys = {
-        let entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+        let entries = wtx.open_table(SECONDARY_INDEX_ENTRIES)?;
         let mut keys = Vec::new();
         for prefix in &prefixes {
             let high = format!("{prefix}\u{10ffff}");
@@ -4433,7 +4198,7 @@ fn drop_secondary_indexes_for_table_in(
         }
         keys
     };
-    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES)?;
     for entry in entry_keys {
         entries.remove(entry.as_str()).map_err(map_err)?;
     }
@@ -4441,7 +4206,7 @@ fn drop_secondary_indexes_for_table_in(
 }
 
 fn maintain_secondary_row_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     schema: &TableSchema,
@@ -4453,7 +4218,7 @@ fn maintain_secondary_row_in(
     if specs.is_empty() {
         return Ok(());
     }
-    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES).map_err(map_err)?;
+    let mut entries = wtx.open_table(SECONDARY_INDEX_ENTRIES)?;
     for spec in specs {
         // A stale definition is deliberately ignored. Its reader returns None
         // and scans; it must never block ordinary DML after a schema migration.
@@ -4473,7 +4238,7 @@ fn maintain_secondary_row_in(
 }
 
 fn secondary_index_rows_in(
-    rtx: &ReadTransaction,
+    rtx: &SqlRead<'_>,
     tenant_scope: &str,
     table: &str,
     lookup: &SecondaryIndexLookup,
@@ -4491,14 +4256,8 @@ fn secondary_index_rows_in(
     let Some((low, high)) = secondary_entry_range(&spec, &schema, lookup)? else {
         return Ok(None);
     };
-    let entries = match rtx.open_table(SECONDARY_INDEX_ENTRIES) {
-        Ok(table) => table,
-        Err(_) => return Ok(None),
-    };
-    let rows = match rtx.open_table(ROWS) {
-        Ok(table) => table,
-        Err(_) => return Ok(None),
-    };
+    let entries = rtx.open_owner_table(SECONDARY_INDEX_ENTRIES)?;
+    let rows = rtx.open_owner_table(ROWS)?;
     let mut rowids = Vec::new();
     for item in entries
         .range(low.as_str()..high.as_str())
@@ -4536,7 +4295,7 @@ fn secondary_index_rows_in(
 }
 
 fn secondary_index_ordered_rows_in(
-    rtx: &ReadTransaction,
+    rtx: &SqlRead<'_>,
     tenant_scope: &str,
     table: &str,
     index_name: &str,
@@ -4554,11 +4313,6 @@ fn secondary_index_ordered_rows_in(
         return Ok(None);
     };
     if validate_secondary_spec(&spec, &schema).is_err() {
-        return Ok(None);
-    }
-    // Probed up front so a missing ROWS table falls back BEFORE the entry scan,
-    // exactly as when both handles were opened together.
-    if rtx.open_table(ROWS).is_err() {
         return Ok(None);
     }
     let Some(mut rowids) = secondary_index_candidate_rowids_in(rtx, &spec)? else {
@@ -4579,13 +4333,10 @@ fn secondary_index_ordered_rows_in(
 /// `Ok(None)` means the caller must fall back to the scan path: the entry table is
 /// absent, an entry key does not parse, or the candidate bound was exceeded.
 fn secondary_index_candidate_rowids_in(
-    rtx: &ReadTransaction,
+    rtx: &SqlRead<'_>,
     spec: &SecondaryIndexSpec,
 ) -> Result<Option<Vec<u64>>, String> {
-    let entries = match rtx.open_table(SECONDARY_INDEX_ENTRIES) {
-        Ok(table) => table,
-        Err(_) => return Ok(None),
-    };
+    let entries = rtx.open_owner_table(SECONDARY_INDEX_ENTRIES)?;
     let prefix = secondary_entry_prefix(spec);
     let high = format!("{prefix}\u{10ffff}");
     let mut rowids = Vec::new();
@@ -4609,15 +4360,12 @@ fn secondary_index_candidate_rowids_in(
 /// must fall back to the scan path: the rows table is absent, a row id dangles, or
 /// the bounded-collection budget tripped.
 fn secondary_index_materialize_rows_in(
-    rtx: &ReadTransaction,
+    rtx: &SqlRead<'_>,
     table: &str,
     width: usize,
     rowids: &[u64],
 ) -> Result<Option<Vec<Vec<Cell>>>, String> {
-    let rows = match rtx.open_table(ROWS) {
-        Ok(table) => table,
-        Err(_) => return Ok(None),
-    };
+    let rows = rtx.open_owner_table(ROWS)?;
     let mut out = Vec::with_capacity(rowids.len());
     let mut row_count = 0usize;
     let mut row_bytes = 0usize;
@@ -4701,7 +4449,7 @@ fn schema_has_unique_over(schema: &TableSchema, cols: &[String]) -> bool {
 /// precise error — a `REFERENCES` naming a table/column that does not exist is
 /// otherwise the "silently ignored, which is worse" bug this track exists to fix.
 fn validate_fk_target_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     schema: &TableSchema,
     columns: &[String],
     ref_table: &str,
@@ -4780,7 +4528,7 @@ fn eval_table_checks(
 /// Does a row with the given `columns`' values equal to `key` already exist in
 /// `table` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001)? Reads through `wtx` (staged-write-aware).
 fn row_exists_with_key_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     schema: &TableSchema,
     columns: &[String],
@@ -4795,10 +4543,7 @@ fn row_exists_with_key_in(
         })
         .collect();
     let width = schema.columns().len();
-    let rows_t = match wtx.open_table(ROWS) {
-        Ok(t) => t,
-        Err(_) => return Ok(false),
-    };
+    let rows_t = wtx.open_table(ROWS)?;
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
     for r in rows_t
@@ -4836,7 +4581,7 @@ fn typed_cells_equal(left: &Cell, right: &Cell, ty: ColumnType) -> bool {
 /// parent inserted earlier in the SAME transaction already satisfies a child
 /// inserted later in it.
 fn validate_fk_out_for_row_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     schema: &TableSchema,
     cells: &[Cell],
 ) -> Result<(), String> {
@@ -4890,7 +4635,7 @@ fn validate_fk_out_for_row_in(
 /// constraints, then outgoing FOREIGN KEY constraints. Called for every row an
 /// INSERT/ON CONFLICT DO UPDATE/UPDATE stages, right after its cells are built.
 fn validate_row_constraints_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     schema: &TableSchema,
     cells: &[Cell],
 ) -> Result<(), String> {
@@ -5072,12 +4817,12 @@ fn fk_child_row_matches(child: &FkChild<'_>, old_key: &[Cell], cells: &[Cell]) -
 /// Snapshot every child row that references the parent's OLD key. The read table
 /// is dropped before the caller mutates anything.
 fn collect_fk_child_matches_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     child: &FkChild<'_>,
     old_key: &[Cell],
 ) -> Result<Vec<(u64, Vec<Cell>)>, String> {
     let width = child.schema.columns().len();
-    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let rows_t = wtx.open_table(ROWS)?;
     let mut out = Vec::new();
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
@@ -5103,7 +4848,7 @@ fn collect_fk_child_matches_in(
 /// the `CASCADE`-update and `SET NULL` paths, which differ only in how `updated`
 /// was derived.
 fn write_cascaded_child_row_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     child: &FkChild<'_>,
     row: FkChildRow<'_>,
@@ -5115,7 +4860,7 @@ fn write_cascaded_child_row_in(
         return Err("encoded SQL row exceeds storage value limit".to_string());
     }
     {
-        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+        let mut rows_t = wtx.open_table(ROWS)?;
         rows_t
             .insert((child.table, row.rowid), blob.as_slice())
             .map_err(map_err)?;
@@ -5135,7 +4880,7 @@ fn write_cascaded_child_row_in(
 /// `ON UPDATE CASCADE` for ONE child row: rewrite its FK columns to the parent's
 /// new key, then recurse so the child's OWN children see the change.
 fn cascade_update_child_row_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     parent: &ParentChange<'_>,
     child: &FkChild<'_>,
     row: FkChildRow<'_>,
@@ -5161,14 +4906,14 @@ fn cascade_update_child_row_in(
 /// `ON DELETE CASCADE` for ONE child row: remove it, drop its index entries, then
 /// recurse so the child's OWN children are cascaded too.
 fn cascade_delete_child_row_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     parent: &ParentChange<'_>,
     child: &FkChild<'_>,
     row: FkChildRow<'_>,
     visited: &mut HashSet<(String, u64)>,
 ) -> Result<(), String> {
     {
-        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+        let mut rows_t = wtx.open_table(ROWS)?;
         rows_t.remove((child.table, row.rowid)).map_err(map_err)?;
     }
     maintain_secondary_row_in(
@@ -5194,7 +4939,7 @@ fn cascade_delete_child_row_in(
 /// `CASCADE` over every matched child row — an UPDATE when the parent supplied a
 /// new key, a DELETE otherwise.
 fn cascade_fk_matches_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     parent: &ParentChange<'_>,
     child: &FkChild<'_>,
     new_key: Option<&[Cell]>,
@@ -5232,7 +4977,7 @@ fn ensure_fk_columns_nullable(child: &FkChild<'_>) -> Result<(), String> {
 
 /// `SET NULL` over every matched child row.
 fn set_null_fk_matches_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     parent: &ParentChange<'_>,
     child: &FkChild<'_>,
     matches: Vec<(u64, Vec<Cell>)>,
@@ -5260,7 +5005,7 @@ fn set_null_fk_matches_in(
 /// Enforce ONE constraint of ONE child table against the parent change: plan it,
 /// snapshot the referencing rows, then take the referential action.
 fn enforce_fk_constraint_on_child_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     parent: &ParentChange<'_>,
     child_table: &str,
     child_schema: &TableSchema,
@@ -5307,7 +5052,7 @@ fn enforce_fk_constraint_on_child_in(
 /// cycle spanning two-or-more tables) from ever reprocessing the SAME `(table,
 /// rowid)` twice, which is what makes an unbounded recursive cascade impossible.
 fn enforce_fk_on_parent_change_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     rowid: u64,
@@ -5349,7 +5094,7 @@ fn enforce_fk_on_parent_change_in(
 /// `ADD CONSTRAINT` adding a PK that forces NOT NULL on a previously-nullable
 /// column) — mirrors Postgres's refusal to add such a constraint over violating data.
 fn validate_not_null_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     schema: &TableSchema,
 ) -> Result<(), String> {
@@ -5364,7 +5109,7 @@ fn validate_not_null_in(
         return Ok(());
     }
     let width = schema.columns().len();
-    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let rows_t = wtx.open_table(ROWS)?;
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
     for r in rows_t
@@ -5393,7 +5138,7 @@ fn validate_not_null_in(
 /// `checks` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001, `ADD CONSTRAINT`) — mirrors Postgres's refusal
 /// to add a CHECK the current data already violates.
 fn validate_table_checks_over_existing_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     schema: &TableSchema,
     checks: &[&TableConstraint],
@@ -5402,7 +5147,7 @@ fn validate_table_checks_over_existing_in(
         return Ok(());
     }
     let width = schema.columns().len();
-    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let rows_t = wtx.open_table(ROWS)?;
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
     for r in rows_t
@@ -5424,13 +5169,13 @@ fn validate_table_checks_over_existing_in(
 /// `constraint` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001, `ADD CONSTRAINT`) — mirrors Postgres's
 /// refusal to add a FK the current data already violates.
 fn validate_existing_fk_children_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     schema: &TableSchema,
     constraint: &TableConstraint,
 ) -> Result<(), String> {
     let width = schema.columns().len();
-    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let rows_t = wtx.open_table(ROWS)?;
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
     let rows: Vec<Vec<Cell>> = rows_t
@@ -5455,7 +5200,7 @@ fn validate_existing_fk_children_in(
 }
 
 fn create_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     schema: &TableSchema,
     if_not_exists: bool,
 ) -> Result<bool, String> {
@@ -5496,19 +5241,19 @@ fn create_in(
         return Err("encoded SQL schema exceeds storage value limit".to_string());
     }
     {
-        let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
+        let mut cat = wtx.open_table(CATALOG)?;
         cat.insert(schema.name.as_str(), blob.as_slice())
             .map_err(map_err)?;
     }
     {
-        let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
+        let mut seq = wtx.open_table(SEQ)?;
         seq.insert(schema.name.as_str(), 0u64).map_err(map_err)?;
     }
     Ok(true)
 }
 
 fn drop_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     name: &str,
     if_exists: bool,
@@ -5522,17 +5267,17 @@ fn drop_in(
     ensure_no_child_fk_references_in(wtx, name)?;
     property_graph_persist::fence_base_relation_ddl_in(wtx, name)?;
     {
-        let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
+        let mut cat = wtx.open_table(CATALOG)?;
         cat.remove(name).map_err(map_err)?;
     }
     {
-        let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
+        let mut seq = wtx.open_table(SEQ)?;
         seq.remove(name).map_err(map_err)?;
     }
     delete_all_rows_of_table_in(wtx, name)?;
     drop_secondary_indexes_for_table_in(wtx, tenant_scope, name)?;
     {
-        let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        let mut hypertables = wtx.open_table(HYPERTABLES)?;
         hypertables.remove(name).map_err(map_err)?;
     }
     Ok(true)
@@ -5562,7 +5307,7 @@ fn ensure_child_table_does_not_reference(
 /// remains would leave a durable constraint that can no longer be checked. The
 /// check is schema-only (no tenant row values are surfaced) and runs in the same
 /// write transaction, so a failure cannot partially remove metadata.
-fn ensure_no_child_fk_references_in(wtx: &WriteTransaction, name: &str) -> Result<(), String> {
+fn ensure_no_child_fk_references_in(wtx: &SqlWrite<'_>, name: &str) -> Result<(), String> {
     for child_table in list_tables_in(wtx)? {
         if child_table == name {
             continue;
@@ -5577,8 +5322,8 @@ fn ensure_no_child_fk_references_in(wtx: &WriteTransaction, name: &str) -> Resul
 
 /// Remove every stored row of `table` inside the open write txn. Row ids are
 /// collected first so the range borrow ends before the removals begin.
-fn delete_all_rows_of_table_in(wtx: &WriteTransaction, table: &str) -> Result<(), String> {
-    let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
+fn delete_all_rows_of_table_in(wtx: &SqlWrite<'_>, table: &str) -> Result<(), String> {
+    let mut rows = wtx.open_table(ROWS)?;
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
     let keys: Vec<u64> = rows
@@ -5597,7 +5342,7 @@ fn delete_all_rows_of_table_in(wtx: &WriteTransaction, table: &str) -> Result<()
 }
 
 fn add_column_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     column: &Column,
@@ -5617,7 +5362,7 @@ fn add_column_in(
 /// Persist a (possibly renamed) schema back into the catalog under its `name` key.
 /// The single place an ALTER rewrites the catalog entry (CONCEPT:EG-KG.query.rename-table-moves-catalog).
 fn put_schema_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     schema: &TableSchema,
 ) -> Result<(), String> {
@@ -5630,7 +5375,7 @@ fn put_schema_in(
     if blob.len() > MAX_SQL_STORED_VALUE_BYTES {
         return Err("encoded SQL schema exceeds storage value limit".to_string());
     }
-    let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
+    let mut cat = wtx.open_table(CATALOG)?;
     cat.insert(schema.name.as_str(), blob.as_slice())
         .map_err(map_err)?;
     Ok(())
@@ -5641,11 +5386,11 @@ fn put_schema_in(
 /// DROP COLUMN and ALTER COLUMN TYPE (CONCEPT:EG-KG.query.rename-table-moves-catalog). An error from `f` on ANY row
 /// propagates so the whole ALTER rolls back (the txn drops without commit).
 fn migrate_rows_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     mut f: impl FnMut(&mut Vec<Cell>) -> Result<(), String>,
 ) -> Result<(), String> {
-    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let mut rows_t = wtx.open_table(ROWS)?;
     // Decode every (rowid, cells) first; the range borrow ends before we mutate.
     let mut items: Vec<(u64, Vec<Cell>)> = Vec::new();
     let mut scanned_rows = 0usize;
@@ -5674,11 +5419,11 @@ fn migrate_rows_in(
 
 /// A hypertable's time column is structural — `DROP COLUMN` may never remove it.
 fn ensure_not_hypertable_time_column_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     column: &str,
 ) -> Result<(), String> {
-    let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+    let hypertables = wtx.open_table(HYPERTABLES)?;
     let Some(value) = hypertables.get(table).map_err(map_err)? else {
         return Ok(());
     };
@@ -5748,7 +5493,7 @@ fn ensure_child_table_fks_free_of_column(
 
 /// No OTHER table may reference `table.column` through a `FOREIGN KEY`.
 fn ensure_column_free_of_child_fks_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     column: &str,
 ) -> Result<(), String> {
@@ -5768,7 +5513,7 @@ fn ensure_column_free_of_child_fks_in(
 /// from every stored row (positional splice at the column's index). Refuses to drop the
 /// only column of a table. `if_exists` turns an absent-column error into a no-op.
 fn drop_column_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     column: &str,
@@ -5838,7 +5583,7 @@ fn rebind_child_fk_ref_columns(
 /// Rebind and persist every OTHER table whose `FOREIGN KEY` referenced the column
 /// being renamed. Collected first, written second, exactly as before.
 fn rename_column_in_child_fks_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     from: &str,
@@ -5891,13 +5636,13 @@ fn rename_column_in_constraints(schema: &mut TableSchema, table: &str, from: &st
 /// Follow the rename into the hypertable catalog when the renamed column WAS the
 /// hypertable's time column.
 fn rename_hypertable_time_column_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     from: &str,
     to: &str,
 ) -> Result<(), String> {
     let replacement = {
-        let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        let hypertables = wtx.open_table(HYPERTABLES)?;
         let plan = hypertables
             .get(table)
             .map_err(map_err)?
@@ -5910,7 +5655,7 @@ fn rename_hypertable_time_column_in(
         plan.time_column = to.to_string();
         let bytes =
             rmp_serde::to_vec_named(&plan).map_err(|e| format!("encode hypertable: {e}"))?;
-        let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        let mut hypertables = wtx.open_table(HYPERTABLES)?;
         hypertables
             .insert(table, bytes.as_slice())
             .map_err(map_err)?;
@@ -5921,7 +5666,7 @@ fn rename_hypertable_time_column_in(
 /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME COLUMN a TO b`: rename in the schema only (rows are
 /// positional). Errors if `from` is absent or `to` already exists.
 fn rename_column_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     from: &str,
@@ -5978,7 +5723,7 @@ fn rename_check_column(expr: &mut CheckExpr, from: &str, to: &str) {
 /// every stored row's key from `table` to `new_name`. Errors if the table is absent or
 /// `new_name` already exists.
 fn rename_table_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     new_name: &str,
@@ -6002,7 +5747,7 @@ fn rename_table_in(
 }
 
 fn load_schema_for_rename_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     new_name: &str,
 ) -> Result<TableSchema, String> {
@@ -6015,7 +5760,7 @@ fn load_schema_for_rename_in(
 }
 
 fn retarget_inbound_foreign_keys_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     new_name: &str,
@@ -6056,7 +5801,7 @@ fn retarget_schema_foreign_keys(schema: &mut TableSchema, table: &str, new_name:
 }
 
 fn rekey_table_catalog_entry_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     new_name: &str,
@@ -6070,18 +5815,18 @@ fn rekey_table_catalog_entry_in(
     // Catalog: drop the old key, write the schema under the new name.
     schema.name = new_name.to_string();
     {
-        let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
+        let mut cat = wtx.open_table(CATALOG)?;
         cat.remove(table).map_err(map_err)?;
     }
     put_schema_in(wtx, tenant_scope, schema)
 }
 
 fn carry_forward_table_sequence_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     new_name: &str,
 ) -> Result<(), String> {
-    let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
+    let mut seq = wtx.open_table(SEQ)?;
     let val = seq.get(table).map_err(map_err)?.map(|g| g.value());
     seq.remove(table).map_err(map_err)?;
     if let Some(v) = val {
@@ -6090,8 +5835,8 @@ fn carry_forward_table_sequence_in(
     Ok(())
 }
 
-fn rekey_table_rows_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Result<(), String> {
-    let mut rows = wtx.open_table(ROWS).map_err(map_err)?;
+fn rekey_table_rows_in(wtx: &SqlWrite<'_>, table: &str, new_name: &str) -> Result<(), String> {
+    let mut rows = wtx.open_table(ROWS)?;
     let items = collect_table_rows_for_rekey_in(&rows, table)?;
     for (rowid, blob) in &items {
         rows.remove((table, *rowid)).map_err(map_err)?;
@@ -6120,12 +5865,12 @@ fn collect_table_rows_for_rekey_in(
 }
 
 fn rename_hypertable_if_present_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     new_name: &str,
 ) -> Result<(), String> {
     let renamed_hypertable = {
-        let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        let hypertables = wtx.open_table(HYPERTABLES)?;
         let plan = hypertables
             .get(table)
             .map_err(map_err)?
@@ -6138,7 +5883,7 @@ fn rename_hypertable_if_present_in(
     };
     plan.table = new_name.to_string();
     let bytes = rmp_serde::to_vec_named(&plan).map_err(|e| format!("encode hypertable: {e}"))?;
-    let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+    let mut hypertables = wtx.open_table(HYPERTABLES)?;
     hypertables.remove(table).map_err(map_err)?;
     hypertables
         .insert(new_name, bytes.as_slice())
@@ -6150,7 +5895,7 @@ fn rename_hypertable_if_present_in(
 /// cell at the column's index to `new_type`, then record the new type. A cell that
 /// cannot be coerced returns `Err` so the whole ALTER rolls back (no partial migration).
 fn alter_column_type_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     column: &str,
@@ -6180,7 +5925,7 @@ fn alter_column_type_in(
 /// `<table>_<col>_check` — and the matching column flag is cleared. Errors if nothing
 /// matches unless `if_exists`.
 fn drop_constraint_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     constraint: &str,
@@ -6248,7 +5993,7 @@ fn drop_synthesized_column_flags(schema: &mut TableSchema, table: &str, constrai
 /// before persisting — a constraint the current data already violates is refused,
 /// matching Postgres.
 fn add_constraint_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     constraint: TableConstraint,
@@ -6419,8 +6164,8 @@ fn parse_bool_text(s: &str) -> Option<bool> {
 /// Read+advance the per-table sequence (the `SERIAL`/rowid allocator) by `count`,
 /// returning the FIRST allocated value. The rowids `[first, first+count)` are the new
 /// rows' physical keys; a SERIAL column reads back `rowid + 1` (1-based, never reused).
-fn alloc_rowids(wtx: &WriteTransaction, table: &str, count: u64) -> Result<u64, String> {
-    let mut seq = wtx.open_table(SEQ).map_err(map_err)?;
+fn alloc_rowids(wtx: &SqlWrite<'_>, table: &str, count: u64) -> Result<u64, String> {
+    let mut seq = wtx.open_table(SEQ)?;
     let first = seq
         .get(table)
         .map_err(map_err)?
@@ -6444,7 +6189,7 @@ fn validate_mutation_value(value: &Value) -> Result<(), String> {
 }
 
 fn insert_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     col_order: &[String],
@@ -6481,7 +6226,7 @@ fn insert_in(
     }
 
     {
-        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+        let mut rows_t = wtx.open_table(ROWS)?;
         for (rowid, blob) in &encoded {
             rows_t
                 .insert((table, *rowid), blob.as_slice())
@@ -6592,7 +6337,7 @@ fn fill_omitted_insert_cells(
 /// inserted-or-updated (for `RETURNING`). Reuses [`validate_uniqueness_in`] as the final
 /// integrity gate so a DO UPDATE that itself introduces a duplicate still aborts.
 fn insert_on_conflict_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     col_order: &[String],
@@ -6625,7 +6370,7 @@ fn insert_on_conflict_in(
         composite_cols: &ctx.composite_cols,
     };
     let mut out = ConflictInsertOutcome::default();
-    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let mut rows_t = wtx.open_table(ROWS)?;
     for row in rows {
         process_insert_on_conflict_row(wtx, &spec, action, row, &mut rows_t, &mut state, &mut out)?;
     }
@@ -6682,7 +6427,7 @@ struct InsertOnConflictContext {
 }
 
 fn prepare_insert_on_conflict_context(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     col_order: &[String],
 ) -> Result<InsertOnConflictContext, String> {
@@ -6753,7 +6498,7 @@ struct ConflictScanState {
 /// `table`. When the physical row table does not exist yet there are simply
 /// no existing rows (an empty, not missing, snapshot).
 fn build_conflict_scan_state_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     width: usize,
     schema: &TableSchema,
@@ -6766,9 +6511,7 @@ fn build_conflict_scan_state_in(
         unique_rows: (0..unique_cols.len()).map(|_| HashMap::new()).collect(),
         composite_rows: (0..composite_cols.len()).map(|_| HashMap::new()).collect(),
     };
-    let Ok(rows_t) = wtx.open_table(ROWS) else {
-        return Ok(state);
-    };
+    let rows_t = wtx.open_table(ROWS)?;
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
     for r in rows_t
@@ -7037,7 +6780,7 @@ fn apply_conflict_do_update(
 /// and index it. Returns the new `(rowid, cells)` for the caller's
 /// `affected`/`index_changes` bookkeeping.
 fn apply_conflict_fresh_insert(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     rows_t: &mut redb::Table<'_, (&'static str, u64), &'static [u8]>,
     spec: &ConflictRowSpec<'_>,
     row: &[Value],
@@ -7066,7 +6809,7 @@ fn apply_conflict_fresh_insert(
 /// `apply_conflict_do_update` (DO UPDATE), or `apply_conflict_fresh_insert`
 /// (no conflict) -- pushing the outcome into `out`.
 fn process_insert_on_conflict_row(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     spec: &ConflictRowSpec<'_>,
     action: &ConflictAction,
     row: &[Value],
@@ -7108,7 +6851,7 @@ fn process_insert_on_conflict_row(
 /// validation (CONCEPT:EG-KG.query.table-schema-constraints/NE-001 --
 /// fresh insert AND DO UPDATE merges both land in `affected`).
 fn finalize_insert_on_conflict(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     schema: &TableSchema,
@@ -7265,7 +7008,7 @@ fn validate_updated_row_checks(schema: &TableSchema, cells: &[Cell]) -> Result<(
 /// table whose FK references a column this UPDATE changed
 /// (NO ACTION/RESTRICT/CASCADE/SET NULL).
 fn finish_update_pass_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     schema: &TableSchema,
@@ -7300,7 +7043,7 @@ fn finish_update_pass_in(
 }
 
 fn update_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     set: &serde_json::Map<String, Value>,
@@ -7315,7 +7058,7 @@ fn update_in(
     // referential-action pass AFTER the write is staged.
     let mut changed: Vec<(u64, Vec<Cell>, Vec<Cell>)> = Vec::new();
     {
-        let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+        let mut rows_t = wtx.open_table(ROWS)?;
         let mut hits: Vec<(u64, Vec<Cell>)> = Vec::new();
         let mut scanned_rows = 0usize;
         let mut scanned_bytes = 0usize;
@@ -7357,7 +7100,7 @@ fn update_in(
 }
 
 fn delete_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     tenant_scope: &str,
     table: &str,
     selector: &eg_types::RowPredicate,
@@ -7368,7 +7111,7 @@ fn delete_in(
     // Capture the pre-removal cells (CONCEPT:EG-KG.query.delete-returning-sees-row — DELETE … RETURNING sees the row
     // as it was before deletion).
     let mut removed: Vec<Vec<Cell>> = Vec::new();
-    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let mut rows_t = wtx.open_table(ROWS)?;
     let mut victims: Vec<(u64, Vec<Cell>)> = Vec::new();
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
@@ -7485,7 +7228,7 @@ fn check_row_uniqueness(
 /// returns `Err` and the whole transaction rolls back. NULLs are exempt (SQL allows
 /// multiple NULLs in a UNIQUE column; a PK column is NOT NULL and so never NULL here).
 fn validate_uniqueness_in(
-    wtx: &WriteTransaction,
+    wtx: &SqlWrite<'_>,
     table: &str,
     schema: &TableSchema,
 ) -> Result<(), String> {
@@ -7494,7 +7237,7 @@ fn validate_uniqueness_in(
         return Ok(());
     }
     let width = schema.columns().len();
-    let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
+    let rows_t = wtx.open_table(ROWS)?;
     let mut seen: Vec<HashSet<String>> = vec![HashSet::new(); groups.len()];
     let mut scanned_rows = 0usize;
     let mut scanned_bytes = 0usize;
@@ -7520,6 +7263,19 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// Reopen the store at `path` through the development composition root --
+    /// the same grant `open_temp` opened it with. RF-RULING-004 makes the
+    /// verifier the composition root's, so a reopen has to present it again.
+    fn reopen(path: &std::path::Path) -> TableStore {
+        TableStore::open(
+            path,
+            dev_scope_grant::dev_verifier(),
+            dev_scope_grant::DEV_PRINCIPAL,
+            dev_scope_grant::DEV_PROOF,
+        )
+        .unwrap()
+    }
     use super::*;
     use crate::tables::schema::{CmpOp, ColCheck, ColumnType};
     use eg_types::mutation_batch::{
@@ -7797,7 +7553,7 @@ mod tests {
             )
             .unwrap();
         drop(store);
-        let store2 = TableStore::open(&path).unwrap();
+        let store2 = reopen(&path);
         let schema = store2.get_schema("metrics").unwrap().unwrap();
         assert_eq!(schema.columns().len(), 3);
         assert_eq!(schema.columns()[0].ty, ColumnType::Timestamp);
@@ -8095,7 +7851,7 @@ mod tests {
             .create_view("v", "SELECT id FROM nodes", false)
             .unwrap();
         drop(store);
-        let store2 = TableStore::open(&path).unwrap();
+        let store2 = reopen(&path);
         assert_eq!(
             store2.get_view("v").unwrap().as_deref(),
             Some("SELECT id FROM nodes")
@@ -8146,7 +7902,7 @@ mod tests {
         let f = sample_add_fn();
         store.create_function(&f, false).unwrap();
         drop(store);
-        let store2 = TableStore::open(&path).unwrap();
+        let store2 = reopen(&path);
         assert_eq!(store2.get_function("add").unwrap().as_ref(), Some(&f));
     }
 
@@ -8397,7 +8153,7 @@ mod tests {
                 .commit_txn_batch_inner(&create_metrics_txn(), &batch, 101, Some(point), None)
                 .is_err());
             drop(store);
-            let reopened = TableStore::open(&path).unwrap();
+            let reopened = reopen(&path);
             assert!(reopened.get_schema("metrics").unwrap().is_none());
             assert!(reopened.mutation_batch(&batch.batch_id).unwrap().is_none());
             assert!(reopened
@@ -8454,7 +8210,7 @@ mod tests {
             .is_err());
         drop(store);
 
-        let reopened = TableStore::open(&path).unwrap();
+        let reopened = reopen(&path);
         assert!(reopened.get_schema("metrics").unwrap().is_some());
         assert!(reopened.mutation_batch(&batch.batch_id).unwrap().is_some());
         assert_eq!(reopened.mutation_outbox(&batch.batch_id).unwrap().len(), 2);
@@ -8564,7 +8320,7 @@ mod tests {
             vec![Column::new("id", ColumnType::Text, false, true)],
         );
         store.create_table(&initial, false).unwrap();
-        let rtx = store.db.begin_read().unwrap();
+        let rtx = store.authority.read().unwrap();
         let before = store.schema_snapshot_in(&rtx, "items").unwrap().unwrap();
 
         let migration = SchemaMigration::for_schema(
@@ -8647,7 +8403,7 @@ mod tests {
             )
             .unwrap();
 
-        let rtx = store.db.begin_read().unwrap();
+        let rtx = store.authority.read().unwrap();
         let first = store
             .row_snapshot_in(&rtx, "semantic_rows", None, None)
             .unwrap();

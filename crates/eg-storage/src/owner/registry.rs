@@ -78,8 +78,7 @@ const SQL_STR_STR: [TableDefinition<'static, &str, &str>; 2] = [
     TableDefinition::new("__sql_views__"),
     TableDefinition::new("__sql_extensions__"),
 ];
-const SQL_ROWS: TableDefinition<'static, (&str, u64), &[u8]> =
-    TableDefinition::new("__sql_rows__");
+const SQL_ROWS: TableDefinition<'static, (&str, u64), &[u8]> = TableDefinition::new("__sql_rows__");
 const SQL_SEQ: TableDefinition<'static, &str, u64> = TableDefinition::new("__sql_seq__");
 const SQL_CATALOG_VERSIONS: TableDefinition<'static, &str, u64> =
     TableDefinition::new("__sql_schema_catalog_versions__");
@@ -99,6 +98,15 @@ const SQL_SCHEMA_MIGRATION_ORDER: TableDefinition<'static, (&str, &str, u64), &s
     TableDefinition::new("__sql_schema_migration_order__");
 const SQL_SCHEMA_CATALOG_ORDER: TableDefinition<'static, (&str, u64), &str> =
     TableDefinition::new("__sql_schema_catalog_order__");
+// The SQL/PGQ property-graph catalog, persisted in the same catalog transaction
+// as the relations it depends on. It was written by `eg-query` without ever
+// being declared here, so it was invisible to the manifest digest, the strict
+// backup and the recovery census; the SQL kernel cutover made that reachable
+// and it is declared now.
+const SQL_PROPERTY_GRAPHS: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("__sql_property_graphs__");
+const SQL_PROPERTY_GRAPH_SEQ: TableDefinition<'static, &str, u64> =
+    TableDefinition::new("__sql_property_graph_seq__");
 const BLOB_CHUNKS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cas_chunks");
 const BLOB_OBJECTS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cas_blobs");
 const BLOB_REFS: TableDefinition<'static, &str, u64> = TableDefinition::new("cas_refcount");
@@ -216,6 +224,8 @@ macro_rules! visit_owner_tables {
                 $visit!(SQL_SCHEMA_MIGRATIONS);
                 $visit!(SQL_SCHEMA_MIGRATION_ORDER);
                 $visit!(SQL_SCHEMA_CATALOG_ORDER);
+                $visit!(SQL_PROPERTY_GRAPHS);
+                $visit!(SQL_PROPERTY_GRAPH_SEQ);
             }
             OwnerLayout::Blob => {
                 $visit!(BLOB_CHUNKS);
@@ -329,7 +339,6 @@ where
     Ok(())
 }
 
-
 pub(crate) fn copy_declared_owner_tables(
     source: &ReadTransaction,
     target: &WriteTransaction,
@@ -427,6 +436,8 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_schema_migrations__",
             "__sql_schema_migration_order__",
             "__sql_schema_catalog_order__",
+            "__sql_property_graphs__",
+            "__sql_property_graph_seq__",
         ],
         OwnerLayout::Blob => &["cas_chunks", "cas_blobs", "cas_refcount", "cas_uploads"],
         OwnerLayout::SemanticIndex => &[
@@ -561,7 +572,6 @@ pub(crate) fn owner_layouts() -> [OwnerLayout; 16] {
     ]
 }
 
-
 fn open_table<K, V>(
     wtx: &WriteTransaction,
     table: TableDefinition<'static, K, V>,
@@ -574,7 +584,6 @@ where
         .map(|_| ())
         .map_err(|error| error.to_string())
 }
-
 
 fn validate_table<K, V>(
     rtx: &ReadTransaction,

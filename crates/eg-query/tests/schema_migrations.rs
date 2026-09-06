@@ -19,7 +19,14 @@ fn apply_replay_and_restart_preserve_the_ordered_chain() {
     // Reopen the same file under an explicit owner scope before any writes so
     // the migration's tenant/table binding is checked by the store itself.
     drop(legacy);
-    let store = TableStore::open_scoped(&path, "tenant-ne012").expect("scoped store");
+    let store = TableStore::open_scoped(
+        &path,
+        "tenant-ne012",
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .expect("scoped store");
     store.create_table(&schema(), false).expect("create table");
     let current = store
         .get_schema("events")
@@ -52,7 +59,14 @@ fn apply_replay_and_restart_preserve_the_ordered_chain() {
     assert_eq!(store.schema_migrations("events").unwrap().len(), 1);
     drop(store);
 
-    let reopened = TableStore::open_scoped(&path, "tenant-ne012").expect("restart verification");
+    let reopened = TableStore::open_scoped(
+        &path,
+        "tenant-ne012",
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .expect("restart verification");
     let snapshot = reopened
         .schema_snapshot("events")
         .unwrap()

@@ -25,8 +25,8 @@
 use eg_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
 use eg_types::mutation_batch::{
     IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
-    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
-    TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
+    VersionExpectation, MUTATION_BATCH_VERSION,
 };
 
 const TENANT: &str = "tenant-commit-txn-batch";

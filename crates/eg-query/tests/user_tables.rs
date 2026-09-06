@@ -1222,7 +1222,13 @@ fn eg310_persists_across_reopen() {
 
     // Reopen the SAME redb file (drop every handle first).
     drop(store);
-    let store = TableStore::open(&path).unwrap();
+    let store = TableStore::open(
+        &path,
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .unwrap();
 
     assert!(store.get_schema("prices").unwrap().is_none());
     let schema = store.get_schema("quotes").unwrap().unwrap();

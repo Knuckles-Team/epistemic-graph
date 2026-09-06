@@ -2,7 +2,6 @@ use crate::kernel::{create_physical, open_physical};
 use crate::owner::contract::{CAP_CAS, CAP_DELETE, CAP_INSERT, CAP_READ, CAP_UPDATE};
 use crate::owner::identity::PhysicalStoreIdentity;
 use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
-use crate::tables::ledger_table_names;
 use crate::owner::registry::{
     declared_table_names, is_known_mutation_table, owner_layouts, owner_table_names, KV,
 };
@@ -10,6 +9,7 @@ use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
 use crate::physical::manifest::{OwnerManifest, TableContract, TableOwnership, TableScope};
 use crate::physical::root::{is_retired_prototype_table, retired_prototype_table_names};
 use crate::recovery::adopt::{classify_recovery_store, RecoveryExpectation};
+use crate::tables::ledger_table_names;
 use redb::{MultimapTableDefinition, ReadableDatabase, TableDefinition};
 
 #[test]
@@ -32,7 +32,10 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // (`AnnCodeRows`) and a generation-scoped key, but it was already declared
     // physically, so no table was added or removed by that change.
     assert_eq!(owner_table_names(OwnerLayout::SemanticIndex).len(), 16);
-    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 20);
+    // 22, not 20: the SQL/PGQ property-graph catalog
+    // (`__sql_property_graphs__`, `__sql_property_graph_seq__`) was written by
+    // `eg-query` without being declared, so the SQL kernel cutover added it.
+    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 22);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
     // Six root-binary sidecar layouts. Each is one physical file with one
     // fixed native ControlPlane scope, so each declares only its own table(s):
@@ -77,14 +80,16 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
         .iter()
         .filter(|name| owner_table_access(name) == OwnerTableAccess::SharedService)
         .count();
-    // 69 owner tables across the sixteen layouts: RF-RULING-004 puts the
+    // 71 owner tables across the sixteen layouts: RF-RULING-004 puts the
     // complete physical registry in the storage kernel, so the consumer-owned
-    // tables (`path_index_v1`, `eg_ann`, `eg_kvcache_cold`, and the 20
+    // tables (`path_index_v1`, `eg_ann`, `eg_kvcache_cold`, and the 22
     // `__sql_*`) are declared here rather than by the crates that read them.
     // +7 over the previous 62: the seven tables of the six root-binary
     // sidecar owner files, which stopped being raw `Database::create` sites.
     // `eg_ann` becoming typed and generation-keyed moved no table in or out.
-    assert_eq!((names.len(), service, shared), (69, 67, 2));
+    // +2 more: the two SQL/PGQ property-graph catalog tables, which `eg-query`
+    // wrote without ever declaring until the SQL kernel cutover.
+    assert_eq!((names.len(), service, shared), (71, 69, 2));
 }
 
 #[test]
@@ -618,7 +623,8 @@ fn open_rejects_unknown_normal_and_multimap_tables() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("closed-world.redb");
         let physical = PhysicalStoreIdentity::new("physical:test:closed-world").unwrap();
-        let store = create_physical(&path, physical.clone(), None, OwnerLayout::LedgerOnly).unwrap();
+        let store =
+            create_physical(&path, physical.clone(), None, OwnerLayout::LedgerOnly).unwrap();
         let wtx = store.database().begin_write().unwrap();
         if multimap {
             let definition: MultimapTableDefinition<&str, &str> =
@@ -667,12 +673,13 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     for layout in owner_layouts() {
         names.extend(owner_table_names(layout));
     }
-    // 18 ledger + 69 owner tables across the sixteen layouts. The
+    // 18 ledger + 71 owner tables across the sixteen layouts. The
     // consumer-owned tables `path_index_v1`, `eg_ann`, `eg_kvcache_cold` and
-    // the 20 `__sql_*` tables joined the registry because RF-RULING-004 puts
+    // the 22 `__sql_*` tables joined the registry because RF-RULING-004 puts
     // the complete physical table registry in the storage kernel; the seven
-    // root-binary sidecar tables joined it when their raw opens were cut.
-    assert_eq!(names.len(), 87);
+    // root-binary sidecar tables joined it when their raw opens were cut, and
+    // the two property-graph catalog tables when the SQL store was cut.
+    assert_eq!(names.len(), 89);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
