@@ -1,5 +1,6 @@
 use super::*;
-use eg_types::{IncarnationId, MutationDomain};
+use eg_types::mutation_batch::MutationDomain;
+use eg_types::IncarnationId;
 use redb::{ReadTransaction, ReadableTable};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::marker::PhantomData;

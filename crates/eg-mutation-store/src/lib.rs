@@ -26,7 +26,7 @@ pub(crate) const BATCHES: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("mutation_batches_v1");
 pub(crate) const IDEMPOTENCY: TableDefinition<'static, (&str, &str), &str> =
     TableDefinition::new("mutation_idempotency_v1");
-pub(crate) const VERSIONS: TableDefinition<'static, &str, u64> =
+pub const VERSIONS: TableDefinition<'static, &str, u64> =
     TableDefinition::new("mutation_versions_v1");
 pub(crate) const FENCES: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("mutation_fences_v1");
@@ -173,10 +173,11 @@ pub use owner::{
     PhysicalStoreIdentity, RbacOwner, ScopeGrantVerifier, SemanticIndexOwner, StatechartOwner,
     TimeSeriesOwner,
 };
-pub(crate) use owner::{
-    copy_declared_owner_tables, hash_declared_owner_tables, open_declared_owner_tables,
-    read_current_manifest, validate_declared_owner_tables, validate_declared_tables_write,
-    validate_manifest_read, validate_manifest_write, OwnerManifest,
+pub(crate) use owner::{read_current_manifest, validate_manifest_read, validate_manifest_write};
+pub(crate) use owner_manifest_types::OwnerManifest;
+pub(crate) use owner_registry::{
+    copy_declared_owner_tables, hash_declared_owner_tables, validate_declared_owner_tables,
+    validate_declared_tables_write,
 };
 pub use owner_registry::declared_table_names;
 

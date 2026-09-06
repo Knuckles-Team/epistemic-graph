@@ -24,6 +24,7 @@ use std::fmt;
 use std::path::Path;
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use sha2::{Digest, Sha256};
 
 use crate::acl::AgentIdentity;
 use crate::rbac::RbacPolicy;
@@ -618,7 +619,10 @@ impl RbacPolicyStore for RbacStore {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{IdentityBootstrapState, RbacPersistError, RbacStore, IDENTITIES_KEY, RBAC_TABLE};
+    use super::{
+        IdentityBootstrapState, MemoryRbacStore, RbacPersistError, RbacPolicyStore, RbacStore,
+        IDENTITIES_KEY, RBAC_TABLE,
+    };
     use crate::acl::{
         AgentIdentity, AgentRole, Grant, GrantEffect, RbacAction, ResourceContext,
         ResourceSelector, Role,

@@ -67,13 +67,11 @@ default = []
 canonical-ledger = [
     "jobs",
     "statechart",
-    "tts-piper",
     "knowledge-batch",
     "modality-serving",
     "quantum",
     "asr-native",
     "viz",
-    "policy_export",
 ]
 # CONCEPT:INT-P2-1 -- see the module doc above. Mirrors `eg-types/jobs` 1:1: NEVER
 # enable one without the other (this feature enables `eg-types/jobs` itself, so a

@@ -16,8 +16,8 @@ use super::validate::{
     primary_key, resolve_labels,
 };
 use super::{
-    EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution, EndpointResolution, LabelDefinition,
-    PropertyDefinition, PropertyGraphDefinition, PropertySet, RelationKind, SqlIdentifier, SqlName,
+    CanonicalCatalogName, EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution,
+    EndpointResolution, PropertyGraphDefinition, RelationKind, SqlIdentifier, SqlName,
     VertexTableDefinition, MAX_CATALOG_ID_BYTES, MAX_CATALOG_OWNER_BYTES,
     MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES, MAX_TENANT_SCOPE_BYTES,
     PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION,
@@ -886,4 +886,5 @@ fn validate_dependencies(dependencies: &[PropertyGraphDependency]) -> Result<(),
 }
 
 #[cfg(test)]
+#[path = "tests.rs"]
 mod tests;

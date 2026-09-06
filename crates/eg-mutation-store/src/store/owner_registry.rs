@@ -1,6 +1,6 @@
 use super::*;
 use crate::owner::{table_contract, OwnerLayout, LEDGER_TABLE_NAMES};
-use redb::{Key, MultimapTableHandle, ReadTransaction, TableHandle, Value};
+use redb::{Key, ReadTransaction, TableHandle, Value};
 
 // Closed owner-table registry. These names and types are the manifest contract.
 const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac_v1");
@@ -201,6 +201,7 @@ where
         .iter()
         .copied()
         .chain(owner_table_names(layout).iter().copied())
+        .map(str::to_string)
         .collect::<std::collections::BTreeSet<_>>();
     let actual = normal
         .into_iter()
@@ -301,7 +302,7 @@ pub(crate) fn hash_declared_owner_tables(
             let (count, fingerprint) = source.hash_table(hasher, $table)?;
             rows += count;
             tables.push(StrictTableEvidence {
-                table_id: $table.name(),
+                table_id: $table.name().to_string(),
                 rows: count,
                 fingerprint,
             });
@@ -378,7 +379,7 @@ fn validate_owner_registry_equality() -> Result<(), String> {
         macro_rules! record {
             ($table:expr) => {{
                 validate_registry_type(layout, $table)?;
-                declared.push($table.name());
+                declared.push($table.name().to_string());
             }};
         }
         visit_owner_tables!(layout, record);
@@ -388,6 +389,7 @@ fn validate_owner_registry_equality() -> Result<(), String> {
         let canonical = owner_table_names(layout)
             .iter()
             .copied()
+            .map(str::to_string)
             .collect::<std::collections::BTreeSet<_>>();
         if declared != canonical {
             return Err("owner table definitions differ from the canonical registry".to_string());

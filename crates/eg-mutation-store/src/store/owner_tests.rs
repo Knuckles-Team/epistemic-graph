@@ -1,4 +1,5 @@
 use super::*;
+use crate::owner_registry::owner_table_names;
 use redb::{MultimapTableDefinition, TableDefinition};
 
 #[test]
@@ -43,7 +44,7 @@ fn public_declared_table_projection_is_exact_and_sorted() {
 
 #[test]
 fn every_owner_surface_has_one_closed_cutover_disposition() {
-    let mut names = std::collections::BTreeSet::new();
+    let mut names: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
     for layout in [
         OwnerLayout::LedgerOnly,
         OwnerLayout::Rbac,

@@ -5,7 +5,7 @@ use eg_types::mutation_batch::{
 };
 use eg_types::protocol::Method;
 use eg_types::{MutationOperation, MUTATION_BATCH_VERSION};
-use redb::ReadableTableMetadata;
+use redb::{ReadableTableMetadata, TableHandle};
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -595,7 +595,7 @@ fn owner_row_crud_is_reserved_for_authenticated_domain_services() {
         OwnerLayout::Blob,
         OwnerLayout::SemanticIndex,
     ] {
-        for table in owner_table_names(layout) {
+        for table in crate::owner_registry::owner_table_names(layout) {
             assert!(matches!(
                 owner_table_access(table),
                 OwnerTableAccess::DomainService | OwnerTableAccess::SharedService

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use redb::{ReadableDatabase, ReadableTable};
+use redb::ReadableDatabase;
 use sha2::{Digest, Sha256};
 
 use crate::acl::AgentIdentity;

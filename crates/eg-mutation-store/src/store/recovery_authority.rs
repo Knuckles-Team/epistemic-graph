@@ -1,7 +1,9 @@
 use super::*;
-use crate::owner::{OwnerManifest, PhysicalStoreIdentity};
-use eg_types::{IncarnationId, LogicalName, MutationDomain, TenantId};
-use redb::{ReadableTable, TableHandle};
+use crate::owner::PhysicalStoreIdentity;
+use crate::owner_manifest_types::OwnerManifest;
+use eg_types::mutation_batch::MutationDomain;
+use eg_types::{IncarnationId, LogicalName, TenantId};
+use redb::{ReadTransaction, ReadableTable, TableHandle};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -120,7 +122,8 @@ pub fn classify_recovery_store(
 }
 
 fn is_mutation_authority_marker(name: &str) -> bool {
-    is_known_mutation_table(name) || crate::identity::is_retired_prototype_table(name)
+    crate::owner_registry::is_known_mutation_table(name)
+        || crate::identity::is_retired_prototype_table(name)
 }
 
 pub fn open_recovery(
@@ -315,7 +318,7 @@ fn validate_staged_reanchor(
             return Err("staged mutation table identity changed during adoption".to_string());
         }
         if !matches!(
-            before.table_id,
+            before.table_id.as_str(),
             "mutation_store_root_v1" | "mutation_scope_bindings_v1"
         ) && before.fingerprint != after.fingerprint
         {
@@ -357,7 +360,7 @@ pub fn adopt_recovery(
     drop(rtx);
 
     let (adopted, physical_path) = StoreIncarnation::derive(&token.path)?;
-    let source_manifest = token.manifest;
+    let source_manifest = token.manifest.clone();
     let mut manifest = source_manifest.clone();
     manifest.physical_identity = destination_identity;
     manifest.authority_epoch = manifest

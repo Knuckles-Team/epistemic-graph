@@ -2,9 +2,9 @@ use super::*;
 use redb::{Key, ReadTransaction, ReadableTable, TableDefinition, TableHandle, Value};
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrictTableEvidence {
-    pub table_id: &'static str,
+    pub table_id: String,
     pub rows: u64,
     pub fingerprint: [u8; 32],
 }
@@ -152,7 +152,7 @@ fn hash_ledger(
             let (count, fingerprint) = snapshot.hash_table(hasher, $table)?;
             rows += count;
             tables.push(StrictTableEvidence {
-                table_id: $table.name(),
+                table_id: $table.name().to_string(),
                 rows: count,
                 fingerprint,
             });
@@ -287,7 +287,7 @@ impl HashSnapshot<'_> {
                 )?
             }
         };
-        let fingerprint = table_hasher.finalize().into();
+        let fingerprint: [u8; 32] = table_hasher.finalize().into();
         hash_tag(hasher, &fingerprint);
         Ok((rows, fingerprint))
     }
@@ -328,7 +328,7 @@ fn validate_copied_table_evidence(
             return Err("strict backup per-table row evidence changed".to_string());
         }
         let reanchored = matches!(
-            source_table.table_id,
+            source_table.table_id.as_str(),
             "mutation_store_root_v1" | "mutation_scope_bindings_v1" | "mutation_owner_manifest_v1"
         );
         if !reanchored && source_table.fingerprint != target_table.fingerprint {

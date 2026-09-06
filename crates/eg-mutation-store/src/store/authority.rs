@@ -73,6 +73,13 @@ fn write_adopted_root(wtx: &WriteTransaction, adopted: &StoreIncarnation) -> Res
     Ok(())
 }
 
+/// Pin the range's key type. A bare `(Bound<&str>, Bound<&str>)` tuple satisfies both
+/// `RangeBounds<str>` and `RangeBounds<&str>`, so redb's `range` cannot infer its key
+/// parameter from it; naming the bound here resolves that without changing the range.
+fn scope_key_range(lower: Bound<&str>) -> impl std::ops::RangeBounds<&str> + '_ {
+    (lower, Bound::Unbounded)
+}
+
 fn rebind_serving_scopes(wtx: &WriteTransaction, adopted: &StoreIncarnation) -> Result<(), String> {
     let mut after: Option<String> = None;
     loop {
@@ -80,14 +87,17 @@ fn rebind_serving_scopes(wtx: &WriteTransaction, adopted: &StoreIncarnation) -> 
             let bindings = wtx
                 .open_table(SCOPE_BINDINGS)
                 .map_err(|error| error.to_string())?;
-            let lower = after.as_deref().map_or(Bound::Unbounded, Bound::Excluded);
-            bindings
-                .range((lower, Bound::Unbounded))
+            // Bound to a local so the `Range` temporary is dropped before `bindings`.
+            let row = bindings
+                .range(scope_key_range(
+                    after.as_deref().map_or(Bound::Unbounded, Bound::Excluded),
+                ))
                 .map_err(|error| error.to_string())?
                 .next()
                 .transpose()
                 .map_err(|error| error.to_string())?
-                .map(|(key, value)| (key.value().to_string(), value.value().to_vec()))
+                .map(|(key, value)| (key.value().to_string(), value.value().to_vec()));
+            row
         };
         let Some((key, bytes)) = next else {
             break;

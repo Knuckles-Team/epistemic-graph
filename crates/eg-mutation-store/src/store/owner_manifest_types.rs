@@ -1,6 +1,7 @@
 use crate::owner::{OwnerLayout, PhysicalStoreIdentity};
 use crate::MutationStore;
-use eg_types::{IncarnationId, MutationDomain};
+use eg_types::mutation_batch::MutationDomain;
+use eg_types::IncarnationId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 

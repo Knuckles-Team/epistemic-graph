@@ -1,5 +1,6 @@
 use super::*;
-use crate::tables::schema::RefAction;
+use crate::tables::property_graph::{LabelDefinition, PropertyDefinition, PropertySet};
+use crate::tables::schema::{Column, RefAction};
 
 const TENANT: &str = "tenant/acme";
 
@@ -463,12 +464,10 @@ fn rename_preserves_object_id_and_reverse_dependencies_remain_exact() {
     let renamed = catalog.get(&graph_id).unwrap();
     assert_eq!(renamed.object_id, graph_id);
     assert_eq!(renamed.name.object.value(), "community");
-    assert_eq!(
-        catalog.dependents_of(&people_id),
-        vec![renamed.object_id.clone()]
-    );
+    let renamed_id = renamed.object_id.clone();
+    assert_eq!(catalog.dependents_of(&people_id), vec![renamed_id.clone()]);
     assert!(catalog
-        .rename(&renamed.object_id, &name("people"), 23, 3)
+        .rename(&renamed_id, &name("people"), 23, 3)
         .is_err());
 }
 
