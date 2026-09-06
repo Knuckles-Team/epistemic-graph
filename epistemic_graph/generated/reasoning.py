@@ -8,7 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_bool,
+    expect_string,
+)
 
 
 class RunDatalogReasoningRequest(BaseModel):
@@ -75,7 +79,7 @@ async def send_get_rdf(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("GetRdf", payload)
 
 
 class SparqlRequest(BaseModel):
@@ -302,4 +306,4 @@ async def send_icv_configure(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("IcvConfigure", payload)

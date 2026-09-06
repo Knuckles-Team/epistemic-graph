@@ -41,7 +41,8 @@ mod domains;
 
 pub use descriptor::{
     error_set_for, format_identities_for, replay_class_for, ConsumerProfile, MethodDescriptor,
-    MethodId, MethodSpec, OpaqueKind, PayloadShape, ReplayClass, SchemaRef, Stability,
+    MethodId, MethodSpec, OpaqueKind, PayloadShape, ReplayClass, SchemaProvenance, SchemaRef,
+    Stability,
 };
 
 use eg_types::protocol::{CypherMode, Method};

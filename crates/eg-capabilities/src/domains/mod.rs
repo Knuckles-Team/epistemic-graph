@@ -12,12 +12,14 @@ pub(crate) type PolicyRow = (&'static str, super::MethodSpec, &'static str);
 pub(crate) const fn spec(
     policy: super::MethodPolicy,
     result_schema: super::SchemaRef,
+    result_provenance: super::SchemaProvenance,
     consumer_profiles: &'static [super::ConsumerProfile],
     stability: super::Stability,
 ) -> super::MethodSpec {
     super::MethodSpec {
         policy,
         result_schema,
+        result_provenance,
         consumer_profiles,
         stability,
     }

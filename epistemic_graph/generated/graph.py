@@ -8,7 +8,16 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_bool,
+    expect_count,
+    expect_edgelist,
+    expect_float,
+    expect_ids,
+    expect_nodelist,
+    expect_string,
+)
 
 
 class AddNodeRequest(BaseModel):
@@ -70,7 +79,7 @@ async def send_create_node_if_absent(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("CreateNodeIfAbsent", payload)
 
 
 class RemoveNodeRequest(BaseModel):
@@ -130,7 +139,7 @@ async def send_has_node(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("HasNode", payload)
 
 
 class GetNodesRequest(BaseModel):
@@ -160,7 +169,7 @@ async def send_get_nodes(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_nodelist("GetNodes", payload)
 
 
 class GetNodesByLabelRequest(BaseModel):
@@ -192,7 +201,7 @@ async def send_get_nodes_by_label(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_nodelist("GetNodesByLabel", payload)
 
 
 class GetNodePropertiesRequest(BaseModel):
@@ -254,7 +263,7 @@ async def send_compare_and_set_node_fields(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("CompareAndSetNodeFields", payload)
 
 
 class CreateSummaryNodeRequest(BaseModel):
@@ -286,7 +295,7 @@ async def send_create_summary_node(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("CreateSummaryNode", payload)
 
 
 class ConsolidateRequest(BaseModel):
@@ -317,7 +326,7 @@ async def send_consolidate(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("Consolidate", payload)
 
 
 class ReinforceRequest(BaseModel):
@@ -349,7 +358,7 @@ async def send_reinforce(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("Reinforce", payload)
 
 
 class DecayNodeRequest(BaseModel):
@@ -381,7 +390,7 @@ async def send_decay_node(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("DecayNode", payload)
 
 
 class DecayMemoriesRequest(BaseModel):
@@ -413,7 +422,7 @@ async def send_decay_memories(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("DecayMemories", payload)
 
 
 class EvictBelowRequest(BaseModel):
@@ -445,7 +454,7 @@ async def send_evict_below(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("EvictBelow", payload)
 
 
 class MaintainRequest(BaseModel):
@@ -509,7 +518,7 @@ async def send_summary_children(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("SummaryChildren", payload)
 
 
 class SummariesAtLevelRequest(BaseModel):
@@ -539,7 +548,7 @@ async def send_summaries_at_level(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("SummariesAtLevel", payload)
 
 
 class StartTrajectoryRequest(BaseModel):
@@ -569,7 +578,7 @@ async def send_start_trajectory(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("StartTrajectory", payload)
 
 
 class AppendStepRequest(BaseModel):
@@ -635,7 +644,7 @@ async def send_discounted_return(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("DiscountedReturn", payload)
 
 
 class BestTrajectoryRequest(BaseModel):
@@ -756,7 +765,7 @@ async def send_node_count(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("NodeCount", payload)
 
 
 class NodeIdsRequest(BaseModel):
@@ -786,7 +795,7 @@ async def send_node_ids(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("NodeIds", payload)
 
 
 class AddEdgeRequest(BaseModel):
@@ -818,7 +827,7 @@ async def send_add_edge(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("AddEdge", payload)
 
 
 class RemoveEdgeRequest(BaseModel):
@@ -883,7 +892,7 @@ async def send_invalidate_edge(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("InvalidateEdge", payload)
 
 
 class SupersedeEdgeRequest(BaseModel):
@@ -951,7 +960,7 @@ async def send_has_edge(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("HasEdge", payload)
 
 
 class GetEdgesRequest(BaseModel):
@@ -981,7 +990,7 @@ async def send_get_edges(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_edgelist("GetEdges", payload)
 
 
 class GetEdgesPageRequest(BaseModel):
@@ -1042,7 +1051,7 @@ async def send_clear_graph(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("ClearGraph", payload)
 
 
 class GetEdgePropertiesRequest(BaseModel):
@@ -1133,7 +1142,7 @@ async def send_edge_count(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("EdgeCount", payload)
 
 
 class InDegreeRequest(BaseModel):
@@ -1163,7 +1172,7 @@ async def send_in_degree(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("InDegree", payload)
 
 
 class OutDegreeRequest(BaseModel):
@@ -1193,7 +1202,7 @@ async def send_out_degree(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("OutDegree", payload)
 
 
 class GetPredecessorsRequest(BaseModel):
@@ -1223,7 +1232,7 @@ async def send_get_predecessors(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("GetPredecessors", payload)
 
 
 class GetSuccessorsRequest(BaseModel):
@@ -1253,7 +1262,7 @@ async def send_get_successors(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("GetSuccessors", payload)
 
 
 class GetNeighborsRequest(BaseModel):
@@ -1283,7 +1292,7 @@ async def send_get_neighbors(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("GetNeighbors", payload)
 
 
 class GetNeighborsBatchRequest(BaseModel):
@@ -1407,7 +1416,7 @@ async def send_union_get_neighbors(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("UnionGetNeighbors", payload)
 
 
 class PruneByLifecycleRequest(BaseModel):
@@ -1428,7 +1437,7 @@ async def send_prune_by_lifecycle(
 ) -> OpaqueResult:
     """PruneByLifecycle - node:admin, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: opaque (Conflicting) - the contract declares no result schema.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PruneByLifecycleRequest.model_validate(params or {})
@@ -1498,7 +1507,7 @@ async def send_evict_l_r_u(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("EvictLRU", payload)
 
 
 class DecaySweepRequest(BaseModel):
@@ -1560,7 +1569,7 @@ async def send_touch_nodes(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("TouchNodes", payload)
 
 
 class GetSubgraphRequest(BaseModel):
@@ -1681,7 +1690,7 @@ async def send_reconcile(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("Reconcile", payload)
 
 
 class ApplyMutationRequest(BaseModel):
@@ -1712,7 +1721,7 @@ async def send_apply_mutation(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("ApplyMutation", payload)
 
 
 class AddTriplesRequest(BaseModel):
@@ -1804,4 +1813,4 @@ async def send_drop_named_graph(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("DropNamedGraph", payload)

@@ -123,7 +123,7 @@ jobs:
       # is the only meaningful exact generated-artifact comparison. This step is
       # also executed verbatim by the blocking local pre-push CI-gate replica.
       - name: Test (canonical capability policy and generated ledger)
-        run: cargo test -p eg-capabilities --features canonical-ledger --no-fail-fast
+        run: cargo test --locked -p eg-capabilities --features contract --no-fail-fast
       - name: Test (facade full)
         run: cargo test -p epistemic-graph --features full --no-fail-fast
       # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
@@ -151,7 +151,7 @@ jobs:
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
-        run: cargo run -q -p eg-capabilities --features contract --bin gen_contract -- --check
+        run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
       - name: Generated Python client contract
         run: python3 tests/test_generated_client_contract.py
 

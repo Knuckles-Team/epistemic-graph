@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::{ConsumerProfile, MethodDescriptor, SchemaRef, Stability};
+use crate::{ConsumerProfile, MethodDescriptor, SchemaProvenance, SchemaRef, Stability};
 
 mod format_identity;
 mod python;
@@ -90,6 +90,22 @@ fn schema_ref_json(schema_ref: SchemaRef, id: &str) -> serde_json::Value {
     }
 }
 
+/// How strong the evidence behind a `result_schema` is, and -- when the two sources
+/// disagreed -- exactly what each of them said, so the refusal is auditable.
+fn provenance_json(provenance: SchemaProvenance) -> serde_json::Value {
+    match provenance {
+        SchemaProvenance::Contradicted {
+            dispatch,
+            annotation,
+        } => serde_json::json!({
+            "kind": provenance.as_str(),
+            "dispatch_said": dispatch,
+            "client_annotation_said": annotation,
+        }),
+        other => serde_json::json!({ "kind": other.as_str() }),
+    }
+}
+
 fn descriptor_json(d: &MethodDescriptor) -> serde_json::Value {
     let id = d.id.as_str();
     serde_json::json!({
@@ -97,6 +113,7 @@ fn descriptor_json(d: &MethodDescriptor) -> serde_json::Value {
         "domain": d.domain,
         "request_schema": schema_ref_json(d.request_schema, id),
         "result_schema": schema_ref_json(d.result_schema, id),
+        "result_provenance": provenance_json(d.result_provenance),
         "error_set": d.error_set,
         "policy": {
             "mutates": d.policy.mutates,
@@ -174,6 +191,17 @@ fn result_census() -> (usize, usize) {
     (typed, crate::method_descriptors().count() - typed)
 }
 
+/// `(confirmed, dispatch-only, annotation-only, undeclared, contradicted)`.
+fn provenance_census() -> serde_json::Value {
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for descriptor in crate::method_descriptors() {
+        *counts
+            .entry(descriptor.result_provenance.as_str())
+            .or_insert(0) += 1;
+    }
+    serde_json::json!(counts)
+}
+
 fn consumer_census() -> (usize, usize) {
     let python = crate::method_descriptors()
         .filter(|d| d.serves(ConsumerProfile::PythonClient))
@@ -228,6 +256,7 @@ fn receipt_json(root: &Path, artifacts: &[Artifact]) -> Vec<u8> {
         "method_count": crate::method_descriptors().count(),
         "typed_result_methods": typed,
         "opaque_result_methods": opaque,
+        "result_provenance": provenance_census(),
         "python_client_methods": python,
         "internal_only_methods": internal,
         "format_identities": identities,

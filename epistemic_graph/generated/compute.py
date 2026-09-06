@@ -8,7 +8,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_count,
+    expect_float,
+    expect_ids,
+)
 
 
 class TopologicalSortRequest(BaseModel):
@@ -38,7 +43,7 @@ async def send_topological_sort(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("TopologicalSort", payload)
 
 
 class FindCycleRequest(BaseModel):
@@ -120,7 +125,7 @@ async def send_get_blast_radius(
 ) -> OpaqueResult:
     """GetBlastRadius - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: opaque (Conflicting) - the contract declares no result schema.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetBlastRadiusRequest.model_validate(params or {})
@@ -160,7 +165,7 @@ async def send_degree_centrality(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("DegreeCentrality", payload)
 
 
 class DegreeCentralityAllRequest(BaseModel):
@@ -495,7 +500,7 @@ async def send_compute_similarity_edges(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("ComputeSimilarityEdges", payload)
 
 
 class ResolveCandidatesRequest(BaseModel):
@@ -1255,7 +1260,7 @@ async def send_ds_kl_divergence(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("DsKlDivergence", payload)
 
 
 class DsAdamStepRequest(BaseModel):
@@ -1356,7 +1361,7 @@ async def send_finance_var(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceVar", payload)
 
 
 class FinanceCvarRequest(BaseModel):
@@ -1387,7 +1392,7 @@ async def send_finance_cvar(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceCvar", payload)
 
 
 class FinanceMaxDrawdownRequest(BaseModel):
@@ -1417,7 +1422,7 @@ async def send_finance_max_drawdown(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceMaxDrawdown", payload)
 
 
 class FinanceDrawdownSeriesRequest(BaseModel):
@@ -1478,7 +1483,7 @@ async def send_finance_downside_deviation(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceDownsideDeviation", payload)
 
 
 class FinanceRiskMetricsRequest(BaseModel):
@@ -1542,7 +1547,7 @@ async def send_finance_monte_carlo_var(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceMonteCarloVar", payload)
 
 
 class FinanceStressTestRequest(BaseModel):
@@ -1855,7 +1860,7 @@ async def send_finance_information_coefficient(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceInformationCoefficient", payload)
 
 
 class FinanceTwapRequest(BaseModel):
@@ -1954,7 +1959,7 @@ async def send_finance_market_impact(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceMarketImpact", payload)
 
 
 class FinancePairsTradingRequest(BaseModel):
@@ -2153,7 +2158,7 @@ async def send_finance_glosten_milgrom_spread(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceGlostenMilgromSpread", payload)
 
 
 class FinanceExpectedPnlRateRequest(BaseModel):
@@ -2189,7 +2194,7 @@ async def send_finance_expected_pnl_rate(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceExpectedPnlRate", payload)
 
 
 class FinanceBreakevenAlphaRequest(BaseModel):
@@ -2222,7 +2227,7 @@ async def send_finance_breakeven_alpha(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceBreakevenAlpha", payload)
 
 
 class FinanceOfiSeriesRequest(BaseModel):
@@ -2322,7 +2327,7 @@ async def send_finance_vpin_pm(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceVpinPm", payload)
 
 
 class FinanceHawkesMleRequest(BaseModel):
@@ -2386,7 +2391,7 @@ async def send_finance_hardiman_bouchaud(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceHardimanBouchaud", payload)
 
 
 class FinanceKyleLambdaRequest(BaseModel):
@@ -2417,7 +2422,7 @@ async def send_finance_kyle_lambda(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceKyleLambda", payload)
 
 
 class FinanceSurveillanceRiskRequest(BaseModel):
@@ -2484,7 +2489,7 @@ async def send_finance_kelly_fraction(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceKellyFraction", payload)
 
 
 class FinanceBayesianKellyRequest(BaseModel):
@@ -2517,7 +2522,7 @@ async def send_finance_bayesian_kelly(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceBayesianKelly", payload)
 
 
 class FinancePosteriorCredibleIntervalRequest(BaseModel):
@@ -2615,7 +2620,7 @@ async def send_finance_deflated_sharpe(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceDeflatedSharpe", payload)
 
 
 class FinanceProbabilityBacktestOverfitRequest(BaseModel):
@@ -2646,7 +2651,7 @@ async def send_finance_probability_backtest_overfit(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceProbabilityBacktestOverfit", payload)
 
 
 class FinanceDieboldMarianoRequest(BaseModel):
@@ -3100,7 +3105,7 @@ async def send_finance_information_ratio(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceInformationRatio", payload)
 
 
 class FinanceEffectiveIndependentNRequest(BaseModel):
@@ -3130,7 +3135,7 @@ async def send_finance_effective_independent_n(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceEffectiveIndependentN", payload)
 
 
 class FinanceAlphaCombinationEngineRequest(BaseModel):
@@ -3192,7 +3197,7 @@ async def send_finance_brier_score(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceBrierScore", payload)
 
 
 class FinanceConvergenceGateRequest(BaseModel):
@@ -3258,7 +3263,7 @@ async def send_finance_empirical_kelly(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceEmpiricalKelly", payload)
 
 
 class FinanceSabrImpliedVolRequest(BaseModel):
@@ -3294,7 +3299,7 @@ async def send_finance_sabr_implied_vol(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_float("FinanceSabrImpliedVol", payload)
 
 
 class FinanceSabrSmileRequest(BaseModel):
@@ -3376,7 +3381,7 @@ class MineAssociateRequest(BaseModel):
     as_claim: bool | None = None
     min_confidence: float | None = None
     min_support: float | None = None
-    source: Any | None | None = None
+    source: Any | None = None
     transactions: list[list[str]] | None = None
     writeback: bool | None = None
 
@@ -3416,9 +3421,9 @@ class MineClusterRequest(BaseModel):
     linkage: Any | None = None
     max_iter: int | None = None
     min_pts: int | None = None
-    plan: Any | None | None = None
+    plan: Any | None = None
     seed: int | None = None
-    source: Any | None | None = None
+    source: Any | None = None
     writeback: bool | None = None
 
 
@@ -3457,10 +3462,10 @@ class MineAnomalyRequest(BaseModel):
     kernel: Any | None = None
     n_trees: int | None = None
     nu: float | None = None
-    plan: Any | None | None = None
+    plan: Any | None = None
     sample_size: int | None = None
     seed: int | None = None
-    source: Any | None | None = None
+    source: Any | None = None
     threshold: Any | None = None
     values: list[float] | None = None
     writeback: bool | None = None
@@ -3500,8 +3505,8 @@ class MineClassifyFitRequest(BaseModel):
     k: int | None = None
     l2: float | None = None
     lr: float | None = None
-    plan: Any | None | None = None
-    source: Any | None | None = None
+    plan: Any | None = None
+    source: Any | None = None
     x: list[list[float]] | None = None
     y: list[int] | None = None
 
@@ -3535,8 +3540,8 @@ class MineClassifyPredictRequest(BaseModel):
 
     as_claim: bool | None = None
     model: Any
-    plan: Any | None | None = None
-    source: Any | None | None = None
+    plan: Any | None = None
+    source: Any | None = None
     writeback: bool | None = None
     x: list[list[float]] | None = None
 
@@ -3577,9 +3582,9 @@ class MineReduceRequest(BaseModel):
     n_components: int | None = None
     n_neighbors: int | None = None
     perplexity: float | None = None
-    plan: Any | None | None = None
+    plan: Any | None = None
     seed: int | None = None
-    source: Any | None | None = None
+    source: Any | None = None
     writeback: bool | None = None
     x: list[list[float]] | None = None
 
@@ -3678,7 +3683,7 @@ class MiningPipelineTrainRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    source: Any | None | None = None
+    source: Any | None = None
     spec: Any
     writeback: bool | None = None
     x: list[list[float]] | None = None
@@ -3744,7 +3749,7 @@ class MiningPipelinePredictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    source: Any | None | None = None
+    source: Any | None = None
     version: int | None = None
     writeback: bool | None = None
     x: list[list[float]] | None = None
@@ -3778,7 +3783,7 @@ class MiningPipelineEvaluateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    source: Any | None | None = None
+    source: Any | None = None
     version: int | None = None
     x: list[list[float]] | None = None
     y: list[int] | None = None
@@ -3847,7 +3852,7 @@ class MineSequenceRequest(BaseModel):
     as_claim: bool | None = None
     min_support: float | None = None
     sequences: list[list[str]] | None = None
-    source: Any | None | None = None
+    source: Any | None = None
     writeback: bool | None = None
 
 
@@ -3929,7 +3934,7 @@ class MineTextRequest(BaseModel):
     iterations: int | None = None
     k: int | None = None
     seed: int | None = None
-    source: Any | None | None = None
+    source: Any | None = None
     top_n: int | None = None
     writeback: bool | None = None
 
@@ -4001,7 +4006,7 @@ class MineEntityResolveRequest(BaseModel):
     bucket_precision: int | None = None
     ids: list[str] | None = None
     records: list[list[str]] | None = None
-    source: Any | None | None = None
+    source: Any | None = None
     threshold: float | None = None
     vectors: list[list[float]] | None = None
     writeback: bool | None = None

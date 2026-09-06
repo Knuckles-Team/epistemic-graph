@@ -19,6 +19,73 @@ class OpaqueResult(NamedTuple):
     payload: Any
 
 
+class ContractViolation(RuntimeError):
+    """The engine returned a shape the contract does not declare for the method.
+
+    A typed `result_schema` is EVIDENCE (see the descriptor's `result_provenance`),
+    not a declaration the engine enforces, so the generated send checks it instead of
+    returning a value under a signature that lies about it. Raising names the method,
+    the claimed schema and the shape actually observed, so a wrong row in the registry
+    is reported at the one call site that proves it wrong.
+    """
+
+
+def _violation(method: str, claimed: str, payload: Any) -> ContractViolation:
+    return ContractViolation(
+        f"{method}: contract claims ResultPayload::{claimed}, engine returned "
+        f"{type(payload).__name__}"
+    )
+
+
+def expect_bool(method: str, payload: Any) -> bool:
+    if not isinstance(payload, bool):
+        raise _violation(method, "Bool", payload)
+    return payload
+
+
+def expect_count(method: str, payload: Any) -> int:
+    if isinstance(payload, bool) or not isinstance(payload, int):
+        raise _violation(method, "Count", payload)
+    return payload
+
+
+def expect_float(method: str, payload: Any) -> float:
+    # An f64 that happens to be integral arrives from MessagePack as an int.
+    if isinstance(payload, bool) or not isinstance(payload, (int, float)):
+        raise _violation(method, "Float", payload)
+    return float(payload)
+
+
+def expect_string(method: str, payload: Any) -> str:
+    if not isinstance(payload, str):
+        raise _violation(method, "String", payload)
+    return payload
+
+
+def expect_ids(method: str, payload: Any) -> list[str]:
+    if not isinstance(payload, list) or not all(
+        isinstance(item, str) for item in payload
+    ):
+        raise _violation(method, "Ids", payload)
+    return payload
+
+
+def _rows(method: str, claimed: str, payload: Any, width: int) -> list[Any]:
+    if not isinstance(payload, list) or not all(
+        isinstance(row, (list, tuple)) and len(row) == width for row in payload
+    ):
+        raise _violation(method, claimed, payload)
+    return payload
+
+
+def expect_nodelist(method: str, payload: Any) -> list[Any]:
+    return _rows(method, "NodeList", payload, 2)
+
+
+def expect_edgelist(method: str, payload: Any) -> list[Any]:
+    return _rows(method, "EdgeList", payload, 3)
+
+
 async def send_by_id(
     client: Any,
     method: str,

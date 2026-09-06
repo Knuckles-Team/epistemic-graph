@@ -8,7 +8,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+)
 
 
 class GetContextViewRequest(BaseModel):
@@ -29,7 +31,7 @@ async def send_get_context_view(
 ) -> OpaqueResult:
     """GetContextView - node:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: opaque (Conflicting) - the contract declares no result schema.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetContextViewRequest.model_validate(params or {})
@@ -444,7 +446,7 @@ class ExplainBeliefRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    disclosure_level: Any | None | None = None
+    disclosure_level: Any | None = None
     node_id: str
 
 

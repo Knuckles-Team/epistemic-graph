@@ -481,10 +481,13 @@ repos:
   # the descriptor's `consumer_profiles` rather than by a regex over two files and a
   # baseline nobody re-reviews. It runs on the SAME pre-push/manual stage the old
   # standalone hook did, and release.yml runs the identical command so
-  # `ci-gate-replica` stays a verbatim replica.
+  # `ci-gate-replica` stays a verbatim replica. `--locked` on BOTH commands is load
+  # bearing, not decoration: an unlocked `cargo run` REWRITES Cargo.lock on disk and a
+  # later `--locked` step then validates cargo's own repair -- exactly how this lane's
+  # missing schemars/serde_json/sha2/hex entries survived two green gates.
   - id: engine-contract-check
     name: Engine contract (registry ⇄ Method enum ⇄ generated client) — gen_contract --check
-    entry: cargo run -q -p eg-capabilities --features contract --bin gen_contract -- --check
+    entry: bash -c 'cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check && cargo test -q --locked -p eg-capabilities --features contract'
     language: system
     pass_filenames: false
     always_run: true

@@ -1,4 +1,5 @@
 {
+  "$comment": "Wire encoding is MessagePack, not JSON. A field typed here as an array of uint8 is a `serde_bytes` Vec<u8> and travels as a MessagePack `bin`, not as an array of integers; a validator applied to the raw wire frame must account for that. Every other type maps directly.",
   "$defs": {
     "AgentRole": {
       "description": "Role of an agent in the system hierarchy.",

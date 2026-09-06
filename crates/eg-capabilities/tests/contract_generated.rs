@@ -1,8 +1,14 @@
 //! The committed contract IS what the registry generates.
 //!
 //! `gen_contract --check` is the same assertion as a shell command; running it here as
-//! well means a stale `contract/` or `docs/capabilities.generated.md` fails the ordinary
-//! `cargo test -p eg-capabilities` a developer already runs, not only the pre-push hook.
+//! well means a stale `contract/`, `docs/capabilities.generated.md` or
+//! `epistemic_graph/generated/**` fails `cargo test`, not only the pre-push hook.
+//!
+//! It needs the schemas, so it can only exist under the generator's own profile:
+//! `cargo test -p eg-capabilities --features contract`. A plain `cargo test
+//! -p eg-capabilities` compiles this file away entirely and reports green having run
+//! none of it -- which is why `--features contract` is the command the pre-commit hook
+//! and release.yml both run, and the one to use locally.
 
 #![cfg(all(feature = "canonical-ledger", feature = "contract-schema"))]
 

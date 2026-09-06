@@ -8,7 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_bool,
+    expect_string,
+)
 
 
 class BatchUpdateRequest(BaseModel):
@@ -151,7 +155,7 @@ async def send_apply_multisig_mutation(
 ) -> OpaqueResult:
     """ApplyMultisigMutation - security:admin, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: opaque (Conflicting) - the contract declares no result schema.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ApplyMultisigMutationRequest.model_validate(params or {})
@@ -192,7 +196,7 @@ async def send_begin_txn(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("BeginTxn", payload)
 
 
 class TxnAddNodeRequest(BaseModel):
@@ -225,7 +229,7 @@ async def send_txn_add_node(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnAddNode", payload)
 
 
 class TxnRemoveNodeRequest(BaseModel):
@@ -257,7 +261,7 @@ async def send_txn_remove_node(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnRemoveNode", payload)
 
 
 class TxnAddEdgeRequest(BaseModel):
@@ -291,7 +295,7 @@ async def send_txn_add_edge(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnAddEdge", payload)
 
 
 class TxnRemoveEdgeRequest(BaseModel):
@@ -324,7 +328,7 @@ async def send_txn_remove_edge(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnRemoveEdge", payload)
 
 
 class TxnCasRequest(BaseModel):
@@ -358,7 +362,7 @@ async def send_txn_cas(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnCas", payload)
 
 
 class TxnAddEmbeddingRequest(BaseModel):
@@ -391,7 +395,7 @@ async def send_txn_add_embedding(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnAddEmbedding", payload)
 
 
 class TxnBlobRefRequest(BaseModel):
@@ -424,7 +428,7 @@ async def send_txn_blob_ref(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnBlobRef", payload)
 
 
 class TxnAddMeasurementRequest(BaseModel):
@@ -457,7 +461,7 @@ async def send_txn_add_measurement(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnAddMeasurement", payload)
 
 
 class TxnAxiomRequest(BaseModel):
@@ -489,7 +493,7 @@ async def send_txn_axiom(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnAxiom", payload)
 
 
 class TxnConstructRequest(BaseModel):
@@ -521,7 +525,7 @@ async def send_txn_construct(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnConstruct", payload)
 
 
 class TxnPlanWritebackRequest(BaseModel):
@@ -555,7 +559,7 @@ async def send_txn_plan_writeback(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnPlanWriteback", payload)
 
 
 class TxnMaterializeBeliefRequest(BaseModel):
@@ -587,7 +591,7 @@ async def send_txn_materialize_belief(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("TxnMaterializeBelief", payload)
 
 
 class CommitRequest(BaseModel):
@@ -648,4 +652,4 @@ async def send_rollback(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("Rollback", payload)

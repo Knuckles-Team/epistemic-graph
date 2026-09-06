@@ -8,7 +8,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_string,
+)
 
 
 class ServedModalityRequest(BaseModel):
@@ -190,7 +193,7 @@ async def send_add_embedding(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("AddEmbedding", payload)
 
 
 class SemanticSearchRequest(BaseModel):

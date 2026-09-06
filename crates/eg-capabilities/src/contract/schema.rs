@@ -66,6 +66,10 @@ pub(super) fn method_request_document() -> serde_json::Value {
     serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Method",
+        "$comment": "Wire encoding is MessagePack, not JSON. A field typed here as an \
+    array of uint8 is a `serde_bytes` Vec<u8> and travels as a MessagePack `bin`, not as an \
+    array of integers; a validator applied to the raw wire frame must account for that. \
+    Every other type maps directly.",
         "$defs": definitions(&root),
         "methods": methods,
     })

@@ -8,7 +8,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_string,
+)
 
 
 class GetLedgerRequest(BaseModel):
@@ -133,7 +136,7 @@ async def send_register_identity(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("RegisterIdentity", payload)
 
 
 class RbacAdminRequest(BaseModel):

@@ -8,7 +8,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_bool,
+    expect_count,
+    expect_ids,
+    expect_string,
+)
 
 
 class DeclareExchangeRequest(BaseModel):
@@ -39,7 +45,7 @@ async def send_declare_exchange(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("DeclareExchange", payload)
 
 
 class DeleteExchangeRequest(BaseModel):
@@ -69,7 +75,7 @@ async def send_delete_exchange(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("DeleteExchange", payload)
 
 
 class BindQueueRequest(BaseModel):
@@ -101,7 +107,7 @@ async def send_bind_queue(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("BindQueue", payload)
 
 
 class UnbindQueueRequest(BaseModel):
@@ -133,7 +139,7 @@ async def send_unbind_queue(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("UnbindQueue", payload)
 
 
 class PublishRequest(BaseModel):
@@ -165,7 +171,7 @@ async def send_publish(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("Publish", payload)
 
 
 class DeclareQueueRequest(BaseModel):
@@ -201,7 +207,7 @@ async def send_declare_queue(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("DeclareQueue", payload)
 
 
 class PublishExRequest(BaseModel):
@@ -237,7 +243,7 @@ async def send_publish_ex(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("PublishEx", payload)
 
 
 class BrokerConsumeRequest(BaseModel):
@@ -303,7 +309,7 @@ async def send_broker_ack(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("BrokerAck", payload)
 
 
 class BrokerRejectRequest(BaseModel):
@@ -336,7 +342,7 @@ async def send_broker_reject(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("BrokerReject", payload)
 
 
 class SweepExpiredRequest(BaseModel):
@@ -366,7 +372,7 @@ async def send_sweep_expired(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("SweepExpired", payload)
 
 
 class StreamDeclareRequest(BaseModel):
@@ -398,7 +404,7 @@ async def send_stream_declare(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("StreamDeclare", payload)
 
 
 class StreamPublishRequest(BaseModel):
@@ -430,7 +436,7 @@ async def send_stream_publish(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("StreamPublish", payload)
 
 
 class StreamReadRequest(BaseModel):
@@ -493,7 +499,7 @@ async def send_stream_trim(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("StreamTrim", payload)
 
 
 class StreamCommitOffsetRequest(BaseModel):
@@ -525,7 +531,7 @@ async def send_stream_commit_offset(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("StreamCommitOffset", payload)
 
 
 class StreamCommittedOffsetRequest(BaseModel):
@@ -661,7 +667,7 @@ async def send_broker_ack_tag(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("BrokerAckTag", payload)
 
 
 class BrokerNackTagRequest(BaseModel):
@@ -694,7 +700,7 @@ async def send_broker_nack_tag(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("BrokerNackTag", payload)
 
 
 class BrokerRenewTagRequest(BaseModel):
@@ -727,7 +733,7 @@ async def send_broker_renew_tag(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("BrokerRenewTag", payload)
 
 
 class CreateChannelRequest(BaseModel):
@@ -977,7 +983,7 @@ async def send_get_channel_members(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_ids("GetChannelMembers", payload)
 
 
 class CdcReadRequest(BaseModel):
@@ -1040,7 +1046,7 @@ async def send_register_continuous_query(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("RegisterContinuousQuery", payload)
 
 
 class ReadContinuousQueryRequest(BaseModel):
@@ -1100,7 +1106,7 @@ async def send_drop_continuous_query(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("DropContinuousQuery", payload)
 
 
 class WatchRequest(BaseModel):
@@ -1167,7 +1173,7 @@ async def send_register_trigger(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("RegisterTrigger", payload)
 
 
 class DropTriggerRequest(BaseModel):
@@ -1197,7 +1203,7 @@ async def send_drop_trigger(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("DropTrigger", payload)
 
 
 class ListTriggersRequest(BaseModel):
@@ -1290,7 +1296,7 @@ async def send_cep_subscribe(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("CepSubscribe", payload)
 
 
 class CepPollRequest(BaseModel):
@@ -1351,4 +1357,4 @@ async def send_cep_unsubscribe(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("CepUnsubscribe", payload)

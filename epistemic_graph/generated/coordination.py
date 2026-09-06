@@ -8,7 +8,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+)
 
 
 class ClaimNextRequest(BaseModel):

@@ -26,6 +26,17 @@ fn snake_case(id: &str) -> String {
     out
 }
 
+/// The generated result checkers, in the order `_runtime` defines them.
+const RESULT_CHECKERS: &[&str] = &[
+    "expect_bool",
+    "expect_count",
+    "expect_edgelist",
+    "expect_float",
+    "expect_ids",
+    "expect_nodelist",
+    "expect_string",
+];
+
 fn python_result_type(schema_ref: SchemaRef) -> &'static str {
     match schema_ref {
         SchemaRef::Payload(PayloadShape::Bool) => "bool",
@@ -142,6 +153,14 @@ fn is_python_keyword(name: &str) -> bool {
     PYTHON_KEYWORDS.contains(&name)
 }
 
+/// `T` -> `T | None`, but `T | None` -> `T | None`.
+fn optional(annotation: &str) -> String {
+    if annotation == "None" || annotation.ends_with(" | None") {
+        return annotation.to_string();
+    }
+    format!("{annotation} | None")
+}
+
 fn push_model(out: &mut String, id: &str, fields: &[(String, String, bool)]) {
     let _ = writeln!(out, "class {id}Request(BaseModel):");
     let _ = writeln!(
@@ -158,15 +177,21 @@ fn push_model(out: &mut String, id: &str, fields: &[(String, String, bool)]) {
     for (name, annotation, required) in fields {
         if is_python_keyword(name) {
             let default = if *required { "..." } else { "None" };
-            let optional = if *required { "" } else { " | None" };
+            let declared = if *required {
+                annotation.to_string()
+            } else {
+                optional(annotation)
+            };
             let _ = writeln!(
                 out,
-                "    {name}_: {annotation}{optional} = Field({default}, alias=\"{name}\")"
+                "    {name}_: {declared} = Field({default}, alias=\"{name}\")"
             );
         } else if *required {
             let _ = writeln!(out, "    {name}: {annotation}");
         } else {
-            let _ = writeln!(out, "    {name}: {annotation} | None = None");
+            // An `anyOf` that already carries a null branch renders as `T | None`;
+            // appending a second one is valid Python and ugly output.
+            let _ = writeln!(out, "    {name}: {} = None", optional(annotation));
         }
     }
 }
@@ -199,10 +224,17 @@ fn push_send(out: &mut String, d: &MethodDescriptor) {
     out.push_str(
         "        params,\n        graph,\n        idempotency_key=idempotency_key,\n    )\n",
     );
-    if d.result_schema.is_typed() {
-        let _ = writeln!(out, "    return payload");
-    } else {
-        let _ = writeln!(out, "    return OpaqueResult(\"{id}\", payload)");
+    match d.result_schema {
+        SchemaRef::Payload(shape) => {
+            let _ = writeln!(
+                out,
+                "    return expect_{}(\"{id}\", payload)",
+                shape.as_str().to_ascii_lowercase()
+            );
+        }
+        _ => {
+            let _ = writeln!(out, "    return OpaqueResult(\"{id}\", payload)");
+        }
     }
 }
 
@@ -235,7 +267,21 @@ fn domain_module(
     );
     out.push_str("\nfrom __future__ import annotations\n\nfrom typing import Any\n\n");
     out.push_str(pydantic_import);
-    out.push_str("from ._runtime import OpaqueResult\n");
+    let mut imports: Vec<&str> = vec!["OpaqueResult"];
+    for name in RESULT_CHECKERS {
+        if body.contains(&format!("{name}(")) {
+            imports.push(name);
+        }
+    }
+    imports.sort_unstable();
+    // Always the exploded, magic-trailing-comma form: the one-line form exceeds the
+    // formatter's width once a module uses several checkers, and a formatter that
+    // rewrites generated output would fight `--check` forever.
+    out.push_str("from ._runtime import (\n");
+    for name in &imports {
+        let _ = writeln!(out, "    {name},");
+    }
+    out.push_str(")\n");
     out.push_str(&body);
     out
 }
@@ -252,6 +298,59 @@ fn runtime_module() -> String {
     out.push_str("from ._ids import METHOD_IDS\n\n\n");
     out.push_str("class OpaqueResult(NamedTuple):\n");
     out.push_str("    method: str\n    payload: Any\n\n\n");
+    out.push_str("class ContractViolation(RuntimeError):\n");
+    out.push_str(
+        "    \"\"\"The engine returned a shape the contract does not declare for the method.\n\n",
+    );
+    out.push_str(
+        "    A typed `result_schema` is EVIDENCE (see the descriptor's `result_provenance`),\n",
+    );
+    out.push_str(
+        "    not a declaration the engine enforces, so the generated send checks it instead of\n",
+    );
+    out.push_str(
+        "    returning a value under a signature that lies about it. Raising names the method,\n",
+    );
+    out.push_str(
+        "    the claimed schema and the shape actually observed, so a wrong row in the registry\n",
+    );
+    out.push_str("    is reported at the one call site that proves it wrong.\n    \"\"\"\n\n\n");
+    out.push_str("def _violation(method: str, claimed: str, payload: Any) -> ContractViolation:\n");
+    out.push_str("    return ContractViolation(\n");
+    out.push_str(
+        "        f\"{method}: contract claims ResultPayload::{claimed}, engine returned \"\n",
+    );
+    out.push_str("        f\"{type(payload).__name__}\"\n");
+    out.push_str("    )\n\n\n");
+    out.push_str("def expect_bool(method: str, payload: Any) -> bool:\n");
+    out.push_str("    if not isinstance(payload, bool):\n");
+    out.push_str("        raise _violation(method, \"Bool\", payload)\n    return payload\n\n\n");
+    out.push_str("def expect_count(method: str, payload: Any) -> int:\n");
+    out.push_str("    if isinstance(payload, bool) or not isinstance(payload, int):\n");
+    out.push_str("        raise _violation(method, \"Count\", payload)\n    return payload\n\n\n");
+    out.push_str("def expect_float(method: str, payload: Any) -> float:\n");
+    out.push_str("    # An f64 that happens to be integral arrives from MessagePack as an int.\n");
+    out.push_str("    if isinstance(payload, bool) or not isinstance(payload, (int, float)):\n");
+    out.push_str(
+        "        raise _violation(method, \"Float\", payload)\n    return float(payload)\n\n\n",
+    );
+    out.push_str("def expect_string(method: str, payload: Any) -> str:\n");
+    out.push_str("    if not isinstance(payload, str):\n");
+    out.push_str("        raise _violation(method, \"String\", payload)\n    return payload\n\n\n");
+    out.push_str("def expect_ids(method: str, payload: Any) -> list[str]:\n");
+    out.push_str("    if not isinstance(payload, list) or not all(\n");
+    out.push_str("        isinstance(item, str) for item in payload\n    ):\n");
+    out.push_str("        raise _violation(method, \"Ids\", payload)\n    return payload\n\n\n");
+    out.push_str("def _rows(method: str, claimed: str, payload: Any, width: int) -> list[Any]:\n");
+    out.push_str("    if not isinstance(payload, list) or not all(\n");
+    out.push_str(
+        "        isinstance(row, (list, tuple)) and len(row) == width for row in payload\n    ):\n",
+    );
+    out.push_str("        raise _violation(method, claimed, payload)\n    return payload\n\n\n");
+    out.push_str("def expect_nodelist(method: str, payload: Any) -> list[Any]:\n");
+    out.push_str("    return _rows(method, \"NodeList\", payload, 2)\n\n\n");
+    out.push_str("def expect_edgelist(method: str, payload: Any) -> list[Any]:\n");
+    out.push_str("    return _rows(method, \"EdgeList\", payload, 3)\n\n\n");
     out.push_str("async def send_by_id(\n");
     out.push_str("    client: Any,\n    method: str,\n");
     out.push_str("    params: dict[str, Any] | None = None,\n");
@@ -293,8 +392,10 @@ fn init_module(modules: &[String], sends: &BTreeMap<String, String>) -> String {
         let _ = writeln!(out, "    {module},");
     }
     out.push_str(")\n");
-    out.push_str("from ._ids import METHOD_IDS\nfrom ._runtime import OpaqueResult, send_by_id\n");
-    out.push_str("\n__all__ = [\n    \"METHOD_IDS\",\n    \"OpaqueResult\",\n    \"SEND_BY_METHOD\",\n    \"send_by_id\",\n");
+    out.push_str(
+        "from ._ids import METHOD_IDS\nfrom ._runtime import (\n    ContractViolation,\n    OpaqueResult,\n    send_by_id,\n)\n",
+    );
+    out.push_str("\n__all__ = [\n    \"METHOD_IDS\",\n    \"ContractViolation\",\n    \"OpaqueResult\",\n    \"SEND_BY_METHOD\",\n    \"send_by_id\",\n");
     for module in modules {
         let _ = writeln!(out, "    \"{module}\",");
     }

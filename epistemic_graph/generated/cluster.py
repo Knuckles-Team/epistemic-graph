@@ -8,7 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_bool,
+    expect_string,
+)
 
 
 class CreateGraphRequest(BaseModel):
@@ -162,7 +166,7 @@ async def send_catalog_assign(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("CatalogAssign", payload)
 
 
 class CatalogReassignRequest(BaseModel):
@@ -193,7 +197,7 @@ async def send_catalog_reassign(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("CatalogReassign", payload)
 
 
 class CatalogRemoveRequest(BaseModel):
@@ -223,7 +227,7 @@ async def send_catalog_remove(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("CatalogRemove", payload)
 
 
 class CatalogListRequest(BaseModel):
@@ -377,7 +381,7 @@ async def send_raft_add_learner(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("RaftAddLearner", payload)
 
 
 class RaftChangeMembershipRequest(BaseModel):
@@ -408,7 +412,7 @@ async def send_raft_change_membership(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("RaftChangeMembership", payload)
 
 
 class ClusterMembersRequest(BaseModel):
@@ -531,7 +535,7 @@ async def send_ping(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("Ping", payload)
 
 
 class HealthRequest(BaseModel):
@@ -591,7 +595,7 @@ async def send_shutdown(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("Shutdown", payload)
 
 
 class CancelRequestRequest(BaseModel):
@@ -621,7 +625,7 @@ async def send_cancel_request(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("CancelRequest", payload)
 
 
 class RegisterForeignSourceRequest(BaseModel):
@@ -652,7 +656,7 @@ async def send_register_foreign_source(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("RegisterForeignSource", payload)
 
 
 class PlanMatViewDefineRequest(BaseModel):

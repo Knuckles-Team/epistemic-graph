@@ -8,7 +8,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ._runtime import OpaqueResult
+from ._runtime import (
+    OpaqueResult,
+    expect_bool,
+    expect_count,
+    expect_string,
+)
 
 
 class ToMsgpackRequest(BaseModel):
@@ -68,7 +73,7 @@ async def send_from_msgpack(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("FromMsgpack", payload)
 
 
 class ClearLedgerRequest(BaseModel):
@@ -98,7 +103,7 @@ async def send_clear_ledger(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("ClearLedger", payload)
 
 
 class ApplyLedgerRequest(BaseModel):
@@ -128,7 +133,7 @@ async def send_apply_ledger(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("ApplyLedger", payload)
 
 
 class BackupRequest(BaseModel):
@@ -224,7 +229,7 @@ async def send_ts_append(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("TsAppend", payload)
 
 
 class TsRangeRequest(BaseModel):
@@ -386,7 +391,7 @@ async def send_ts_evict(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("TsEvict", payload)
 
 
 class TsDeleteSeriesRequest(BaseModel):
@@ -416,7 +421,7 @@ async def send_ts_delete_series(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("TsDeleteSeries", payload)
 
 
 class TsListSeriesRequest(BaseModel):
@@ -476,7 +481,7 @@ async def send_blob_begin(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("BlobBegin", payload)
 
 
 class BlobChunkPutRequest(BaseModel):
@@ -507,7 +512,7 @@ async def send_blob_chunk_put(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("BlobChunkPut", payload)
 
 
 class BlobCommitRequest(BaseModel):
@@ -537,7 +542,7 @@ async def send_blob_commit(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_string("BlobCommit", payload)
 
 
 class BlobFetchBeginRequest(BaseModel):
@@ -628,7 +633,7 @@ async def send_blob_fetch_end(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_bool("BlobFetchEnd", payload)
 
 
 class BlobRefRequest(BaseModel):
@@ -658,7 +663,7 @@ async def send_blob_ref(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("BlobRef", payload)
 
 
 class BlobUnrefRequest(BaseModel):
@@ -688,7 +693,7 @@ async def send_blob_unref(
         graph,
         idempotency_key=idempotency_key,
     )
-    return payload
+    return expect_count("BlobUnref", payload)
 
 
 class BlobGcRequest(BaseModel):

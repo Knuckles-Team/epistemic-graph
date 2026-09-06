@@ -7,8 +7,6 @@
 //! `crates/eg-types/src/protocol.rs`, as text — but with NO baseline file: a variant
 //! without a descriptor, or a descriptor without a variant, is a hard failure.
 
-#![cfg(feature = "canonical-ledger")]
-
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -41,21 +39,17 @@ fn wire_method_variants() -> BTreeSet<String> {
         .find("pub enum Method {")
         .expect("could not locate `pub enum Method {` in protocol.rs")
         + "pub enum Method {".len();
-    let mut depth = 1usize;
-    let mut end = start;
-    for (offset, ch) in text[start..].char_indices() {
-        match ch {
-            '{' => depth += 1,
-            '}' => depth -= 1,
-            _ => {}
-        }
-        if depth == 0 {
-            end = start + offset;
-            break;
-        }
-    }
-    text[start..end]
-        .lines()
+    // The item ends at the first line that is exactly `}` in column 0. Counting braces
+    // instead would run through doc comments and string literals: a single `}` inside a
+    // doc comment on a variant would truncate the scan and silently drop every variant
+    // after it, and only the hardcoded census below would notice.
+    let body = text[start..]
+        .split_once("\n}\n")
+        .map(|(body, _)| body)
+        .unwrap_or_else(|| {
+            panic!("`pub enum Method` is not terminated by a column-0 `}}` in protocol.rs")
+        });
+    body.lines()
         .filter_map(|line| line.strip_prefix("    "))
         .filter(|rest| rest.starts_with(|c: char| c.is_ascii_uppercase()))
         .map(|rest| {
@@ -72,6 +66,16 @@ fn descriptor_ids() -> Vec<String> {
         .collect()
 }
 
+/// The bijection can only hold under the CANONICAL profile, and that is a property of the
+/// two sides, not a convenience: the text scan is cfg-BLIND (it sees all 408 variants,
+/// 139 of them behind a `#[cfg(feature = ...)]`) while `method_descriptors()` is
+/// cfg-CONDITIONAL (7 rows behind `jobs`/`statechart`/`knowledge-batch`/
+/// `modality-serving`/`quantum`/`asr-native`/`viz`). `canonical-ledger` selects exactly
+/// those 7 and eg-capabilities force-enables every other Method-gating `eg-types`
+/// feature, so the two sides can agree. A variant added behind a NEW feature that
+/// `canonical-ledger` does not select fails this test loudly, which is the correct
+/// outcome -- the canonical ledger would no longer be the complete inventory.
+#[cfg(feature = "canonical-ledger")]
 #[test]
 fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     let ids = descriptor_ids();

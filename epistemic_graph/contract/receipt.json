@@ -1,7 +1,7 @@
 {
   "artifact_digests": {
-    "contract/methods.json": "1258e7d373ccc3798fc0736263f09e777da5924e387bfd1f88e491219445e206",
-    "contract/schemas/method.request.json": "023791d040c1e2605e7bcb7871429857df010052bf9780fba37204b1133fabc1",
+    "contract/methods.json": "6275a4502ae4f764f0547d231786d0216c912b80cd612bf1abb366ba92f9050e",
+    "contract/schemas/method.request.json": "dda9a6981f0d5ab123c0cacdbfe4caa60fa702477b9eb22303a30013f0fca426",
     "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
     "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
     "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
@@ -12,23 +12,23 @@
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
     "docs/capabilities.generated.md": "25d32ead78d072eba0c44e362835345ec37568d3f14c2200ca5636b17dffbd80",
     "epistemic_graph/contract/__init__.py": "36e6ba4cbab070e0f32c5974af8bca0cacb1d7391e9a256a2ba947acb85899c4",
-    "epistemic_graph/generated/__init__.py": "a800de57951402d4bf51db5d72c249847c230934aeb07280b8056c9a447dbf02",
+    "epistemic_graph/generated/__init__.py": "d4a8937ece7c71927f0f4b4d4b571ebb1a5ca6e18a12cc3a93b3a370bae63493",
     "epistemic_graph/generated/_ids.py": "3c876a5bbc24e280c76e3f165b0e4c672a6396ceb55cf0f0725adc0fdff14d25",
-    "epistemic_graph/generated/_runtime.py": "dcc1e6ad2d3ca966e669464e35a9e43306e3ba4e0738ca48a26ff1aff7f9318b",
-    "epistemic_graph/generated/cluster.py": "e3df94d4db582d0dd01b6e0e725bbae3f29b99138e7783ebdfb7f0f12d40ef59",
-    "epistemic_graph/generated/compute.py": "cd20d42d10a5ec313fd69c8b858501854a46d6db7a7a4c429a4dc8c88d72c9a0",
-    "epistemic_graph/generated/coordination.py": "bb6101b944563215c471d5e686ff220ce026b58b322420d589d59820b2b19e8f",
-    "epistemic_graph/generated/graph.py": "fb180fcfb03f9311f3b3f93606a3531d2fd45678c69a7dc1812331bdaf174670",
-    "epistemic_graph/generated/ingestion.py": "c10682d22ccc53af084bf466e1bc38f5f8731b00140a705b6b1ccf34035b72eb",
-    "epistemic_graph/generated/messaging.py": "f88d2f50e9cacb566e0fb30aa31d18a06bb865ee5ff4e9f729e63d91453cec1d",
-    "epistemic_graph/generated/query.py": "fdb619edb5850215e6438cf65ec99620faf0d2768ee71d17b437f8a4144cd873",
-    "epistemic_graph/generated/reasoning.py": "82c322c7410722882530b4be65aa4d2c02d82c61ff35f7df62c4c9cd68cbfb36",
-    "epistemic_graph/generated/security.py": "52f4118b1e5e0e8eddc59695090420431bbe79af08fdbf5f3b18137aadb6f31d",
-    "epistemic_graph/generated/storage.py": "61a88f7f25bd0e77445c3e223bda4ed84e4f08f439d13c0c51a28678f3ba26bc",
-    "epistemic_graph/generated/transactions.py": "418525921decc7da2080459bd656dd26f03b571d58fa39b216cf8b331863c50f"
+    "epistemic_graph/generated/_runtime.py": "9c654cf9a7e4e3304d0e0f933fb791f06a6ed78a6e4e1f2f82d24f577185a6fa",
+    "epistemic_graph/generated/cluster.py": "9db77471e24e9c6612b48ad3625b1c46e08e9122a0da47d55066e45e1b4ec8d3",
+    "epistemic_graph/generated/compute.py": "912901c873d200bd03e44e5f9a378dc8cd4767fdf4cc6f9b4e99f0540a265145",
+    "epistemic_graph/generated/coordination.py": "c5e8921a08fa915f89406afa636e0c4d27e3c23e75dd999c7572d6d788a02f5d",
+    "epistemic_graph/generated/graph.py": "50714095cadc9fd7f6f85d7af904e1a93a2841cb41cba42775cc81b3744c36f8",
+    "epistemic_graph/generated/ingestion.py": "4a12d30f795258d2f4dabd6c2ba995671cd5616bc3d4d037ab4de779b974f58d",
+    "epistemic_graph/generated/messaging.py": "c3ab794f5a3a23f9b0520c4be8ceac1b9dbc0ee1a2069ad2fc9535164096df87",
+    "epistemic_graph/generated/query.py": "d191dcb24f729b13bdfad6de34427be550d9e355eb0ecce4891da3ea53683970",
+    "epistemic_graph/generated/reasoning.py": "7eebd7ced3443ca2f7a35b2ca531185219a96a17427f6dc44fbb898c131be384",
+    "epistemic_graph/generated/security.py": "4e639b62478973d2e9cc0cada8b5ed5541e33625b0ac35db0f4492e481471dc2",
+    "epistemic_graph/generated/storage.py": "cdf7e34d05ad93dc1f72c835cb0a8905f0ec5a0bcea69d982d22a2ccb08dd8d1",
+    "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
   },
   "cargo_lock_sha256": "e6a3e0ec2641ace430f44a58df19068d6568cdf1949f1bdf92a04369ee53d6b4",
-  "contract_digest": "94080a92f1a7f39c5a828f05544c6e9f1923dfb95a2fd5bc9fdd72e9403fd290",
+  "contract_digest": "3cffa1e236d1c2feb4ebce010ace5bda6d1a35e43dfe9a820166739ad691cdcb",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -239,6 +239,13 @@
   "method_count": 408,
   "opaque_result_methods": 279,
   "python_client_methods": 389,
-  "source_tree_oid": "7864839b075fe622b148ce576db844e0e2ee109e6e2d71ee3ebffcde79a948f4",
+  "result_provenance": {
+    "annotation-only": 36,
+    "confirmed": 68,
+    "contradicted": 4,
+    "dispatch-only": 78,
+    "undeclared": 222
+  },
+  "source_tree_oid": "42a11141de0392003b50730906bdb7ca128beaa8c6f69fb39ae48831bef4af98",
   "typed_result_methods": 129
 }

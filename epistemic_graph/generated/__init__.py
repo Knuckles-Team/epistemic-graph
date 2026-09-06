@@ -16,10 +16,15 @@ from . import (
     transactions,
 )
 from ._ids import METHOD_IDS
-from ._runtime import OpaqueResult, send_by_id
+from ._runtime import (
+    ContractViolation,
+    OpaqueResult,
+    send_by_id,
+)
 
 __all__ = [
     "METHOD_IDS",
+    "ContractViolation",
     "OpaqueResult",
     "SEND_BY_METHOD",
     "send_by_id",
