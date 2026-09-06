@@ -5252,29 +5252,177 @@ async fn exec_sql_write(
             req_id,
             "SQL error: COPY … FROM STDIN is a streaming pgwire operation, not available over Method::Sql".to_string(),
         ),
-        // The caller only routes non-`Read` statements here.
-        K::Read
+        // SQL:2023 SQL/PGQ, plus the plain read the caller never routes here.
+        graph_kind @ (K::Read
         | K::PropertyGraphDdlRequiresCatalogAdmission(_)
-        | K::GraphTableReadRequiresCatalogAdmission(_) => {
-            sql_unroutable_response(req_id, &kind)
+        | K::GraphTableReadRequiresCatalogAdmission(_)) => {
+            exec_sql_property_graph(
+                req_id,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
+                sql_method,
+                store,
+                &read_core,
+                graph_kind,
+            )
+            .await
         }
     }
 }
 
+/// The SQL:2023 SQL/PGQ arm of [`exec_sql_write`]. Property-graph DDL is catalog
+/// DDL and commits through the SAME catalog transaction and authorization path
+/// as `CREATE VIEW`; `GRAPH_TABLE` is a read and runs through the same executor
+/// and catalog handle as any other `SELECT` on this route.
 #[cfg(feature = "query")]
-fn sql_unroutable_response(req_id: u64, kind: &eg_query::StatementKind) -> Response {
+async fn exec_sql_property_graph(
+    req_id: u64,
+    scope: SqlWriteScope<'_>,
+    sql_method: Method,
+    store: &eg_query::TableStore,
+    read_core: &Arc<GraphCore>,
+    kind: eg_query::StatementKind,
+) -> Response {
     use eg_query::StatementKind as K;
-    let message = match kind {
+    match kind {
         K::PropertyGraphDdlRequiresCatalogAdmission(_) => {
-            "SQL/PGQ property-graph DDL requires authoritative catalog admission"
+            exec_sql_property_graph_ddl(req_id, scope, sql_method, store).await
         }
-        K::GraphTableReadRequiresCatalogAdmission(_) => {
-            "SQL/PGQ GRAPH_TABLE requires authoritative catalog resolution before relational lowering"
+        K::GraphTableReadRequiresCatalogAdmission(query) => {
+            exec_sql_graph_table_read(req_id, scope.tenant_scope, store, read_core, &query)
         }
-        K::Read => "SQL error: read routed to write path",
-        _ => unreachable!("only unroutable SQL kinds call this helper"),
+        _ => Response::err(req_id, "SQL error: read routed to write path".to_string()),
+    }
+}
+
+/// Commit one `CREATE`/`ALTER`/`DROP PROPERTY GRAPH` through the SQL catalog
+/// MutationBatch kernel every other catalog DDL commits through.
+#[cfg(feature = "query")]
+async fn exec_sql_property_graph_ddl(
+    req_id: u64,
+    scope: SqlWriteScope<'_>,
+    sql_method: Method,
+    store: &eg_query::TableStore,
+) -> Response {
+    let Method::Sql { query, .. } = &sql_method else {
+        return Response::err(
+            req_id,
+            "SQL error: property-graph DDL needs its SQL text".to_string(),
+        );
     };
-    Response::err(req_id, message.to_string())
+    let actor = scope.caller.unwrap_or(scope.tenant_scope).to_string();
+    let statement = match eg_query::sql::parse_property_graph_ddl(query, scope.tenant_scope) {
+        Ok(statement) => statement,
+        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+    };
+    let (op, tag) = property_graph_txn_op(statement, &actor);
+    let mut txn = eg_query::TableTxn::new();
+    txn.push(eg_query::TxnOp::PropertyGraphDdl(op));
+    commit_sql_catalog_txn(req_id, scope, sql_method.clone(), store, txn, tag).await
+}
+
+/// Execute a SQL/PGQ `GRAPH_TABLE` read.
+///
+/// The definition is resolved from the AUTHORITATIVE durable catalog, then
+/// lowered and run on the SAME relational executor, over the SAME owner-scoped
+/// catalog handle and the SAME row-level-security-projected graph view every
+/// other `SELECT` on this route uses. A graph read therefore gains no access an
+/// ordinary `SELECT` over the base relations would not already have.
+#[cfg(feature = "query")]
+fn exec_sql_graph_table_read(
+    req_id: u64,
+    tenant_scope: &str,
+    store: &eg_query::TableStore,
+    read_core: &Arc<GraphCore>,
+    query: &eg_query::GraphTableQuery,
+) -> Response {
+    match graph_table_rows(tenant_scope, store, read_core, query) {
+        Ok(typed) => match typed.rows.iter().map(raw_result_bytes).collect() {
+            Ok(rows) => raw_response(
+                req_id,
+                &crate::protocol::QueryResult {
+                    columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                    rows,
+                },
+            ),
+            Err(error) => Response::err(req_id, error),
+        },
+        Err(error) => Response::err(req_id, format!("SQL error: {error}")),
+    }
+}
+
+#[cfg(feature = "query")]
+fn graph_table_rows(
+    tenant_scope: &str,
+    store: &eg_query::TableStore,
+    read_core: &Arc<GraphCore>,
+    query: &eg_query::GraphTableQuery,
+) -> Result<eg_query::TypedQueryResult, String> {
+    let record = store.property_graph(&query.graph)?.ok_or_else(|| {
+        format!(
+            "property graph `{}` does not exist",
+            query.graph.leaf().value()
+        )
+    })?;
+    eg_query::exec_graph_table_typed_with_tables(
+        &read_core.analysis_snapshot(),
+        store,
+        query,
+        &record.accepted_definition,
+        tenant_scope,
+    )
+}
+
+/// Lower a parsed property-graph statement onto its durable catalog operation
+/// and the command tag the caller is acknowledged with. `actor` is the verified
+/// principal: it becomes a new graph's owner and resolves `OWNER TO
+/// CURRENT_USER` / `OWNER TO SESSION_USER`.
+#[cfg(feature = "query")]
+fn property_graph_txn_op(
+    statement: eg_query::tables::PropertyGraphStatement,
+    actor: &str,
+) -> (eg_query::PropertyGraphTxnOp, &'static str) {
+    use eg_query::tables::PropertyGraphStatement as S;
+    use eg_query::PropertyGraphTxnOp as Op;
+    match statement {
+        S::Create(definition) => (
+            Op::Create {
+                definition,
+                owner: actor.to_string(),
+            },
+            "CREATE PROPERTY GRAPH",
+        ),
+        S::Alter {
+            name,
+            if_exists,
+            action,
+            ..
+        } => (
+            Op::Alter {
+                name,
+                if_exists,
+                action,
+                actor: actor.to_string(),
+            },
+            "ALTER PROPERTY GRAPH",
+        ),
+        S::Drop {
+            names,
+            if_exists,
+            behavior,
+            ..
+        } => (
+            Op::Drop {
+                names,
+                if_exists,
+                behavior,
+            },
+            "DROP PROPERTY GRAPH",
+        ),
+    }
 }
 
 /// A scalar cell (from a resolved SELECT row) coerced to the string node-id form the

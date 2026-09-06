@@ -50,8 +50,8 @@ use eg_query::{
     CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes,
     DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan,
     InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict, OnConflictAction,
-    PgColType, StatementKind, TableSchema, TableStore, TableTxn, TxnOp, TypedColumn,
-    TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    PgColType, PropertyGraphTxnOp, StatementKind, TableSchema, TableStore, TableTxn, TxnOp,
+    TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 
 use crate::isolation::AccessLevel;
@@ -2093,15 +2093,93 @@ impl WireSession {
             // `COPY … FROM STDIN` (CONCEPT:EG-KG.query.register-each-user-table): switch into copy-in mode; the
             // streamed rows are ingested by the wire's copy-done hook.
             StatementKind::CopyIn(plan) => self.start_copy(plan).await,
-            // Transaction-control statements are handled before dispatch.
+            // SQL/PGQ, plus the transaction-control kinds handled before dispatch.
             StatementKind::Begin
             | StatementKind::Commit
             | StatementKind::Rollback
             | StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_)
             | StatementKind::GraphTableReadRequiresCatalogAdmission(_) => {
-                unroutable_statement_outcome(&kind)
+                self.dispatch_property_graph(graph, sql, kind, in_txn).await
             }
         }
+    }
+
+    /// The SQL/PGQ arm of [`Self::dispatch_kind`].
+    ///
+    /// Property-graph DDL is catalog DDL: the classifier deliberately carries no
+    /// tenant, so the statement is reparsed here under the VERIFIED request
+    /// scope and committed through the SAME owner-scoped catalog transaction and
+    /// the SAME per-op authorization as `CREATE VIEW`. `GRAPH_TABLE` is a read:
+    /// it resolves against the authoritative catalog, lowers to ordinary
+    /// relational SQL, and then runs through the SAME authorized read path as
+    /// any other `SELECT`, so it inherits per-base-relation Select authorization
+    /// and row-level security unchanged.
+    ///
+    /// Transaction control never reaches here; it is handled before dispatch.
+    async fn dispatch_property_graph(
+        &self,
+        graph: &str,
+        sql: &str,
+        kind: StatementKind,
+        in_txn: bool,
+    ) -> WireResult<WireOutcome> {
+        match kind {
+            StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_) if in_txn => Err(user_err(
+                "SQL/PGQ property-graph DDL cannot be buffered into a multi-statement transaction",
+            )),
+            StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_) => {
+                self.run_property_graph_ddl(graph, sql).await
+            }
+            StatementKind::GraphTableReadRequiresCatalogAdmission(query) => {
+                let lowered = self.lower_graph_table_read(&query).await?;
+                Ok(WireOutcome::Rows(self.run_read(graph, lowered).await?))
+            }
+            other => Err(user_err(format!(
+                "statement kind {other:?} is not routable by the wire dispatcher"
+            ))),
+        }
+    }
+
+    /// `CREATE`/`ALTER`/`DROP PROPERTY GRAPH` over the durable catalog.
+    async fn run_property_graph_ddl(&self, graph: &str, sql: &str) -> WireResult<WireOutcome> {
+        let authority = self.carrier_authority()?;
+        let tenant = authority.tenant_scope().to_string();
+        let actor = authority.actor_scope().to_string();
+        let statement = eg_query::sql::parse_property_graph_ddl(sql, &tenant).map_err(user_err)?;
+        let (op, tag) = property_graph_txn_op(statement, &actor);
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::PropertyGraphDdl(op));
+        self.commit_table_txn(graph, sql, txn).await?;
+        Ok(WireOutcome::command(tag))
+    }
+
+    /// Resolve a `GRAPH_TABLE` read against the authoritative property-graph
+    /// catalog and lower it onto the relational SQL the ordinary read path runs.
+    async fn lower_graph_table_read(
+        &self,
+        query: &eg_query::sql::GraphTableQuery,
+    ) -> WireResult<String> {
+        let (authority, persist_dir) = self.catalog_authority().await?;
+        crate::server::sql_catalog_acl::require_source_authority().map_err(user_err)?;
+        let store =
+            crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), &persist_dir)
+                .map_err(user_err)?;
+        let record = store
+            .property_graph(&query.graph)
+            .map_err(user_err)?
+            .ok_or_else(|| {
+                user_err(format!(
+                    "property graph `{}` does not exist",
+                    query.graph.leaf().value()
+                ))
+            })?;
+        eg_query::sql::lower_graph_table(
+            query,
+            &record.accepted_definition,
+            authority.tenant_scope(),
+        )
+        .map(|plan| plan.to_sql())
+        .map_err(user_err)
     }
 
     /// Route transaction-local table statements through the commit-free
@@ -4639,7 +4717,11 @@ impl WireSession {
     /// needs Write.
     async fn check_access_for_kind(&self, graph: &str, kind: &StatementKind) -> WireResult<()> {
         let access = match kind {
-            StatementKind::Read => AccessLevel::Read,
+            // A `GRAPH_TABLE` statement is a read over base relations, and is
+            // authorized exactly like any other read.
+            StatementKind::Read | StatementKind::GraphTableReadRequiresCatalogAdmission(_) => {
+                AccessLevel::Read
+            }
             _ => AccessLevel::Write,
         };
         self.check_access(graph, access).await
@@ -4708,22 +4790,51 @@ enum XmodalStmt {
     SparqlConstruct(String),
 }
 
-/// Stop SQL/PGQ at the catalog-authority boundary until the catalog owner
-/// resolves definitions and admits mutations. Transaction control is handled
-/// before statement dispatch and therefore remains unreachable here.
+/// Lower a parsed property-graph statement onto its durable catalog operation
+/// and the command tag the wire acknowledges it with. `actor` is the verified
+/// principal: it becomes a new graph's owner and resolves `OWNER TO
+/// CURRENT_USER` / `OWNER TO SESSION_USER`.
 #[cfg(feature = "query")]
-fn unroutable_statement_outcome(kind: &StatementKind) -> WireResult<WireOutcome> {
-    match kind {
-        StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_) => Err(user_err(
-            "SQL/PGQ property-graph DDL requires authoritative catalog admission",
-        )),
-        StatementKind::GraphTableReadRequiresCatalogAdmission(_) => Err(user_err(
-            "SQL/PGQ GRAPH_TABLE requires authoritative catalog resolution before relational lowering",
-        )),
-        StatementKind::Begin | StatementKind::Commit | StatementKind::Rollback => {
-            unreachable!("transaction control handled before dispatch")
-        }
-        _ => unreachable!("only unroutable statement kinds call this helper"),
+fn property_graph_txn_op(
+    statement: eg_query::tables::PropertyGraphStatement,
+    actor: &str,
+) -> (PropertyGraphTxnOp, &'static str) {
+    use eg_query::tables::PropertyGraphStatement as S;
+    match statement {
+        S::Create(definition) => (
+            PropertyGraphTxnOp::Create {
+                definition,
+                owner: actor.to_string(),
+            },
+            "CREATE PROPERTY GRAPH",
+        ),
+        S::Alter {
+            name,
+            if_exists,
+            action,
+            ..
+        } => (
+            PropertyGraphTxnOp::Alter {
+                name,
+                if_exists,
+                action,
+                actor: actor.to_string(),
+            },
+            "ALTER PROPERTY GRAPH",
+        ),
+        S::Drop {
+            names,
+            if_exists,
+            behavior,
+            ..
+        } => (
+            PropertyGraphTxnOp::Drop {
+                names,
+                if_exists,
+                behavior,
+            },
+            "DROP PROPERTY GRAPH",
+        ),
     }
 }
 

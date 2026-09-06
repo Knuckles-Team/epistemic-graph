@@ -10,8 +10,9 @@ use super::ast::*;
 use super::label::LabelExpr;
 use super::lex::{SqlNumber, MAX_GRAPH_EXPR_DEPTH, MAX_GRAPH_TABLE_BRANCHES};
 use crate::tables::property_graph::{
-    EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution, EndpointResolution, LabelDefinition,
-    PropertyGraphDefinition, PropertySet, SqlIdentifier, SqlName, VertexTableDefinition,
+    CanonicalCatalogName, EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution,
+    EndpointResolution, LabelDefinition, PropertyGraphDefinition, PropertySet, SqlIdentifier,
+    SqlName, VertexTableDefinition,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,7 +107,12 @@ fn validate_lowering_authority(
     if definition.tenant_scope != verified_tenant_scope {
         return Err("property graph tenant scope does not match verified authority".into());
     }
-    if definition.name != query.graph {
+    // An admitted definition carries its canonical schema-qualified name while
+    // a query names the graph as written, so the two are compared as canonical
+    // catalog names rather than as raw identifier lists.
+    if CanonicalCatalogName::resolve(verified_tenant_scope, &definition.name)?
+        != CanonicalCatalogName::resolve(verified_tenant_scope, &query.graph)?
+    {
         return Err("GRAPH_TABLE name does not match the catalog definition".into());
     }
     if has_unresolved_catalog_requirements(definition) {
@@ -463,7 +469,7 @@ fn lower_predicates(
     );
     let mut predicates = elements
         .filter_map(|element| element.predicate.as_ref())
-        .map(|expr| lower_expr(expr, &variables, 0))
+        .map(|expr| lower_expr(expr, variables, 0))
         .collect::<Result<Vec<_>, _>>()?;
     for (index, (edge, _, exclude_self_loop)) in selected.edges.iter().enumerate() {
         if *exclude_self_loop && edge.source.vertex_alias == edge.destination.vertex_alias {
@@ -482,7 +488,7 @@ fn lower_projections(
         .iter()
         .map(|column| {
             Ok((
-                lower_expr(&column.expression, &variables, 0)?,
+                lower_expr(&column.expression, variables, 0)?,
                 column.alias.clone(),
             ))
         })

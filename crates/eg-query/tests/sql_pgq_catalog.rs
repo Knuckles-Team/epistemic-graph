@@ -3,12 +3,16 @@
 //! public `TableStore` API — the same catalog transaction ordinary table and
 //! view DDL commits through.
 
-use eg_query::sql::parse_property_graph_ddl;
+use eg_core::graph::GraphCore;
+use eg_query::sql::{
+    classify, exec_graph_table_typed_with_tables, parse_property_graph_ddl, StatementKind,
+};
 use eg_query::tables::{
     AlterPropertyGraphAction, Column, ColumnType, DropBehavior, ElementKind, GraphOwner,
     LabelDefinition, PropertyGraphDefinition, PropertyGraphStatement, PropertyGraphTxnOp,
     PropertySet, SqlIdentifier, SqlName, TableSchema, TableStore, TableTxn, TxnOp,
 };
+use serde_json::json;
 
 const TENANT: &str = "tenant/acme";
 const OWNER: &str = "role/analytics";
@@ -408,4 +412,72 @@ fn the_graph_record_commits_in_the_same_catalog_transaction_as_its_base_tables()
     });
     store.commit_txn(&removal).unwrap();
     assert_eq!(store.property_graph(&name("social")).unwrap(), None);
+}
+
+#[test]
+fn create_then_select_from_graph_table_round_trips_through_the_store() {
+    let (store, _path) = shop_store();
+    store
+        .insert_rows(
+            "customers",
+            &["customer_id".into(), "name".into()],
+            &[vec![json!("c1"), json!("Ada")]],
+        )
+        .unwrap();
+    store
+        .insert_rows(
+            "orders",
+            &["order_id".into(), "ordered_when".into()],
+            &[vec![json!("o1"), json!("2026-09-04")]],
+        )
+        .unwrap();
+    store
+        .insert_rows(
+            "customer_orders",
+            &[
+                "row_id".into(),
+                "customer_id".into(),
+                "order_id".into(),
+                "since".into(),
+            ],
+            &[vec![
+                json!("r1"),
+                json!("c1"),
+                json!("o1"),
+                json!("2026-01-01"),
+            ]],
+        )
+        .unwrap();
+
+    // Exactly the sequence both server routes perform: classify the statement,
+    // resolve its definition from the DURABLE catalog, lower, and execute on the
+    // existing relational executor.
+    let statement = classify(
+        r#"SELECT * FROM GRAPH_TABLE (
+            shop
+            MATCH (c:customer)-[h:has_placed]->(o:"order")
+            COLUMNS (c.name AS customer_name, o.ordered_when AS order_date)
+        )"#,
+    )
+    .unwrap();
+    let StatementKind::GraphTableReadRequiresCatalogAdmission(query) = statement else {
+        panic!("expected a GRAPH_TABLE read");
+    };
+    let record = store.property_graph(&query.graph).unwrap().unwrap();
+    let view = GraphCore::new().analysis_snapshot();
+    let result = exec_graph_table_typed_with_tables(
+        &view,
+        &store,
+        &query,
+        &record.accepted_definition,
+        TENANT,
+    )
+    .unwrap();
+    assert_eq!(result.rows, vec![vec![json!("Ada"), json!("2026-09-04")]]);
+
+    // The same read fails closed once the graph is gone from the catalog.
+    store
+        .drop_property_graph(&[name("shop")], false, DropBehavior::Restrict)
+        .unwrap();
+    assert_eq!(store.property_graph(&query.graph).unwrap(), None);
 }
