@@ -44,11 +44,18 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::{Arc, RwLock};
 
+use eg_storage::{
+    OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead, StorageKernelV1,
+    TimeSeriesOwner,
+};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MutationKernelV1};
 use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
 use eg_types::MutationBatch;
 use redb::{
-    ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition, TableError, WriteTransaction,
+    ReadOnlyTable, ReadTransaction, ReadableTable, Table, TableDefinition, TableError,
+    WriteTransaction,
 };
 use serde::de::DeserializeOwned;
 
@@ -88,6 +95,132 @@ const MAX_TS_BUCKETS_PER_OPERATION: usize = 1_000_000;
 const MAX_TS_OPERATION_BYTES: usize = 256 * 1024 * 1024;
 const MAX_TS_PROJECTION_ERROR_BYTES: usize = 64 * 1024;
 
+/// A source of read-only handles on the three series tables.
+///
+/// Two things legitimately hold those tables: `series.redb`, whose sole physical
+/// owner is `eg-storage` under `OwnerLayout::TimeSeries` (reached through a
+/// kernel-issued [`ScopedRead`]), and a graph-shard transaction a cross-modal
+/// atomic commit already owns (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
+/// This trait is how one body of code serves both without eg-tsdb ever opening a
+/// database: it only turns an already-authorized transaction into a table handle.
+pub trait SeriesTableReader {
+    fn open_series_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ReadOnlyTable<K, V>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static;
+
+    /// `None` when the table has never been created.
+    ///
+    /// Only a caller-owned graph-shard transaction can be in that state (a shard
+    /// that has never durably committed a measurement), which reads as "no series
+    /// here", not as an error. A kernel-issued [`ScopedRead`] never can: the
+    /// storage kernel materializes the whole declared census when the owner file
+    /// is created and re-validates it on every open, so a missing table there is a
+    /// genuine failure and is reported as one.
+    fn open_series_table_if_present<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Option<ReadOnlyTable<K, V>>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static;
+}
+
+/// The write-side twin of [`SeriesTableReader`]. See its doc for why both a
+/// kernel-issued [`AdmittedOwnerWrite`] and a caller-owned graph-shard
+/// `WriteTransaction` implement it.
+pub trait SeriesTableWriter {
+    fn open_series_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Table<'_, K, V>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static;
+}
+
+impl SeriesTableReader for ReadTransaction {
+    fn open_series_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ReadOnlyTable<K, V>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        self.open_table(definition).map_err(redb_err)
+    }
+
+    fn open_series_table_if_present<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Option<ReadOnlyTable<K, V>>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        match self.open_table(definition) {
+            Ok(table) => Ok(Some(table)),
+            Err(TableError::TableDoesNotExist(_)) => Ok(None),
+            Err(error) => Err(redb_err(error)),
+        }
+    }
+}
+
+impl SeriesTableReader for ScopedRead<'_, TimeSeriesOwner> {
+    fn open_series_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ReadOnlyTable<K, V>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        self.open_table(definition).map_err(redb_err)
+    }
+
+    fn open_series_table_if_present<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Option<ReadOnlyTable<K, V>>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        // Always present: see the trait's doc.
+        self.open_series_table(definition).map(Some)
+    }
+}
+
+impl SeriesTableWriter for WriteTransaction {
+    fn open_series_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Table<'_, K, V>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        self.open_table(definition).map_err(redb_err)
+    }
+}
+
+impl SeriesTableWriter for AdmittedOwnerWrite<'_, TimeSeriesOwner> {
+    fn open_series_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Table<'_, K, V>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        self.open_table(definition).map_err(redb_err)
+    }
+}
+
 fn redb_err<E: std::fmt::Display>(e: E) -> TsError {
     TsError::Redb(e.to_string())
 }
@@ -111,6 +244,11 @@ fn codec_err<E: std::fmt::Display>(e: E) -> TsError {
 /// `src/server/handlers/timeseries.rs`).
 const SERIES_BOOTSTRAP_TENANT: &str = "series-store";
 const SERIES_BOOTSTRAP_RESOURCE: &str = "series-store-bootstrap";
+
+/// Operator-facing identity of the ONE physical `series.redb` owner file. Names
+/// the physical authority boundary the storage kernel stamps into the owner
+/// manifest, independent of any logical serving scope.
+const SERIES_PHYSICAL_STORE: &str = "eg-tsdb:series-store";
 
 fn series_bootstrap_identity() -> Result<eg_types::MutationScopeIdentity> {
     series_scope_identity(SERIES_BOOTSTRAP_TENANT, SERIES_BOOTSTRAP_RESOURCE)
@@ -138,16 +276,80 @@ fn series_scope_identity(tenant: &str, resource: &str) -> Result<eg_types::Mutat
     .map_err(codec_err)
 }
 
-/// Ensure `identity` is bound in `store`, idempotently (`eg_mutation_store::
-/// bind_scope` no-ops on an exact re-bind of the same identity). Needed because
-/// `SeriesStore` serves arbitrarily many dynamic scoped series in one physical
-/// file, unlike `RbacStore`'s single fixed scope: each new series' identity must be
-/// registered before `eg_mutation_store::version`/`begin` will accept it.
-fn ensure_series_scope_bound(
-    store: &eg_mutation_store::MutationStore,
+/// Authenticate and bind ONE logical serving scope on this owner file.
+///
+/// The proof bytes are interpreted only by the composition root's verifier; this
+/// crate supplies the scope identity and the layout and never inspects them.
+/// Binding is idempotent for an exact re-entry, so reopening a store re-binds
+/// the identical scope rather than failing.
+fn bind_serving_scope(
+    kernel: &StorageKernelV1,
+    verifier: &dyn ScopeGrantVerifier,
+    principal: &str,
+    proof: &[u8],
     identity: &eg_types::MutationScopeIdentity,
-) -> Result<()> {
-    eg_mutation_store::bind_scope(store, identity, 0, |_| Ok(())).map_err(redb_err)
+) -> Result<OwnedStoreHandle<TimeSeriesOwner>> {
+    let grant = kernel
+        .authenticate_scope::<TimeSeriesOwner>(
+            verifier,
+            identity.clone(),
+            principal.to_string(),
+            proof,
+        )
+        .map_err(redb_err)?;
+    kernel.bind_serving_scope(grant, 0).map_err(redb_err)
+}
+
+/// The batch for one store-level maintenance mutation.
+///
+/// `batch_id` is `(kind, scope version)`: exactly one batch commits per version,
+/// so this is unique per attempt and stable across a crash-retry of the same
+/// attempt -- which is what makes a retry a replay rather than an
+/// `IDEMPOTENCY_CONFLICT`. The storage key it acted on travels in the operation
+/// rather than the identity, because it can be up to 4 KiB.
+fn maintenance_batch(
+    kind: &str,
+    storage_key: &str,
+    identity: &eg_types::MutationScopeIdentity,
+    principal: &str,
+    expected_version: u64,
+) -> Result<MutationBatch> {
+    let batch_id = format!("tsdb-{kind}:v{expected_version}");
+    let operation = eg_types::MutationOperation {
+        ordinal: 0,
+        surface: eg_types::MutationSurface::Other,
+        domain: eg_types::mutation_batch::MutationDomain::TimeSeries,
+        method: eg_types::protocol::Method::ApplyMutation {
+            event_type: format!("timeseries_{kind}"),
+            query: storage_key.to_string(),
+        },
+    };
+    let batch = MutationBatch {
+        schema_version: eg_types::MUTATION_BATCH_VERSION,
+        batch_id: batch_id.clone(),
+        context: eg_types::MutationRequestContext {
+            request_id: 0,
+            principal: principal.to_string(),
+            purpose: None,
+            policy_fingerprint: None,
+            trace_id: None,
+            // A maintenance mutation claims no capability: it is a plain
+            // `Native`-versioned write, not the reserved-system `Unversioned`
+            // path. Empty is the true fact here, not a placeholder.
+            verified_capabilities: std::collections::BTreeSet::new(),
+        },
+        identity: identity.clone(),
+        placement_epoch: 0,
+        idempotency_key: batch_id,
+        version_expectation: eg_types::VersionExpectation::Native(expected_version),
+        fencing_token: None,
+        authoritative_state: None,
+        operations: vec![operation],
+        outbox: Vec::new(),
+        created_at_ms: 0,
+    };
+    batch.validate().map_err(codec_err)?;
+    Ok(batch)
 }
 
 fn decode_stored<T: DeserializeOwned>(bytes: &[u8]) -> Result<T> {
@@ -486,15 +688,31 @@ impl Chunk {
     }
 }
 
-/// A time-partitioned series store over a redb database. Owns the
-/// `eg_mutation_store::MutationStore` for the physical file rather than a bare
-/// `redb::Database` (MutationBatch v1: `MutationWrite` — and so every durable
-/// commit through [`SeriesStore::append_scoped_batch`] — can only be minted off a
-/// `MutationStore`, never a raw `Database`). Every other (non-`_batch`) method
-/// still reaches the same physical file directly through
-/// `MutationStore::database()`, unchanged from the old `Database` path.
+/// A time-partitioned series store over ONE kernel-owned physical file.
+///
+/// RF-RULING-004: `eg-storage` is the sole physical owner of `series.redb`
+/// (declared `OwnerLayout::TimeSeries`, owner tables `series_chunks`,
+/// `series_meta`, `series_projection_state`) and `eg-transaction` the sole
+/// writer. Unlike `RbacStore`'s single fixed scope, this store serves
+/// arbitrarily many DYNAMIC scoped series out of that one file, so it holds the
+/// composition root's scope-grant authority and binds each series' serving scope
+/// on first use, caching the resulting handle. Cross-series work (`meta`,
+/// `list_series`, retention, compaction) runs on the bootstrap scope: the
+/// capability gate is table-level, and those operations are store-level
+/// maintenance rather than one series' mutations.
 pub struct SeriesStore {
-    mutation_store: eg_mutation_store::MutationStore,
+    kernel: StorageKernelV1,
+    mutations: MutationKernelV1,
+    /// The composition root's proof authority. Held (not borrowed) because a new
+    /// series' scope must be authenticated lazily, long after `open` returned.
+    grants: Arc<dyn ScopeGrantVerifier>,
+    principal: String,
+    proof: Vec<u8>,
+    bootstrap: Arc<OwnedStoreHandle<TimeSeriesOwner>>,
+    /// Bound serving scopes, keyed by the scope's ledger key. `OwnedStoreHandle`
+    /// is deliberately not `Clone` -- a handle IS a capability -- so the cache
+    /// hands out `Arc` clones of the one bound handle rather than copies of it.
+    scopes: RwLock<BTreeMap<String, Arc<OwnedStoreHandle<TimeSeriesOwner>>>>,
 }
 
 /// The scoped-append request for [`SeriesStore::append_scoped_batch`], bundled into
@@ -510,30 +728,144 @@ pub struct ScopedAppendBatch<'a> {
 }
 
 impl SeriesStore {
-    /// Open (or create) the series store at `path`, materializing the schema so an
-    /// empty DB is queryable.
-    pub fn open(path: &Path) -> Result<Self> {
+    /// Open (or create) the series store at `path` through the storage kernel.
+    ///
+    /// The kernel materializes the whole declared `OwnerLayout::TimeSeries`
+    /// census when the file is created and re-validates it on every open, so the
+    /// hand-written bootstrap closure the retired raw constructor needed is gone.
+    /// `verifier` is the composition root's proof authority: only it may decide
+    /// that `principal` may serve a given series scope.
+    pub fn open(
+        path: &Path,
+        verifier: Arc<dyn ScopeGrantVerifier>,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<Self> {
         let identity = series_bootstrap_identity()?;
-        // `initialize` creates/opens the physical file, establishes/validates its
-        // `StoreIncarnation` root, and binds the bootstrap scope at
-        // `initial_version: 0`. The bootstrap closure runs only on the FIRST bind
-        // (a fresh file) and materializes the three tables — identical purpose to
-        // the old explicit `wtx.open_table(...)` triple + commit.
-        let mutation_store = eg_mutation_store::initialize(path, &identity, 0, None, |wtx| {
-            wtx.open_table(SERIES_CHUNKS).map_err(|e| e.to_string())?;
-            wtx.open_table(SERIES_META).map_err(|e| e.to_string())?;
-            wtx.open_table(PROJECTION_STATE).map_err(|e| e.to_string())?;
-            Ok(())
-        })
+        let physical = PhysicalStoreIdentity::new(SERIES_PHYSICAL_STORE).map_err(redb_err)?;
+        let kernel = if path.exists() {
+            StorageKernelV1::open_owner::<TimeSeriesOwner>(path, physical, None)
+        } else {
+            StorageKernelV1::create_owner::<TimeSeriesOwner>(path, physical, None)
+        }
         .map_err(redb_err)?;
-        Ok(Self { mutation_store })
+        let (kernel, authority) = kernel.into_read_and_mutation_authority().map_err(redb_err)?;
+        let bootstrap = Arc::new(bind_serving_scope(
+            &kernel,
+            verifier.as_ref(),
+            principal,
+            proof,
+            &identity,
+        )?);
+        Ok(Self {
+            kernel,
+            mutations: MutationKernelV1::new(authority),
+            grants: verifier,
+            principal: principal.to_string(),
+            proof: proof.to_vec(),
+            bootstrap,
+            scopes: RwLock::new(BTreeMap::new()),
+        })
+    }
+
+    /// The bound handle for one series' serving scope, binding it on first use.
+    fn scope_handle(
+        &self,
+        identity: &eg_types::MutationScopeIdentity,
+    ) -> Result<Arc<OwnedStoreHandle<TimeSeriesOwner>>> {
+        let key = eg_storage::ledger_scope_key(identity);
+        if let Some(handle) = self
+            .scopes
+            .read()
+            .map_err(|_| redb_err("time-series scope cache is poisoned"))?
+            .get(&key)
+        {
+            return Ok(Arc::clone(handle));
+        }
+        let handle = Arc::new(bind_serving_scope(
+            &self.kernel,
+            self.grants.as_ref(),
+            &self.principal,
+            &self.proof,
+            identity,
+        )?);
+        self.scopes
+            .write()
+            .map_err(|_| redb_err("time-series scope cache is poisoned"))?
+            .insert(key, Arc::clone(&handle));
+        Ok(handle)
+    }
+
+    /// One kernel-issued scoped read over the bootstrap scope -- the cross-series
+    /// view every non-scoped read uses.
+    fn scoped_read(&self) -> Result<ScopedRead<'_, TimeSeriesOwner>> {
+        self.kernel.read_scope(&self.bootstrap).map_err(redb_err)
+    }
+
+    /// Run one store-level MAINTENANCE mutation (RF-RULING-005) on the bootstrap
+    /// scope: ledgered, fenced and version-bumping like any other write, but
+    /// carrying no caller identity, which is exactly what retention, compaction,
+    /// projection bookkeeping and a non-scoped append are. There is no
+    /// un-ledgered owner-write path any more, so this is how they land.
+    fn maintain<T, F>(&self, kind: &str, storage_key: &str, apply: F) -> Result<T>
+    where
+        F: FnOnce(&AdmittedOwnerWrite<'_, TimeSeriesOwner>) -> Result<T>,
+    {
+        let expected_version = self.scope_version(&self.bootstrap)?;
+        let batch = maintenance_batch(
+            kind,
+            storage_key,
+            self.bootstrap.identity(),
+            &self.principal,
+            expected_version,
+        )?;
+        let (write, begun) = self
+            .mutations
+            .admit_maintenance(&self.bootstrap, &batch)
+            .map_err(redb_err)?;
+        let source_version = match begun {
+            Begin::Replay(_) => {
+                write.abort().map_err(redb_err)?;
+                return Err(codec_err(
+                    "time-series maintenance batch was already committed",
+                ));
+            }
+            Begin::Apply { source_version } => source_version,
+        };
+        let owner_write = write
+            .owner_rows(&self.bootstrap, &batch)
+            .map_err(redb_err)?;
+        let outcome = apply(&owner_write);
+        owner_write.finish_owner().map_err(redb_err)?;
+        let outcome = match outcome {
+            Ok(value) => value,
+            Err(error) => {
+                write.abort().map_err(redb_err)?;
+                return Err(error);
+            }
+        };
+        self.mutations
+            .finish(&write, &batch, None, unix_ms(), source_version)
+            .map_err(redb_err)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
+        Ok(outcome)
+    }
+
+    fn scope_version(&self, owner: &OwnedStoreHandle<TimeSeriesOwner>) -> Result<u64> {
+        let read = self.kernel.read_scope(owner).map_err(redb_err)?;
+        eg_transaction::version(&read).map_err(redb_err)
     }
 
     /// Open `{persist_dir}/series.redb` — the durable location beside the graph shards.
-    pub fn open_in_dir(persist_dir: &Path) -> Result<Self> {
+    pub fn open_in_dir(
+        persist_dir: &Path,
+        verifier: Arc<dyn ScopeGrantVerifier>,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<Self> {
         std::fs::create_dir_all(persist_dir)
             .map_err(|e| TsError::Redb(format!("create persist dir: {e}")))?;
-        Self::open(&persist_dir.join("series.redb"))
+        Self::open(&persist_dir.join("series.redb"), verifier, principal, proof)
     }
 
     #[inline]
@@ -559,10 +891,9 @@ impl SeriesStore {
         if points.is_empty() {
             return Ok(());
         }
-        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
-        append_batch_in_wtx(&wtx, series_id, n_fields, bucket_ns, field_names, points)?;
-        wtx.commit().map_err(redb_err)?;
-        Ok(())
+        self.maintain("append", series_id, |wtx| {
+            append_batch_in_wtx(wtx, series_id, n_fields, bucket_ns, field_names, points)
+        })
     }
 
     /// Tenant-safe append. The canonical scoped key and projection cursor are written
@@ -579,35 +910,34 @@ impl SeriesStore {
             return Ok(());
         }
         let storage_key = key.encode();
-        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
-        append_batch_in_wtx(&wtx, &storage_key, n_fields, bucket_ns, field_names, points)?;
-        let meta = meta_in_wtx(&wtx, &storage_key)?
-            .ok_or_else(|| codec_err("scoped append produced no series metadata"))?;
-        put_projection_in_wtx(
-            &wtx,
-            &storage_key,
-            &ProjectionHealth {
-                status: ProjectionStatus::Ready,
-                cursor: Some(ProjectionCursor::from(&meta)),
-                updated_unix_ms: unix_ms(),
-                last_error: None,
-            },
-        )?;
-        wtx.commit().map_err(redb_err)?;
-        Ok(())
+        self.maintain("append-scoped", &storage_key, |wtx| {
+            append_batch_in_wtx(wtx, &storage_key, n_fields, bucket_ns, field_names, points)?;
+            let meta = meta_in_wtx(wtx, &storage_key)?
+                .ok_or_else(|| codec_err("scoped append produced no series metadata"))?;
+            put_projection_in_wtx(
+                wtx,
+                &storage_key,
+                &ProjectionHealth {
+                    status: ProjectionStatus::Ready,
+                    cursor: Some(ProjectionCursor::from(&meta)),
+                    updated_unix_ms: unix_ms(),
+                    last_error: None,
+                },
+            )
+        })
     }
 
     /// Current universal MutationBatch version for a native time-series scope.
-    /// Binds the scope's identity on first use — `SeriesStore` serves arbitrarily
-    /// many dynamic scoped series out of one physical file (unlike `RbacStore`'s
-    /// single fixed scope), so each series must be registered with
-    /// `eg_mutation_store` before `version`/`begin` will accept it.
-    /// `eg_mutation_store::bind_scope` is idempotent — re-binding the identical
-    /// identity on every subsequent call is a cheap no-op, not a re-registration.
+    /// Binds the scope's serving identity on first use — `SeriesStore` serves
+    /// arbitrarily many dynamic scoped series out of one physical file (unlike
+    /// `RbacStore`'s single fixed scope), so each series' scope must be
+    /// authenticated against the composition root's verifier and bound before the
+    /// mutation kernel will admit a batch for it. The bound handle is cached, and
+    /// the kernel's binding is idempotent for an exact re-entry.
     pub fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64> {
         let identity = series_scope_identity(tenant, graph)?;
-        ensure_series_scope_bound(&self.mutation_store, &identity)?;
-        eg_mutation_store::version(&self.mutation_store, &identity).map_err(redb_err)
+        let owner = self.scope_handle(&identity)?;
+        self.scope_version(&owner)
     }
 
     /// Append points and commit terminal MutationBatch status/fence/idempotency/
@@ -627,43 +957,39 @@ impl SeriesStore {
             committed_at_ms,
         } = request;
         let storage_key = key.encode();
-        // Precondition (upheld by every caller — `src/server/handlers/
-        // timeseries.rs`): `batch`'s identity must already be bound, which happens
-        // as a side effect of the prior `mutation_version` call every append path
-        // uses to compute its OCC expectation.
-        //
-        // `MutationStore::write()` already opens with `Durability::Immediate` (the
-        // same durability the old code set implicitly via redb's own default), so
-        // nothing further to set here.
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        match eg_mutation_store::begin(&write, batch).map_err(redb_err)? {
-            eg_mutation_store::Begin::Replay(record) => {
+        // The batch's own scope is bound on first use here, so a caller no longer
+        // has to have called `mutation_version` first for the binding side effect
+        // (it still must, to compute its OCC expectation).
+        let owner = self.scope_handle(&batch.identity)?;
+        let (write, begun) = self.mutations.admit(&owner, batch).map_err(redb_err)?;
+        match begun {
+            Begin::Replay(record) => {
                 let bytes = record
                     .result_msgpack
                     .as_deref()
                     .ok_or_else(|| codec_err("committed time-series batch has no result"))?;
                 let count = decode_stored(bytes)?;
-                // `MutationWrite::abort` is crate-private to `eg_mutation_store`;
-                // returning here without calling `.commit()` drops `write`
-                // un-committed, which redb's own `Drop for WriteTransaction` aborts
-                // automatically (same reasoning as
-                // `crates/eg-core/src/rbac_persist.rs::save`).
+                write.abort().map_err(redb_err)?;
                 Ok(count)
             }
-            eg_mutation_store::Begin::Apply { source_version } => {
-                if !points.is_empty() {
+            Begin::Apply { source_version } => {
+                let owner_write = write.owner_rows(&owner, batch).map_err(redb_err)?;
+                let staged = (|| -> Result<()> {
+                    if points.is_empty() {
+                        return Ok(());
+                    }
                     append_batch_in_wtx(
-                        write.owner_rows(),
+                        &owner_write,
                         &storage_key,
                         n_fields,
                         bucket_ns,
                         field_names,
                         points,
                     )?;
-                    let meta = meta_in_wtx(write.owner_rows(), &storage_key)?
+                    let meta = meta_in_wtx(&owner_write, &storage_key)?
                         .ok_or_else(|| codec_err("scoped append produced no series metadata"))?;
                     put_projection_in_wtx(
-                        write.owner_rows(),
+                        &owner_write,
                         &storage_key,
                         &ProjectionHealth {
                             status: ProjectionStatus::Ready,
@@ -671,19 +997,21 @@ impl SeriesStore {
                             updated_unix_ms: committed_at_ms,
                             last_error: None,
                         },
-                    )?;
+                    )
+                })();
+                // Always close the owner capability: dropping it unfinished poisons
+                // the write and would mask the staging error below.
+                owner_write.finish_owner().map_err(redb_err)?;
+                if let Err(error) = staged {
+                    write.abort().map_err(redb_err)?;
+                    return Err(error);
                 }
                 let count = points.len() as u64;
                 let result = rmp_serde::to_vec_named(&count).map_err(codec_err)?;
-                eg_mutation_store::finish(
-                    &write,
-                    batch,
-                    Some(result),
-                    committed_at_ms,
-                    source_version,
-                )
-                .map_err(redb_err)?;
-                eg_mutation_store::commit(write, batch).map_err(redb_err)?;
+                self.mutations
+                    .finish(&write, batch, Some(result), committed_at_ms, source_version)
+                    .map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok(count)
             }
         }
@@ -691,8 +1019,8 @@ impl SeriesStore {
 
     /// Fetch a series' metadata (`None` if the series doesn't exist).
     pub fn meta(&self, series_id: &str) -> Result<Option<SeriesMeta>> {
-        let rtx = self.mutation_store.database().begin_read().map_err(redb_err)?;
-        meta_in_rtx(&rtx, series_id)
+        let read = self.scoped_read()?;
+        meta_in_rtx(&read, series_id)
     }
 
     pub fn meta_scoped(&self, key: &SeriesKey) -> Result<Option<SeriesMeta>> {
@@ -703,8 +1031,8 @@ impl SeriesStore {
     /// Implemented as a redb RANGE over the covering bucket keys, decoding each
     /// chunk and trimming to the exact window. Empty for an unknown series.
     pub fn range(&self, series_id: &str, from: Ts, to: Ts) -> Result<Vec<Point>> {
-        let rtx = self.mutation_store.database().begin_read().map_err(redb_err)?;
-        range_in_rtx(&rtx, series_id, from, to)
+        let read = self.scoped_read()?;
+        range_in_rtx(&read, series_id, from, to)
     }
 
     pub fn range_scoped(&self, key: &SeriesKey, from: Ts, to: Ts) -> Result<Vec<Point>> {
@@ -728,12 +1056,12 @@ impl SeriesStore {
 
     pub fn projection_health_by_storage_key(&self, storage_key: &str) -> Result<ProjectionHealth> {
         validate_storage_key(storage_key)?;
-        let rtx = self.mutation_store.database().begin_read().map_err(redb_err)?;
-        let tab = rtx.open_table(PROJECTION_STATE).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let tab = read.open_series_table(PROJECTION_STATE)?;
         match tab.get(storage_key).map_err(redb_err)? {
             Some(g) => decode_projection(g.value()),
             None => Ok(ProjectionHealth {
-                status: if meta_in_rtx(&rtx, storage_key)?.is_some() {
+                status: if meta_in_rtx(&read, storage_key)?.is_some() {
                     ProjectionStatus::CatchingUp
                 } else {
                     ProjectionStatus::Missing
@@ -771,10 +1099,9 @@ impl SeriesStore {
     }
 
     fn put_projection(&self, storage_key: &str, health: ProjectionHealth) -> Result<()> {
-        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
-        put_projection_in_wtx(&wtx, storage_key, &health)?;
-        wtx.commit().map_err(redb_err)?;
-        Ok(())
+        self.maintain("projection", storage_key, |wtx| {
+            put_projection_in_wtx(wtx, storage_key, &health)
+        })
     }
 
     /// List every series id present (scans the meta table's keys). Additive read used
@@ -782,8 +1109,8 @@ impl SeriesStore {
     /// — the store keys series by opaque id, so the PromQL layer encodes a metric's
     /// labels INTO the id and enumerates them here.
     pub fn list_series(&self) -> Result<Vec<String>> {
-        let rtx = self.mutation_store.database().begin_read().map_err(redb_err)?;
-        list_series_in_rtx(&rtx)
+        let read = self.scoped_read()?;
+        list_series_in_rtx(&read)
     }
 
     /// Retention: drop every point of `series_id` older than `cutoff`. Returns the
@@ -809,102 +1136,102 @@ impl SeriesStore {
         if meta.legal_hold {
             return Ok(0);
         }
-        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
-        let mut dropped = 0usize;
-        {
-            let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
-            let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
+        self.maintain("evict", series_id, |wtx| {
+            let mut dropped = 0usize;
+            {
+                let mut chunks = wtx.open_series_table(SERIES_CHUNKS)?;
+                let mut meta_tab = wtx.open_series_table(SERIES_META)?;
 
-            // Pass 1 (read-only over the range — can't mutate while the iterator
-            // borrows `chunks`): classify each bucket into a whole-bucket victim or a
-            // straddler rewrite. A straddler trimmed to empty becomes a victim.
-            let mut victims: Vec<u64> = Vec::new();
-            let mut rewrites: Vec<(u64, Vec<u8>)> = Vec::new();
-            let mut rewrite_bytes = 0usize;
-            let mut scanned_buckets = 0usize;
-            let lo = (series_id, 0u64);
-            let hi = (series_id, u64::MAX);
-            for item in chunks.range(lo..=hi).map_err(redb_err)? {
-                let (k, v) = item.map_err(redb_err)?;
-                scanned_buckets = scanned_buckets
-                    .checked_add(1)
-                    .filter(|count| *count <= MAX_TS_BUCKETS_PER_OPERATION)
-                    .ok_or_else(|| {
-                        codec_err("time-series retention exceeds the operation limit")
-                    })?;
-                if victims.len().saturating_add(rewrites.len()) > MAX_TS_BUCKETS_PER_OPERATION {
-                    return Err(codec_err(
-                        "time-series retention exceeds the operation limit",
-                    ));
-                }
-                let bucket = k.value().1;
-                let bucket_end = bucket.saturating_add(meta.bucket_ns);
-                if (bucket_end as i64) <= cutoff {
-                    victims.push(bucket);
-                } else if (bucket as i64) < cutoff {
-                    // Straddles `cutoff`: trim the older prefix in place (CONCEPT:EG-KG.temporal.bucket-cutoff-trim).
-                    let mut chunk = Chunk::decode(v.value())?;
-                    if chunk.trim_before(cutoff) > 0 {
-                        if chunk.ts.is_empty() {
-                            victims.push(bucket);
-                        } else {
-                            let encoded = chunk.encode()?;
-                            rewrite_bytes = rewrite_bytes
-                                .checked_add(encoded.len())
-                                .filter(|bytes| *bytes <= MAX_TS_OPERATION_BYTES)
-                                .ok_or_else(|| {
-                                    codec_err("time-series retention exceeds the operation limit")
-                                })?;
-                            rewrites.push((bucket, encoded));
+                // Pass 1 (read-only over the range — can't mutate while the iterator
+                // borrows `chunks`): classify each bucket into a whole-bucket victim or a
+                // straddler rewrite. A straddler trimmed to empty becomes a victim.
+                let mut victims: Vec<u64> = Vec::new();
+                let mut rewrites: Vec<(u64, Vec<u8>)> = Vec::new();
+                let mut rewrite_bytes = 0usize;
+                let mut scanned_buckets = 0usize;
+                let lo = (series_id, 0u64);
+                let hi = (series_id, u64::MAX);
+                for item in chunks.range(lo..=hi).map_err(redb_err)? {
+                    let (k, v) = item.map_err(redb_err)?;
+                    scanned_buckets = scanned_buckets
+                        .checked_add(1)
+                        .filter(|count| *count <= MAX_TS_BUCKETS_PER_OPERATION)
+                        .ok_or_else(|| {
+                            codec_err("time-series retention exceeds the operation limit")
+                        })?;
+                    if victims.len().saturating_add(rewrites.len()) > MAX_TS_BUCKETS_PER_OPERATION {
+                        return Err(codec_err(
+                            "time-series retention exceeds the operation limit",
+                        ));
+                    }
+                    let bucket = k.value().1;
+                    let bucket_end = bucket.saturating_add(meta.bucket_ns);
+                    if (bucket_end as i64) <= cutoff {
+                        victims.push(bucket);
+                    } else if (bucket as i64) < cutoff {
+                        // Straddles `cutoff`: trim the older prefix in place (CONCEPT:EG-KG.temporal.bucket-cutoff-trim).
+                        let mut chunk = Chunk::decode(v.value())?;
+                        if chunk.trim_before(cutoff) > 0 {
+                            if chunk.ts.is_empty() {
+                                victims.push(bucket);
+                            } else {
+                                let encoded = chunk.encode()?;
+                                rewrite_bytes = rewrite_bytes
+                                    .checked_add(encoded.len())
+                                    .filter(|bytes| *bytes <= MAX_TS_OPERATION_BYTES)
+                                    .ok_or_else(|| {
+                                        codec_err("time-series retention exceeds the operation limit")
+                                    })?;
+                                rewrites.push((bucket, encoded));
+                            }
                         }
                     }
                 }
-            }
 
-            let mut new_count = 0u64;
-            let mut new_min = Ts::MAX;
-            for bucket in &victims {
-                if let Some(g) = chunks.remove((series_id, *bucket)).map_err(redb_err)? {
-                    drop(g);
-                    dropped += 1;
+                let mut new_count = 0u64;
+                let mut new_min = Ts::MAX;
+                for bucket in &victims {
+                    if let Some(g) = chunks.remove((series_id, *bucket)).map_err(redb_err)? {
+                        drop(g);
+                        dropped += 1;
+                    }
                 }
-            }
-            for (bucket, blob) in &rewrites {
-                chunks
-                    .insert((series_id, *bucket), blob.as_slice())
+                for (bucket, blob) in &rewrites {
+                    chunks
+                        .insert((series_id, *bucket), blob.as_slice())
+                        .map_err(redb_err)?;
+                }
+                // Recompute count/min over survivors (max is unchanged — we only drop old).
+                let mut survivor_buckets = 0usize;
+                for item in chunks.range(lo..=hi).map_err(redb_err)? {
+                    let (_k, v) = item.map_err(redb_err)?;
+                    survivor_buckets = survivor_buckets
+                        .checked_add(1)
+                        .filter(|count| *count <= MAX_TS_BUCKETS_PER_OPERATION)
+                        .ok_or_else(|| {
+                            codec_err("time-series retention exceeds the operation limit")
+                        })?;
+                    let chunk = Chunk::decode(v.value())?;
+                    new_count = new_count
+                        .checked_add(chunk.ts.len() as u64)
+                        .ok_or_else(|| codec_err("stored time-series point count overflow"))?;
+                    if let Some(&first) = chunk.ts.first() {
+                        new_min = new_min.min(first);
+                    }
+                }
+                let mut m = meta.clone();
+                m.count = new_count;
+                m.min_ts = if new_count == 0 { Ts::MAX } else { new_min };
+                if new_count == 0 {
+                    m.max_ts = Ts::MIN;
+                }
+                let mblob = rmp_serde::to_vec(&m).map_err(codec_err)?;
+                meta_tab
+                    .insert(series_id, mblob.as_slice())
                     .map_err(redb_err)?;
             }
-            // Recompute count/min over survivors (max is unchanged — we only drop old).
-            let mut survivor_buckets = 0usize;
-            for item in chunks.range(lo..=hi).map_err(redb_err)? {
-                let (_k, v) = item.map_err(redb_err)?;
-                survivor_buckets = survivor_buckets
-                    .checked_add(1)
-                    .filter(|count| *count <= MAX_TS_BUCKETS_PER_OPERATION)
-                    .ok_or_else(|| {
-                        codec_err("time-series retention exceeds the operation limit")
-                    })?;
-                let chunk = Chunk::decode(v.value())?;
-                new_count = new_count
-                    .checked_add(chunk.ts.len() as u64)
-                    .ok_or_else(|| codec_err("stored time-series point count overflow"))?;
-                if let Some(&first) = chunk.ts.first() {
-                    new_min = new_min.min(first);
-                }
-            }
-            let mut m = meta.clone();
-            m.count = new_count;
-            m.min_ts = if new_count == 0 { Ts::MAX } else { new_min };
-            if new_count == 0 {
-                m.max_ts = Ts::MIN;
-            }
-            let mblob = rmp_serde::to_vec(&m).map_err(codec_err)?;
-            meta_tab
-                .insert(series_id, mblob.as_slice())
-                .map_err(redb_err)?;
-        }
-        wtx.commit().map_err(redb_err)?;
-        Ok(dropped)
+            Ok(dropped)
+        })
     }
 
     pub fn evict_before_scoped(&self, key: &SeriesKey, cutoff: Ts) -> Result<usize> {
@@ -931,36 +1258,36 @@ impl SeriesStore {
                 return Ok(0);
             }
         }
-        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
-        let mut dropped = 0usize;
-        {
-            let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
-            let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
-            // Collect the covering bucket keys first (can't remove while the range
-            // iterator borrows `chunks`), then delete each.
-            let lo = (series_id, 0u64);
-            let hi = (series_id, u64::MAX);
-            let mut buckets: Vec<u64> = Vec::new();
-            for item in chunks.range(lo..=hi).map_err(redb_err)? {
-                let (k, _v) = item.map_err(redb_err)?;
-                if buckets.len() >= MAX_TS_BUCKETS_PER_OPERATION {
-                    return Err(codec_err(
-                        "time-series deletion exceeds the operation limit",
-                    ));
+        self.maintain("delete", series_id, |wtx| {
+            let mut dropped = 0usize;
+            {
+                let mut chunks = wtx.open_series_table(SERIES_CHUNKS)?;
+                let mut meta_tab = wtx.open_series_table(SERIES_META)?;
+                // Collect the covering bucket keys first (can't remove while the range
+                // iterator borrows `chunks`), then delete each.
+                let lo = (series_id, 0u64);
+                let hi = (series_id, u64::MAX);
+                let mut buckets: Vec<u64> = Vec::new();
+                for item in chunks.range(lo..=hi).map_err(redb_err)? {
+                    let (k, _v) = item.map_err(redb_err)?;
+                    if buckets.len() >= MAX_TS_BUCKETS_PER_OPERATION {
+                        return Err(codec_err(
+                            "time-series deletion exceeds the operation limit",
+                        ));
+                    }
+                    buckets.push(k.value().1);
                 }
-                buckets.push(k.value().1);
-            }
-            for b in buckets {
-                if chunks.remove((series_id, b)).map_err(redb_err)?.is_some() {
-                    dropped += 1;
+                for b in buckets {
+                    if chunks.remove((series_id, b)).map_err(redb_err)?.is_some() {
+                        dropped += 1;
+                    }
                 }
+                meta_tab.remove(series_id).map_err(redb_err)?;
+                let mut projection = wtx.open_series_table(PROJECTION_STATE)?;
+                projection.remove(series_id).map_err(redb_err)?;
             }
-            meta_tab.remove(series_id).map_err(redb_err)?;
-            let mut projection = wtx.open_table(PROJECTION_STATE).map_err(redb_err)?;
-            projection.remove(series_id).map_err(redb_err)?;
-        }
-        wtx.commit().map_err(redb_err)?;
-        Ok(dropped)
+            Ok(dropped)
+        })
     }
     pub fn delete_scoped(&self, key: &SeriesKey) -> Result<usize> {
         self.delete_series(&key.encode())
@@ -974,25 +1301,25 @@ impl SeriesStore {
     /// is a deliberate admin action, not a best-effort default like `evict_before`'s "unknown
     /// series → 0 dropped".
     pub fn set_legal_hold(&self, series_id: &str, hold: bool) -> Result<()> {
-        let wtx = self.mutation_store.database().begin_write().map_err(redb_err)?;
-        {
-            let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
-            let mut meta = match meta_tab.get(series_id).map_err(redb_err)? {
-                Some(g) => decode_meta(g.value())?,
-                None => {
-                    return Err(codec_err(format!(
-                        "cannot set legal_hold on unknown series {series_id:?}"
-                    )));
-                }
-            };
-            meta.legal_hold = hold;
-            let blob = rmp_serde::to_vec(&meta).map_err(codec_err)?;
-            meta_tab
-                .insert(series_id, blob.as_slice())
-                .map_err(redb_err)?;
-        }
-        wtx.commit().map_err(redb_err)?;
-        Ok(())
+        self.maintain("legal-hold", series_id, |wtx| {
+            {
+                let mut meta_tab = wtx.open_series_table(SERIES_META)?;
+                let mut meta = match meta_tab.get(series_id).map_err(redb_err)? {
+                    Some(g) => decode_meta(g.value())?,
+                    None => {
+                        return Err(codec_err(format!(
+                            "cannot set legal_hold on unknown series {series_id:?}"
+                        )));
+                    }
+                };
+                meta.legal_hold = hold;
+                let blob = rmp_serde::to_vec(&meta).map_err(codec_err)?;
+                meta_tab
+                    .insert(series_id, blob.as_slice())
+                    .map_err(redb_err)?;
+            }
+            Ok(())
+        })
     }
 
     /// Tenant/graph/series-scoped twin of [`SeriesStore::set_legal_hold`].
@@ -1001,9 +1328,9 @@ impl SeriesStore {
     }
 }
 
-fn meta_in_wtx(wtx: &WriteTransaction, series_id: &str) -> Result<Option<SeriesMeta>> {
+fn meta_in_wtx<W: SeriesTableWriter>(wtx: &W, series_id: &str) -> Result<Option<SeriesMeta>> {
     validate_storage_key(series_id)?;
-    let tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
+    let tab = wtx.open_series_table(SERIES_META)?;
     let value = match tab.get(series_id).map_err(redb_err)? {
         Some(g) => Ok(Some(decode_meta(g.value())?)),
         None => Ok(None),
@@ -1011,8 +1338,8 @@ fn meta_in_wtx(wtx: &WriteTransaction, series_id: &str) -> Result<Option<SeriesM
     value
 }
 
-fn put_projection_in_wtx(
-    wtx: &WriteTransaction,
+fn put_projection_in_wtx<W: SeriesTableWriter>(
+    wtx: &W,
     storage_key: &str,
     health: &ProjectionHealth,
 ) -> Result<()> {
@@ -1024,7 +1351,7 @@ fn put_projection_in_wtx(
             "time-series projection metadata exceeds the storage limit",
         ));
     }
-    let mut table = wtx.open_table(PROJECTION_STATE).map_err(redb_err)?;
+    let mut table = wtx.open_series_table(PROJECTION_STATE)?;
     table
         .insert(storage_key, blob.as_slice())
         .map_err(redb_err)?;
@@ -1048,8 +1375,8 @@ fn put_projection_in_wtx(
 /// `bucket_ns`/`field_names` are used only when the series is NEW; for an existing series
 /// the stored schema is authoritative and a width mismatch is a hard error (identical to
 /// [`SeriesStore::append_batch`]).
-pub fn append_batch_in_wtx(
-    wtx: &WriteTransaction,
+pub fn append_batch_in_wtx<W: SeriesTableWriter>(
+    wtx: &W,
     series_id: &str,
     n_fields: usize,
     bucket_ns: u64,
@@ -1080,8 +1407,8 @@ pub fn append_batch_in_wtx(
             });
         }
     }
-    let mut chunks = wtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
-    let mut meta_tab = wtx.open_table(SERIES_META).map_err(redb_err)?;
+    let mut chunks = wtx.open_series_table(SERIES_CHUNKS)?;
+    let mut meta_tab = wtx.open_series_table(SERIES_META)?;
 
     // Load-or-init meta. An existing series' stored schema is authoritative.
     let mut meta: SeriesMeta = match meta_tab.get(series_id).map_err(redb_err)? {
@@ -1170,11 +1497,10 @@ pub fn append_batch_in_wtx(
 /// it). A table that was never created (a graph shard that has never durably
 /// committed a measurement) is reported as EMPTY rather than an error — the natural "no
 /// series here" reading for a store whose schema simply hasn't been materialized yet.
-pub fn list_series_in_rtx(rtx: &ReadTransaction) -> Result<Vec<String>> {
-    let tab = match rtx.open_table(SERIES_META) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(redb_err(e)),
+pub fn list_series_in_rtx<R: SeriesTableReader>(rtx: &R) -> Result<Vec<String>> {
+    let tab = match rtx.open_series_table_if_present(SERIES_META)? {
+        Some(t) => t,
+        None => return Ok(Vec::new()),
     };
     let mut out = Vec::new();
     let mut bytes = 0usize;
@@ -1198,12 +1524,11 @@ pub fn list_series_in_rtx(rtx: &ReadTransaction) -> Result<Vec<String>> {
 /// Same "missing table ⇒ `None`, missing series ⇒ `None`" contract as
 /// [`SeriesStore::meta`] (which now delegates here) — see [`list_series_in_rtx`] for why a
 /// caller wants this over the store's own `begin_read()`.
-pub fn meta_in_rtx(rtx: &ReadTransaction, series_id: &str) -> Result<Option<SeriesMeta>> {
+pub fn meta_in_rtx<R: SeriesTableReader>(rtx: &R, series_id: &str) -> Result<Option<SeriesMeta>> {
     validate_storage_key(series_id)?;
-    let tab = match rtx.open_table(SERIES_META) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(redb_err(e)),
+    let tab = match rtx.open_series_table_if_present(SERIES_META)? {
+        Some(t) => t,
+        None => return Ok(None),
     };
     match tab.get(series_id).map_err(redb_err)? {
         Some(g) => Ok(Some(decode_meta(g.value())?)),
@@ -1216,8 +1541,8 @@ pub fn meta_in_rtx(rtx: &ReadTransaction, series_id: &str) -> Result<Option<Seri
 /// [`SeriesStore::range`] (which now delegates here for its own `db`); see
 /// [`list_series_in_rtx`] for why a caller wants the shared-transaction form. Empty for an
 /// unknown series OR a `SERIES_CHUNKS` table that was never created.
-pub fn range_in_rtx(
-    rtx: &ReadTransaction,
+pub fn range_in_rtx<R: SeriesTableReader>(
+    rtx: &R,
     series_id: &str,
     from: Ts,
     to: Ts,
@@ -1245,10 +1570,9 @@ pub fn range_in_rtx(
     let scan_through = to.saturating_sub(1).min(meta.max_ts);
     let from_bucket = SeriesStore::bucket_of(scan_from, meta.bucket_ns);
     let to_bucket = SeriesStore::bucket_of(scan_through, meta.bucket_ns);
-    let chunks = match rtx.open_table(SERIES_CHUNKS) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(vec![]),
-        Err(e) => return Err(redb_err(e)),
+    let chunks = match rtx.open_series_table_if_present(SERIES_CHUNKS)? {
+        Some(t) => t,
+        None => return Ok(vec![]),
     };
     let mut out = Vec::new();
     let mut response_bytes = 0usize;
@@ -1291,6 +1615,7 @@ pub fn range_in_rtx(
 #[cfg(test)]
 mod ordered_chunk_tests {
     use super::*;
+    use crate::dev_scope_grant::open_dev_store as open_test_store;
 
     #[test]
     fn stored_chunk_dimensions_are_checked_before_allocation() {
@@ -1347,7 +1672,7 @@ mod ordered_chunk_tests {
     #[test]
     fn range_uses_exact_sorted_window_with_duplicate_boundaries() {
         let dir = tempfile::tempdir().unwrap();
-        let store = SeriesStore::open(&dir.path().join("series.redb")).unwrap();
+        let store = open_test_store(&dir.path().join("series.redb")).unwrap();
         let points = vec![
             Point::single(30, 3.0),
             Point::single(10, 1.0),
@@ -1374,7 +1699,7 @@ mod ordered_chunk_tests {
     #[test]
     fn narrow_range_does_not_decode_future_buckets() {
         let dir = tempfile::tempdir().unwrap();
-        let store = SeriesStore::open(&dir.path().join("series.redb")).unwrap();
+        let store = open_test_store(&dir.path().join("series.redb")).unwrap();
         store
             .append_batch(
                 "series",
@@ -1385,14 +1710,18 @@ mod ordered_chunk_tests {
             )
             .unwrap();
 
-        // Make the future bucket undecodable. A correctly upper-bounded redb range
-        // for [0, 10) never reads it; the old series-max bound did and errored.
-        let wtx = store.mutation_store.database().begin_write().unwrap();
-        {
-            let mut chunks = wtx.open_table(SERIES_CHUNKS).unwrap();
-            chunks.insert(("series", 100), &[0u8][..]).unwrap();
-        }
-        wtx.commit().unwrap();
+        // Make the future bucket undecodable, through the ONLY write path this
+        // crate now has: an admitted maintenance mutation. A correctly
+        // upper-bounded redb range for [0, 10) never reads it; the old series-max
+        // bound did and errored.
+        store
+            .maintain("test-corrupt", "series", |wtx| {
+                wtx.open_series_table(SERIES_CHUNKS)?
+                    .insert(("series", 100), &[0u8][..])
+                    .map_err(redb_err)?;
+                Ok(())
+            })
+            .unwrap();
 
         assert_eq!(
             store.range("series", 0, 10).unwrap(),
@@ -1404,6 +1733,7 @@ mod ordered_chunk_tests {
 #[cfg(test)]
 mod delete_series_tests {
     use super::*;
+    use crate::dev_scope_grant::open_dev_store as open_test_store;
 
     fn tmp_store() -> SeriesStore {
         let path = std::env::temp_dir().join(format!(
@@ -1414,7 +1744,7 @@ mod delete_series_tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ));
-        SeriesStore::open(&path).expect("open temp series store")
+        open_test_store(&path).expect("open temp series store")
     }
 
     const BUCKET_NS: u64 = 3_600_000_000_000; // 1h buckets
@@ -1509,6 +1839,7 @@ mod delete_series_tests {
 #[cfg(test)]
 mod scoped_series_tests {
     use super::*;
+    use crate::dev_scope_grant::open_dev_store as open_test_store;
 
     const BUCKET_NS: u64 = 1_000;
 
@@ -1522,7 +1853,7 @@ mod scoped_series_tests {
     #[test]
     fn equal_local_ids_are_isolated_by_tenant_and_graph() {
         let dir = tempfile::tempdir().unwrap();
-        let store = SeriesStore::open(&dir.path().join("series.redb")).unwrap();
+        let store = open_test_store(&dir.path().join("series.redb")).unwrap();
         let a = SeriesKey::new("acme", "acme:billing", "cpu");
         let b = SeriesKey::new("other", "other:billing", "cpu");
         store

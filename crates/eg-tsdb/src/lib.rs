@@ -58,6 +58,11 @@ pub mod traces;
 #[cfg(feature = "redb-store")]
 pub mod store;
 
+// Development/test composition root for the store's scope grants (see the module
+// doc). Never linked by a production build.
+#[cfg(all(feature = "redb-store", any(test, feature = "dev-scope-grant")))]
+pub mod dev_scope_grant;
+
 #[cfg(feature = "arrow-seg")]
 pub mod arrow_seg;
 

@@ -201,9 +201,10 @@ const TEST_GRAPH: &str = "test-graph";
 #[cfg(feature = "timeseries")]
 fn build_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
     use eg_tsdb::point::Point;
-    use eg_tsdb::store::{SeriesKey, SeriesStore};
+    use eg_tsdb::dev_scope_grant::open_dev_store;
+    use eg_tsdb::store::SeriesKey;
 
-    let store = SeriesStore::open(path).unwrap();
+    let store = open_dev_store(path).unwrap();
     let one_s: i64 = 1_000_000_000;
     let points = vec![
         Point::single(one_s, 10.0),
@@ -608,7 +609,7 @@ fn tsdb_scan_rejects_unscoped_committed_store() {
     use eg_types::wire::{Op, Plan};
 
     let path = temp_store_path("graph_scope");
-    let store = SeriesStore::open(&path).unwrap();
+    let store = eg_tsdb::dev_scope_grant::open_dev_store(&path).unwrap();
     store
         .append_scoped(
             &SeriesKey::new("acme", "acme:metrics", "cpu"),
@@ -645,7 +646,7 @@ fn tsdb_scan_honors_verified_actor_and_tenant_scope() {
     use eg_types::wire::{Op, Plan};
 
     let path = temp_store_path("verified_owner_scope");
-    let store = SeriesStore::open(&path).unwrap();
+    let store = eg_tsdb::dev_scope_grant::open_dev_store(&path).unwrap();
     for (tenant, owner_graph, value) in [
         ("tenant-a", "alice-owner", 10.0),
         ("tenant-a", "bob-owner", 20.0),

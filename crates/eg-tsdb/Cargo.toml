@@ -13,7 +13,7 @@ name = "eg_tsdb"
 # store, so it only builds with `redb-store`. Run `--release` for the real numbers.
 [[bin]]
 name = "tsdb_bench"
-required-features = ["redb-store"]
+required-features = ["redb-store", "dev-scope-grant"]
 
 [features]
 default = []
@@ -22,7 +22,13 @@ default = []
 # the finance kernels (eg-compute) for the primitive reuse. The native TS
 # primitives (ASOF / gap-fill / time_bucket / OHLC / decay_weighted_mean) need
 # NOTHING but this — no DataFusion (the Pi contract).
-redb-store = ["dep:redb", "dep:eg-types"]
+redb-store = ["dep:redb", "dep:eg-types", "dep:eg-storage", "dep:eg-transaction"]
+# The development/test composition root for the store's scope grants
+# (`dev_scope_grant`). OFF by default and deliberately folded into NO tier
+# aggregate: the benchmark binary and the integration tests need a
+# `ScopeGrantVerifier` and have no real root, while a production build must not
+# be able to link one.
+dev-scope-grant = ["redb-store"]
 # Arrow columnar segment + DataFusion `time_bucket = GROUP BY (ts/w)*w` scan path.
 # Heavy (Arrow + DataFusion); OFF in the lean build, folded only into node/cluster/
 # full via the facade `query` feature.
@@ -61,6 +67,12 @@ eg-compute = { path = "../eg-compute", features = ["finance"] }
 # Same pins as the engine so footprint/throughput findings transfer 1:1.
 redb = { version = "4.1", optional = true }
 eg-types = { path = "../eg-types", optional = true }
+# RF-RULING-004: `eg-storage` is the sole physical owner of `series.redb`
+# (declared `OwnerLayout::TimeSeries`) and `eg-transaction` the sole writer. Both
+# are gated behind the SAME `redb-store` feature redb itself is behind, so the
+# lean/Pi build links none of them.
+eg-storage = { path = "../eg-storage", optional = true }
+eg-transaction = { path = "../eg-transaction", optional = true }
 arrow = { version = "58.3", optional = true }
 datafusion = { version = "54", default-features = false, optional = true }
 tokio = { version = "1.38", features = ["rt", "rt-multi-thread", "macros"], optional = true }
