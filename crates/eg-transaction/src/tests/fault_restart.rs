@@ -341,7 +341,7 @@ fn a_maintenance_batch_carrying_an_operation_identity_fails_to_reopen() {
         let bytes = eg_storage::encode_bounded(&row, "planted replay row").unwrap();
         let scope = eg_storage::ledger_scope_key(&identity);
         write
-            .open_table(crate::tables::REPLAY_OPERATIONS)
+            .scoped_table(crate::tables::REPLAY_OPERATIONS)
             .unwrap()
             .insert(
                 (scope.as_str(), maintenance.idempotency_key.as_str()),

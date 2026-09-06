@@ -12,7 +12,7 @@ use crate::tables::ledger_table_names;
 use crate::{commit, saga, Begin, SagaBegin};
 use eg_storage::{
     declared_table_names, MutationClass, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain,
-    OwnerLayout,
+    OwnerLayout, OwnerPayloadRetirement,
 };
 use eg_types::authority::{NonceReplayKeyV1, OperationReplayIdentityV1};
 use eg_types::mutation::MutationReceiptV1;
@@ -124,13 +124,31 @@ impl MutationKernelV1 {
     }
 
     /// Atomically remove authority for one exact logical generation.
+    ///
+    /// Refused for a layout that owns tables: the kernel cannot sweep owner
+    /// rows (their keys carry no scope component), and retiring the authority
+    /// alone would leave the payload for the next binding of the same logical
+    /// name. Such a layout uses [`Self::purge_scope_with`].
     pub fn purge_scope<D: OwnerDomain>(
         &self,
         owner: &OwnedStoreHandle<D>,
         identity: &MutationScopeIdentity,
     ) -> Result<(), String> {
         let write = AdmittedMutation::open(&self.authority, owner)?;
-        commit::purge_scope(&write, identity)?;
+        commit::purge_scope(&write, identity, None)?;
+        write.commit()
+    }
+
+    /// Retire one generation's ledger authority **and** its domain payload in
+    /// one transaction, the domain supplying the sweep of its own tables.
+    pub fn purge_scope_with<D: OwnerDomain>(
+        &self,
+        owner: &OwnedStoreHandle<D>,
+        identity: &MutationScopeIdentity,
+        owner_payload: &dyn OwnerPayloadRetirement<D>,
+    ) -> Result<(), String> {
+        let write = AdmittedMutation::open(&self.authority, owner)?;
+        commit::purge_scope(&write, identity, Some(owner_payload))?;
         write.commit()
     }
 

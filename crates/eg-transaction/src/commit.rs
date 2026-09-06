@@ -8,15 +8,30 @@ use crate::admitted::AdmittedMutation;
 use crate::tables::{visit_ledger_tables, BATCHES, CLASSES, FENCES, OUTBOX, VERSIONS};
 use crate::Begin;
 use eg_storage::{
-    decode_batch_record, decode_ledger_record, encode_bounded, ledger_scope_key, MutationClass,
-    MutationClassRow, OwnerDomain, ScopeFence,
+    decode_batch_record, decode_ledger_record, encode_bounded, ledger_scope_key, owner_table_names,
+    MutationClass, MutationClassRow, OwnerDomain, OwnerPayloadRetirement, ScopeFence,
 };
 use eg_types::mutation_batch::MutationCommitPhase;
 use eg_types::{
     CommittedVersion, MutationBatch, MutationBatchRecord, MutationBatchStatus,
     MutationOutboxRecord, MutationScopeIdentity, VersionExpectation, MUTATION_BATCH_VERSION,
 };
-use redb::ReadableTable;
+
+/// The certification fault points, compiled only under `fault-injection`.
+///
+/// `eg_types::mutation_batch::apply_certification_fault` aborts the process at
+/// an exact commit phase so the crash matrix can be proved. That is a test
+/// instrument, not release behaviour, so the call is feature-gated here rather
+/// than shipped on the commit path.
+#[cfg(feature = "fault-injection")]
+fn certification_fault(batch: &MutationBatch, phase: MutationCommitPhase) -> Result<(), String> {
+    eg_types::mutation_batch::apply_certification_fault(batch, phase)
+}
+
+#[cfg(not(feature = "fault-injection"))]
+fn certification_fault(_batch: &MutationBatch, _phase: MutationCommitPhase) -> Result<(), String> {
+    Ok(())
+}
 
 /// Greatest batch id in redb's byte order, for a scope-bounded range scan.
 pub(crate) const MAX_BATCH_ID_SENTINEL: &str = "\u{10FFFF}";
@@ -60,7 +75,7 @@ pub(crate) fn begin<D: OwnerDomain>(
     }
 
     reject_stale_fence(write, batch)?;
-    eg_types::mutation_batch::apply_certification_fault(batch, MutationCommitPhase::BeforeRows)?;
+    certification_fault(batch, MutationCommitPhase::BeforeRows)?;
     write.admit_apply_batch(batch, class)?;
     Ok(Begin::Apply { source_version })
 }
@@ -88,7 +103,7 @@ fn reject_stale_fence<D: OwnerDomain>(
     batch: &MutationBatch,
 ) -> Result<(), String> {
     let identity_key = ledger_scope_key(&batch.identity);
-    let table = write.open_table(FENCES)?;
+    let table = write.scoped_table(FENCES)?;
     let current = table
         .get(identity_key.as_str())
         .map_err(|error| error.to_string())?
@@ -122,10 +137,7 @@ pub(crate) fn finish<D: OwnerDomain>(
     source_version: Option<u64>,
 ) -> Result<MutationBatchRecord, String> {
     write.verify_scope(&batch.identity)?;
-    eg_types::mutation_batch::apply_certification_fault(
-        batch,
-        MutationCommitPhase::AfterRowsBeforeMetadata,
-    )?;
+    certification_fault(batch, MutationCommitPhase::AfterRowsBeforeMetadata)?;
     let committed_version = committed_version(batch.version_expectation, source_version)?;
     let record = MutationBatchRecord {
         batch: batch.clone(),
@@ -176,14 +188,10 @@ pub(crate) fn write_class<D: OwnerDomain>(
     };
     let bytes = encode_bounded(&row, "mutation class row")?;
     let identity_key = ledger_scope_key(&batch.identity);
-    write
-        .open_table(CLASSES)?
-        .insert(
-            (identity_key.as_str(), batch.batch_id.as_str()),
-            bytes.as_slice(),
-        )
-        .map_err(|error| error.to_string())?;
-    Ok(())
+    write.scoped_table(CLASSES)?.insert(
+        (identity_key.as_str(), batch.batch_id.as_str()),
+        bytes.as_slice(),
+    )
 }
 
 /// Advance the scope's authoritative version by exactly one.
@@ -199,10 +207,9 @@ fn write_version<D: OwnerDomain>(
     committed: CommittedVersion,
 ) -> Result<(), String> {
     let binding_key = ledger_scope_key(&batch.identity);
-    let mut versions = write.open_table(VERSIONS)?;
+    let mut versions = write.scoped_table(VERSIONS)?;
     let current = versions
-        .get(binding_key.as_str())
-        .map_err(|error| error.to_string())?
+        .get(binding_key.as_str())?
         .map(|value| value.value())
         .ok_or_else(|| "mutation scope binding is missing its authoritative version".to_string())?;
     let next = current
@@ -211,10 +218,7 @@ fn write_version<D: OwnerDomain>(
     if committed.target().is_some_and(|target| target != next) {
         return Err("mutation committed version does not advance its scope by one".to_string());
     }
-    versions
-        .insert(binding_key.as_str(), next)
-        .map_err(|error| error.to_string())?;
-    Ok(())
+    versions.insert(binding_key.as_str(), next)
 }
 
 fn write_fence<D: OwnerDomain>(
@@ -229,10 +233,8 @@ fn write_fence<D: OwnerDomain>(
     let bytes = encode_bounded(&fence, "mutation fence")?;
     let identity_key = ledger_scope_key(&batch.identity);
     write
-        .open_table(FENCES)?
+        .scoped_table(FENCES)?
         .insert(identity_key.as_str(), bytes.as_slice())
-        .map_err(|error| error.to_string())?;
-    Ok(())
 }
 
 fn write_outbox<D: OwnerDomain>(
@@ -241,7 +243,7 @@ fn write_outbox<D: OwnerDomain>(
     committed_version: CommittedVersion,
 ) -> Result<(), String> {
     let identity_key = ledger_scope_key(&batch.identity);
-    let mut table = write.open_table(OUTBOX)?;
+    let mut table = write.scoped_table(OUTBOX)?;
     for (ordinal, intent) in batch.outbox.iter().enumerate() {
         let outbox = MutationOutboxRecord {
             schema_version: MUTATION_BATCH_VERSION,
@@ -254,16 +256,14 @@ fn write_outbox<D: OwnerDomain>(
         };
         outbox.validate_write_budget()?;
         let bytes = encode_bounded(&outbox, "mutation outbox record")?;
-        table
-            .insert(
-                (
-                    identity_key.as_str(),
-                    batch.batch_id.as_str(),
-                    ordinal as u32,
-                ),
-                bytes.as_slice(),
-            )
-            .map_err(|error| error.to_string())?;
+        table.insert(
+            (
+                identity_key.as_str(),
+                batch.batch_id.as_str(),
+                ordinal as u32,
+            ),
+            bytes.as_slice(),
+        )?;
     }
     Ok(())
 }
@@ -274,12 +274,9 @@ pub(crate) fn commit<D: OwnerDomain>(
 ) -> Result<(), String> {
     write.verify_scope(&batch.identity)?;
     write.validate_commit_admission(batch)?;
-    eg_types::mutation_batch::apply_certification_fault(batch, MutationCommitPhase::BeforeCommit)?;
+    certification_fault(batch, MutationCommitPhase::BeforeCommit)?;
     write.commit()?;
-    eg_types::mutation_batch::apply_certification_fault(
-        batch,
-        MutationCommitPhase::AfterCommitBeforeAck,
-    )
+    certification_fault(batch, MutationCommitPhase::AfterCommitBeforeAck)
 }
 
 /// Atomically remove authority for one exact logical generation.
@@ -292,8 +289,25 @@ pub(crate) fn commit<D: OwnerDomain>(
 pub(crate) fn purge_scope<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     identity: &MutationScopeIdentity,
+    owner_payload: Option<&dyn OwnerPayloadRetirement<D>>,
 ) -> Result<(), String> {
     write.verify_scope(identity)?;
+    // Owner keys carry no scope component in general, so the kernel cannot
+    // sweep the domain payload itself. Retiring the authority while leaving the
+    // rows behind would hand the retired generation's payload to the next
+    // binding of the same logical name, so a layout that owns tables must
+    // supply their retirement or the purge is refused.
+    match (owner_payload, owner_table_names(D::LAYOUT).is_empty()) {
+        (None, true) => {}
+        (None, false) => {
+            return Err(
+                "scope retirement requires an owner-payload retirement for this layout".to_string(),
+            )
+        }
+        (Some(retirement), _) => {
+            retirement.retire_owner_payload(write.capability(), identity)?;
+        }
+    }
     let identity_key = ledger_scope_key(identity);
     validate_batch_keys(write, identity, &identity_key)?;
     macro_rules! purge {
@@ -313,10 +327,8 @@ fn validate_batch_keys<D: OwnerDomain>(
     identity: &MutationScopeIdentity,
     identity_key: &str,
 ) -> Result<(), String> {
-    let table = write.open_table(BATCHES)?;
-    let rows = table
-        .range((identity_key, "")..=(identity_key, MAX_BATCH_ID_SENTINEL))
-        .map_err(|error| error.to_string())?;
+    let table = write.scoped_table(BATCHES)?;
+    let rows = table.range_inclusive((identity_key, ""), (identity_key, MAX_BATCH_ID_SENTINEL))?;
     for row in rows {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (row_identity, batch_id) = key.value();
@@ -342,7 +354,7 @@ pub(crate) fn open_ledger_tables<D: OwnerDomain>(
 ) -> Result<(), String> {
     macro_rules! open {
         ($table:expr) => {{
-            write.open_table($table)?;
+            write.scoped_table($table)?;
         }};
     }
     visit_ledger_tables!(open);

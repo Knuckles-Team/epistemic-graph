@@ -94,21 +94,42 @@ pub(crate) fn validate_recovery_content(
     authenticate_private: &PrivateAuthenticator<'_>,
 ) -> Result<RecoveryStoreCounts, String> {
     let root = validate_root(expected, rtx)?;
+    let tables = ValidationTables::open(rtx)?;
     let mut counts = RecoveryStoreCounts {
         store_roots: 1,
         ..RecoveryStoreCounts::default()
     };
     validate_bindings(rtx, &root, &mut counts)?;
-    validate_versions(rtx, &root, &mut counts)?;
-    validate_batches(rtx, &root, &mut counts)?;
-    validate_idempotency(rtx, &mut counts)?;
-    validate_fences(rtx, &root, &mut counts)?;
-    validate_outbox(rtx, &mut counts)?;
-    validate_private(authenticate_private, rtx, &mut counts)?;
-    validate_replay(rtx, &root, &mut counts)?;
-    validate_classes(rtx, &root, &mut counts)?;
-    validate_every_scoped_row(rtx, &root)?;
+    validate_versions(rtx, &tables, &root, &mut counts)?;
+    validate_batches(rtx, &tables, &root, &mut counts)?;
+    validate_idempotency(rtx, &tables, &mut counts)?;
+    validate_fences(rtx, &tables, &root, &mut counts)?;
+    validate_outbox(rtx, &tables, &mut counts)?;
+    validate_private(authenticate_private, rtx, &tables, &mut counts)?;
+    validate_replay(rtx, &tables, &root, &mut counts)?;
+    validate_classes(rtx, &tables, &root, &mut counts)?;
+    validate_every_scoped_row(rtx, &tables, &root)?;
     Ok(counts)
+}
+
+/// The three tables recovery validation consults for almost every row, opened
+/// once per pass instead of once per row.
+struct ValidationTables {
+    bindings: redb::ReadOnlyTable<&'static str, &'static [u8]>,
+    batches: redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
+    classes: redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
+}
+
+impl ValidationTables {
+    fn open(rtx: &ReadTransaction) -> Result<Self, String> {
+        Ok(Self {
+            bindings: rtx
+                .open_table(SCOPE_BINDINGS)
+                .map_err(|error| error.to_string())?,
+            batches: rtx.open_table(BATCHES).map_err(|error| error.to_string())?,
+            classes: rtx.open_table(CLASSES).map_err(|error| error.to_string())?,
+        })
+    }
 }
 
 fn validate_root(
@@ -170,6 +191,7 @@ fn validate_bindings(
 
 fn validate_versions(
     rtx: &ReadTransaction,
+    tables: &ValidationTables,
     root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
@@ -178,7 +200,7 @@ fn validate_versions(
         .map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, _) = row.map_err(|error| error.to_string())?;
-        read_binding(rtx, root, key.value())?;
+        read_binding_in(&tables.bindings, root, key.value())?;
         increment(&mut counts.versions, "version count")?;
     }
     Ok(())
@@ -186,6 +208,7 @@ fn validate_versions(
 
 fn validate_batches(
     rtx: &ReadTransaction,
+    tables: &ValidationTables,
     root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
@@ -197,7 +220,7 @@ fn validate_batches(
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id) = key.value();
         let record = decode_batch_record(value.value())?;
-        let binding = read_binding(rtx, root, identity_key)?;
+        let binding = read_binding_in(&tables.bindings, root, identity_key)?;
         if record.identity != binding.identity || record.batch.batch_id != batch_id {
             return Err("mutation batch key does not bind its receipt identity".to_string());
         }
@@ -208,7 +231,7 @@ fn validate_batches(
         if linked.value() != batch_id {
             return Err("mutation receipt idempotency row points elsewhere".to_string());
         }
-        if read_class(rtx, identity_key, batch_id)?.identity != binding.identity {
+        if read_class_in(&tables.classes, identity_key, batch_id)?.identity != binding.identity {
             return Err("mutation batch class row is not bound to its receipt".to_string());
         }
         match record.status {
@@ -223,6 +246,7 @@ fn validate_batches(
 
 fn validate_idempotency(
     rtx: &ReadTransaction,
+    tables: &ValidationTables,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
     let table = rtx
@@ -232,7 +256,7 @@ fn validate_idempotency(
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, idempotency_key) = key.value();
         let batch_id = value.value();
-        let record = read_batch(rtx, identity_key, batch_id)?;
+        let record = read_batch_in(&tables.batches, identity_key, batch_id)?;
         if record.batch.idempotency_key != idempotency_key {
             return Err("mutation idempotency row does not bind exactly one receipt".to_string());
         }
@@ -243,13 +267,14 @@ fn validate_idempotency(
 
 fn validate_fences(
     rtx: &ReadTransaction,
+    tables: &ValidationTables,
     root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
     let table = rtx.open_table(FENCES).map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
-        let binding = read_binding(rtx, root, key.value())?;
+        let binding = read_binding_in(&tables.bindings, root, key.value())?;
         let fence = decode_ledger_record::<ScopeFence>(value.value())?;
         fence.identity.validate_digest()?;
         if fence.identity != binding.identity {
@@ -264,6 +289,7 @@ fn validate_fences(
 /// key must resolve to an operation row stamped with the same bound identity.
 fn validate_replay(
     rtx: &ReadTransaction,
+    tables: &ValidationTables,
     root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
@@ -273,7 +299,7 @@ fn validate_replay(
     for row in operations.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (scope_key, idempotency_key) = key.value();
-        let binding = read_binding(rtx, root, scope_key)?;
+        let binding = read_binding_in(&tables.bindings, root, scope_key)?;
         let record: OperationReplayRow = decode_ledger_record(value.value())?;
         record.identity.validate_digest()?;
         if record.identity != binding.identity || record.idempotency_key != idempotency_key {
@@ -287,7 +313,7 @@ fn validate_replay(
     for row in nonces.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (scope_key, _) = key.value();
-        read_binding(rtx, root, scope_key)?;
+        read_binding_in(&tables.bindings, root, scope_key)?;
         if operations
             .get((scope_key, value.value()))
             .map_err(|error| error.to_string())?
@@ -300,13 +326,17 @@ fn validate_replay(
     Ok(())
 }
 
-fn validate_outbox(rtx: &ReadTransaction, counts: &mut RecoveryStoreCounts) -> Result<(), String> {
+fn validate_outbox(
+    rtx: &ReadTransaction,
+    tables: &ValidationTables,
+    counts: &mut RecoveryStoreCounts,
+) -> Result<(), String> {
     let table = rtx.open_table(OUTBOX).map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id, ordinal) = key.value();
         let receipt = decode_outbox_record(value.value())?;
-        let parent = read_batch(rtx, identity_key, batch_id)?;
+        let parent = read_batch_in(&tables.batches, identity_key, batch_id)?;
         let bound = parent.status == MutationBatchStatus::Committed
             && receipt.identity == parent.identity
             && receipt.batch_id == batch_id
@@ -324,6 +354,7 @@ fn validate_outbox(rtx: &ReadTransaction, counts: &mut RecoveryStoreCounts) -> R
 fn validate_private(
     authenticate_private: &PrivateAuthenticator<'_>,
     rtx: &ReadTransaction,
+    tables: &ValidationTables,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
     let table = rtx
@@ -332,7 +363,7 @@ fn validate_private(
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id) = key.value();
-        let record = read_batch(rtx, identity_key, batch_id)?;
+        let record = read_batch_in(&tables.batches, identity_key, batch_id)?;
         let digest = recovery_plan_digest(&record)
             .filter(|_| record.status == MutationBatchStatus::Prepared)
             .ok_or_else(|| {
@@ -368,6 +399,7 @@ fn validate_private(
 /// the ledger rather than inferred from missing replay evidence.
 fn validate_classes(
     rtx: &ReadTransaction,
+    tables: &ValidationTables,
     root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
@@ -375,13 +407,13 @@ fn validate_classes(
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id) = key.value();
-        let binding = read_binding(rtx, root, identity_key)?;
+        let binding = read_binding_in(&tables.bindings, root, identity_key)?;
         let class: MutationClassRow = decode_ledger_record(value.value())?;
         class.identity.validate_digest()?;
         if class.identity != binding.identity || class.batch_id != batch_id {
             return Err("mutation class row is not bound to its exact batch".to_string());
         }
-        let record = read_batch(rtx, identity_key, batch_id)?;
+        let record = read_batch_in(&tables.batches, identity_key, batch_id)?;
         if class.class == crate::tables::MutationClass::Maintenance {
             // A maintenance write carries no caller operation identity by
             // construction (`record_replay` refuses inside one), so a
@@ -404,12 +436,11 @@ fn validate_classes(
     Ok(())
 }
 
-fn read_class(
-    rtx: &ReadTransaction,
+fn read_class_in(
+    table: &redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
     identity_key: &str,
     batch_id: &str,
 ) -> Result<MutationClassRow, String> {
-    let table = rtx.open_table(CLASSES).map_err(|error| error.to_string())?;
     let bytes = table
         .get((identity_key, batch_id))
         .map_err(|error| error.to_string())?
@@ -424,10 +455,14 @@ fn read_class(
 /// tables -- declared, unwritten today, and previously unvalidated -- cannot
 /// carry a row belonging to no bound scope, whether planted in place or
 /// inherited from an adopted foreign image.
-fn validate_every_scoped_row(rtx: &ReadTransaction, root: &StoreIncarnation) -> Result<(), String> {
+fn validate_every_scoped_row(
+    rtx: &ReadTransaction,
+    tables: &ValidationTables,
+    root: &StoreIncarnation,
+) -> Result<(), String> {
     macro_rules! sweep {
         ($table:expr) => {{
-            validate_scoped_table(rtx, root, $table)?;
+            validate_scoped_table(rtx, tables, root, $table)?;
         }};
     }
     visit_scoped_ledger_tables!(sweep);
@@ -436,6 +471,7 @@ fn validate_every_scoped_row(rtx: &ReadTransaction, root: &StoreIncarnation) -> 
 
 fn validate_scoped_table<K, V>(
     rtx: &ReadTransaction,
+    tables: &ValidationTables,
     root: &StoreIncarnation,
     definition: redb::TableDefinition<'static, K, V>,
 ) -> Result<(), String>
@@ -449,19 +485,21 @@ where
         .map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, _) = row.map_err(|error| error.to_string())?;
-        read_binding(rtx, root, key.value().ledger_scope())?;
+        read_binding_in(&tables.bindings, root, key.value().ledger_scope())?;
     }
     Ok(())
 }
 
-fn read_binding(
-    rtx: &ReadTransaction,
+/// Resolve one row's binding through an already-open table.
+///
+/// The table is opened once per validation pass, not once per row: recovery
+/// validation runs on every store open, and reopening four tables for every
+/// row made its cost quadratic in a file an attacker sizes.
+fn read_binding_in(
+    table: &redb::ReadOnlyTable<&'static str, &'static [u8]>,
     root: &StoreIncarnation,
     key: &str,
 ) -> Result<ScopeBinding, String> {
-    let table = rtx
-        .open_table(SCOPE_BINDINGS)
-        .map_err(|error| error.to_string())?;
     let bytes = table
         .get(key)
         .map_err(|error| error.to_string())?
@@ -477,12 +515,11 @@ fn read_binding(
     Ok(binding)
 }
 
-fn read_batch(
-    rtx: &ReadTransaction,
+fn read_batch_in(
+    table: &redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
     identity_key: &str,
     batch_id: &str,
 ) -> Result<MutationBatchRecord, String> {
-    let table = rtx.open_table(BATCHES).map_err(|error| error.to_string())?;
     let bytes = table
         .get((identity_key, batch_id))
         .map_err(|error| error.to_string())?

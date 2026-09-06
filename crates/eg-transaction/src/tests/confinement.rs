@@ -9,7 +9,8 @@
 use super::*;
 use crate::admitted::AdmittedMutation;
 use crate::tables::BATCHES;
-use eg_storage::ledger_scope_key;
+use eg_storage::{ledger_scope_key, BlobOwner};
+use redb::TableDefinition;
 
 struct Tenants {
     fixture: Fixture,
@@ -96,4 +97,109 @@ fn a_scoped_read_cannot_address_another_tenants_rows() {
     // The typed readers only ever see A's own rows.
     assert!(read_ledger(&read_a, "batch-b").unwrap().is_none());
     assert_eq!(crate::read::read_batches(&read_a).unwrap().len(), 1);
+}
+
+/// The write side has the same row-level bound the read side got: a capability
+/// for A cannot reach, overwrite or delete B's ledger rows through any public
+/// path. `open_table` no longer exists on the write capability at all.
+#[test]
+fn a_scoped_write_cannot_touch_another_tenants_ledger_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let tenants = two_tenants(&dir.path().join("shared.redb"));
+    let key_a = ledger_scope_key(&tenants.identity_a);
+    let key_b = ledger_scope_key(&tenants.identity_b);
+    let write = AdmittedMutation::open(tenants.fixture.mutations_authority(), &tenants.a).unwrap();
+    let mut batches = write.scoped_table(BATCHES).unwrap();
+
+    assert_eq!(batches.scope_key(), key_a.as_str());
+    assert!(batches.get((key_a.as_str(), "batch-a")).unwrap().is_some());
+    for outcome in [
+        batches.remove((key_b.as_str(), "batch-b")),
+        batches.insert((key_b.as_str(), "batch-b"), b"forged".as_slice()),
+    ] {
+        match outcome {
+            Ok(()) => panic!("a scoped write must not address another scope"),
+            Err(error) => assert!(error.contains("another scope's rows"), "{error}"),
+        }
+    }
+    match batches.get((key_b.as_str(), "batch-b")) {
+        Ok(_) => panic!("a scoped write must not read another scope"),
+        Err(error) => assert!(error.contains("another scope's rows"), "{error}"),
+    }
+    drop(batches);
+    write.abort().unwrap();
+
+    let read_b = tenants.fixture.kernel.read_scope(&tenants.b).unwrap();
+    assert!(read_ledger(&read_b, "batch-b").unwrap().is_some());
+}
+
+/// A layout that owns tables cannot retire a generation's authority without
+/// retiring its payload: owner keys carry no scope component, so the rows would
+/// be read by the next binding of the same logical name as its own.
+#[test]
+fn purging_a_layout_with_owner_tables_requires_an_owner_payload_retirement() {
+    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
+
+    struct BlobRetirement;
+    impl eg_storage::OwnerPayloadRetirement<BlobOwner> for BlobRetirement {
+        fn retire_owner_payload(
+            &self,
+            write: &eg_storage::PhysicalWriteCapability<'_, BlobOwner>,
+            scope: &MutationScopeIdentity,
+        ) -> Result<(), String> {
+            let key = ledger_scope_key(scope);
+            let mut rows = write.open_owner_write(BLOB_ROWS)?;
+            rows.retain(|row, _| row.0 != key)
+                .map_err(|error| error.to_string())
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("blob.redb");
+    let identity = native_identity("tenant-a", "incarnation:blob:a");
+    let scope = ledger_scope_key(&identity);
+    let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:test", None);
+    let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+    let seeded = batch(identity.clone(), "payload");
+    let (write, begun) = fixture.mutations.admit(&owner, &seeded).unwrap();
+    let source_version = match begun {
+        Begin::Apply { source_version } => source_version,
+        Begin::Replay(_) => panic!("unexpected replay"),
+    };
+    let rows = write.owner_rows(&owner, &seeded).unwrap();
+    rows.open_table(BLOB_ROWS)
+        .unwrap()
+        .insert((scope.as_str(), "object"), b"payload".as_slice())
+        .unwrap();
+    rows.finish_owner().unwrap();
+    fixture
+        .mutations
+        .finish(&write, &seeded, None, 2, source_version)
+        .unwrap();
+    fixture.mutations.commit(write, &seeded).unwrap();
+
+    // Refused without a payload retirement.
+    assert!(fixture
+        .mutations
+        .purge_scope(&owner, &identity)
+        .unwrap_err()
+        .contains("owner-payload retirement"));
+    let read = fixture.kernel.read_scope(&owner).unwrap();
+    assert!(read_ledger(&read, "payload").unwrap().is_some());
+    drop(read);
+
+    // With one, ledger and payload retire together.
+    fixture
+        .mutations
+        .purge_scope_with(&owner, &identity, &BlobRetirement)
+        .unwrap();
+    let rebound = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity);
+    let read = fixture.kernel.read_scope(&rebound).unwrap();
+    assert!(read_ledger(&read, "payload").unwrap().is_none());
+    assert!(read
+        .open_owner_table(BLOB_ROWS)
+        .unwrap()
+        .get((scope.as_str(), "object"))
+        .unwrap()
+        .is_none());
 }

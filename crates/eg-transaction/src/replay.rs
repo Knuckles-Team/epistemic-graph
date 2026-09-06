@@ -23,7 +23,6 @@ use eg_storage::{
     decode_ledger_record, encode_bounded, ledger_scope_key, MutationClass, OperationReplayRow,
     OwnerDomain,
 };
-use redb::ReadableTable;
 use eg_types::authority::{NonceReplayKeyV1, OperationReplayIdentityV1};
 use eg_types::contract::Digest256V1;
 use eg_types::mutation::MutationReceiptV1;
@@ -130,14 +129,11 @@ pub(crate) fn record_replay_in<D: OwnerDomain>(
     };
     let bytes = encode_bounded(&row, "mutation replay operation row")?;
     write
-        .open_table(REPLAY_OPERATIONS)?
-        .insert((scope_key.as_str(), idempotency_key), bytes.as_slice())
-        .map_err(|error| error.to_string())?;
+        .scoped_table(REPLAY_OPERATIONS)?
+        .insert((scope_key.as_str(), idempotency_key), bytes.as_slice())?;
     write
-        .open_table(REPLAY_NONCES)?
+        .scoped_table(REPLAY_NONCES)?
         .insert((scope_key.as_str(), nonce_digest.as_str()), idempotency_key)
-        .map_err(|error| error.to_string())?;
-    Ok(())
 }
 
 fn read_nonce<D: OwnerDomain>(
@@ -145,10 +141,9 @@ fn read_nonce<D: OwnerDomain>(
     scope_key: &str,
     nonce_digest: &str,
 ) -> Result<Option<String>, String> {
-    let table = write.open_table(REPLAY_NONCES)?;
+    let table = write.scoped_table(REPLAY_NONCES)?;
     let found = table
-        .get((scope_key, nonce_digest))
-        .map_err(|error| error.to_string())?
+        .get((scope_key, nonce_digest))?
         .map(|value| value.value().to_string());
     Ok(found)
 }
@@ -158,10 +153,9 @@ fn read_operation<D: OwnerDomain>(
     scope_key: &str,
     idempotency_key: &str,
 ) -> Result<Option<OperationReplayRow>, String> {
-    let table = write.open_table(REPLAY_OPERATIONS)?;
+    let table = write.scoped_table(REPLAY_OPERATIONS)?;
     let row = table
-        .get((scope_key, idempotency_key))
-        .map_err(|error| error.to_string())?
+        .get((scope_key, idempotency_key))?
         .map(|value| decode_ledger_record::<OperationReplayRow>(value.value()))
         .transpose()?;
     Ok(row)

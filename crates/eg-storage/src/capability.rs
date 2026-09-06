@@ -76,12 +76,12 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
 
     /// Open one declared, non-identity table of this owner file for writing.
     ///
-    /// The underlying `redb::WriteTransaction` is never lent out: in redb 4.1 a
-    /// `&WriteTransaction` opens and deletes any table through `&self`, so
-    /// returning one would be unrestricted authority over the
-    /// physical-identity tables. This is the only write path, and
-    /// [`permit_table`] bounds it to this owner file's declared census.
-    pub fn open_table<K, V>(
+    /// Crate-private, and for the same reason the read side's `open_table` is:
+    /// a whole ledger table spans every scope the file serves, so a raw
+    /// `redb::Table` over one is row-level write authority over every tenant on
+    /// it. External writers use [`Self::scoped_table_mut`] for ledger rows and
+    /// [`Self::open_owner_write`] for their own layout's rows.
+    pub(crate) fn open_table<K, V>(
         &self,
         definition: TableDefinition<'static, K, V>,
     ) -> Result<Table<'_, K, V>, String>
@@ -93,6 +93,48 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         self.transaction
             .open_table(definition)
             .map_err(|error| error.to_string())
+    }
+
+    /// Open one owner table of this capability's layout for writing.
+    ///
+    /// Owner rows are the domain's own, and several owner tables carry no scope
+    /// component in their key at all, so the bound here is the layout — the
+    /// same bound [`ScopedRead::open_owner_table`] applies on the read side.
+    pub fn open_owner_write<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Table<'_, K, V>, String>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        let name = definition.name();
+        if !owner_table_names(D::LAYOUT).contains(&name) {
+            return Err("owner write may not open a table outside its layout".to_string());
+        }
+        self.open_table(definition)
+    }
+
+    /// Open one declared table for writing, bounded to this capability's own
+    /// serving scope.
+    ///
+    /// The write mirror of [`ScopedRead::scoped_table`]: every key it accepts,
+    /// on read, insert, remove or range, must name that scope, so a capability
+    /// for one tenant cannot reach — or delete — another's ledger rows even
+    /// though both live in the same physical table.
+    pub fn scoped_table_mut<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ScopedTableMut<'_, K, V>, String>
+    where
+        K: redb::Key + 'static,
+        for<'k> K::SelfType<'k>: LedgerRowScope,
+        V: redb::Value + 'static,
+    {
+        Ok(ScopedTableMut {
+            table: self.open_table(definition)?,
+            scope_key: ledger_scope_key(&self.identity),
+        })
     }
 
     /// Open one owner table of this capability's layout for **reading only**,
@@ -434,4 +476,88 @@ where
     pub fn is_empty(&self) -> Result<bool, String> {
         self.len().map(|len| len == 0)
     }
+}
+
+/// A declared table opened for writing and restricted to one serving scope.
+///
+/// The write counterpart of [`ScopedTable`]. Its scope key comes from the
+/// capability that issued it, and every key presented to it — read, insert,
+/// remove, or either bound of a range — must carry that same key in its first
+/// position. No accessor returns the underlying `redb::Table`.
+pub struct ScopedTableMut<'a, K: redb::Key + 'static, V: redb::Value + 'static> {
+    table: Table<'a, K, V>,
+    scope_key: String,
+}
+
+impl<K, V> ScopedTableMut<'_, K, V>
+where
+    K: redb::Key + 'static,
+    for<'k> K::SelfType<'k>: LedgerRowScope,
+    V: redb::Value + 'static,
+{
+    /// The one scope every key of this table must name.
+    pub fn scope_key(&self) -> &str {
+        &self.scope_key
+    }
+
+    pub fn get<'k>(&self, key: K::SelfType<'k>) -> Result<Option<AccessGuard<'_, V>>, String> {
+        self.permit(&key)?;
+        self.table.get(&key).map_err(|error| error.to_string())
+    }
+
+    pub fn insert<'k, 'v>(
+        &mut self,
+        key: K::SelfType<'k>,
+        value: V::SelfType<'v>,
+    ) -> Result<(), String> {
+        self.permit(&key)?;
+        self.table
+            .insert(&key, &value)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn remove<'k>(&mut self, key: K::SelfType<'k>) -> Result<(), String> {
+        self.permit(&key)?;
+        self.table
+            .remove(&key)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn range_inclusive<'k>(
+        &self,
+        start: K::SelfType<'k>,
+        end: K::SelfType<'k>,
+    ) -> Result<Range<'_, K, V>, String> {
+        self.permit(&start)?;
+        self.permit(&end)?;
+        self.table
+            .range(start..=end)
+            .map_err(|error| error.to_string())
+    }
+
+    fn permit(&self, key: &K::SelfType<'_>) -> Result<(), String> {
+        if key.ledger_scope() != self.scope_key {
+            return Err("scoped write may not address another scope's rows".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Retirement of one layout's owner payload.
+///
+/// `purge_scope` retires a generation's ledger, binding and version row, but
+/// owner tables are the domain's own and their keys carry no scope component in
+/// general, so the kernel cannot sweep them. A domain implements this for its
+/// own tables and the mutation kernel invokes it inside the same write
+/// transaction, so authority and payload retire together or not at all. Without
+/// it, the next binding of the same logical name reads the retired
+/// generation's rows as its own.
+pub trait OwnerPayloadRetirement<D: OwnerDomain> {
+    fn retire_owner_payload(
+        &self,
+        write: &PhysicalWriteCapability<'_, D>,
+        scope: &MutationScopeIdentity,
+    ) -> Result<(), String>;
 }

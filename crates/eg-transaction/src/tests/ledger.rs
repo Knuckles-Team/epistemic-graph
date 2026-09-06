@@ -223,7 +223,7 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
         Begin::Replay(_) => panic!("unexpected replay"),
     };
     let owner_write = write.owner_rows(&owner, &committed_batch).unwrap();
-    write
+    owner_write
         .open_table(BLOB_ROWS)
         .unwrap()
         .insert(

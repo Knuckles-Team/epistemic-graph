@@ -21,7 +21,8 @@ mod recovery;
 mod tables;
 
 pub use capability::{
-    OwnerReadTable, PhysicalWriteCapability, ScopedRead, ScopedSnapshot, ScopedTable,
+    OwnerPayloadRetirement, OwnerReadTable, PhysicalWriteCapability, ScopedRead, ScopedSnapshot,
+    ScopedTable, ScopedTableMut,
 };
 pub use codec::{
     decode_batch_record, decode_ledger_record, decode_outbox_record, encode_bounded,

@@ -8,11 +8,11 @@
 
 use crate::admission::AdmissionState;
 use eg_storage::{
-    owner_table_names, LedgerRowScope, MutationClass, MutationOwnerAuthority, OwnedStoreHandle,
-    OwnerDomain, OwnerLayout, OwnerReadTable, PhysicalWriteCapability,
+    LedgerRowScope, MutationClass, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain,
+    OwnerLayout, OwnerReadTable, PhysicalWriteCapability, ScopedTableMut,
 };
 use eg_types::{MutationBatch, MutationScopeIdentity};
-use redb::{Table, TableDefinition, TableHandle};
+use redb::{Table, TableDefinition};
 use std::cell::RefCell;
 use std::marker::PhantomData;
 
@@ -35,18 +35,25 @@ impl<'a, D: OwnerDomain> AdmittedMutation<'a, D> {
         })
     }
 
-    /// Open one declared, non-identity table of this owner file for writing.
-    /// The storage kernel never lends out the raw transaction, so this is the
-    /// only write path and the three physical-identity tables are unreachable.
-    pub(crate) fn open_table<K, V>(
+    /// Open one ledger table bounded to this write's own serving scope.
+    ///
+    /// Every ledger read and write this crate performs goes through here, so a
+    /// mutation admitted for one tenant cannot address — or delete — another's
+    /// rows even though both live in the same physical table.
+    pub(crate) fn scoped_table<K, V>(
         &self,
         definition: TableDefinition<'static, K, V>,
-    ) -> Result<Table<'_, K, V>, String>
+    ) -> Result<ScopedTableMut<'_, K, V>, String>
     where
         K: redb::Key + 'static,
+        for<'k> K::SelfType<'k>: LedgerRowScope,
         V: redb::Value + 'static,
     {
-        self.capability.open_table(definition)
+        self.capability.scoped_table_mut(definition)
+    }
+
+    pub(crate) fn capability(&self) -> &PhysicalWriteCapability<'a, D> {
+        &self.capability
     }
 
     /// Open one owner table of this domain's layout for **reading only**,
@@ -174,11 +181,7 @@ impl<D: OwnerDomain> AdmittedOwnerWrite<'_, D> {
         K: redb::Key + 'static,
         V: redb::Value + 'static,
     {
-        let name = definition.name();
-        if !owner_table_names(D::LAYOUT).contains(&name) {
-            return Err("owner write may not open a table outside its layout".to_string());
-        }
-        self.write.open_table(definition)
+        self.write.capability().open_owner_write(definition)
     }
 
     pub fn finish_owner(mut self) -> Result<(), String> {

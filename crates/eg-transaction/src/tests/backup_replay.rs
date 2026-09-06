@@ -153,7 +153,7 @@ fn the_recovery_fingerprint_covers_the_replay_ledger() {
     let scope_key = eg_storage::ledger_scope_key(owner.identity());
     let nonce_digest = first.nonce.digest().unwrap().to_hex();
     write
-        .open_table(REPLAY_NONCES)
+        .scoped_table(REPLAY_NONCES)
         .unwrap()
         .remove((scope_key.as_str(), nonce_digest.as_str()))
         .unwrap();

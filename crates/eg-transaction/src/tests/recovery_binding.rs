@@ -60,7 +60,7 @@ fn a_fence_stamped_with_a_foreign_identity_fails_to_reopen() {
         let bytes = encode_bounded(&forged, "mutation fence").unwrap();
         let key = ledger_scope_key(&identity);
         write
-            .open_table(FENCES)
+            .scoped_table(FENCES)
             .unwrap()
             .insert(key.as_str(), bytes.as_slice())
             .unwrap();
@@ -74,26 +74,33 @@ fn a_batch_row_under_an_unbound_scope_key_fails_to_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.redb");
     let identity = native_identity("tenant-a", "incarnation:unbound-key");
-    {
+    let record = {
         let (fixture, owner) = ledger_fixture(&path, identity.clone());
         let committed = batch(identity.clone(), "misfiled-batch");
         apply_batch(&fixture, &owner, &committed);
-        let record = {
-            let read = fixture.kernel.read_scope(&owner).unwrap();
-            read_ledger(&read, "misfiled-batch").unwrap().unwrap()
-        };
-        let write = AdmittedMutation::open(fixture.mutations_authority(), &owner).unwrap();
-        let bytes = encode_bounded(&record, "mutation batch record").unwrap();
-        write
-            .open_table(BATCHES)
-            .unwrap()
-            .insert(
-                (record.identity.identity_digest().to_hex().as_str(), "misfiled-batch"),
-                bytes.as_slice(),
-            )
-            .unwrap();
-        write.commit().unwrap();
-    }
+        let read = fixture.kernel.read_scope(&owner).unwrap();
+        read_ledger(&read, "misfiled-batch").unwrap().unwrap()
+    };
+    // The kernel's own write path can no longer file a row under a key naming
+    // no bound scope -- `ScopedTableMut` refuses it -- so the known-bad input
+    // is planted underneath the kernel, which is what the validator is for.
+    let bytes = eg_storage::encode_bounded(&record, "mutation batch record").unwrap();
+    let database = redb::Database::open(&path).unwrap();
+    let write = database.begin_write().unwrap();
+    write
+        .open_table(BATCHES)
+        .unwrap()
+        .insert(
+            (
+                record.identity.identity_digest().to_hex().as_str(),
+                "misfiled-batch",
+            ),
+            bytes.as_slice(),
+        )
+        .unwrap();
+    write.commit().unwrap();
+    drop(database);
+
     assert!(reopen_error(&path).contains("unbound identity"));
 }
 
@@ -114,16 +121,16 @@ fn a_capability_cannot_open_an_identity_or_undeclared_table() {
     let (fixture, owner) = ledger_fixture(&dir.path().join("native.redb"), identity);
     let write = AdmittedMutation::open(fixture.mutations_authority(), &owner).unwrap();
     for table in [ROOT, MANIFEST, BINDINGS] {
-        assert!(write
-            .open_table(table)
-            .unwrap_err()
-            .contains("physical-identity table"));
+        match write.scoped_table(table) {
+            Ok(_) => panic!("a scoped write must not open a physical-identity table"),
+            Err(error) => assert!(error.contains("physical-identity table"), "{error}"),
+        }
     }
     for table in [FOREIGN, INVENTED] {
-        assert!(write
-            .open_table(table)
-            .unwrap_err()
-            .contains("undeclared table"));
+        match write.scoped_table(table) {
+            Ok(_) => panic!("a scoped write must not open an undeclared table"),
+            Err(error) => assert!(error.contains("undeclared table"), "{error}"),
+        }
     }
     write.abort().unwrap();
 
