@@ -9,8 +9,9 @@ use super::request_boundary::{decode_screen_observation, dispatch, preflight_req
 use super::*;
 mod work_governance;
 use work_governance::{
-    dispatch_op_capacity_ops, dispatch_op_development_lane, dispatch_op_resource_reservation_query,
-    dispatch_op_workitem_claim_capability, dispatch_op_workitem_mutation, NativeOpCtx,
+    dispatch_op_capacity_ops, dispatch_op_resource_reservation_query,
+    dispatch_op_workitem_claim_capability, dispatch_op_workitem_submission_or_resources,
+    NativeOpCtx,
 };
 
 /// Dispatch a graph-level operation to the target named graph, enforcing the
@@ -1537,39 +1538,54 @@ async fn route_native_store_ops(
         .await);
     }
 
-    // ── Native development-lane hold/quota authority (RMDD-28) ──────────────────
-    // `redb_store::development_lane` deliberately stops at the redb transaction
-    // boundary -- no MutationBatch/result/outbox/CDC projection -- exactly the
-    // WorkItem claim-capability posture above. The 6 write methods
-    // (Reserve/Renew/Observe/Finish/Cleanup/UpdateQuota) commit through the
-    // writer-thread `Cmd` channel (the kernel's own self-contained
-    // begin_write()/commit()); the exact-query/status reads are MVCC snapshot
-    // reads, same posture as the native reservation-ledger reads above. Every
-    // request carries its own tenant/owner/fencing authority (CAS'd against the
-    // live WorkItem row inside the kernel), not a server-derived
-    // AuthenticatedAuthority, so — unlike claim capability — there is no
-    // verified-context authority struct to build here.
-    if crate::server::mutation_batch::is_development_lane_method(&method) {
-        return Ok(dispatch_op_development_lane(
+    // Native development-lane hold/quota authority. The domain handler itself
+    // enumerates all six writes and both reads, so dispatch owns no parallel
+    // classifier and a future Method cannot fall into a wildcard commit.
+    let method = match handlers::development_lane::try_handle(
+        handlers::development_lane::HandleContext {
             req_id,
             graph_name,
-            persistence.clone(),
+            persistence,
             #[cfg(feature = "raft")]
-            multi_raft.clone(),
+            multi_raft,
             #[cfg(feature = "raft")]
-            routed_raft.clone(),
-            method,
-        )
-        .await);
-    }
+            routed_raft,
+        },
+        method,
+    )
+    .await
+    {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
 
-    // Engine-native WorkItem transitions are result-producing durable CAS
-    // operations. They must execute at the current placement leader (a generic
-    // Raft acknowledgement cannot carry the selected work-item result), and their
-    // redb MutationBatch atomically persists the transition/result/outbox before
-    // the in-memory graph projection is refreshed.
-    if crate::server::mutation_batch::is_work_item_mutation_method(&method) {
-        return Ok(dispatch_op_workitem_mutation(
+    // The WorkItem handler owns its six lifecycle Methods explicitly and keeps
+    // their authoritative MutationBatch effect. Submission and reservation
+    // operations deliberately fall through to their existing native route.
+    let method = match handlers::work_item::try_handle(
+        handlers::work_item::HandleContext {
+            req_id,
+            graph_name,
+            caller,
+            core,
+            persistence,
+            #[cfg(feature = "raft")]
+            routed_raft,
+        },
+        method,
+    )
+    .await
+    {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+
+    if matches!(
+        &method,
+        Method::SubmitWorkItem { .. } | Method::SubmitWorkItems { .. }
+    ) || crate::server::mutation_batch::is_resource_reservation_method(&method)
+    {
+        return Ok(dispatch_op_workitem_submission_or_resources(
             req_id,
             graph_name,
             caller,

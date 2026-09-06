@@ -4699,9 +4699,8 @@ mod tests {
              context -- never enters MutationBatch/result/outbox/CDC projections, so it does not \
              fit commit_mutation's (ctx, plan, method, apply) shape at all",
         ),
-        // ── fix/eg-devlane-dispatch: DevelopmentLane*'s 6 write methods now route through
-        // dispatch.rs's dedicated `is_development_lane_method` block (sitting beside the
-        // WorkItem-claim-capability block), which commits through
+        // ── DevelopmentLane*'s 6 write methods now route through the explicit
+        // `handlers::development_lane::try_handle` owner, which commits through
         // `PersistenceBackend::commit_development_lane` -> the redb writer thread ->
         // `redb_store::development_lane::commit_development_lane` -- a self-contained
         // begin_write()/commit() against the native `development_lane_*` tables. Same posture
@@ -4711,12 +4710,12 @@ mod tests {
         // 174c381) said "no dispatch.rs wire-routing arm exists yet" -- that arm now exists;
         // see access.rs's REASON_NATIVE_DEVELOPMENT_LANE_READ for the read-side twin
         // (DevelopmentLaneStatus/QueryDevelopmentLane). ──
-        ("ReserveDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("RenewDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("ObserveDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("FinishDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("CleanupDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("UpdateDevelopmentLaneQuota", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("ReserveDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("RenewDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("ObserveDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("FinishDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("CleanupDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("UpdateDevelopmentLaneQuota", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
     ];
 
     /// Graph-scoped methods requiring a coordinator outside this gateway. The set is

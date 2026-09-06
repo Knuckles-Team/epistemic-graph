@@ -12,7 +12,7 @@ mod compile;
 mod digest;
 
 pub(crate) use canonical::{
-    domain_for, is_capacity_method, is_development_lane_method, is_resource_reservation_method,
+    domain_for, is_capacity_method, is_resource_reservation_method,
     is_resource_reservation_query_method, is_work_item_method, is_work_item_mutation_method,
 };
 pub(crate) use commit::{

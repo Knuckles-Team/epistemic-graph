@@ -2270,8 +2270,7 @@ const REASON_NATIVE_RESERVATION_READ: &str =
 const REASON_NATIVE_CAPABILITY_LEDGER: &str =
     "dispatch.rs's dedicated WorkItem-claim-capability block routes VerifyWorkItemClaimCapability to redb_store::work_item_capability::verify_work_item_claim_capability against its own private ledger, keyed by an AuthenticatedAuthority derived from the verified request context -- never enters MutationBatch/result/outbox/CDC projections or a GraphView, same posture as MintWorkItemClaimCapability's write-side native ledger";
 // RMDD-28 dispatch wiring (fix/eg-devlane-dispatch): `DevelopmentLaneStatus`/
-// `QueryDevelopmentLane` now route through dispatch.rs's dedicated development-lane block
-// (`is_development_lane_method`, sitting beside the WorkItem-claim-capability block above) to
+// `QueryDevelopmentLane` now route through `handlers::development_lane::try_handle` to
 // `PersistenceBackend::read_development_lane[_status]`, which call
 // `redb_store::development_lane::read_development_lane[_status]` directly against the native
 // `development_lane_*` redb tables -- never a `GraphView`/`core.analysis_snapshot()`. Gated by
@@ -2280,7 +2279,7 @@ const REASON_NATIVE_CAPABILITY_LEDGER: &str =
 // redacts `worktree_locator`/`host_ref`/`host_target_alias` on every row returned, so no
 // additional per-caller redaction is needed here the way `ResourceReservationStatus` needs one.
 const REASON_NATIVE_DEVELOPMENT_LANE_READ: &str =
-    "dispatch.rs's is_development_lane_method block routes DevelopmentLaneStatus/QueryDevelopmentLane directly to PersistenceBackend::read_development_lane/read_development_lane_status, which call redb_store::development_lane::read_development_lane/read_development_lane_status against the native development_lane_* redb tables (redb_store/development_lane.rs), gated by the current placement leader under raft -- never a GraphView/core.analysis_snapshot() row read; the kernel's own public_hold projection already redacts worktree_locator/host_ref/host_target_alias on every row, so no dispatch-layer redaction is needed";
+    "handlers::development_lane::try_handle routes DevelopmentLaneStatus/QueryDevelopmentLane directly to PersistenceBackend::read_development_lane/read_development_lane_status, which call redb_store::development_lane::read_development_lane/read_development_lane_status against the native development_lane_* redb tables (redb_store/development_lane.rs), gated by the current placement leader under raft -- never a GraphView/core.analysis_snapshot() row read; the kernel's own public_hold projection already redacts worktree_locator/host_ref/host_target_alias on every row, so no dispatch-layer redaction is needed";
 
 // CA-16 (DEC-CA-04): the policy-bundle export reads the caller-supplied marking/
 // principal input plus IsolationLayer's own configuration surface (never one

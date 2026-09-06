@@ -299,71 +299,7 @@ pub(super) async fn dispatch_op_workitem_claim_capability(
     }
 }
 
-pub(super) async fn dispatch_op_development_lane(
-    req_id: u64,
-    graph_name: &str,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    #[cfg(feature = "raft")] multi_raft: Option<std::sync::Arc<crate::raft::multi::MultiRaft>>,
-    #[cfg(feature = "raft")] routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
-    method: Method,
-) -> Response {
-    #[cfg(feature = "raft")]
-    if let Some(routed) = routed_raft.as_ref() {
-        let leader = routed.handle.current_leader().await;
-        if leader != Some(routed.handle.node_id) {
-            return Response::stale_route(
-                req_id,
-                graph_name,
-                routed.group_id,
-                routed.epoch,
-                leader,
-                "development-lane operations require the current placement leader",
-            );
-        }
-        if let Some(multi) = multi_raft.as_ref() {
-            if let Err(error) = multi.read_barrier_group(routed.group_id).await {
-                return Response::err(
-                    req_id,
-                    format!("development-lane linearizability barrier failed: {error:?}"),
-                );
-            }
-        }
-    }
-    let Some(backend) = persistence.as_ref() else {
-        return Response::err(req_id, "native development-lane persistence is unavailable");
-    };
-    let fname = crate::persist::sanitize(graph_name);
-    let now_ms = authoritative_now_ms();
-    let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-    match method {
-        Method::QueryDevelopmentLane { ref request } => backend
-            .read_development_lane(&fname, request, now_ms)
-            .await
-            .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
-            .unwrap_or_else(|error| {
-                Response::err(req_id, format!("development-lane query failed: {error}"))
-            }),
-        Method::DevelopmentLaneStatus { ref request } => backend
-            .read_development_lane_status(&fname, request, now_ms)
-            .await
-            .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
-            .unwrap_or_else(|error| {
-                Response::err(
-                    req_id,
-                    format!("development-lane status read failed: {error}"),
-                )
-            }),
-        _ => backend
-            .commit_development_lane(&fname, method, now_ms)
-            .await
-            .map(|bytes| Response::ok(req_id, ResultPayload::Raw(bytes)))
-            .unwrap_or_else(|error| {
-                Response::err(req_id, format!("development-lane commit failed: {error}"))
-            }),
-    }
-}
-
-pub(super) async fn dispatch_op_workitem_mutation(
+pub(super) async fn dispatch_op_workitem_submission_or_resources(
     req_id: u64,
     graph_name: &str,
     caller: Option<&str>,

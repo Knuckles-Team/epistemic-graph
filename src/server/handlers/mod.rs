@@ -12,6 +12,14 @@ pub(crate) mod datascience;
 #[cfg(feature = "finance")]
 pub(crate) mod finance;
 pub(crate) mod graph_ops;
+// Engine-native WorkItem lifecycle transitions. The handler owns the six
+// result-producing transition Methods explicitly; their durable effect remains
+// the one MutationBatch commit in `mutation_batch::commit_work_item`.
+pub(crate) mod work_item;
+// Native development-lane hold/quota authority. All six writes and both reads
+// are enumerated in the handler; dispatch does not classify this domain or use
+// a wildcard commit arm.
+pub(crate) mod development_lane;
 // Native Piper-ONNX text-to-speech synthesis (GOC-34, `OWNER-VOICE-TTS`, feature
 // `tts-piper`). Stateless — no graph core, runs inline, mirroring finance's
 // pure-compute shape. A build without `tts-piper` omits the module and
