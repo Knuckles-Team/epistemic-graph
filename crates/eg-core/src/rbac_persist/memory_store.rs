@@ -8,6 +8,15 @@ use super::{
 /// contract as redb; there is no absent or no-op persistence state.
 #[derive(Debug, Default)]
 pub struct MemoryRbacStore {
+    /// Policy, identities, bootstrap state, and the store revision under ONE
+    /// lock so `authority_snapshot` cannot compose a revision with a policy
+    /// image from a different `save()`.
+    ///
+    /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): this store has no
+    /// `eg_mutation_store`/`db` to reuse an existing durable counter from
+    /// (unlike `RbacStore`), so the fourth slot is a genuinely new counter,
+    /// incremented once per `save()` call -- the in-memory analogue of the
+    /// same "monotonic, bumped once per successful save" property.
     state: parking_lot::RwLock<(
         RbacPolicy,
         BTreeMap<String, AgentIdentity>,

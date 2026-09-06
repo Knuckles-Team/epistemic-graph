@@ -24,7 +24,6 @@ use std::fmt;
 use std::path::Path;
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use sha2::{Digest, Sha256};
 
 use crate::acl::AgentIdentity;
 use crate::rbac::RbacPolicy;
@@ -256,7 +255,7 @@ fn read_authority_revision(
 /// while every write-through also goes through the SAME store's mutation
 /// ledger for `security-control`'s version bookkeeping. `identity` is the
 /// fixed native scope identity (see `native_security_control_identity`)
-/// re-used on every load/save so it is validated exactly once per open.
+/// reused on every load/save so it is validated exactly once per open.
 pub struct RbacStore {
     mutation_store: eg_mutation_store::MutationStore,
     identity: eg_types::MutationScopeIdentity,
@@ -330,6 +329,7 @@ pub trait RbacPolicyStore: Send + Sync {
 
 mod durable_write;
 mod memory_store;
+
 pub use memory_store::MemoryRbacStore;
 
 impl fmt::Debug for RbacStore {
@@ -616,10 +616,14 @@ impl RbacPolicyStore for RbacStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::BTreeMap;
+
+    use super::{IdentityBootstrapState, RbacPersistError, RbacStore, IDENTITIES_KEY, RBAC_TABLE};
     use crate::acl::{
-        AgentRole, Grant, GrantEffect, RbacAction, ResourceContext, ResourceSelector, Role,
+        AgentIdentity, AgentRole, Grant, GrantEffect, RbacAction, ResourceContext,
+        ResourceSelector, Role,
     };
+    use crate::rbac::RbacPolicy;
 
     /// A unique temp dir per test invocation (no external dev-dep needed).
     fn tmp_dir(tag: &str) -> std::path::PathBuf {

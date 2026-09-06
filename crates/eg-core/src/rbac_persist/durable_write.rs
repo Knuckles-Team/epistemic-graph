@@ -1,4 +1,15 @@
-use super::*;
+use std::collections::{BTreeMap, BTreeSet};
+
+use redb::{ReadableDatabase, ReadableTable};
+use sha2::{Digest, Sha256};
+
+use crate::acl::AgentIdentity;
+use crate::rbac::RbacPolicy;
+
+use super::{
+    IdentityBootstrapState, RbacPersistError, RbacStore, BOOTSTRAP_KEY, IDENTITIES_KEY, POLICY_KEY,
+    RBAC_TABLE,
+};
 
 struct EncodedAuthorityState {
     policy: Vec<u8>,
@@ -23,7 +34,7 @@ pub(super) fn save_authority_state(
         RbacPersistError::Redb("identity/RBAC state version overflow".to_string())
     })?;
     let batch = authority_batch(store, expected, target, &encoded.digest);
-    write_authority_state(store, &batch, &encoded)
+    persist_authority_state(store, &batch, &encoded)
 }
 
 fn encode_authority_state(
@@ -93,7 +104,9 @@ fn authority_batch(
             purpose: None,
             policy_fingerprint: None,
             trace_id: None,
-            verified_capabilities: std::collections::BTreeSet::new(),
+            // OCC supplies the expected version, so this path claims no
+            // unversioned-system-mutation capability.
+            verified_capabilities: BTreeSet::new(),
         },
         identity: store.identity.clone(),
         placement_epoch: 0,
@@ -114,13 +127,13 @@ fn authority_batch(
             topic: "engine.security.committed".to_string(),
             key: batch_id,
             payload: digest.as_bytes().to_vec(),
-            headers: std::collections::BTreeMap::new(),
+            headers: BTreeMap::new(),
         }],
         created_at_ms: 0,
     }
 }
 
-fn write_authority_state(
+fn persist_authority_state(
     store: &RbacStore,
     batch: &eg_types::MutationBatch,
     encoded: &EncodedAuthorityState,
