@@ -1,206 +1,6 @@
-use crate::apply::{begin, commit, finish};
-use crate::ledger_tables::{FENCES, OUTBOX, PRIVATE_PAYLOADS};
-use crate::read::{read_outbox, read_private_payload, read_record, version};
-use crate::saga::prepare_saga_with_private_payload;
-use crate::write::MutationWrite;
-use crate::Begin;
-use eg_storage::{
-    strict_recovery_evidence, BlobOwner, LedgerOnlyOwner, MutationOwnerAuthority, OwnedStoreHandle,
-    OwnerDomain, OwnerLayout, PhysicalStoreIdentity, PrivatePayloadIntegrity, ScopeGrantVerifier,
-    StorageKernelV1,
-};
-use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationDomain, MutationRequestContext, MutationSurface, TenantId,
-    VersionExpectation,
-};
-use eg_types::protocol::Method;
-use eg_types::{
-    MutationBatch, MutationOperation, MutationScopeIdentity, MUTATION_BATCH_VERSION,
-};
-use redb::{TableDefinition, TableHandle};
-use std::collections::BTreeSet;
-use std::path::Path;
-use std::sync::Arc;
+//! Ledger admission, ordering, fencing, saga and adoption behaviour.
 
-const PRINCIPAL: &str =
-    "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
-struct TestIntegrity;
-
-impl PrivatePayloadIntegrity for TestIntegrity {
-    fn authenticate(&self, sealed: &[u8], expected_digest: &str) -> Result<(), String> {
-        let expected = format!("sealed:{expected_digest}");
-        (sealed == expected.as_bytes())
-            .then_some(())
-            .ok_or_else(|| "test canonical integrity rejection".to_string())
-    }
-}
-
-struct TestScopeVerifier {
-    tenant: &'static str,
-    principal: &'static str,
-    layout: OwnerLayout,
-}
-
-impl ScopeGrantVerifier for TestScopeVerifier {
-    fn verify(
-        &self,
-        _physical: &PhysicalStoreIdentity,
-        layout: OwnerLayout,
-        identity: &MutationScopeIdentity,
-        principal: &str,
-        proof: &[u8],
-    ) -> Result<(), String> {
-        if layout != self.layout
-            || identity.tenant().as_str() != self.tenant
-            || principal != self.principal
-            || proof != b"verified"
-        {
-            return Err("test scope authority rejected".to_string());
-        }
-        Ok(())
-    }
-}
-
-fn verifier(tenant: &'static str, layout: OwnerLayout) -> TestScopeVerifier {
-    TestScopeVerifier {
-        tenant,
-        principal: PRINCIPAL,
-        layout,
-    }
-}
-
-fn native_identity(tenant: &str, incarnation: &str) -> MutationScopeIdentity {
-    MutationScopeIdentity::native(
-        TenantId::new(tenant).unwrap(),
-        MutationDomain::BlobStore,
-        LogicalName::new("blob-catalog").unwrap(),
-        IncarnationId::new(incarnation).unwrap(),
-    )
-    .unwrap()
-}
-
-fn batch(identity: MutationScopeIdentity, batch_id: &str) -> MutationBatch {
-    MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.to_string(),
-        context: MutationRequestContext {
-            request_id: 1,
-            principal: PRINCIPAL.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: BTreeSet::new(),
-        },
-        identity,
-        placement_epoch: 0,
-        idempotency_key: format!("retry-{batch_id}"),
-        version_expectation: VersionExpectation::Native(0),
-        fencing_token: None,
-        authoritative_state: None,
-        operations: vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Other,
-            domain: MutationDomain::BlobStore,
-            method: Method::ApplyMutation {
-                event_type: "blob_test".to_string(),
-                query: "opaque".to_string(),
-            },
-        }],
-        outbox: Vec::new(),
-        created_at_ms: 1,
-    }
-}
-
-fn recovery_batch(identity: MutationScopeIdentity, batch_id: &str) -> (MutationBatch, Vec<u8>) {
-    let digest = "b".repeat(64);
-    let mut batch = batch(identity, batch_id);
-    batch.operations[0].method = Method::ApplyMutation {
-        event_type: "transaction_recovery_plan".to_string(),
-        query: format!("sha256:{digest}"),
-    };
-    (batch, format!("sealed:{digest}").into_bytes())
-}
-
-/// One owner file plus its single mutation authority.
-struct Fixture {
-    kernel: StorageKernelV1,
-    authority: MutationOwnerAuthority,
-}
-
-impl Fixture {
-    fn create<D: OwnerDomain>(
-        path: &Path,
-        physical: &str,
-        integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
-    ) -> Self {
-        let kernel = StorageKernelV1::create_owner::<D>(
-            path,
-            PhysicalStoreIdentity::new(physical).unwrap(),
-            integrity,
-        )
-        .unwrap();
-        Self::split(kernel)
-    }
-
-    fn open<D: OwnerDomain>(
-        path: &Path,
-        physical: &str,
-        integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
-    ) -> Self {
-        let kernel = StorageKernelV1::open_owner::<D>(
-            path,
-            PhysicalStoreIdentity::new(physical).unwrap(),
-            integrity,
-        )
-        .unwrap();
-        Self::split(kernel)
-    }
-
-    fn split(kernel: StorageKernelV1) -> Self {
-        let (kernel, authority) = kernel.into_read_and_mutation_authority().unwrap();
-        Self { kernel, authority }
-    }
-
-    fn bind<D: OwnerDomain>(
-        &self,
-        verifier: &dyn ScopeGrantVerifier,
-        identity: MutationScopeIdentity,
-    ) -> OwnedStoreHandle<D> {
-        let grant = self
-            .kernel
-            .authenticate_scope::<D>(verifier, identity, PRINCIPAL.to_string(), b"verified")
-            .unwrap();
-        self.kernel.bind_serving_scope(grant, 0).unwrap()
-    }
-}
-
-fn ledger_fixture(path: &Path, identity: MutationScopeIdentity) -> (Fixture, OwnedStoreHandle<LedgerOnlyOwner>) {
-    let fixture = Fixture::create::<LedgerOnlyOwner>(path, "physical:test:ledger-only", None);
-    let owner = fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
-    (fixture, owner)
-}
-
-fn apply_batch<D: OwnerDomain>(
-    fixture: &Fixture,
-    owner: &OwnedStoreHandle<D>,
-    batch: &MutationBatch,
-) {
-    let write = MutationWrite::open(&fixture.authority, owner).unwrap();
-    let source_version = match begin(&write, batch).unwrap() {
-        Begin::Apply { source_version } => source_version,
-        Begin::Replay(_) => panic!("unexpected replay"),
-    };
-    if D::LAYOUT != OwnerLayout::LedgerOnly {
-        write
-            .begin_owner(owner, batch)
-            .unwrap()
-            .finish_owner()
-            .unwrap();
-    }
-    finish(&write, batch, None, 2, source_version).unwrap();
-    commit(write, batch).unwrap();
-}
+use super::*;
 
 #[test]
 fn one_physical_root_serves_multiple_scopes_without_cross_tenant_aliasing() {
@@ -218,8 +18,8 @@ fn one_physical_root_serves_multiple_scopes_without_cross_tenant_aliasing() {
 
     let read_a = fixture.kernel.read_scope(&owner_a).unwrap();
     let read_b = fixture.kernel.read_scope(&owner_b).unwrap();
-    assert!(read_record(&read_a, "same-batch-id").unwrap().is_some());
-    assert!(read_record(&read_b, "same-batch-id").unwrap().is_some());
+    assert!(read_ledger(&read_a, "same-batch-id").unwrap().is_some());
+    assert!(read_ledger(&read_b, "same-batch-id").unwrap().is_some());
     assert_eq!(version(&read_a).unwrap(), 1);
     assert_eq!(version(&read_b).unwrap(), 1);
 }
@@ -243,7 +43,7 @@ fn backup_derives_a_distinct_physical_root_and_rebinds_scopes() {
         identity,
     );
     let read = backup.kernel.read_scope(&owner).unwrap();
-    assert!(read_record(&read, "backup-batch").unwrap().is_some());
+    assert!(read_ledger(&read, "backup-batch").unwrap().is_some());
 }
 
 #[test]
@@ -260,7 +60,10 @@ fn private_recovery_authenticity_uses_injected_canonical_authority() {
         identity,
     );
     let (batch, sealed) = recovery_batch(owner.identity().clone(), "recovery-batch");
-    prepare_saga_with_private_payload(&fixture.authority, &owner, &batch, 2, Some(&sealed)).unwrap();
+    fixture
+        .mutations
+        .saga_step(&owner, &batch, 2, Some(&sealed))
+        .unwrap();
     let read = fixture.kernel.read_scope(&owner).unwrap();
     assert_eq!(
         read_private_payload(&read, &batch.batch_id).unwrap(),
@@ -282,14 +85,10 @@ fn forged_private_recovery_payload_fails_closed() {
         identity,
     );
     let (batch, _) = recovery_batch(owner.identity().clone(), "forged-recovery");
-    assert!(prepare_saga_with_private_payload(
-        &fixture.authority,
-        &owner,
-        &batch,
-        2,
-        Some(b"\xe6forged")
-    )
-    .is_err());
+    assert!(fixture
+        .mutations
+        .saga_step(&owner, &batch, 2, Some(b"\xe6forged"))
+        .is_err());
 }
 
 #[test]
@@ -298,14 +97,10 @@ fn missing_private_integrity_authority_fails_closed() {
     let identity = native_identity("tenant-a", "incarnation:blob:1");
     let (fixture, owner) = ledger_fixture(&dir.path().join("native.redb"), identity);
     let (batch, sealed) = recovery_batch(owner.identity().clone(), "missing-integrity");
-    assert!(prepare_saga_with_private_payload(
-        &fixture.authority,
-        &owner,
-        &batch,
-        2,
-        Some(&sealed)
-    )
-    .is_err());
+    assert!(fixture
+        .mutations
+        .saga_step(&owner, &batch, 2, Some(&sealed))
+        .is_err());
 }
 
 #[test]
@@ -329,12 +124,9 @@ fn authenticated_binding_rejects_cross_tenant_and_different_actor() {
     let owner = fixture.bind::<BlobOwner>(&verifier, identity.clone());
     let mut wrong_actor = batch(identity, "wrong-actor");
     wrong_actor.context.principal = format!("principal:sha256:{}", "b".repeat(64));
-    let write = MutationWrite::open(&fixture.authority, &owner).unwrap();
-    assert!(matches!(
-        begin(&write, &wrong_actor).unwrap(),
-        Begin::Apply { .. }
-    ));
-    assert!(write.begin_owner(&owner, &wrong_actor).is_err());
+    let (write, begun) = fixture.mutations.admit(&owner, &wrong_actor).unwrap();
+    assert!(matches!(begun, Begin::Apply { .. }));
+    assert!(write.owner_rows(&owner, &wrong_actor).is_err());
 }
 
 #[test]
@@ -345,13 +137,15 @@ fn unfinished_owner_capability_poisons_the_outer_write() {
     let identity = native_identity("tenant-a", "incarnation:blob:a");
     let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
     let batch = batch(identity, "poisoned-owner");
-    let write = MutationWrite::open(&fixture.authority, &owner).unwrap();
-    let source = match begin(&write, &batch).unwrap() {
+    let (write, begun) = fixture.mutations.admit(&owner, &batch).unwrap();
+    let source = match begun {
         Begin::Apply { source_version } => source_version,
         Begin::Replay(_) => panic!("unexpected replay"),
     };
-    drop(write.begin_owner(&owner, &batch).unwrap());
-    assert!(finish(&write, &batch, None, 2, source)
+    drop(write.owner_rows(&owner, &batch).unwrap());
+    assert!(fixture
+        .mutations
+        .finish(&write, &batch, None, 2, source)
         .unwrap_err()
         .contains("poisoned"));
 }
@@ -366,32 +160,31 @@ fn strict_owner_preserves_sequential_batches_occ_and_replay() {
     let first = batch(identity.clone(), "strict-first");
     let mut second = batch(identity, "strict-second");
     second.version_expectation = VersionExpectation::Native(1);
-    let write = MutationWrite::open(&fixture.authority, &owner).unwrap();
-    let first_source = match begin(&write, &first).unwrap() {
+    let (write, begun) = fixture.mutations.admit(&owner, &first).unwrap();
+    let first_source = match begun {
         Begin::Apply { source_version } => source_version,
         Begin::Replay(_) => panic!("unexpected replay"),
     };
-    write
-        .begin_owner(&owner, &first)
-        .unwrap()
-        .finish_owner()
+    write.owner_rows(&owner, &first).unwrap().finish_owner().unwrap();
+    fixture
+        .mutations
+        .finish(&write, &first, None, 2, first_source)
         .unwrap();
-    finish(&write, &first, None, 2, first_source).unwrap();
-    let second_source = match begin(&write, &second).unwrap() {
+    let second_source = match write.begin(&second).unwrap() {
         Begin::Apply { source_version } => source_version,
         Begin::Replay(_) => panic!("unexpected replay"),
     };
-    write
-        .begin_owner(&owner, &second)
-        .unwrap()
-        .finish_owner()
+    write.owner_rows(&owner, &second).unwrap().finish_owner().unwrap();
+    fixture
+        .mutations
+        .finish(&write, &second, None, 3, second_source)
         .unwrap();
-    finish(&write, &second, None, 3, second_source).unwrap();
-    commit(write, &second).unwrap();
+    fixture.mutations.commit(write, &second).unwrap();
     assert_eq!(version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(), 2);
 
-    let replay = MutationWrite::open(&fixture.authority, &owner).unwrap();
-    assert!(matches!(begin(&replay, &first).unwrap(), Begin::Replay(_)));
+    let (replay, begun) = fixture.mutations.admit(&owner, &first).unwrap();
+    assert!(matches!(begun, Begin::Replay(_)));
+    replay.abort().unwrap();
 }
 
 #[test]
@@ -410,7 +203,9 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
     let identity = native_identity("tenant-a", "incarnation:staged-adoption");
     let owner = fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
     let (private_batch, sealed) = recovery_batch(identity.clone(), "staged-private");
-    prepare_saga_with_private_payload(&fixture.authority, &owner, &private_batch, 2, Some(&sealed))
+    fixture
+        .mutations
+        .saga_step(&owner, &private_batch, 2, Some(&sealed))
         .unwrap();
     let mut committed_batch = batch(identity.clone(), "staged-committed");
     committed_batch.placement_epoch = 7;
@@ -421,13 +216,13 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
         payload: b"preserved".to_vec(),
         headers: Default::default(),
     });
-    let owner_scope = identity.binding_digest().to_hex();
-    let write = MutationWrite::open(&fixture.authority, &owner).unwrap();
-    let source_version = match begin(&write, &committed_batch).unwrap() {
+    let owner_scope = eg_storage::ledger_scope_key(&identity);
+    let (write, begun) = fixture.mutations.admit(&owner, &committed_batch).unwrap();
+    let source_version = match begun {
         Begin::Apply { source_version } => source_version,
         Begin::Replay(_) => panic!("unexpected replay"),
     };
-    let owner_write = write.begin_owner(&owner, &committed_batch).unwrap();
+    let owner_write = write.owner_rows(&owner, &committed_batch).unwrap();
     write
         .transaction()
         .open_table(BLOB_ROWS)
@@ -438,8 +233,11 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
         )
         .unwrap();
     owner_write.finish_owner().unwrap();
-    finish(&write, &committed_batch, None, 3, source_version).unwrap();
-    commit(write, &committed_batch).unwrap();
+    fixture
+        .mutations
+        .finish(&write, &committed_batch, None, 3, source_version)
+        .unwrap();
+    fixture.mutations.commit(write, &committed_batch).unwrap();
 
     let expected_manifest = fixture.kernel.owner_manifest_digest().unwrap();
     let source_root = fixture.kernel.incarnation().identity_digest();
@@ -493,7 +291,7 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
         b"owner-row"
     );
     drop(table);
-    assert!(read_record(&read, "staged-committed").unwrap().is_some());
+    assert!(read_ledger(&read, "staged-committed").unwrap().is_some());
     assert_eq!(version(&read).unwrap(), 1);
     assert_eq!(read_outbox(&read, "staged-committed").unwrap().len(), 1);
     assert_eq!(
@@ -529,7 +327,7 @@ fn ledger_table_declarations_match_the_storage_kernel_census() {
     let declared = eg_storage::declared_table_names(OwnerLayout::LedgerOnly)
         .into_iter()
         .collect::<BTreeSet<_>>();
-    let mine = crate::ledger_tables::ledger_table_names()
+    let mine = crate::tables::ledger_table_names()
         .into_iter()
         .collect::<BTreeSet<_>>();
     assert!(mine.is_subset(&declared), "{mine:?} vs {declared:?}");

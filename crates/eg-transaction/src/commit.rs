@@ -2,12 +2,19 @@
 
 use crate::ledger::{
     idempotency_batch_id, persist_idempotency, persist_record, read_record_in_write,
-    remove_private, scope_identity_key, source_version, verify_replay_identity,
+    remove_private, source_version, verify_replay_identity,
 };
-use crate::ledger_tables::{Fence, BATCHES, FENCES, IDEMPOTENCY, OUTBOX, SCOPE_BINDINGS, VERSIONS};
-use crate::write::MutationWrite;
+use crate::replay::remove_replay_rows;
+use crate::tables::{
+    BATCHES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, REPLAY_NONCES, REPLAY_OPERATIONS,
+    SCOPE_BINDINGS, VERSIONS,
+};
+use crate::admitted::AdmittedMutation;
 use crate::Begin;
-use eg_storage::{decode_batch_record, decode_ledger_record, encode_bounded, OwnerDomain};
+use eg_storage::{
+    decode_batch_record, decode_ledger_record, encode_bounded, ledger_scope_key, OwnerDomain,
+    ScopeFence,
+};
 use eg_types::mutation_batch::MutationCommitPhase;
 use eg_types::{
     CommittedVersion, MutationBatch, MutationBatchRecord, MutationBatchStatus,
@@ -16,8 +23,8 @@ use eg_types::{
 use redb::{ReadableTable, WriteTransaction};
 
 /// Validate binding, exact idempotency, OCC, and route fencing before owner rows change.
-pub fn begin<D: OwnerDomain>(
-    write: &MutationWrite<'_, D>,
+pub(crate) fn begin<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<Begin, String> {
     batch.validate_write_budget()?;
@@ -59,7 +66,7 @@ pub fn begin<D: OwnerDomain>(
 }
 
 fn replay_begin<D: OwnerDomain>(
-    write: &MutationWrite<'_, D>,
+    write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
     batch_id: &str,
 ) -> Result<Begin, String> {
@@ -77,39 +84,35 @@ fn replay_begin<D: OwnerDomain>(
 }
 
 fn reject_stale_fence(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<(), String> {
-    let identity_key = scope_identity_key(&batch.identity);
+    let identity_key = ledger_scope_key(&batch.identity);
     let table = wtx.open_table(FENCES).map_err(|error| error.to_string())?;
     let current = table
         .get(identity_key.as_str())
         .map_err(|error| error.to_string())?
-        .map(|value| decode_ledger_record::<Fence>(value.value()))
-        .transpose()?
-        .unwrap_or(Fence {
-            placement_epoch: 0,
-            fencing_token: 0,
-        });
-    let proposed = Fence {
-        placement_epoch: batch.placement_epoch,
-        fencing_token: batch.fencing_token.unwrap_or(0),
+        .map(|value| decode_ledger_record::<ScopeFence>(value.value()))
+        .transpose()?;
+    let Some(current) = current else {
+        return Ok(());
     };
-    if proposed.placement_epoch < current.placement_epoch
-        || (proposed.placement_epoch == current.placement_epoch
-            && proposed.fencing_token < current.fencing_token)
+    if current.identity != batch.identity {
+        return Err("mutation fence row is not stamped with this scope identity".to_string());
+    }
+    let proposed_token = batch.fencing_token.unwrap_or(0);
+    if batch.placement_epoch < current.placement_epoch
+        || (batch.placement_epoch == current.placement_epoch
+            && proposed_token < current.fencing_token)
     {
         return Err(format!(
             "STALE_FENCE: proposed route ({},{}) is older than ({},{})",
-            proposed.placement_epoch,
-            proposed.fencing_token,
-            current.placement_epoch,
-            current.fencing_token
+            batch.placement_epoch, proposed_token, current.placement_epoch, current.fencing_token
         ));
     }
     Ok(())
 }
 
 /// Persist terminal metadata after owner rows changed in the same transaction.
-pub fn finish<D: OwnerDomain>(
-    write: &MutationWrite<'_, D>,
+pub(crate) fn finish<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
     result_msgpack: Option<Vec<u8>>,
     committed_at_ms: u64,
@@ -171,12 +174,13 @@ fn write_version(
 }
 
 fn write_fence(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<(), String> {
-    let fence = Fence {
+    let fence = ScopeFence {
+        identity: batch.identity.clone(),
         placement_epoch: batch.placement_epoch,
         fencing_token: batch.fencing_token.unwrap_or(0),
     };
     let bytes = encode_bounded(&fence, "mutation fence")?;
-    let identity_key = scope_identity_key(&batch.identity);
+    let identity_key = ledger_scope_key(&batch.identity);
     wtx.open_table(FENCES)
         .map_err(|error| error.to_string())?
         .insert(identity_key.as_str(), bytes.as_slice())
@@ -189,7 +193,7 @@ fn write_outbox(
     batch: &MutationBatch,
     committed_version: CommittedVersion,
 ) -> Result<(), String> {
-    let identity_key = scope_identity_key(&batch.identity);
+    let identity_key = ledger_scope_key(&batch.identity);
     let mut table = wtx.open_table(OUTBOX).map_err(|error| error.to_string())?;
     for (ordinal, intent) in batch.outbox.iter().enumerate() {
         let outbox = MutationOutboxRecord {
@@ -217,8 +221,8 @@ fn write_outbox(
     Ok(())
 }
 
-pub fn commit<D: OwnerDomain>(
-    write: MutationWrite<'_, D>,
+pub(crate) fn commit<D: OwnerDomain>(
+    write: AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<(), String> {
     write.verify_scope(&batch.identity)?;
@@ -232,17 +236,17 @@ pub fn commit<D: OwnerDomain>(
 }
 
 /// Atomically remove authority for one exact logical generation.
-pub fn purge_scope<D: OwnerDomain>(
-    write: &MutationWrite<'_, D>,
+pub(crate) fn purge_scope<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
     identity: &MutationScopeIdentity,
 ) -> Result<(), String> {
     write.verify_scope(identity)?;
-    let identity_key = scope_identity_key(identity);
+    let identity_key = ledger_scope_key(identity);
     let batch_ids = collect_batch_ids(write.transaction(), identity, &identity_key)?;
     for batch_id in &batch_ids {
         remove_batch_rows(write.transaction(), &identity_key, batch_id)?;
     }
-    remove_scope_rows(write.transaction(), identity, &identity_key)
+    remove_scope_rows(write.transaction(), &identity_key)
 }
 
 fn collect_batch_ids(
@@ -293,11 +297,7 @@ fn remove_batch_rows(
     remove_private(wtx, identity_key, batch_id)
 }
 
-fn remove_scope_rows(
-    wtx: &WriteTransaction,
-    identity: &MutationScopeIdentity,
-    identity_key: &str,
-) -> Result<(), String> {
+fn remove_scope_rows(wtx: &WriteTransaction, identity_key: &str) -> Result<(), String> {
     let mut idem = wtx
         .open_table(IDEMPOTENCY)
         .map_err(|error| error.to_string())?;
@@ -318,14 +318,35 @@ fn remove_scope_rows(
         .map_err(|error| error.to_string())?
         .remove(identity_key)
         .map_err(|error| error.to_string())?;
-    let binding_key = identity.binding_digest().to_hex();
+    remove_replay_rows(wtx, identity_key)?;
     wtx.open_table(VERSIONS)
         .map_err(|error| error.to_string())?
-        .remove(binding_key.as_str())
+        .remove(identity_key)
         .map_err(|error| error.to_string())?;
     wtx.open_table(SCOPE_BINDINGS)
         .map_err(|error| error.to_string())?
-        .remove(binding_key.as_str())
+        .remove(identity_key)
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Open every ledger table this crate owns once, inside `write`.
+///
+/// The storage kernel creates the whole declared census atomically at
+/// `create_owner`, so this never partially creates tables; it is the ledger's
+/// own fail-closed proof that each declared table is present and typed exactly
+/// as this crate declares it.
+pub(crate) fn open_ledger_tables<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+) -> Result<(), String> {
+    let wtx = write.transaction();
+    wtx.open_table(BATCHES).map_err(|e| e.to_string())?;
+    wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
+    wtx.open_table(VERSIONS).map_err(|e| e.to_string())?;
+    wtx.open_table(FENCES).map_err(|e| e.to_string())?;
+    wtx.open_table(OUTBOX).map_err(|e| e.to_string())?;
+    wtx.open_table(PRIVATE_PAYLOADS).map_err(|e| e.to_string())?;
+    wtx.open_table(REPLAY_NONCES).map_err(|e| e.to_string())?;
+    wtx.open_table(REPLAY_OPERATIONS).map_err(|e| e.to_string())?;
     Ok(())
 }

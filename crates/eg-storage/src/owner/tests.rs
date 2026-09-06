@@ -13,9 +13,11 @@ use redb::{MultimapTableDefinition, ReadableDatabase, TableDefinition};
 
 #[test]
 fn owner_layout_registry_has_frozen_cardinality() {
-    // The physical ledger has exactly 15 tables total. OWNER_MANIFEST is one
-    // of those 15; it is not a sixteenth table.
-    assert_eq!(LEDGER_TABLE_NAMES.len(), 15);
+    // The physical ledger has exactly 17 tables total. OWNER_MANIFEST is one
+    // of those 17; it is not an eighteenth table. Ledger format v2 added the
+    // two replay tables (`mutation_replay_nonces_v1`,
+    // `mutation_replay_operations_v1`) to the closed census.
+    assert_eq!(LEDGER_TABLE_NAMES.len(), 17);
     assert_eq!(owner_table_names(OwnerLayout::LedgerOnly).len(), 0);
     assert_eq!(owner_table_names(OwnerLayout::Rbac).len(), 1);
     assert_eq!(owner_table_names(OwnerLayout::Jobs).len(), 13);
@@ -154,7 +156,7 @@ fn manifest_registry_is_closed_for_every_layout() {
             layout,
         )
         .unwrap();
-        assert_eq!(manifest.tables.len(), 15 + owner_table_names(layout).len());
+        assert_eq!(manifest.tables.len(), 17 + owner_table_names(layout).len());
         let names = manifest
             .tables
             .iter()
@@ -577,7 +579,7 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     ] {
         names.extend(owner_table_names(layout));
     }
-    assert_eq!(names.len(), 54);
+    assert_eq!(names.len(), 56);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

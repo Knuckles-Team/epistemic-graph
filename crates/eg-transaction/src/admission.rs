@@ -1,7 +1,7 @@
 //! Per-write admission state machine: exactly one admitted batch, exactly one
 //! owner-row window inside it, and a poisoned write on any unfinished drop.
 
-use crate::write::{is_ledger_only, MutationWrite};
+use crate::admitted::{is_ledger_only, AdmittedMutation};
 use eg_storage::{encode_bounded, OwnerDomain, OwnerLayout};
 use eg_types::MutationBatch;
 
@@ -15,7 +15,7 @@ pub(crate) enum AdmissionState {
     Poisoned,
 }
 
-impl<D: OwnerDomain> MutationWrite<'_, D> {
+impl<D: OwnerDomain> AdmittedMutation<'_, D> {
     pub(crate) fn admit_apply_batch(&self, batch: &MutationBatch) -> Result<(), String> {
         let encoded = encode_bounded(batch, "admitted mutation batch")?;
         let mut state = self.admission.borrow_mut();

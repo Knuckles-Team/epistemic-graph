@@ -1,0 +1,174 @@
+//! Scoped ledger reads. Every entry point needs a kernel-issued
+//! [`ScopedRead`], which already proved the scope is bound to this store.
+
+use crate::tables::{BATCHES, FENCES, OUTBOX, PRIVATE_PAYLOADS, VERSIONS};
+use eg_storage::{
+    decode_batch_record, decode_ledger_record, decode_outbox_record, ledger_scope_key,
+    private_payload_digest, CollectionBudget, OwnerDomain, ScopeFence, ScopedRead,
+};
+use eg_types::{MutationBatchRecord, MutationOutboxRecord};
+
+/// Greatest batch id in redb's byte order, for a scope-bounded range scan.
+const MAX_BATCH_ID_SENTINEL: &str = "\u{10FFFF}";
+
+/// Authoritative version of the read's bound scope.
+pub fn version<D: OwnerDomain>(read: &ScopedRead<'_, D>) -> Result<u64, String> {
+    let key = ledger_scope_key(read.scope());
+    let table = read
+        .transaction()
+        .open_table(VERSIONS)
+        .map_err(|error| error.to_string())?;
+    table
+        .get(key.as_str())
+        .map_err(|error| error.to_string())?
+        .map(|value| value.value())
+        .ok_or_else(|| "mutation scope binding is missing its version row".to_string())
+}
+
+/// One persisted batch receipt of the read's bound scope.
+pub fn read_ledger<D: OwnerDomain>(
+    read: &ScopedRead<'_, D>,
+    batch_id: &str,
+) -> Result<Option<MutationBatchRecord>, String> {
+    let key = ledger_scope_key(read.scope());
+    let table = read
+        .transaction()
+        .open_table(BATCHES)
+        .map_err(|error| error.to_string())?;
+    table
+        .get((key.as_str(), batch_id))
+        .map_err(|error| error.to_string())?
+        .map(|value| decode_batch_record(value.value()))
+        .transpose()
+}
+
+/// Every outbox row of one batch of the read's bound scope.
+pub fn read_outbox<D: OwnerDomain>(
+    read: &ScopedRead<'_, D>,
+    batch_id: &str,
+) -> Result<Vec<MutationOutboxRecord>, String> {
+    let identity_key = ledger_scope_key(read.scope());
+    let table = read
+        .transaction()
+        .open_table(OUTBOX)
+        .map_err(|error| error.to_string())?;
+    let mut rows = Vec::new();
+    let mut budget = CollectionBudget::default();
+    for row in table
+        .range((identity_key.as_str(), batch_id, 0)..=(identity_key.as_str(), batch_id, u32::MAX))
+        .map_err(|error| error.to_string())?
+    {
+        let (_, value) = row.map_err(|error| error.to_string())?;
+        budget.account(value.value().len())?;
+        rows.push(decode_outbox_record(value.value())?);
+    }
+    Ok(rows)
+}
+
+/// The sealed private recovery payload of one prepared batch, authenticated
+/// against its parent receipt.
+pub fn read_private_payload<D: OwnerDomain>(
+    read: &ScopedRead<'_, D>,
+    batch_id: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    let identity_key = ledger_scope_key(read.scope());
+    let record = read_ledger(read, batch_id)?
+        .ok_or_else(|| "private recovery plan has no parent receipt".to_string())?;
+    let table = read
+        .transaction()
+        .open_table(PRIVATE_PAYLOADS)
+        .map_err(|error| error.to_string())?;
+    let sealed = table
+        .get((identity_key.as_str(), batch_id))
+        .map_err(|error| error.to_string())?
+        .map(|value| value.value().to_vec());
+    if let Some(bytes) = &sealed {
+        let digest = private_payload_digest(&record)
+            .ok_or_else(|| "private recovery payload has no digest-bound parent".to_string())?;
+        read.authenticate_private(bytes, digest)?;
+    }
+    Ok(sealed)
+}
+
+/// Every persisted batch receipt of the read's bound scope, in key order.
+pub fn read_batches<D: OwnerDomain>(
+    read: &ScopedRead<'_, D>,
+) -> Result<Vec<MutationBatchRecord>, String> {
+    let key = ledger_scope_key(read.scope());
+    let table = read
+        .transaction()
+        .open_table(BATCHES)
+        .map_err(|error| error.to_string())?;
+    let mut records = Vec::new();
+    let mut budget = CollectionBudget::default();
+    for row in table
+        .range((key.as_str(), "")..=(key.as_str(), MAX_BATCH_ID_SENTINEL))
+        .map_err(|error| error.to_string())?
+    {
+        let (_, value) = row.map_err(|error| error.to_string())?;
+        budget.account(value.value().len())?;
+        records.push(decode_batch_record(value.value())?);
+    }
+    Ok(records)
+}
+
+/// The durable route fence of the read's bound scope, if one was ever written.
+pub fn read_fences<D: OwnerDomain>(
+    read: &ScopedRead<'_, D>,
+) -> Result<Option<ScopeFence>, String> {
+    let key = ledger_scope_key(read.scope());
+    let table = read
+        .transaction()
+        .open_table(FENCES)
+        .map_err(|error| error.to_string())?;
+    let fence = table
+        .get(key.as_str())
+        .map_err(|error| error.to_string())?
+        .map(|value| decode_ledger_record::<ScopeFence>(value.value()))
+        .transpose()?;
+    Ok(fence)
+}
+
+/// Position inside one scope's outbox stream.
+///
+/// This is a *paging* position over [`read_outbox`], not a durable delivery
+/// claim: the six declared outbox delivery tables
+/// (`mutation_outbox_consumers_v1`, `..._deliveries_v1`, `..._cursors_v1`,
+/// `..._claim_cursors_v1`, `..._fairness_v1`, `..._topic_index_v1`) are
+/// declared in the manifest census but have no accepted claim/deliver/fairness
+/// protocol yet, so this kernel does not write them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutboxCursor {
+    batch_id: String,
+    next_ordinal: u32,
+}
+
+impl OutboxCursor {
+    /// Start of one batch's outbox stream.
+    pub fn start(batch_id: &str) -> Self {
+        Self {
+            batch_id: batch_id.to_string(),
+            next_ordinal: 0,
+        }
+    }
+
+    pub fn batch_id(&self) -> &str {
+        &self.batch_id
+    }
+
+    pub fn next_ordinal(&self) -> u32 {
+        self.next_ordinal
+    }
+
+    /// Advance past `record`, which must be the next row of this stream.
+    pub fn advance(&mut self, record: &MutationOutboxRecord) -> Result<(), String> {
+        if record.batch_id != self.batch_id || record.ordinal != self.next_ordinal {
+            return Err("outbox cursor advanced past a row it does not name".to_string());
+        }
+        self.next_ordinal = self
+            .next_ordinal
+            .checked_add(1)
+            .ok_or_else(|| "outbox cursor ordinal overflow".to_string())?;
+        Ok(())
+    }
+}

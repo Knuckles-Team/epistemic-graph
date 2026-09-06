@@ -2,15 +2,15 @@
 
 use crate::codec::{decode_batch_record, decode_ledger_record, decode_outbox_record};
 use crate::payload::recovery_plan_digest;
-use crate::physical::binding::{scope_identity_key, ScopeBinding};
+use crate::physical::binding::{ledger_scope_key, ScopeBinding};
 use crate::physical::incarnation::{
     require_persisted_root, StoreIncarnation, STORAGE_KERNEL_SCHEMA_VERSION,
 };
 use crate::physical::read_only::ReadOnlyStore;
 use crate::physical::root::{reject_prototype_names, PhysicalStore};
 use crate::tables::{
-    Fence, BATCHES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, SCOPE_BINDINGS, STORE_ROOT,
-    VERSIONS,
+    OperationReplayRow, ScopeFence, BATCHES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS,
+    REPLAY_NONCES, REPLAY_OPERATIONS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
 };
 use crate::StorageKernelV1;
 use eg_types::{MutationBatchRecord, MutationBatchStatus};
@@ -32,6 +32,8 @@ pub struct RecoveryStoreCounts {
     pub fences: u64,
     pub outbox: u64,
     pub encrypted_private_payloads: u64,
+    pub replay_nonces: u64,
+    pub replay_operations: u64,
 }
 
 /// Validate a LIVE, read-write-capable owner file: proves the physical file has
@@ -98,6 +100,7 @@ pub(crate) fn validate_recovery_content(
     validate_fences(rtx, &root, &mut counts)?;
     validate_outbox(rtx, &mut counts)?;
     validate_private(authenticate_private, rtx, &mut counts)?;
+    validate_replay(rtx, &root, &mut counts)?;
     Ok(counts)
 }
 
@@ -236,9 +239,53 @@ fn validate_fences(
     let table = rtx.open_table(FENCES).map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
-        read_binding(rtx, root, key.value())?;
-        decode_ledger_record::<Fence>(value.value())?;
+        let binding = read_binding(rtx, root, key.value())?;
+        let fence = decode_ledger_record::<ScopeFence>(value.value())?;
+        fence.identity.validate_digest()?;
+        if fence.identity != binding.identity {
+            return Err("mutation fence row is not stamped with its bound identity".to_string());
+        }
         increment(&mut counts.fences, "fence count")?;
+    }
+    Ok(())
+}
+
+/// Replay evidence: a nonce row names the idempotency key it consumed, and that
+/// key must resolve to an operation row stamped with the same bound identity.
+fn validate_replay(
+    rtx: &ReadTransaction,
+    root: &StoreIncarnation,
+    counts: &mut RecoveryStoreCounts,
+) -> Result<(), String> {
+    let operations = rtx
+        .open_table(REPLAY_OPERATIONS)
+        .map_err(|error| error.to_string())?;
+    for row in operations.iter().map_err(|error| error.to_string())? {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let (scope_key, idempotency_key) = key.value();
+        let binding = read_binding(rtx, root, scope_key)?;
+        let record: OperationReplayRow = decode_ledger_record(value.value())?;
+        record.identity.validate_digest()?;
+        if record.identity != binding.identity || record.idempotency_key != idempotency_key {
+            return Err("mutation replay row is not bound to its exact scope".to_string());
+        }
+        increment(&mut counts.replay_operations, "replay operation count")?;
+    }
+    let nonces = rtx
+        .open_table(REPLAY_NONCES)
+        .map_err(|error| error.to_string())?;
+    for row in nonces.iter().map_err(|error| error.to_string())? {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let (scope_key, _) = key.value();
+        read_binding(rtx, root, scope_key)?;
+        if operations
+            .get((scope_key, value.value()))
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            return Err("mutation replay nonce points to a missing operation row".to_string());
+        }
+        increment(&mut counts.replay_nonces, "replay nonce count")?;
     }
     Ok(())
 }
@@ -340,7 +387,7 @@ fn read_batch(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "mutation row points to a missing receipt".to_string())?;
     let record = decode_batch_record(bytes.value())?;
-    if scope_identity_key(&record.identity) != identity_key || record.batch.batch_id != batch_id {
+    if ledger_scope_key(&record.identity) != identity_key || record.batch.batch_id != batch_id {
         return Err("mutation receipt does not match its table key".to_string());
     }
     Ok(record)

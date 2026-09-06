@@ -27,7 +27,7 @@ pub(crate) const OWNER_LAYOUT_DOMAINS: [MutationDomain; 8] = [
     MutationDomain::BlobStore,
     MutationDomain::SemanticIndex,
 ];
-pub(crate) const LEDGER_TABLE_NAMES: [&str; 15] = [
+pub(crate) const LEDGER_TABLE_NAMES: [&str; 17] = [
     "mutation_store_root_v1",
     "mutation_scope_bindings_v1",
     "mutation_owner_manifest_v1",
@@ -43,6 +43,8 @@ pub(crate) const LEDGER_TABLE_NAMES: [&str; 15] = [
     "mutation_outbox_cursors_v1",
     "mutation_outbox_claim_cursors_v1",
     "mutation_outbox_fairness_v1",
+    "mutation_replay_nonces_v1",
+    "mutation_replay_operations_v1",
 ];
 
 /// Closed registry of physical owner-table layouts.

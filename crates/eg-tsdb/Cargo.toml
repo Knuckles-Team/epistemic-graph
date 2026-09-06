@@ -22,7 +22,7 @@ default = []
 # the finance kernels (eg-compute) for the primitive reuse. The native TS
 # primitives (ASOF / gap-fill / time_bucket / OHLC / decay_weighted_mean) need
 # NOTHING but this — no DataFusion (the Pi contract).
-redb-store = ["dep:redb", "dep:eg-mutation-store", "dep:eg-types"]
+redb-store = ["dep:redb", "dep:eg-types"]
 # Arrow columnar segment + DataFusion `time_bucket = GROUP BY (ts/w)*w` scan path.
 # Heavy (Arrow + DataFusion); OFF in the lean build, folded only into node/cluster/
 # full via the facade `query` feature.
@@ -60,7 +60,6 @@ eg-compute = { path = "../eg-compute", features = ["finance"] }
 
 # Same pins as the engine so footprint/throughput findings transfer 1:1.
 redb = { version = "4.1", optional = true }
-eg-mutation-store = { path = "../eg-mutation-store", optional = true }
 eg-types = { path = "../eg-types", optional = true }
 arrow = { version = "58.3", optional = true }
 datafusion = { version = "54", default-features = false, optional = true }

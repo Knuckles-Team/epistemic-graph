@@ -7,8 +7,20 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 
-/// Schema version of the physical storage-kernel root declaration.
-pub const STORAGE_KERNEL_SCHEMA_VERSION: u16 = 1;
+/// Schema version of the physical storage-kernel root declaration, which is
+/// also the durable ledger format identity: it is folded into
+/// [`StoreIncarnation`]'s identity digest and stamped on every scope binding,
+/// so a file written under an earlier format fails to open rather than being
+/// reinterpreted.
+///
+/// * v1 -- ledger rows were keyed by the scope *identity* digest while scope
+///   bindings and versions were keyed by the *binding* digest, so no committed
+///   row could ever resolve its own binding.
+/// * v2 -- one ledger scope key ([`crate::ledger_scope_key`], the binding
+///   digest) keys every ledger table, and every ledger row carries the exact
+///   [`eg_types::MutationScopeIdentity`] it was written under. Greenfield
+///   format, no migration.
+pub const STORAGE_KERNEL_SCHEMA_VERSION: u16 = 2;
 pub(crate) const STORE_ROOT_KEY: &str = "root";
 const STORE_DIGEST_DOMAIN: &[u8] = b"eg/mutation-store-root/v1\0";
 const PHYSICAL_ROOT_DOMAIN: &[u8] = b"eg/mutation-store-physical-root/v1\0";

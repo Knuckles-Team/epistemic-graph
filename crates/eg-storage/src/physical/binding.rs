@@ -180,8 +180,11 @@ fn validate_binding(
     Ok(binding)
 }
 
-pub(crate) fn scope_identity_key(identity: &MutationScopeIdentity) -> String {
-    identity.identity_digest().to_hex()
+/// The one durable ledger scope key: the scope *binding* digest, which is what
+/// `SCOPE_BINDINGS` and `VERSIONS` are keyed by. Every ledger table uses it, so
+/// any ledger row can resolve its own binding without a second key domain.
+pub fn ledger_scope_key(identity: &MutationScopeIdentity) -> String {
+    identity.binding_digest().to_hex()
 }
 
 pub(crate) fn decode_binding(bytes: &[u8]) -> Result<ScopeBinding, String> {

@@ -114,7 +114,9 @@ fn ledger_key_type(name: &str) -> Option<&'static str> {
         | "mutation_outbox_consumers_v1"
         | "mutation_outbox_cursors_v1"
         | "mutation_outbox_claim_cursors_v1"
-        | "mutation_outbox_fairness_v1" => Some("(&str,&str)"),
+        | "mutation_outbox_fairness_v1"
+        | "mutation_replay_nonces_v1"
+        | "mutation_replay_operations_v1" => Some("(&str,&str)"),
         "mutation_store_root_v1"
         | "mutation_scope_bindings_v1"
         | "mutation_owner_manifest_v1"
@@ -196,6 +198,7 @@ fn value_type_id(name: &str) -> &'static str {
         | "analytics_job_cancellation_reconcile" => "()",
         "mutation_idempotency_v1"
         | "mutation_outbox_consumers_v1"
+        | "mutation_replay_nonces_v1"
         | "analytics_job_committed_results"
         | "job_idempotency_ledger"
         | "analytics_job_lease_by_worker" => "&str",
@@ -210,6 +213,7 @@ fn value_type_id(name: &str) -> &'static str {
         | "mutation_outbox_cursors_v1"
         | "mutation_outbox_claim_cursors_v1"
         | "mutation_outbox_fairness_v1"
+        | "mutation_replay_operations_v1"
         | "rbac_v1"
         | "analytics_jobs"
         | "job_intents"
@@ -251,6 +255,7 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "mutation_versions_v1"
         | "mutation_outbox_topic_index_v1"
         | "mutation_outbox_consumers_v1"
+        | "mutation_replay_nonces_v1"
         | "analytics_job_committed_results"
         | "job_idempotency_ledger"
         | "analytics_job_scheduler_meta"
@@ -287,6 +292,7 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "mutation_outbox_cursors_v1"
         | "mutation_outbox_claim_cursors_v1"
         | "mutation_outbox_fairness_v1"
+        | "mutation_replay_operations_v1"
         | "analytics_jobs"
         | "job_intents"
         | "analytics_job_knowledge_batches"
@@ -344,6 +350,8 @@ fn table_capabilities(name: &str) -> u16 {
         | "mutation_outbox_cursors_v1"
         | "mutation_outbox_claim_cursors_v1"
         | "mutation_outbox_fairness_v1"
+        | "mutation_replay_nonces_v1"
+        | "mutation_replay_operations_v1"
         | "semantic_bindings_v1"
         | "semantic_stage_transitions_v1"
         | "semantic_binding_state_transitions_v1"

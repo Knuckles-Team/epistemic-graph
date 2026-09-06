@@ -2771,7 +2771,6 @@ dependencies = [
  "dashmap",
  "eg-ann",
  "eg-modality",
- "eg-mutation-store",
  "eg-types",
  "fs4 0.8.4",
  "hex",
@@ -2864,7 +2863,6 @@ name = "eg-jobs"
 version = "0.1.0"
 dependencies = [
  "eg-core",
- "eg-mutation-store",
  "eg-types",
  "hex",
  "proptest",
@@ -2918,19 +2916,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-mutation-store"
-version = "0.1.0"
-dependencies = [
- "eg-storage",
- "eg-types",
- "redb",
- "rmp-serde",
- "serde",
- "sha2 0.10.9",
- "tempfile",
 ]
 
 [[package]]
@@ -3196,7 +3181,6 @@ dependencies = [
 name = "eg-statechart"
 version = "0.1.0"
 dependencies = [
- "eg-mutation-store",
  "eg-types",
  "hex",
  "proptest",
@@ -3254,6 +3238,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-transaction"
+version = "0.1.0"
+dependencies = [
+ "eg-storage",
+ "eg-types",
+ "hex",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_bytes",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "eg-tsdb"
 version = "0.1.0"
 dependencies = [
@@ -3263,7 +3262,6 @@ dependencies = [
  "eg-compute",
  "eg-core",
  "eg-modality",
- "eg-mutation-store",
  "eg-types",
  "redb",
  "rmp-serde",
@@ -3428,7 +3426,6 @@ dependencies = [
  "eg-kvcache",
  "eg-lake",
  "eg-modality",
- "eg-mutation-store",
  "eg-numeric",
  "eg-plan",
  "eg-program",

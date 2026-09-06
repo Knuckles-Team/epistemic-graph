@@ -41,6 +41,7 @@ pub use owner::layout::OwnerLayout;
 pub use owner::registry::declared_table_names;
 pub use owner::table_api::*;
 pub use payload::private_payload_digest;
+pub use physical::binding::ledger_scope_key;
 pub use physical::incarnation::{
     StoreIdentityDigest, StoreIncarnation, STORAGE_KERNEL_SCHEMA_VERSION,
 };
@@ -60,3 +61,4 @@ pub use recovery::evidence::{
 pub use recovery::validate::{
     validate_recovery_store, validate_recovery_store_read_only, RecoveryStoreCounts,
 };
+pub use tables::{OperationReplayRow, ScopeFence};

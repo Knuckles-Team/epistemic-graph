@@ -1,19 +1,19 @@
 //! Two-phase saga preparation and commit over one ledger scope.
 
-use crate::apply::{begin, commit, finish};
+use crate::admitted::AdmittedMutation;
+use crate::commit::{begin, commit, finish};
 use crate::ledger::{
     idempotency_batch_id, persist_idempotency, persist_private, persist_record,
-    read_private_in_write, read_record_in_write, remove_private, scope_identity_key,
-    source_version, verify_replay_identity,
+    read_private_in_write, read_record_in_write, remove_private, source_version,
+    verify_replay_identity,
 };
-use crate::write::MutationWrite;
 use crate::{Begin, SagaBegin};
-use eg_storage::{MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain};
+use eg_storage::{ledger_scope_key, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain};
 use eg_types::{
     CommittedVersion, MutationBatch, MutationBatchRecord, MutationBatchStatus,
 };
 
-pub fn prepare_saga<D: OwnerDomain>(
+pub(crate) fn prepare_saga<D: OwnerDomain>(
     authority: &MutationOwnerAuthority,
     owner: &OwnedStoreHandle<D>,
     batch: &MutationBatch,
@@ -22,7 +22,7 @@ pub fn prepare_saga<D: OwnerDomain>(
     prepare_saga_with_private_payload(authority, owner, batch, prepared_at_ms, None)
 }
 
-pub fn prepare_saga_with_private_payload<D: OwnerDomain>(
+pub(crate) fn prepare_saga_with_private_payload<D: OwnerDomain>(
     authority: &MutationOwnerAuthority,
     owner: &OwnedStoreHandle<D>,
     batch: &MutationBatch,
@@ -30,7 +30,7 @@ pub fn prepare_saga_with_private_payload<D: OwnerDomain>(
     private_payload: Option<&[u8]>,
 ) -> Result<SagaBegin, String> {
     batch.validate_write_budget()?;
-    let write = MutationWrite::open(authority, owner)?;
+    let write = AdmittedMutation::open(authority, owner)?;
     write.verify_scope(&batch.identity)?;
     if let Some(existing_id) = idempotency_batch_id(&write, batch)? {
         let result = resume_existing_saga(&write, batch, private_payload, &existing_id)?;
@@ -50,7 +50,7 @@ pub fn prepare_saga_with_private_payload<D: OwnerDomain>(
 }
 
 fn resume_existing_saga<D: OwnerDomain>(
-    write: &MutationWrite<'_, D>,
+    write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
     private_payload: Option<&[u8]>,
     existing_id: &str,
@@ -72,7 +72,7 @@ fn resume_existing_saga<D: OwnerDomain>(
 }
 
 fn ensure_private_payload<D: OwnerDomain>(
-    write: &MutationWrite<'_, D>,
+    write: &AdmittedMutation<'_, D>,
     private_payload: Option<&[u8]>,
     record: &MutationBatchRecord,
 ) -> Result<(), String> {
@@ -89,7 +89,7 @@ fn ensure_private_payload<D: OwnerDomain>(
 }
 
 fn persist_prepared_saga<D: OwnerDomain>(
-    write: &MutationWrite<'_, D>,
+    write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
     prepared_at_ms: u64,
     private_payload: Option<&[u8]>,
@@ -110,7 +110,7 @@ fn persist_prepared_saga<D: OwnerDomain>(
     Ok(())
 }
 
-pub fn commit_saga<D: OwnerDomain>(
+pub(crate) fn commit_saga<D: OwnerDomain>(
     authority: &MutationOwnerAuthority,
     owner: &OwnedStoreHandle<D>,
     batch: &MutationBatch,
@@ -118,13 +118,13 @@ pub fn commit_saga<D: OwnerDomain>(
     committed_at_ms: u64,
 ) -> Result<(MutationBatchRecord, bool), String> {
     batch.validate_write_budget()?;
-    let write = MutationWrite::open(authority, owner)?;
+    let write = AdmittedMutation::open(authority, owner)?;
     write.verify_scope(&batch.identity)?;
     let record = read_record_in_write(&write, &batch.identity, &batch.batch_id)?
         .ok_or_else(|| format!("mutation saga '{}' was not prepared", batch.batch_id))?;
     verify_replay_identity(batch, &record.batch)?;
     if record.status == MutationBatchStatus::Committed {
-        let identity_key = scope_identity_key(&batch.identity);
+        let identity_key = ledger_scope_key(&batch.identity);
         remove_private(write.transaction(), &identity_key, &batch.batch_id)?;
         write.commit()?;
         return Ok((record, true));
@@ -144,7 +144,7 @@ pub fn commit_saga<D: OwnerDomain>(
         committed_at_ms,
         source_version,
     )?;
-    let identity_key = scope_identity_key(&batch.identity);
+    let identity_key = ledger_scope_key(&batch.identity);
     remove_private(write.transaction(), &identity_key, &batch.batch_id)?;
     commit(write, batch)?;
     Ok((committed, false))

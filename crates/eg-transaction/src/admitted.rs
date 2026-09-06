@@ -1,5 +1,10 @@
-//! The admitted mutation write: a storage-kernel write capability plus this
-//! crate's own admission state machine.
+//! The admitted mutation: a storage-kernel write capability plus this crate's
+//! own admission state machine.
+//!
+//! One value of this type is one physical write transaction. The kernel mints
+//! it, admits batches into it, and consumes it on commit; no other crate can
+//! construct one, because only [`eg_storage::MutationOwnerAuthority`] can mint
+//! the underlying capability.
 
 use crate::admission::AdmissionState;
 use eg_storage::{
@@ -10,16 +15,16 @@ use redb::WriteTransaction;
 use std::cell::RefCell;
 use std::marker::PhantomData;
 
-/// One physical write transaction under one admitted mutation batch.
-pub struct MutationWrite<'a, D: OwnerDomain> {
+/// One physical write transaction under one or more admitted mutation batches.
+pub struct AdmittedMutation<'a, D: OwnerDomain> {
     capability: PhysicalWriteCapability<'a, D>,
     pub(crate) admission: RefCell<AdmissionState>,
 }
 
-impl<'a, D: OwnerDomain> MutationWrite<'a, D> {
+impl<'a, D: OwnerDomain> AdmittedMutation<'a, D> {
     /// Mint the one write for this owner scope. The capability is the only way
     /// to reach a write transaction, and only the mutation authority can issue it.
-    pub fn open(
+    pub(crate) fn open(
         authority: &'a MutationOwnerAuthority,
         owner: &OwnedStoreHandle<D>,
     ) -> Result<Self, String> {
@@ -41,20 +46,28 @@ impl<'a, D: OwnerDomain> MutationWrite<'a, D> {
         self.capability.authenticate_private(sealed, digest)
     }
 
+    /// The exact serving scope this admitted write was issued for.
     pub fn scope(&self) -> &MutationScopeIdentity {
         self.capability.scope()
     }
 
-    pub fn commit(self) -> Result<(), String> {
+    pub(crate) fn commit(self) -> Result<(), String> {
         self.capability.commit()
     }
 
+    /// Discard every row written under this admitted write.
     pub fn abort(self) -> Result<(), String> {
         self.capability.abort()
     }
 
+    /// Admit a further batch inside this same write transaction, so a caller
+    /// can order several batches under one physical commit.
+    pub fn begin(&self, batch: &MutationBatch) -> Result<crate::Begin, String> {
+        crate::commit::begin(self, batch)
+    }
+
     /// Admit one owner-row operation inside an already admitted batch.
-    pub fn begin_owner(
+    pub fn owner_rows(
         &self,
         owner: &OwnedStoreHandle<D>,
         batch: &MutationBatch,
@@ -79,14 +92,14 @@ impl<'a, D: OwnerDomain> MutationWrite<'a, D> {
 /// Consuming owner-write gate. Dropping it unfinished poisons the outer write.
 ///
 /// ```compile_fail
-/// # use eg_mutation_store::AdmittedOwnerWrite;
+/// # use eg_transaction::AdmittedOwnerWrite;
 /// # use eg_storage::KvOwner;
 /// fn leaks_transaction(token: &AdmittedOwnerWrite<'_, KvOwner>) {
 ///     let _ = token.transaction();
 /// }
 /// ```
 pub struct AdmittedOwnerWrite<'a, D: OwnerDomain> {
-    pub(crate) write: &'a MutationWrite<'a, D>,
+    pub(crate) write: &'a AdmittedMutation<'a, D>,
     pub(crate) identity: MutationScopeIdentity,
     finished: bool,
     _domain: PhantomData<D>,
