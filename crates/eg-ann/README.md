@@ -87,7 +87,7 @@ backend keeps the **identical public API** (`add_embedding` / `semantic_search` 
 so snapshots are interchangeable). It uses brute-force cosine below
 `ANN_BUILD_THRESHOLD` and the eg-ann index above it; cosine is realised as
 squared-L2 over L2-normalised vectors (`cos = 1 − d/2`). A persisted eg-ann index
-reopens via `load_index` WITHOUT rebuilding from raw vectors. The facade folds
+reopens via `adopt_generation` WITHOUT rebuilding from raw vectors. The facade folds
 `ann` into the durable serving tiers (`pi`/`node`/`cluster`/`full`).
 
 ## Deferred (later increments)

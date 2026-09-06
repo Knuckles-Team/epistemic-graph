@@ -7,8 +7,9 @@
 // maintains an eg-ann index. A persisted eg-ann index reopens WITHOUT rebuilding
 // from raw vectors — the no-rebuild win — but the snapshot path here rebuilds lazily
 // from the resident embeddings on first search after load (matching the existing
-// SemanticStore checkpoint contract); call `save_index`/`load_index` for the
-// no-rebuild persistent index path.
+// SemanticStore checkpoint contract); call `export_generation`/`adopt_generation`
+// for the no-rebuild durable index path, whose durable leg is one admitted
+// `Native(SemanticIndex)` mutation (`compute::semantic_ann_codes`).
 //
 // CONCEPT:EG-KG.storage.arena-row-append — contiguous embedding arena. EG-014 proved the brute-force/ANN
 // path is MEMORY-BOUND, not core-bound: the embeddings used to live as a
@@ -28,7 +29,6 @@ use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Raw/native exact vectors may use the generic 16k coordinate ceiling.  The
@@ -36,7 +36,6 @@ use std::sync::atomic::{AtomicU8, Ordering};
 /// on exact search and never cross the maintained-index boundary.
 const MAX_GENERIC_DIMENSION: usize = eg_types::MAX_EMBEDDING_DIMENSIONS;
 const MAX_MAINTAINED_DIMENSION: usize = eg_types::MAX_MAINTAINED_ANN_DIMENSIONS;
-const INDEX_MANIFEST_FILE: &str = "store.bin";
 const INDEX_MANIFEST_MAGIC: &[u8] = b"EGSEMSTORE\x01\0";
 const MAX_INDEX_MANIFEST_BYTES: usize = 64 * 1024 * 1024;
 const MAX_INDEX_MEMBERS: usize = 5_000_000;
@@ -240,7 +239,9 @@ mod semantic_ann_persistence;
 mod semantic_ann_query;
 mod semantic_ann_shape;
 
+use crate::compute::semantic_ann::AnnIndexImage;
 use semantic_ann_persistence::PersistedIndexManifest as IndexManifest;
+pub use semantic_ann_persistence::SemanticGenerationImage;
 
 impl Clone for SemanticStore {
     fn clone(&self) -> Self {
@@ -352,21 +353,6 @@ fn validate_manifest(manifest: &IndexManifest) -> std::io::Result<()> {
         ));
     }
     Ok(())
-}
-
-/// Atomic write-then-rename, matching `semantic_ann::semantic_ann_backend_persistence`'s
-/// identically-named (but module-private, unreachable from here) helper for the
-/// `AnnIndex`'s own id-map file: write the full payload to a sibling `.tmp` path,
-/// `sync_all`, then rename over the destination so a reader never observes a
-/// partially-written manifest.
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let temporary = path.with_extension("tmp");
-    {
-        let mut file = std::fs::File::create(&temporary)?;
-        std::io::Write::write_all(&mut file, bytes)?;
-        file.sync_all()?;
-    }
-    std::fs::rename(temporary, path)
 }
 
 fn invalid_index_manifest(error: impl std::fmt::Display) -> std::io::Error {
@@ -1084,10 +1070,10 @@ mod tests {
         assert!(!before.is_empty());
         assert_eq!(before[0].0, "n100", "self should be top-1");
 
-        let tmp = std::env::temp_dir().join(format!("eg-ann-store-{}", std::process::id()));
-        store.save_index(&tmp).unwrap();
+        let image = store.export_generation().unwrap();
 
-        // Fresh store with the same embeddings (snapshot path) + no-rebuild load.
+        // Fresh store with the same embeddings (snapshot path) + no-rebuild
+        // activation from the generation image.
         let reloaded = SemanticStore {
             arena: store.arena.clone(),
             space: store.space.clone(),
@@ -1095,18 +1081,17 @@ mod tests {
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),
         };
-        reloaded.load_index(&tmp).unwrap();
+        reloaded.adopt_generation(&image).unwrap();
         assert!(
             reloaded.is_ready(),
-            "no-rebuild reload must leave the store Ready"
+            "no-rebuild activation must leave the store Ready"
         );
         let after = reloaded.semantic_search(q, 10);
         assert_eq!(
             before.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
             after.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
-            "no-rebuild reload must match"
+            "no-rebuild activation must match"
         );
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

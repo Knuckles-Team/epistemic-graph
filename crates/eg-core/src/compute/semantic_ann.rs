@@ -9,9 +9,11 @@
 //!     store crosses `ANN_BUILD_THRESHOLD`, then encodes them; below that the store
 //!     uses brute force (no index).
 //!
-//! The index is built from the in-RAM embeddings on first use, BUT once persisted
-//! (`save`) it reopens via `eg_ann::open` WITHOUT rebuilding from raw vectors — the
-//! no-rebuild behavior that distinguishes it from transient indexes.
+//! The index is built from the in-RAM embeddings on first use, BUT once exported
+//! (`to_image`) it is restored by `from_image` WITHOUT rebuilding from raw
+//! vectors — the no-rebuild behavior that distinguishes it from transient
+//! indexes. The image's durable leg is an admitted `Native(SemanticIndex)`
+//! mutation (`compute::semantic_ann_codes`), never a directory this crate writes.
 
 use eg_ann::{IvfPq, IvfPqParams, SearchParams};
 use std::collections::HashMap;
@@ -286,3 +288,5 @@ fn allows_row(row_to_id: &[String], allow: &impl Fn(&str) -> bool, ext_id: u64) 
 
 #[path = "semantic_ann_backend_persistence.rs"]
 mod semantic_ann_backend_persistence;
+
+pub use semantic_ann_backend_persistence::AnnIndexImage;

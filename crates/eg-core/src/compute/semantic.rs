@@ -20,6 +20,12 @@ mod backend;
 
 pub use backend::SemanticStore;
 
+/// The durable image of one IVF-PQ index generation. Only the `ann` backend
+/// maintains a persisted artifact; the default HNSW backend rebuilds from raw
+/// vectors and has none.
+#[cfg(feature = "ann")]
+pub use backend::SemanticGenerationImage;
+
 /// Upper bound on a single embedding's dimensionality (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard,
 /// BUG-007). Shared by both `SemanticStore` backends' `add_embedding` chokepoint and
 /// every batch-decode/validation layer above it, so an "oversized dimension" hostile

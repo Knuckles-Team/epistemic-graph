@@ -9,3 +9,9 @@ pub mod semantic;
 
 #[cfg(feature = "ann")]
 pub mod semantic_ann;
+
+/// Durable ANN code tier: one index generation's buffers in the `eg_ann` owner
+/// table of `OwnerLayout::SemanticIndex`, written as one admitted
+/// `Native(SemanticIndex)` mutation (RF-RULING-007).
+#[cfg(feature = "ann-redb")]
+pub mod semantic_ann_codes;
