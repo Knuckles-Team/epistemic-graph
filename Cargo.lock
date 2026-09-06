@@ -2719,6 +2719,10 @@ name = "eg-capabilities"
 version = "0.1.0"
 dependencies = [
  "eg-types",
+ "hex",
+ "schemars 1.2.2",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
