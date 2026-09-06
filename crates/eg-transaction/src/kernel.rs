@@ -16,6 +16,7 @@ use eg_storage::{
 };
 use eg_types::authority::{NonceReplayKeyV1, OperationReplayIdentityV1};
 use eg_types::mutation::MutationReceiptV1;
+use eg_types::mutation_batch::VersionExpectation;
 use eg_types::{MutationBatch, MutationBatchRecord, MutationScopeIdentity};
 use std::collections::BTreeSet;
 
@@ -89,6 +90,64 @@ impl MutationKernelV1 {
         batch: &MutationBatch,
     ) -> Result<(AdmittedMutation<'a, D>, Begin), String> {
         self.admit_class(owner, batch, MutationClass::Maintenance)
+    }
+
+    /// Open the one write for `owner`, resolve the scope's authoritative version
+    /// INSIDE that exclusive transaction, and admit the batch `build` returns for
+    /// it.
+    ///
+    /// The two-step alternative -- read the version from a fresh snapshot, build
+    /// a batch carrying it as `VersionExpectation::Native`, then admit -- has a
+    /// window between the read and the write lock in which any other writer may
+    /// commit, and [`commit::begin`] then fails the batch closed with
+    /// `STALE_VERSION`. That is correct for a caller-supplied expectation, which
+    /// is a real OCC claim about state the caller observed. It is wrong for a
+    /// write whose expectation is not a claim at all but merely "whatever the
+    /// scope is at". redb serializes writers, so a version read while the write
+    /// transaction is held cannot move underneath the batch built from it: this
+    /// entry point closes the window rather than retrying around it.
+    ///
+    /// `build` receives that authoritative version and must return a batch whose
+    /// `version_expectation` is `Native(version)`; anything else is refused,
+    /// because it would reintroduce the claim this method exists to remove.
+    pub fn admit_current<'a, D: OwnerDomain, F>(
+        &'a self,
+        owner: &OwnedStoreHandle<D>,
+        class: MutationClass,
+        build: F,
+    ) -> Result<(AdmittedMutation<'a, D>, MutationBatch, Begin), String>
+    where
+        F: FnOnce(u64) -> Result<MutationBatch, String>,
+    {
+        let write = AdmittedMutation::open(&self.authority, owner)?;
+        let version = match crate::ledger::bound_scope_version(&write, owner.identity()) {
+            Ok(version) => version,
+            Err(error) => {
+                write.abort()?;
+                return Err(error);
+            }
+        };
+        let batch = match build(version) {
+            Ok(batch) => batch,
+            Err(error) => {
+                write.abort()?;
+                return Err(error);
+            }
+        };
+        if batch.version_expectation != VersionExpectation::Native(version) {
+            write.abort()?;
+            return Err(format!(
+                "current-version admission requires Native({version}) but the batch expects {:?}",
+                batch.version_expectation
+            ));
+        }
+        match commit::begin(&write, &batch, class) {
+            Ok(begun) => Ok((write, batch, begun)),
+            Err(error) => {
+                write.abort()?;
+                Err(error)
+            }
+        }
     }
 
     fn admit_class<'a, D: OwnerDomain>(

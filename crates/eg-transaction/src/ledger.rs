@@ -22,6 +22,24 @@ pub(crate) fn idempotency_batch_id<D: OwnerDomain>(
     Ok(existing)
 }
 
+/// The authoritative version of one bound scope, read inside an already-held
+/// write transaction. Used by [`crate::MutationKernelV1::admit_current`] so a
+/// batch's version expectation cannot be stale by construction.
+pub(crate) fn bound_scope_version<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    identity: &MutationScopeIdentity,
+) -> Result<u64, String> {
+    let binding_key = ledger_scope_key(identity);
+    let table = write.scoped_table(VERSIONS)?;
+    // Bind before returning: the `AccessGuard` borrows `table`, and a tail
+    // expression's temporaries outlive the local (E0597).
+    let version = table
+        .get(binding_key.as_str())
+        .map_err(|error| error.to_string())?
+        .map(|value| value.value());
+    version.ok_or_else(|| "mutation scope binding is missing its authoritative version".to_string())
+}
+
 pub(crate) fn source_version<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
