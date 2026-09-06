@@ -21,6 +21,9 @@ pub mod asr_wire;
 // wire contract + pure fencing/admission algorithm (cross-host capacity
 // authority for the AU fair scheduler). Unconditional, like `acl`/`jobs`.
 pub mod capacity_lease;
+// RF-RULING-004 — canonical serializable authority/replay evidence for the future
+// eg-transaction admission boundary. This module grants no executable capability.
+pub mod authority;
 pub mod change_envelope;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
@@ -30,6 +33,10 @@ pub mod change_envelope;
 // identity every domain's participant registers against. See
 // `plans/graph-os-completion-program/lanes/GOC-03-cross-domain-commit-currency.md`.
 pub mod commit_descriptor;
+// RF-RULING-004 — current-only parent/participant transaction coordination DTOs.
+pub mod consensus;
+// RF-RULING-004 — bounded scalar/collection primitives shared by kernel DTOs.
+pub mod contract;
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
 // identity (`EmbeddingSpaceRef`) + stamped-vector (`StampedVector`) currency shared
 // by BOTH `eg-core::compute::semantic` backends, plus their two dimensionality
@@ -71,6 +78,9 @@ pub mod lake_catalog;
 #[cfg(feature = "modality-serving")]
 pub mod modality;
 pub mod msgpack;
+// RF-RULING-004 — untrusted serialized mutation request/evidence DTOs only.
+// Executable admitted plans/tokens are private to the future eg-transaction kernel.
+pub mod mutation;
 pub mod mutation_batch;
 // AU wire-first native control-plane operations: bounded capacity leases and
 // WorkItem admission/submission.  This module is hand-written until the AU
@@ -84,6 +94,8 @@ pub mod native_control;
 // (GOC-03/04/19/20/35) file-ownership collision. See
 // `plans/graph-os-completion-program/decisions/GOC-20-atomic-outcome-provenance.md`.
 pub mod outcome_bundle;
+// RF-RULING-004 — mutation-kernel-owned outbox intent, delivery, and cursor DTOs.
+pub mod outbox;
 pub mod protocol;
 // CONCEPT:EG-KG.compute.quantum-agent-api — the agent-facing quantum control-plane
 // wire op (`QuantumOp`), gated `quantum`. Lives here (not in `eg-quantum-core`,
