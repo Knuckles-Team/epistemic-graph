@@ -3183,6 +3183,8 @@ dependencies = [
 name = "eg-statechart"
 version = "0.1.0"
 dependencies = [
+ "eg-storage",
+ "eg-transaction",
  "eg-types",
  "hex",
  "proptest",
