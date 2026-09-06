@@ -197,7 +197,11 @@ fn element_id_resolves_to_the_admitted_key_and_rejects_a_composite_key() {
     let sql = lower_graph_table(&query, &definition, TENANT)
         .unwrap()
         .to_sql();
-    assert!(sql.contains(r#""_pgq_v0"."person_id" AS "element_id""#));
+    // The id carries the element table's catalog identity, so it stays unique
+    // across the UNION ALL a label disjunction lowers to.
+    assert!(
+        sql.contains(r#"('people:' || CAST("_pgq_v0"."person_id" AS VARCHAR)) AS "element_id""#)
+    );
 
     let composite = labelled_definition(
         "CREATE PROPERTY GRAPH pairs_graph VERTEX TABLES (pairs KEY (left_id, right_id) LABEL pair PROPERTIES (left_id))",

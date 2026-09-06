@@ -9,56 +9,16 @@ use datafusion::sql::sqlparser::parser::Parser as SqlParser;
 use super::ast::*;
 use super::expr::{BinaryOp, GraphExpr, GraphLiteral};
 use super::label::LabelExpr;
-use super::lex::{SqlNumber, MAX_GRAPH_EXPR_DEPTH, MAX_GRAPH_TABLE_BRANCHES};
+use super::lex::{MAX_GRAPH_EXPR_DEPTH, MAX_GRAPH_TABLE_BRANCHES};
+use super::relational::{
+    ColumnRef, RelationRef, RelationalExpr, RelationalGraphPlan, RelationalJoin, RelationalLiteral,
+    RelationalSelect,
+};
 use crate::tables::property_graph::{
     CanonicalCatalogName, EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution,
     EndpointResolution, LabelDefinition, PropertyGraphDefinition, PropertySet, SqlIdentifier,
-    SqlName, VertexTableDefinition,
+    VertexTableDefinition,
 };
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RelationalGraphPlan {
-    branches: Vec<RelationalSelect>,
-    output_columns: Vec<SqlIdentifier>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RelationalSelect {
-    from: RelationRef,
-    joins: Vec<RelationalJoin>,
-    predicates: Vec<RelationalExpr>,
-    projections: Vec<(RelationalExpr, SqlIdentifier)>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RelationRef {
-    relation: SqlName,
-    alias: SqlIdentifier,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RelationalJoin {
-    relation: RelationRef,
-    conditions: Vec<(ColumnRef, ColumnRef)>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ColumnRef {
-    relation_alias: SqlIdentifier,
-    column: SqlIdentifier,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum RelationalExpr {
-    Column(ColumnRef),
-    String(String),
-    Number(SqlNumber),
-    Boolean(bool),
-    Null,
-    CurrentDate,
-    Not(Box<RelationalExpr>),
-    Binary(Box<RelationalExpr>, BinaryOp, Box<RelationalExpr>),
-}
 
 #[derive(Clone, Copy)]
 enum Selected<'a> {
@@ -188,98 +148,6 @@ pub fn lower_graph_table_to_datafusion(
         return Err("lowered SQL/PGQ did not produce exactly one statement".into());
     }
     Ok(statements.remove(0))
-}
-
-impl RelationalGraphPlan {
-    pub fn branch_count(&self) -> usize {
-        self.branches.len()
-    }
-
-    pub fn output_columns(&self) -> &[SqlIdentifier] {
-        &self.output_columns
-    }
-
-    pub fn to_sql(&self) -> String {
-        self.branches
-            .iter()
-            .map(RelationalSelect::to_sql)
-            .collect::<Vec<_>>()
-            .join(" UNION ALL ")
-    }
-}
-
-impl RelationalSelect {
-    fn to_sql(&self) -> String {
-        let projection = self
-            .projections
-            .iter()
-            .map(|(expr, alias)| format!("{} AS {}", expr.to_sql(), alias.quoted_sql()))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let mut sql = format!(
-            "SELECT {projection} FROM {} AS {}",
-            self.from.relation.quoted_sql(),
-            self.from.alias.quoted_sql()
-        );
-        for join in &self.joins {
-            let on = join
-                .conditions
-                .iter()
-                .map(|(a, b)| format!("{} = {}", a.to_sql(), b.to_sql()))
-                .collect::<Vec<_>>()
-                .join(" AND ");
-            sql.push_str(&format!(
-                " JOIN {} AS {} ON {on}",
-                join.relation.relation.quoted_sql(),
-                join.relation.alias.quoted_sql()
-            ));
-        }
-        if !self.predicates.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(
-                &self
-                    .predicates
-                    .iter()
-                    .map(RelationalExpr::to_sql)
-                    .collect::<Vec<_>>()
-                    .join(" AND "),
-            );
-        }
-        sql
-    }
-}
-
-impl ColumnRef {
-    fn to_sql(&self) -> String {
-        format!(
-            "{}.{}",
-            self.relation_alias.quoted_sql(),
-            self.column.quoted_sql()
-        )
-    }
-}
-
-impl RelationalExpr {
-    fn to_sql(&self) -> String {
-        match self {
-            Self::Column(value) => value.to_sql(),
-            Self::String(value) => format!("'{}'", value.replace('\'', "''")),
-            Self::Number(value) => value.sql().into(),
-            Self::Boolean(true) => "TRUE".into(),
-            Self::Boolean(false) => "FALSE".into(),
-            Self::Null => "NULL".into(),
-            Self::CurrentDate => "CURRENT_DATE".into(),
-            Self::Not(value) => format!("NOT ({})", value.to_sql()),
-            Self::Binary(a, op, b) => format!("({} {} {})", a.to_sql(), op.sql(), b.to_sql()),
-        }
-    }
-}
-
-impl BinaryOp {
-    fn sql(self) -> &'static str {
-        const SPELLINGS: [&str; 8] = ["=", "<>", "<", "<=", ">", ">=", "AND", "OR"];
-        SPELLINGS[self as usize]
-    }
 }
 
 fn expand_vertices<'a>(
@@ -607,7 +475,7 @@ fn lower_expr(
                 resolve_property(element, property)
             })
         }
-        GraphExpr::ElementId(variable) => lower_element_column(vars, variable, element_id_column),
+        GraphExpr::ElementId(variable) => lower_element_id(vars, variable),
         GraphExpr::Not(value) => Ok(RelationalExpr::Not(Box::new(lower_expr(
             value,
             vars,
@@ -625,13 +493,13 @@ fn lower_expr(
 /// The literal leaves of a graph expression. They bind no variable and consume
 /// no depth budget, and the narrow input type means every case is real.
 fn lower_literal(literal: &GraphLiteral) -> RelationalExpr {
-    match literal {
-        GraphLiteral::String(value) => RelationalExpr::String(value.clone()),
-        GraphLiteral::Number(value) => RelationalExpr::Number(value.clone()),
-        GraphLiteral::Boolean(value) => RelationalExpr::Boolean(*value),
-        GraphLiteral::Null => RelationalExpr::Null,
-        GraphLiteral::CurrentDate => RelationalExpr::CurrentDate,
-    }
+    RelationalExpr::Literal(match literal {
+        GraphLiteral::String(value) => RelationalLiteral::String(value.clone()),
+        GraphLiteral::Number(value) => RelationalLiteral::Number(value.clone()),
+        GraphLiteral::Boolean(value) => RelationalLiteral::Boolean(*value),
+        GraphLiteral::Null => RelationalLiteral::Null,
+        GraphLiteral::CurrentDate => RelationalLiteral::CurrentDate,
+    })
 }
 
 /// Resolve a bound graph variable to one column of its relational alias. The
@@ -651,23 +519,38 @@ fn lower_element_column(
     }))
 }
 
-/// `ELEMENT_ID(v)` resolves to the element's admitted key. A single-column key
-/// is that column; a composite key has no single-column relational spelling in
-/// this lowering boundary and is rejected rather than silently concatenated.
-fn element_id_column(element: Selected<'_>) -> Result<SqlIdentifier, String> {
-    let (alias, key_columns) = match element {
+/// `ELEMENT_ID(v)` resolves to the element's identity within the GRAPH, not
+/// within one base table: the element table's catalog alias is folded into the
+/// value, because two element tables have independent key spaces and a label
+/// disjunction lowers to a `UNION ALL` across them. A composite key has no
+/// single-column relational spelling at this boundary and is rejected rather
+/// than silently concatenated.
+fn lower_element_id(
+    vars: &VariableBindings<'_>,
+    variable: &SqlIdentifier,
+) -> Result<RelationalExpr, String> {
+    let (element, relation_alias) = vars
+        .get(variable)
+        .ok_or_else(|| format!("unknown graph variable '{}'", variable.value()))?;
+    let (element_alias, key_columns) = match element {
         Selected::Vertex(table) => (&table.alias, &table.key_columns),
         Selected::Edge(table) => (&table.alias, &table.key_columns),
     };
     match key_columns.as_slice() {
-        [column] => Ok(column.clone()),
+        [column] => Ok(RelationalExpr::ElementId {
+            element: element_alias.value().to_string(),
+            key: ColumnRef {
+                relation_alias: relation_alias.clone(),
+                column: column.clone(),
+            },
+        }),
         [] => Err(format!(
             "ELEMENT_ID on '{}' has no admitted element key",
-            alias.value()
+            element_alias.value()
         )),
         _ => Err(format!(
             "ELEMENT_ID on '{}' requires a single-column element key",
-            alias.value()
+            element_alias.value()
         )),
     }
 }

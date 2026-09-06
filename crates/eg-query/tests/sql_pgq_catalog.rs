@@ -481,3 +481,51 @@ fn create_then_select_from_graph_table_round_trips_through_the_store() {
         .unwrap();
     assert_eq!(store.property_graph(&query.graph).unwrap(), None);
 }
+
+#[test]
+fn element_id_stays_unique_across_a_label_disjunction_union() {
+    let (store, _path) = open_store();
+    for schema in [
+        TableSchema::new("people", vec![text("person_id", true)]),
+        TableSchema::new("places", vec![text("place_id", true)]),
+    ] {
+        store.create_table(&schema, false).unwrap();
+    }
+    // The SAME key value in two element tables with independent key spaces.
+    store
+        .insert_rows("people", &["person_id".into()], &[vec![json!("k1")]])
+        .unwrap();
+    store
+        .insert_rows("places", &["place_id".into()], &[vec![json!("k1")]])
+        .unwrap();
+    store
+        .create_property_graph(
+            &definition(
+                "CREATE PROPERTY GRAPH labelled VERTEX TABLES (\
+                 people KEY (person_id) LABEL person PROPERTIES (person_id), \
+                 places KEY (place_id) LABEL place PROPERTIES (place_id))",
+            ),
+            OWNER,
+        )
+        .unwrap();
+
+    let StatementKind::GraphTableReadRequiresCatalogAdmission(query) = classify(
+        "SELECT * FROM GRAPH_TABLE (labelled MATCH (v:person | place) COLUMNS (ELEMENT_ID(v) AS element_id))",
+    )
+    .unwrap() else {
+        panic!("expected a GRAPH_TABLE read");
+    };
+    let record = store.property_graph(&query.graph).unwrap().unwrap();
+    let view = GraphCore::new().analysis_snapshot();
+    let result = exec_graph_table_typed_with_tables(
+        &view,
+        &store,
+        &query,
+        &record.accepted_definition,
+        TENANT,
+    )
+    .unwrap();
+    let mut ids: Vec<_> = result.rows.iter().map(|row| row[0].clone()).collect();
+    ids.sort_by_key(|value| value.to_string());
+    assert_eq!(ids, vec![json!("people:k1"), json!("places:k1")]);
+}
