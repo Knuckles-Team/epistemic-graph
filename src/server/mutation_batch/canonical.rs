@@ -7,6 +7,41 @@ use crate::protocol::{CypherMode, Method};
 /// batch adapter. Public mutation inventory tests ensure no mutating method lacks
 /// a domain. Methods that coordinate child batches are explicitly `MultiGraph` or
 /// `CrossModal`; they are never mistaken for a local graph-row write.
+///
+/// The domain a method lands in decides which store owns its state and its
+/// version counter, so every arm below is a data-routing statement, not a label.
+/// `tests::durability_domain_classification_matches_the_golden` pins the whole
+/// map so a reclassification cannot arrive as a cleanup.
+///
+/// # `AddEmbedding` is NOT `SemanticIndex`, and moving it there would break it
+///
+/// It reads like the obvious home for the semantic family, and RF-RULING-007's
+/// slice plan proposed exactly that arm. It is wrong for this method, in both
+/// directions, and the reason is the commit ROUTE, not the family name:
+///
+/// * `AddEmbedding`'s authoritative durable effect is a **graph-shard row
+///   write** — `redb_store::supports_atomic_batch_rows` lists it, and
+///   `upsert_durable_embedding` writes the vector into the target graph's own
+///   `semantic` table inside the same transaction that advances that graph's
+///   version. Its authority is the graph, and the graph's counter versions it.
+/// * `MutationDomain::SemanticIndex` is `forbidden_in_graph_scope()`, so tagging
+///   it that way and keeping the graph scope makes `MutationBatch::validate`
+///   reject every `AddEmbedding` ("graph mutation scope contains a
+///   store-authoritative operation").
+/// * Deriving a native scope from the tag instead moves the failure one call
+///   later: `AddEmbedding` is `mutation::GATEWAY_ROUTED`, so it commits through
+///   `commit_gateway` -> `mutation::commit_mutation` ->
+///   `PersistenceBackend::commit_mutation_batch`, and the redb backend's
+///   `mutation_batch_graph_name` fails closed on any non-graph scope ("mutation
+///   batch is not graph-scoped") — losing the durable embedding write.
+///
+/// The `Native(SemanticIndex)` producer RF-RULING-007 asks for already exists
+/// and is a different write: `compute::semantic_ann_codes::SemanticCodeStore`
+/// makes one ANN index GENERATION durable as one admitted maintenance mutation,
+/// triggered from the dispatch write tail by
+/// `server::semantic_activation::maybe_activate_after_write`. The embedding and
+/// the index built from it are two writes with two authorities; only the second
+/// one is store-authoritative.
 pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationDomain {
     match method {
         Method::CreateGraph { .. } | Method::DeleteGraph { .. } => MutationDomain::Lifecycle,

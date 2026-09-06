@@ -330,3 +330,425 @@ fn rdf_adapter_marks_rdf_surface() {
     assert_eq!(batch.operations[0].surface, MutationSurface::Rdf);
     assert!(matches!(batch.operations[0].method, Method::ClearGraph));
 }
+
+// ---------------------------------------------------------------------------
+// Durability-domain classification golden (RF-RULING-007 / B13)
+// ---------------------------------------------------------------------------
+
+/// Every explicit `Method -> MutationDomain` arm of `canonical::domain_for`, in
+/// source order, plus its two fall-through arms as `("_", ..)`.
+///
+/// This is the golden: a method's durability domain decides which authority owns
+/// its state and its version counter, so a silent reclassification moves a write
+/// to a different store. `MutationDomain` is not enumerable from a method NAME
+/// (classification needs a `Method` VALUE, and the protocol has 400+ variants
+/// with non-trivial payloads), so the map is read back out of the classifier's
+/// own source and compared here. `classifier_source_map_agrees_with_domain_for`
+/// keeps that reading honest by spot-checking constructed methods against the
+/// compiled function.
+const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
+    ("CreateGraph", "Lifecycle"),
+    ("DeleteGraph", "Lifecycle"),
+    ("MultiGraphBatchUpdate", "MultiGraph"),
+    ("Commit", "CrossModal"),
+    ("BlobBegin", "BlobStore"),
+    ("BlobChunkPut", "BlobStore"),
+    ("BlobCommit", "BlobStore"),
+    ("BlobRef", "BlobStore"),
+    ("BlobUnref", "BlobStore"),
+    ("BlobGc", "BlobStore"),
+    ("KvPut", "KvStore"),
+    ("KvDelete", "KvStore"),
+    ("KvCas", "KvStore"),
+    ("TsAppend", "TimeSeries"),
+    ("TsEvict", "TimeSeries"),
+    ("TsDeleteSeries", "TimeSeries"),
+    ("AnalyticsJob", "AnalyticsJob"),
+    ("SubmitWorkItem", "ControlPlane"),
+    ("SubmitWorkItems", "ControlPlane"),
+    ("ClaimWorkItem", "ControlPlane"),
+    ("RenewWorkItemLease", "ControlPlane"),
+    ("CommitWorkItemResult", "ControlPlane"),
+    ("CancelWorkItem", "ControlPlane"),
+    ("DeferWorkItem", "ControlPlane"),
+    ("CasWorkItemMetadata", "ControlPlane"),
+    ("ReserveWorkItemResources", "ControlPlane"),
+    ("ReleaseWorkItemResources", "ControlPlane"),
+    ("ReclaimWorkItemResources", "ControlPlane"),
+    ("UpdateResourceHost", "ControlPlane"),
+    ("AcquireCapacity", "ControlPlane"),
+    ("RenewCapacity", "ControlPlane"),
+    ("ReleaseCapacity", "ControlPlane"),
+    ("ReclaimExpiredCapacity", "ControlPlane"),
+    ("UpdateCapacityCell", "ControlPlane"),
+    ("Sql", "SqlCatalog"),
+    ("AddTriples", "RdfDataset"),
+    ("RemoveTriples", "RdfDataset"),
+    ("DropNamedGraph", "RdfDataset"),
+    ("DeclareExchange", "Broker"),
+    ("DeleteExchange", "Broker"),
+    ("BindQueue", "Broker"),
+    ("UnbindQueue", "Broker"),
+    ("Publish", "Broker"),
+    ("DeclareQueue", "Broker"),
+    ("PublishEx", "Broker"),
+    ("BrokerConsume", "Broker"),
+    ("BrokerAck", "Broker"),
+    ("BrokerReject", "Broker"),
+    ("SweepExpired", "Broker"),
+    ("StreamDeclare", "Broker"),
+    ("StreamPublish", "Broker"),
+    ("StreamTrim", "Broker"),
+    ("StreamCommitOffset", "Broker"),
+    ("PublishConfirmed", "Broker"),
+    ("PublishIdempotent", "Broker"),
+    ("BrokerAckTag", "Broker"),
+    ("BrokerNackTag", "Broker"),
+    ("BrokerRenewTag", "Broker"),
+    // The two tail arms: a `Transaction`-surface method with no explicit arm is
+    // a graph-row write, anything else is a graph-snapshot write. `AddEmbedding`
+    // reaches the second one.
+    ("_", "GraphRows"),
+    ("_", "GraphSnapshot"),
+];
+
+/// Read the `Method -> MutationDomain` arms back out of `canonical.rs`.
+///
+/// Deliberately a reader over the classifier's own text rather than a second
+/// hand-maintained table: a second table would drift, and a hash over the file
+/// would fail on a comment. Arms accumulate `Method::Name` tokens until the arm's
+/// `MutationDomain::Name` is reached; a wildcard arm names no method and is
+/// recorded as `_`.
+fn classification_map_from_source() -> Vec<(String, String)> {
+    let source = include_str!("canonical.rs");
+    let start = source
+        .find("pub(crate) fn domain_for")
+        .expect("canonical.rs declares domain_for");
+    let body = &source[start..];
+    let end = body.find("\n}\n").expect("domain_for has a closing brace");
+    let mut pending: Vec<String> = Vec::new();
+    let mut map: Vec<(String, String)> = Vec::new();
+    for line in body[..end].lines() {
+        let line = line.trim();
+        if line.starts_with("//") {
+            continue;
+        }
+        for token in line.match_indices("Method::") {
+            pending.push(identifier_after(line, token.0 + "Method::".len()));
+        }
+        if let Some(at) = line.find("MutationDomain::") {
+            let domain = identifier_after(line, at + "MutationDomain::".len());
+            if pending.is_empty() {
+                map.push(("_".to_string(), domain));
+            } else {
+                for method in pending.drain(..) {
+                    map.push((method, domain.clone()));
+                }
+            }
+        }
+    }
+    map
+}
+
+fn identifier_after(line: &str, at: usize) -> String {
+    line[at..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect()
+}
+
+#[test]
+fn durability_domain_classification_matches_the_golden() {
+    let actual = classification_map_from_source();
+    let expected = CLASSIFICATION_GOLDEN
+        .iter()
+        .map(|(method, domain)| (method.to_string(), domain.to_string()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual, expected,
+        "canonical::domain_for reclassified a method. A durability domain decides \
+         which store owns the write and its version counter, so this is a data-routing \
+         change, never a cleanup: update CLASSIFICATION_GOLDEN in the same commit that \
+         changes the arm, and say which authority the method moved to."
+    );
+}
+
+#[test]
+fn classifier_source_map_agrees_with_domain_for() {
+    use crate::mutation_batch::MutationDomain;
+    use crate::server::mutation_batch::domain_for;
+
+    let map = classification_map_from_source();
+    let lookup = |name: &str| {
+        map.iter()
+            .find(|(method, _)| method == name)
+            .map(|(_, domain)| domain.clone())
+            .unwrap_or_else(|| panic!("{name} is missing from the source classification map"))
+    };
+    // Constructed methods, classified by the COMPILED function, compared with the
+    // map the golden is read from -- so a reader that silently stopped matching
+    // cannot make the golden vacuous.
+    let check = |method: Method, expected: MutationDomain, name: &str| {
+        assert_eq!(domain_for(&method, MutationSurface::Graph), expected);
+        assert_eq!(lookup(name), format!("{expected:?}"));
+    };
+    check(
+        Method::CreateGraph {
+            graph_name: "g".into(),
+            graph_type: crate::protocol::GraphType::Global,
+        },
+        MutationDomain::Lifecycle,
+        "CreateGraph",
+    );
+    #[cfg(feature = "kv")]
+    check(
+        Method::KvDelete {
+            namespace: "ns".into(),
+            key: "k".into(),
+        },
+        MutationDomain::KvStore,
+        "KvDelete",
+    );
+    #[cfg(feature = "rdf")]
+    check(
+        Method::DropNamedGraph,
+        MutationDomain::RdfDataset,
+        "DropNamedGraph",
+    );
+    // The two tail arms, which no explicit name reaches.
+    assert_eq!(
+        domain_for(
+            &Method::AddEmbedding {
+                node_id: "n".into(),
+                embedding: vec![0.0],
+            },
+            MutationSurface::Transaction,
+        ),
+        MutationDomain::GraphRows,
+    );
+    assert_eq!(
+        domain_for(
+            &Method::AddEmbedding {
+                node_id: "n".into(),
+                embedding: vec![0.0],
+            },
+            MutationSurface::Graph,
+        ),
+        MutationDomain::GraphSnapshot,
+    );
+}
+
+#[cfg(feature = "kv")]
+#[test]
+fn graph_routed_compiler_refuses_a_store_authoritative_method() {
+    // Planted known-bad input: a KV method handed to the graph-routed compiler.
+    // Before the scope derivation this fell through to `MutationBatch::validate`,
+    // which names neither the method nor the reason.
+    let error = compile_methods(
+        CompileBatch {
+            batch_id: "store-authoritative",
+            request_id: 1,
+            principal: Some("agent:a"),
+            tenant: "tenant-a",
+            graph: "graph-a",
+            placement_epoch: 0,
+            idempotency_key: "store-authoritative",
+            expected_graph_version: Some(0),
+            fencing_token: None,
+            created_at_ms: 1,
+            default_surface: MutationSurface::Other,
+            authoritative_state: None,
+        },
+        vec![Method::KvDelete {
+            namespace: "ns".into(),
+            key: "k".into(),
+        }],
+    )
+    .expect_err("a store-authoritative method has no graph-committed route");
+    assert!(
+        error.contains("kv_store") && error.contains("store-authoritative"),
+        "the refusal must name the domain that owns the write: {error}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Owner-store batch principal (RF-RULING-004/005 / B12)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn graph_routed_batch_keeps_the_caller_as_its_ledger_principal() {
+    let batch = compile_methods(
+        CompileBatch {
+            batch_id: "graph-principal",
+            request_id: 1,
+            principal: Some("agent:a"),
+            tenant: "tenant-a",
+            graph: "graph-a",
+            placement_epoch: 0,
+            idempotency_key: "graph-principal",
+            expected_graph_version: Some(0),
+            fencing_token: None,
+            created_at_ms: 1,
+            default_surface: MutationSurface::Graph,
+            authoritative_state: None,
+        },
+        vec![Method::RemoveNode {
+            node_id: "a".into(),
+        }],
+    )
+    .unwrap();
+    let actor = crate::server::mutation_batch::principal_fingerprint("agent:a").unwrap();
+    // The graph kernel keys replay ownership on the caller, so the caller IS the
+    // principal its ledger requires -- and the actor header carries the same
+    // fingerprint on every batch, whichever ledger commits it.
+    assert_eq!(batch.context.principal, actor);
+    assert_eq!(batch.outbox[0].headers.get("actor"), Some(&actor));
+}
+
+#[cfg(feature = "kv")]
+#[test]
+fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() {
+    let batch = crate::server::mutation_batch::compile_opaque_method(
+        CompileBatch {
+            batch_id: "kv-principal",
+            request_id: 1,
+            principal: Some("agent:a"),
+            tenant: "tenant-a",
+            graph: "kv-scope-a",
+            placement_epoch: 0,
+            idempotency_key: "kv-principal",
+            expected_graph_version: Some(0),
+            fencing_token: None,
+            created_at_ms: 1,
+            default_surface: MutationSurface::Other,
+            authoritative_state: None,
+        },
+        &Method::KvDelete {
+            namespace: "ns".into(),
+            key: "k".into(),
+        },
+        MutationSurface::Other,
+        crate::mutation_batch::MutationDomain::KvStore,
+        "kv_operation",
+    )
+    .unwrap();
+    assert_eq!(
+        batch.context.principal,
+        crate::store_authority::ENGINE_PRINCIPAL,
+        "an owner-store batch must name the principal the store's serving scope is \
+         bound under, or `AdmittedMutation::owner_rows` refuses it"
+    );
+    assert_eq!(
+        batch.outbox[0].headers.get("actor"),
+        Some(&crate::server::mutation_batch::principal_fingerprint("agent:a").unwrap()),
+        "the verified caller is not lost: it is the outbox row's actor"
+    );
+}
+
+/// The whole B12 defect, end to end: compile a served owner-store batch, admit it
+/// through the mutation kernel, take the owner-row capability, commit, and read
+/// the caller back out of the DURABLE record.
+///
+/// Before the fix `owner_rows` rejected this batch with "owner write capability
+/// does not match admitted batch" -- it compiled and every gate stayed green,
+/// while every served KV/blob/time-series/analytics-job write failed at runtime.
+#[cfg(all(feature = "kv", feature = "redb"))]
+#[test]
+fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
+    use eg_storage::{KvOwner, PhysicalStoreIdentity, StorageKernelV1};
+    use eg_transaction::{Begin, MutationKernelV1};
+
+    let dir = crate::test_support::temp_dir("eg-mb", "owner-principal");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("kv.redb");
+
+    let authority = crate::store_authority::process_authority();
+    let kernel = StorageKernelV1::create_owner::<KvOwner>(
+        &path,
+        PhysicalStoreIdentity::new("epistemic-graph:mutation-batch-owner-principal-test").unwrap(),
+        None,
+    )
+    .unwrap();
+    let (kernel, owner_authority) = kernel.into_read_and_mutation_authority().unwrap();
+    let mutations = MutationKernelV1::new(owner_authority);
+
+    let identity = eg_types::MutationScopeIdentity::native(
+        eg_types::TenantId::new("tenant-a".to_string()).unwrap(),
+        crate::mutation_batch::MutationDomain::KvStore,
+        eg_types::LogicalName::new("kv-scope-a".to_string()).unwrap(),
+        eg_types::IncarnationId::new(
+            crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let grant = kernel
+        .authenticate_scope::<KvOwner>(
+            authority.as_ref(),
+            identity.clone(),
+            authority.principal().to_string(),
+            &authority.proof(),
+        )
+        .unwrap();
+    let owner = kernel.bind_serving_scope(grant, 0).unwrap();
+    mutations.bootstrap_ledger(&owner).unwrap();
+
+    let batch = crate::server::mutation_batch::compile_opaque_method(
+        CompileBatch {
+            batch_id: "kv-served",
+            request_id: 7,
+            principal: Some("agent:a"),
+            tenant: "tenant-a",
+            graph: "kv-scope-a",
+            placement_epoch: 0,
+            idempotency_key: "kv-served",
+            expected_graph_version: Some(0),
+            fencing_token: None,
+            created_at_ms: 5,
+            default_surface: MutationSurface::Other,
+            authoritative_state: None,
+        },
+        &Method::KvDelete {
+            namespace: "ns".into(),
+            key: "k".into(),
+        },
+        MutationSurface::Other,
+        crate::mutation_batch::MutationDomain::KvStore,
+        "kv_operation",
+    )
+    .unwrap();
+    assert_eq!(batch.identity, identity);
+
+    let (write, begun) = mutations.admit(&owner, &batch).unwrap();
+    let source_version = match begun {
+        Begin::Apply { source_version } => source_version,
+        Begin::Replay(_) => panic!("a fresh batch is not a replay"),
+    };
+    let rows = write
+        .owner_rows(&owner, &batch)
+        .expect("a served owner-store batch must be admissible for owner rows");
+    rows.finish_owner().unwrap();
+    mutations
+        .finish(&write, &batch, None, 5, source_version)
+        .unwrap();
+    mutations.commit(write, &batch).unwrap();
+
+    let read = kernel.read_scope(&owner).unwrap();
+    let record = eg_transaction::read_ledger(&read, "kv-served")
+        .unwrap()
+        .expect("the committed batch has a durable receipt");
+    assert_eq!(
+        record.status,
+        crate::mutation_batch::MutationBatchStatus::Committed
+    );
+    assert_eq!(
+        record.batch.context.principal,
+        crate::store_authority::ENGINE_PRINCIPAL
+    );
+    assert_eq!(
+        record.batch.outbox[0].headers.get("actor"),
+        Some(&crate::server::mutation_batch::principal_fingerprint("agent:a").unwrap()),
+        "the verified caller must be recoverable from the durable record"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

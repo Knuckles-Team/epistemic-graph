@@ -39,9 +39,45 @@ pub(crate) async fn authoritative_graph_version(
 }
 
 /// Fields known by a mutation surface after authz/placement/OCC planning.
+///
+/// # The one principal rule every batch this module compiles obeys
+///
+/// `MutationRequestContext::principal` is **the principal the committing ledger
+/// requires**, and the verified caller ALWAYS travels separately, as the
+/// `actor` header of the batch's outbox row. There is no field whose meaning
+/// changes with the batch: [`CompileBatch::principal`] is always the verified
+/// caller, the outbox `actor` header is always its fingerprint, and
+/// `context.principal` is always the committing ledger's own requirement.
+///
+/// Two ledgers commit the batches this module builds, and they require
+/// different principals because they are different authorities:
+///
+/// * a **store-authoritative** domain ([`MutationDomain::forbidden_in_graph_scope`]
+///   — KV, blob, time-series, analytics-job, semantic-index) commits into a
+///   kernel-owned owner store. One physical file serves ONE bound scope under
+///   ONE principal, and `eg_transaction::AdmittedMutation::owner_rows` refuses
+///   any batch naming another (`owner.principal() != batch.context.principal`).
+///   That principal is this engine's bound serving principal,
+///   `store_authority::ENGINE_PRINCIPAL` — the only principal
+///   `EngineScopeAuthority` mints a grant for. Stamping the caller's fingerprint
+///   instead made every served KV/blob/time-series/job batch write fail at
+///   runtime with "owner write capability does not match admitted batch".
+/// * every **other** domain commits through the graph kernel or a ledger-only
+///   coordinator, neither of which is an owner store; both key replay ownership
+///   on the caller, so the caller's fingerprint IS what those ledgers require
+///   (`handlers/txn.rs`, `handlers/admin.rs`, `wire/mod.rs`, `raft/store.rs`,
+///   `dispatch/graph_pipeline.rs` all compare it).
+///
+/// This is the same rule C1 applied inside `eg-statechart` and `eg-jobs`: the
+/// ledger principal is the serving principal, and per-instance attribution moves
+/// to the outbox `actor` header. The persisted image's own `actor` field, where a
+/// domain has one, is untouched.
 pub(crate) struct CompileBatch<'a> {
     pub batch_id: &'a str,
     pub request_id: u64,
+    /// The verified caller. Never written to a durable row raw: it is
+    /// fingerprinted into the outbox `actor` header, and — for the ledgers that
+    /// require it — into `context.principal`. See the type's own docs.
     pub principal: Option<&'a str>,
     pub tenant: &'a str,
     pub graph: &'a str,
@@ -82,16 +118,8 @@ pub(crate) fn compile_methods(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    // Every `compile_methods` caller (`commit_work_item`, `commit_lifecycle`,
-    // `commit_internal_graph_methods`) commits through `PersistenceBackend::
-    // commit_mutation_batch{,_state}`, which the redb backend routes to
-    // `commit_mutation_batch_inner`'s `mutation_batch_graph_name` -- that
-    // routing fails closed on anything but `MutationScope::Graph`, regardless
-    // of the per-operation `domain` tag (WorkItem/Lifecycle methods are tagged
-    // `ControlPlane`/`Lifecycle`, a NATIVE domain, but still physically commit
-    // into the target graph's own redb file). So this compiler is always
-    // graph-scoped; see `finish_batch`'s `graph_scope` parameter doc.
-    let batch = finish_batch(ctx, operations, true)?;
+    let graph_scope = derive_compiled_methods_scope(&operations)?;
+    let batch = finish_batch(ctx, operations, graph_scope)?;
     #[cfg(feature = "epistemic-tms")]
     let batch = {
         let mut batch = batch;
@@ -99,6 +127,44 @@ pub(crate) fn compile_methods(
         batch
     };
     Ok(batch)
+}
+
+/// The scope every batch [`compile_methods`] builds commits under, derived from
+/// the operations rather than assumed.
+///
+/// Every `compile_methods` caller (`commit_work_item`, `commit_lifecycle`,
+/// `commit_internal_graph_methods`, `mutation.rs`'s gateway commits) commits
+/// through `PersistenceBackend::commit_mutation_batch{,_state}`, which the redb
+/// backend routes to `commit_mutation_batch_inner`'s `mutation_batch_graph_name`
+/// -- and that fails closed on anything but `MutationScope::Graph`, regardless of
+/// the per-operation `domain` tag. WorkItem/Lifecycle methods are tagged
+/// `ControlPlane`/`Lifecycle`, domains that MAY own a native scope, yet still
+/// physically commit into the target graph's own redb file; that is why the scope
+/// is a property of the commit ROUTE, and this compiler has exactly one.
+///
+/// So the derived answer is the graph scope, and the derivation's whole job is to
+/// REFUSE -- here, by name -- a method whose authority is its own store. Such a
+/// method has no route through this compiler at all: a native scope would die in
+/// `mutation_batch_graph_name` with "mutation batch is not graph-scoped" after the
+/// caller already believed the write was compiled, and a graph scope dies in
+/// `MutationBatch::validate` with a message that names no method. Neither is a
+/// diagnosis. A store-authoritative method must be compiled by
+/// [`compile_opaque_method`], whose caller commits it through its own store.
+fn derive_compiled_methods_scope(operations: &[MutationOperation]) -> Result<bool, String> {
+    match operations
+        .iter()
+        .find(|operation| operation.domain.forbidden_in_graph_scope())
+    {
+        Some(operation) => Err(format!(
+            "graph-routed compiler cannot compile operation {} classified into the \
+             store-authoritative domain '{}': its authoritative state and version counter \
+             live in that store, so it has no graph-committed route -- compile it through \
+             its own store's compiler instead",
+            operation.ordinal,
+            operation.domain.canonical_name(),
+        )),
+        None => Ok(true),
+    }
 }
 
 /// Compile one payload-bearing surface operation as an opaque digest. SQL catalog
@@ -328,10 +394,10 @@ fn finish_batch(
     scope_digest.update([0]);
     scope_digest.update(ctx.graph.as_bytes());
     let scope_digest = hex::encode(scope_digest.finalize());
-    let principal =
-        principal_fingerprint(ctx.principal.ok_or_else(|| {
-            "durable mutation authority requires a verified principal".to_string()
-        })?)?;
+    let actor = principal_fingerprint(ctx.principal.ok_or_else(|| {
+        "durable mutation authority requires a verified principal".to_string()
+    })?)?;
+    let principal = ledger_principal(&operations, &actor)?;
     let tenant_id = TenantId::new(ctx.tenant.to_string())?;
     let resource_name = LogicalName::new(ctx.graph.to_string())?;
     let incarnation_id = IncarnationId::new(COMPILED_BATCH_INCARNATION)
@@ -385,12 +451,59 @@ fn finish_batch(
             topic: "engine.projection.rebuild".to_string(),
             key: ctx.batch_id.to_string(),
             payload: summary,
-            headers: BTreeMap::from([("scope_sha256".to_string(), scope_digest)]),
+            // `actor` is the verified caller's fingerprint on EVERY batch this
+            // module compiles, whichever ledger commits it. It is the single
+            // source of caller attribution, so an owner-store batch — whose
+            // `context.principal` must be the store's serving principal — loses
+            // none, and a graph batch gains no second, divergent copy.
+            headers: BTreeMap::from([
+                ("scope_sha256".to_string(), scope_digest),
+                ("actor".to_string(), actor),
+            ]),
         }],
         created_at_ms: ctx.created_at_ms,
     };
     batch.validate()?;
     Ok(batch)
+}
+
+/// The principal the ledger that will commit `operations` requires — the one
+/// rule documented on [`CompileBatch`].
+///
+/// A store-authoritative domain's authoritative state and version counter live
+/// in its own kernel-owned file, so its batch is admitted through
+/// `eg_transaction::AdmittedMutation::owner_rows`, which accepts only the
+/// principal that file's serving scope is bound under. Every other domain is
+/// committed by the graph kernel or a ledger-only coordinator, whose replay
+/// ownership is keyed on the caller.
+///
+/// `MutationBatch::validate` already rejects a graph scope carrying a
+/// store-authoritative operation, and a native scope whose declared domain
+/// disagrees with its operations, so answering over the operation list gives the
+/// same answer as answering over the scope for every batch that can validate.
+fn ledger_principal(operations: &[MutationOperation], actor: &str) -> Result<String, String> {
+    if !operations
+        .iter()
+        .any(|operation| operation.domain.forbidden_in_graph_scope())
+    {
+        return Ok(actor.to_string());
+    }
+    // Every store-authoritative domain is reachable only under a feature that
+    // implies `redb` (`kv`, `blob`, `tsdb`, `jobs`, `ann-redb`), because the
+    // owner store it names is a redb file. Without `redb` this binary owns no
+    // owner store at all, so such an operation cannot be committed by anything
+    // and must not be given a principal that implies it could be.
+    #[cfg(feature = "redb")]
+    {
+        Ok(crate::store_authority::ENGINE_PRINCIPAL.to_string())
+    }
+    #[cfg(not(feature = "redb"))]
+    {
+        Err(
+            "store-authoritative mutation domain has no owner store in a build without redb"
+                .to_string(),
+        )
+    }
 }
 
 /// `finish_batch`'s outbox projection-wakeup payload for builds without the `redb`
