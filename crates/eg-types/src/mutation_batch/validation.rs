@@ -104,18 +104,6 @@ fn validate_operations(batch: &MutationBatch) -> Result<(), String> {
     if batch.operations.is_empty() {
         return Err("mutation batch must contain at least one operation".to_string());
     }
-    if matches!(
-        batch.identity.scope(),
-        MutationScope::Native {
-            domain: MutationDomain::SemanticIndex,
-            ..
-        }
-    ) {
-        return Err(
-            "semantic index mutations remain unserved until every activation and purge consumer uses Native(SemanticIndex)"
-                .to_string(),
-        );
-    }
     for (expected, operation) in batch.operations.iter().enumerate() {
         if operation.ordinal as usize != expected {
             return Err(format!(

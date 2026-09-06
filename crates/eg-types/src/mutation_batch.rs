@@ -193,8 +193,17 @@ mod tests {
         }
     }
 
-#[test]
-    fn semantic_index_remains_unserved_until_consumer_migration() {
+/// RF-RULING-007. The blanket refusal of every `Native(SemanticIndex)` batch
+    /// is DELETED, not relaxed. It was vacuous and load-bearing at once: no
+    /// producer ever built a batch on that domain (`canonical.rs` classified
+    /// `AddEmbedding` into the graph domains), so it rejected nothing, while
+    /// making the semantic owner tables unreachable through the mutation kernel
+    /// at all -- the concrete blocker under the `eg-ann` cutover.
+    ///
+    /// A semantic write is now served on its own native scope, exactly like
+    /// every other store-authoritative domain.
+    #[test]
+    fn a_semantic_index_batch_is_served_on_its_own_native_scope() {
         let mut semantic = batch();
         semantic.identity = MutationScopeIdentity::native(
             TenantId::new("tenant-a").unwrap(),
@@ -205,7 +214,43 @@ mod tests {
         .unwrap();
         semantic.version_expectation = VersionExpectation::Native(9);
         semantic.operations[0].domain = MutationDomain::SemanticIndex;
-        assert!(semantic.validate().unwrap_err().contains("remain unserved"));
+        semantic.validate().unwrap();
+    }
+
+    /// What replaces the deleted guard at this layer: a semantic operation is
+    /// refused unless the batch's scope IS the semantic authority it names.
+    ///
+    /// Both directions are asserted, because accepting either one alone would
+    /// let a semantic write ride some other authority's version counter:
+    /// a graph scope may not carry the store-authoritative semantic family, and
+    /// a native scope on a different domain may not carry it either. The
+    /// remaining half of the cross-binding proof -- that a handle bound to one
+    /// `(tenant, binding, generation)` cannot write another's rows -- is not
+    /// expressible here (an operation carries no binding) and is asserted at
+    /// admission, where the bound serving scope exists.
+    #[test]
+    fn a_semantic_operation_is_refused_outside_a_semantic_scope() {
+        let mut graph_scoped = batch();
+        graph_scoped.operations[0].domain = MutationDomain::SemanticIndex;
+        assert!(graph_scoped
+            .validate()
+            .unwrap_err()
+            .contains("store-authoritative"));
+
+        let mut foreign_native = batch();
+        foreign_native.identity = MutationScopeIdentity::native(
+            TenantId::new("tenant-a").unwrap(),
+            MutationDomain::KvStore,
+            LogicalName::new("binding-a").unwrap(),
+            IncarnationId::new("incarnation:kv:1").unwrap(),
+        )
+        .unwrap();
+        foreign_native.version_expectation = VersionExpectation::Native(9);
+        foreign_native.operations[0].domain = MutationDomain::SemanticIndex;
+        assert!(foreign_native
+            .validate()
+            .unwrap_err()
+            .contains("does not match its operation"));
     }
 
     #[test]
