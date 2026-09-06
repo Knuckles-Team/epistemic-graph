@@ -33,6 +33,7 @@
 //! defaults into that downgrade; an operator must type it.
 
 use crate::acl::{AgentRole, RequestContextClaims};
+use crate::server::request_replay::{durable_replay_ledger, ReplayLedger};
 use crate::protocol::{
     build_context_operation_signature_bytes, build_envelope_v2_bytes, Method, Request,
 };
@@ -43,7 +44,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::collections::{BTreeMap, HashSet};
 #[cfg(any(test, feature = "security"))]
-use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1187,203 +1187,6 @@ fn validate_context_claims(
     Ok(())
 }
 
-/// Replay ledger used after a request MAC, time window, and policy claims have
-/// verified. The production adapter is durable and commits before dispatch.
-trait ReplayLedger: Send + Sync {
-    /// Atomically record a nonce. `Ok(false)` means it was already present.
-    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String>;
-}
-
-#[cfg(test)]
-struct ReplayCache {
-    seen: Mutex<HashMap<String, u64>>,
-}
-
-/// Hard cap on cached nonces — bounds memory under a misconfigured
-/// (excessively large) skew window or a deliberate nonce-flood attempt.
-#[cfg(test)]
-const MAX_REPLAY_ENTRIES: usize = 200_000;
-
-#[cfg(test)]
-impl ReplayCache {
-    /// Returns `true` if `nonce` is accepted (not seen before within the
-    /// retention horizon); `false` if it is a replay. Always prunes entries
-    /// older than `2 * window` first (anything older could never pass the
-    /// timestamp-skew check anyway, so retaining it further gains nothing).
-    fn check_and_record_memory(&self, nonce: &str, now: u64, window: u64) -> bool {
-        let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
-        let cutoff = now.saturating_sub(window.saturating_mul(2));
-        seen.retain(|_, ts| *ts >= cutoff);
-        if seen.contains_key(nonce) {
-            return false;
-        }
-        if seen.len() >= MAX_REPLAY_ENTRIES {
-            // Extremely defensive fallback for a pathological configuration
-            // that outpaces normal pruning: drop the older half rather than
-            // growing without bound.
-            let mut entries: Vec<(String, u64)> = seen.drain().collect();
-            entries.sort_by_key(|(_, ts)| *ts);
-            let keep_from = entries.len() / 2;
-            seen.extend(entries.into_iter().skip(keep_from));
-        }
-        seen.insert(nonce.to_string(), now);
-        true
-    }
-}
-
-#[cfg(test)]
-impl ReplayLedger for ReplayCache {
-    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String> {
-        Ok(self.check_and_record_memory(nonce, now, window))
-    }
-}
-
-#[cfg(feature = "security")]
-const REPLAY_TABLE: redb::TableDefinition<&str, u64> =
-    redb::TableDefinition::new("verified_request_replay_v2");
-#[cfg(feature = "security")]
-const REPLAY_PHYSICAL_STORE: &str = "epistemic-graph:request-replay";
-#[cfg(feature = "security")]
-const REPLAY_SCOPE_RESOURCE: &str = "request-replay";
-#[cfg(feature = "security")]
-const REPLAY_SCOPE_INCARNATION: &str = "request-replay:v1";
-
-/// Durable replay adapter used by secure mode. A successful `check_and_record`
-/// commits before the request is dispatched, so a process restart cannot make
-/// a previously accepted nonce usable again; durability itself belongs to the
-/// kernel (`eg_transaction::MutationKernelV1::commit`, reached through
-/// `sidecar_store::SidecarStore::maintain`), not a `redb::Durability` this
-/// file sets on its own transaction.
-///
-/// **KNOWN GAP — per-node only, NOT replicated across a `cluster`/`raft`
-/// deployment** (tracked in `reports/seam-identity-closure.md`, "Raft
-/// replay-ledger replication" section; called out by
-/// `reports/seam-closure-audit-2026-07-22.md`'s Identity row). This ledger is
-/// a local kernel-owned owner file scoped to ONE node's
-/// `EPISTEMIC_GRAPH_SECURITY_STATE_DIR`. It is checked entirely BEFORE any
-/// Raft/consensus code runs (see `dispatch_inner` in `server/dispatch.rs`,
-/// which calls `verify_request_with_security_dir` — and therefore this
-/// ledger — before any `#[cfg(feature = "raft")]` code executes). In a
-/// hypothetical multi-node `cluster` deployment, a captured, still-
-/// signature-valid signed envelope COULD be replayed once against every node
-/// independently within the clock-skew window (`envelope_skew_secs()`,
-/// default 300s), because each node's `seen`-nonce set is disjoint. Closing
-/// this requires routing the nonce check-and-record through the SAME
-/// Raft-log consensus path ordinary mutations use
-/// (`crate::raft::ReplicatedMutation` / `NativeMutationCommand` in
-/// `src/raft/mod.rs`) rather than a purely local pre-check — a genuine new
-/// integration point on the hot path of EVERY authenticated request
-/// (including reads), not merely "replicate existing state." As of this
-/// writing the homelab's production `epistemic-graph` deployment does not run
-/// the `cluster`/`raft` feature at all (the default/`full` build links no
-/// `openraft`; see this crate's `Cargo.toml` `cluster` feature and the seam
-/// audit's Placement-seam finding), so this gap is not currently exploitable
-/// in production — but MUST be closed before any multi-node `cluster` rollout.
-#[cfg(feature = "security")]
-struct RedbReplayLedger {
-    durable: crate::sidecar_store::SidecarStore<eg_storage::RequestReplayOwner>,
-    last_prune: Mutex<u64>,
-}
-
-#[cfg(feature = "security")]
-impl RedbReplayLedger {
-    fn open(dir: &std::path::Path) -> Result<Self, String> {
-        let path = dir.join("request-replay.redb");
-        let durable = crate::sidecar_store::SidecarStore::open(
-            &path,
-            REPLAY_PHYSICAL_STORE,
-            REPLAY_SCOPE_RESOURCE,
-            REPLAY_SCOPE_INCARNATION,
-            crate::store_authority::process_authority(),
-        )?;
-        Ok(RedbReplayLedger {
-            durable,
-            last_prune: Mutex::new(0),
-        })
-    }
-}
-
-#[cfg(feature = "security")]
-impl ReplayLedger for RedbReplayLedger {
-    /// The prune scan and the nonce check-and-insert are ONE logical
-    /// operation, so both happen inside ONE `maintain` call rather than a
-    /// call per row. `maintain` bumps the scope version on every call
-    /// (RF-RULING-005), which is the intent here, not a side effect: this
-    /// nonce ledger carries no caller identity, but it is still ledgered like
-    /// every other owner write, so a replay-refusal decision becomes an
-    /// auditable, versioned fact instead of an un-ledgered side channel.
-    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String> {
-        use redb::ReadableTable;
-
-        let should_prune = {
-            let mut last = self.last_prune.lock().unwrap_or_else(|e| e.into_inner());
-            if now.saturating_sub(*last) >= window {
-                *last = now;
-                true
-            } else {
-                false
-            }
-        };
-        let mut accepted = false;
-        self.durable
-            .maintain("request_replay_check_and_record", |owner| {
-                let mut table = owner.open_table(REPLAY_TABLE)?;
-                if should_prune {
-                    let cutoff = now.saturating_sub(window.saturating_mul(2));
-                    let mut expired = Vec::new();
-                    for row in table.iter().map_err(|e| e.to_string())? {
-                        let (key, timestamp) = row.map_err(|e| e.to_string())?;
-                        if timestamp.value() < cutoff {
-                            expired.push(key.value().to_string());
-                        }
-                    }
-                    for key in expired {
-                        table.remove(key.as_str()).map_err(|e| e.to_string())?;
-                    }
-                }
-                if table.get(nonce).map_err(|e| e.to_string())?.is_some() {
-                    return Ok(());
-                }
-                table.insert(nonce, now).map_err(|e| e.to_string())?;
-                accepted = true;
-                Ok(())
-            })?;
-        Ok(accepted)
-    }
-}
-
-#[cfg(all(feature = "security", not(test)))]
-fn durable_replay_ledger(state_dir: Option<&str>) -> Result<&'static RedbReplayLedger, String> {
-    static LEDGER: OnceLock<Result<RedbReplayLedger, String>> = OnceLock::new();
-    match LEDGER.get_or_init(|| {
-        let dir = std::env::var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR")
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .or_else(|| state_dir.map(str::to_string))
-            .ok_or_else(|| {
-                "secure request context requires EPISTEMIC_GRAPH_SECURITY_STATE_DIR or a persist directory".to_string()
-            })?;
-        RedbReplayLedger::open(std::path::Path::new(&dir))
-    }) {
-        Ok(ledger) => Ok(ledger),
-        Err(message) => Err(message.clone()),
-    }
-}
-
-#[cfg(all(not(feature = "security"), not(test)))]
-fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn ReplayLedger, String> {
-    Err("secure request context requires the security feature".to_string())
-}
-
-#[cfg(test)]
-fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn ReplayLedger, String> {
-    static LEDGER: OnceLock<ReplayCache> = OnceLock::new();
-    Ok(LEDGER.get_or_init(|| ReplayCache {
-        seen: Mutex::new(HashMap::new()),
-    }))
-}
-
 /// Parse a boolean-ish deployment flag from the environment. Unset or any
 /// unrecognized value ⇒ `false` (the safe default that preserves today's
 /// behavior). Accepts the common truthy spellings so an operator is not
@@ -2450,9 +2253,9 @@ mod tests {
         }
     }
 
-    fn memory_replay() -> ReplayCache {
-        ReplayCache {
-            seen: Mutex::new(HashMap::new()),
+    fn memory_replay() -> crate::server::request_replay::ReplayCache {
+        crate::server::request_replay::ReplayCache {
+            seen: std::sync::Mutex::new(HashMap::new()),
         }
     }
 

@@ -21,8 +21,8 @@ use std::path::Path;
 use eg_storage::{
     OwnedStoreHandle, OwnerDomain, PhysicalStoreIdentity, ScopedRead, StorageKernelV1,
 };
-use eg_transaction::{AdmittedOwnerWrite, Begin, MutationKernelV1};
-use eg_types::{MutationBatch, MutationScopeIdentity};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernelV1};
+use eg_types::MutationScopeIdentity;
 
 use crate::store_authority::EngineScopeAuthority;
 
@@ -131,94 +131,50 @@ impl<D: OwnerDomain> SidecarStore<D> {
         &self.kernel
     }
 
-    /// The scope's authoritative mutation version.
-    pub fn version(&self) -> Result<u64, String> {
-        eg_transaction::version(&self.read()?)
-    }
-
     /// Apply one owner-row maintenance write in a single admitted, ledgered,
     /// version-bumping transaction.
     ///
     /// `event` names the operation in the durable batch record, so a store's
     /// ledger says what each of its versions did.
+    ///
+    /// The scope version the batch fences on is resolved by
+    /// [`MutationKernelV1::admit_current`] INSIDE the write transaction. Reading
+    /// it from a snapshot first would let two concurrent callers observe the
+    /// same version, build byte-identical batches, and have the second one
+    /// silently replay the first's record instead of applying its own write.
     pub fn maintain<F>(&self, event: &str, apply: F) -> Result<(), String>
     where
         F: FnOnce(&AdmittedOwnerWrite<'_, D>) -> Result<(), String>,
     {
-        let batch = maintenance_batch(
-            self.owner.identity(),
-            self.owner.principal(),
+        let subject = eg_storage::ledger_scope_key(self.owner.identity());
+        let write = MaintenanceBatch::new(
+            eg_types::mutation_batch::MutationDomain::ControlPlane,
             event,
-            self.version()?,
+            &subject,
+        );
+        let (txn, batch, begun) = self.mutations.admit_current(
+            &self.owner,
+            eg_storage::MutationClass::Maintenance,
+            |version| write.for_scope_version(&self.owner, version),
         )?;
-        let (write, begun) = self.mutations.admit_maintenance(&self.owner, &batch)?;
         let source_version = match begun {
             // The same version can only be written once, so a replay means this
             // exact attempt already committed; re-applying it would double the
             // effect.
-            Begin::Replay(_) => return write.abort(),
+            Begin::Replay(_) => return txn.abort(),
             Begin::Apply { source_version } => source_version,
         };
-        let owner_write = write.owner_rows(&self.owner, &batch)?;
+        let owner_write = txn.owner_rows(&self.owner, &batch)?;
         match apply(&owner_write) {
             Ok(()) => owner_write.finish_owner()?,
             Err(error) => {
                 drop(owner_write);
-                write.abort()?;
+                txn.abort()?;
                 return Err(error);
             }
         }
         self.mutations
-            .finish(&write, &batch, None, 0, source_version)?;
-        self.mutations.commit(write, &batch)
+            .finish(&txn, &batch, None, 0, source_version)?;
+        self.mutations.commit(txn, &batch)
     }
-}
-
-/// The batch for one sidecar maintenance write.
-///
-/// `batch_id` is `(event, scope version)`: exactly one batch commits per
-/// version, so it is unique per attempt and stable across a crash-retry of that
-/// attempt, which makes a retry a replay rather than an `IDEMPOTENCY_CONFLICT`.
-fn maintenance_batch(
-    identity: &MutationScopeIdentity,
-    principal: &str,
-    event: &str,
-    expected_version: u64,
-) -> Result<MutationBatch, String> {
-    let batch_id = format!("{event}:v{expected_version}");
-    let operation = eg_types::MutationOperation {
-        ordinal: 0,
-        surface: eg_types::MutationSurface::Other,
-        domain: eg_types::mutation_batch::MutationDomain::ControlPlane,
-        method: eg_types::protocol::Method::ApplyMutation {
-            event_type: event.to_string(),
-            query: batch_id.clone(),
-        },
-    };
-    let batch = MutationBatch {
-        schema_version: eg_types::MUTATION_BATCH_VERSION,
-        batch_id: batch_id.clone(),
-        context: eg_types::MutationRequestContext {
-            request_id: 0,
-            principal: principal.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // A maintenance mutation claims no capability: a plain
-            // `Native`-versioned write, not the reserved-system `Unversioned`
-            // path. Empty is the true fact here, not a placeholder.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
-        identity: identity.clone(),
-        placement_epoch: 0,
-        idempotency_key: batch_id,
-        version_expectation: eg_types::VersionExpectation::Native(expected_version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations: vec![operation],
-        outbox: Vec::new(),
-        created_at_ms: 0,
-    };
-    batch.validate()?;
-    Ok(batch)
 }

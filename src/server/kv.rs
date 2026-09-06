@@ -25,7 +25,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use eg_storage::{KvOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernelV1};
-use eg_transaction::{AdmittedOwnerWrite, Begin, MutationKernelV1};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernelV1};
 use eg_types::MutationScopeIdentity;
 use parking_lot::Mutex;
 use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
@@ -33,10 +33,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::RwLock;
 
 use super::state::ServerState;
-use crate::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationRequestContext, MutationSurface,
-    VersionExpectation, MUTATION_BATCH_VERSION,
-};
+use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::mutation_batch::COMPILED_BATCH_INCARNATION;
@@ -55,6 +52,21 @@ const MAX_KV_VALUE_BYTES: usize = 64 * 1024 * 1024;
 const DEFAULT_KV_SCAN_LIMIT: usize = 10_000;
 const MAX_KV_SCAN_LIMIT: usize = 100_000;
 const MAX_KV_BATCH_RESULT_BYTES: usize = 1024 * 1024;
+
+/// The row one plain KV write acts on, as it appears in the durable batch id: a
+/// content digest of `(namespace, key)`. Digested rather than spelled out because a KV
+/// key is arbitrary caller bytes ([`validate_key`] bounds only its length and rejects
+/// NUL), and a batch id may carry no control character and no surrounding whitespace
+/// (`MutationBatch::validate`). The digest is deterministic, so an auditor reading the
+/// ledger can still recompute which row a batch wrote.
+fn row_subject(namespace: &str, key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(namespace.as_bytes());
+    digest.update([0]);
+    digest.update(key.as_bytes());
+    hex::encode(digest.finalize())
+}
 
 fn validate_key(namespace: &str, key: &str) -> Result<(), String> {
     if namespace.is_empty()
@@ -138,52 +150,6 @@ fn bind_scope(kernel: &StorageKernelV1, scope: &MutationScopeIdentity) -> Result
         &authority.proof(),
     )?;
     kernel.bind_serving_scope(grant, 0).map(Arc::new)
-}
-
-/// The batch for one plain (non-`_batch`) KV write. `batch_id` is `(operation, scope
-/// version)`: exactly one batch commits per version, so it is unique per attempt and
-/// stable across a crash-retry of it, making a retry a replay rather than an
-/// `IDEMPOTENCY_CONFLICT`. Not reused from `crate::sidecar_store`, whose scope shape is a
-/// FIXED native `ControlPlane` identity that `OwnerLayout::Kv` would reject.
-fn maintenance_batch(
-    owner: &OwnedStoreHandle<KvOwner>,
-    event: &str,
-    expected_version: u64,
-) -> Result<MutationBatch, String> {
-    let batch_id = format!("{event}:v{expected_version}");
-    let batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal: owner.principal().to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // A maintenance mutation claims no capability: a plain `Native`-versioned
-            // write, not the reserved-system `Unversioned` path.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
-        identity: owner.identity().clone(),
-        placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
-        version_expectation: VersionExpectation::Native(expected_version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations: vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Other,
-            domain: MutationDomain::KvStore,
-            method: Method::ApplyMutation {
-                event_type: event.to_string(),
-                query: batch_id,
-            },
-        }],
-        outbox: Vec::new(),
-        created_at_ms: 0,
-    };
-    batch.validate()?;
-    Ok(batch)
 }
 
 /// Compare-and-swap `(namespace, key)` INSIDE one admitted owner write: the current
@@ -314,15 +280,27 @@ impl RedbBackend {
     /// One plain KV write as an owner MAINTENANCE mutation (RF-RULING-005) on the
     /// bootstrap scope: no caller identity, but ledgered, fenced and version-bumping
     /// like any other write — no un-ledgered owner-write path exists any more.
-    fn maintain<T, F>(&self, event: &str, apply: F) -> Result<T, String>
+    ///
+    /// `subject` is the row the write acts on, so `kv_put` on two different keys are
+    /// two different durable batches. The version they fence on is resolved INSIDE the
+    /// write transaction by `admit_current`: reading it from a snapshot first let two
+    /// concurrent `put`s at one observed version build byte-identical batches, and the
+    /// second then replayed the first's recorded result — a success ack, over the S3
+    /// and Redis wire surfaces, for a write that never happened.
+    fn maintain<T, F>(&self, event: &str, subject: &str, apply: F) -> Result<T, String>
     where
         T: Serialize + DeserializeOwned,
         F: FnOnce(&AdmittedOwnerWrite<'_, KvOwner>) -> Result<(T, bool), String>,
     {
-        let version = eg_transaction::version(&self.read()?)?;
-        let batch = maintenance_batch(&self.bootstrap, event, version)?;
+        let write = MaintenanceBatch::new(MutationDomain::KvStore, event, subject);
+        let bootstrap = self.bootstrap.as_ref();
+        let (txn, batch, begun) = self.mutations.admit_current(
+            bootstrap,
+            eg_storage::MutationClass::Maintenance,
+            |version| write.for_scope_version(bootstrap, version),
+        )?;
         let now = crate::server::dispatch::authoritative_now_ms();
-        self.apply_write(&self.bootstrap, &batch, now, true, apply)
+        self.complete_write(bootstrap, txn, &batch, begun, now, apply)
     }
 
     /// One caller-identified `*_batch` write, admitted under the batch's OWN bound
@@ -334,32 +312,32 @@ impl RedbBackend {
         F: FnOnce(&AdmittedOwnerWrite<'_, KvOwner>) -> Result<T, String>,
     {
         let owner = self.bound_scope(&batch.identity)?;
-        self.apply_write(&owner, batch, at_ms, false, |owner_write| {
+        let owner = owner.as_ref();
+        let (txn, begun) = self.mutations.admit(owner, batch)?;
+        self.complete_write(owner, txn, batch, begun, at_ms, |owner_write| {
             apply(owner_write).map(|value| (value, true))
         })
     }
 
-    /// Admit `batch`, stage its owner rows, persist the exact verdict as the replayable
-    /// result and commit — ONE transaction, so a KV row and its terminal MutationBatch
-    /// metadata can never disagree. `apply`'s `bool` says whether to commit at all: a
-    /// `cas` that failed its comparison answers `false` and aborts, leaving no trace.
-    fn apply_write<T, F>(
+    /// Stage an ALREADY admitted batch's owner rows, persist the exact verdict as the
+    /// replayable result and commit — ONE transaction, so a KV row and its terminal
+    /// MutationBatch metadata can never disagree. `apply`'s `bool` says whether to
+    /// commit at all: a `cas` that failed its comparison answers `false` and aborts,
+    /// leaving no trace. Shared by both admission classes; only the admission itself
+    /// differs, which is why it is the caller's.
+    fn complete_write<T, F>(
         &self,
         owner: &OwnedStoreHandle<KvOwner>,
+        write: eg_transaction::AdmittedMutation<'_, KvOwner>,
         batch: &MutationBatch,
+        begun: Begin,
         at_ms: u64,
-        maintenance: bool,
         apply: F,
     ) -> Result<T, String>
     where
         T: Serialize + DeserializeOwned,
         F: FnOnce(&AdmittedOwnerWrite<'_, KvOwner>) -> Result<(T, bool), String>,
     {
-        let (write, begun) = if maintenance {
-            self.mutations.admit_maintenance(owner, batch)
-        } else {
-            self.mutations.admit(owner, batch)
-        }?;
         let source_version = match begun {
             // Terminally committed already: the recorded verdict IS the answer, and
             // re-applying it would double the effect.
@@ -444,7 +422,7 @@ impl KvStore {
         validate_key(namespace, key)?;
         validate_value(&value)?;
         match &self.backend {
-            Backend::Redb(store) => store.maintain("kv_put", |owner_write| {
+            Backend::Redb(store) => store.maintain("kv_put", &row_subject(namespace, key), |owner_write| {
                 write_kv_row(owner_write, namespace, key, Some(&value)).map(|_| ((), true))
             }),
             Backend::Memory(m) => {
@@ -459,7 +437,7 @@ impl KvStore {
     pub fn delete(&self, namespace: &str, key: &str) -> Result<bool, String> {
         validate_key(namespace, key)?;
         match &self.backend {
-            Backend::Redb(store) => store.maintain("kv_delete", |owner_write| {
+            Backend::Redb(store) => store.maintain("kv_delete", &row_subject(namespace, key), |owner_write| {
                 write_kv_row(owner_write, namespace, key, None).map(|existed| (existed, true))
             }),
             Backend::Memory(m) => Ok(m
@@ -542,7 +520,7 @@ impl KvStore {
             validate_value(value)?;
         }
         match &self.backend {
-            Backend::Redb(store) => store.maintain("kv_cas", |owner_write| {
+            Backend::Redb(store) => store.maintain("kv_cas", &row_subject(namespace, key), |owner_write| {
                 swap_in_owner_write(owner_write, namespace, key, expected, new.as_deref())
                     .map(|swapped| (swapped, swapped))
             }),
@@ -821,264 +799,6 @@ fn is_kv_method(method: &Method) -> bool {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tmp_dir(tag: &str) -> std::path::PathBuf {
-        crate::test_support::temp_dir("eg-kv", tag)
-    }
-
-    /// put → get → scan → delete → cas round-trip over the durable store.
-    #[test]
-    fn kv_roundtrip_put_get_scan_delete_cas() {
-        let dir = tmp_dir("rt");
-        let store = KvStore::open(Some(dir.to_str().unwrap())).unwrap();
-        assert!(store.is_durable());
-
-        // put → get
-        store.put("ns", "a", b"alpha".to_vec()).unwrap();
-        store.put("ns", "ab", b"alphabet".to_vec()).unwrap();
-        store.put("ns", "b", b"bravo".to_vec()).unwrap();
-        store.put("other", "a", b"x".to_vec()).unwrap();
-        assert_eq!(
-            store.get("ns", "a").unwrap().as_deref(),
-            Some(&b"alpha"[..])
-        );
-        assert_eq!(store.get("ns", "missing").unwrap(), None);
-
-        // scan(prefix) is namespace-bounded + prefix-bounded + ordered.
-        let hits = store.scan("ns", "a", 0).unwrap();
-        assert_eq!(
-            hits,
-            vec![
-                ("a".to_string(), b"alpha".to_vec()),
-                ("ab".to_string(), b"alphabet".to_vec()),
-            ],
-            "prefix 'a' in 'ns' matches a, ab — not b, not the other namespace"
-        );
-        // Empty prefix → whole namespace; limit caps.
-        assert_eq!(store.scan("ns", "", 2).unwrap().len(), 2);
-        assert_eq!(store.scan("ns", "", 0).unwrap().len(), 3);
-
-        // delete
-        assert!(store.delete("ns", "a").unwrap());
-        assert!(!store.delete("ns", "a").unwrap());
-        assert_eq!(store.get("ns", "a").unwrap(), None);
-
-        // cas: wrong expected fails, right expected swaps; absent-expected create.
-        assert!(!store
-            .cas("ns", "b", Some(b"WRONG"), Some(b"new".to_vec()))
-            .unwrap());
-        assert_eq!(
-            store.get("ns", "b").unwrap().as_deref(),
-            Some(&b"bravo"[..])
-        );
-        assert!(store
-            .cas("ns", "b", Some(b"bravo"), Some(b"BRAVO".to_vec()))
-            .unwrap());
-        assert_eq!(
-            store.get("ns", "b").unwrap().as_deref(),
-            Some(&b"BRAVO"[..])
-        );
-        // create-if-absent: expected None on a non-existent key.
-        assert!(store.cas("ns", "fresh", None, Some(b"v".to_vec())).unwrap());
-        assert_eq!(
-            store.get("ns", "fresh").unwrap().as_deref(),
-            Some(&b"v"[..])
-        );
-        // cas-delete: expected current, new None.
-        assert!(store.cas("ns", "fresh", Some(b"v"), None).unwrap());
-        assert_eq!(store.get("ns", "fresh").unwrap(), None);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A durable put survives a store close + reopen (persistence across reopen).
-    #[test]
-    fn kv_persists_across_reopen() {
-        let dir = tmp_dir("reopen");
-        {
-            let store = KvStore::open(Some(dir.to_str().unwrap())).unwrap();
-            store.put("cfg", "version", b"42".to_vec()).unwrap();
-        }
-        // Reopen the SAME file — the value is still there.
-        let store = KvStore::open(Some(dir.to_str().unwrap())).unwrap();
-        assert_eq!(
-            store.get("cfg", "version").unwrap().as_deref(),
-            Some(&b"42"[..]),
-            "durable KV value must survive reopen"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The in-memory backend (no persist dir) honors the same contract (ephemeral).
-    #[test]
-    fn kv_in_memory_roundtrip() {
-        let store = KvStore::open(None).unwrap();
-        assert!(!store.is_durable());
-        store.put("ns", "k", b"v".to_vec()).unwrap();
-        assert_eq!(store.get("ns", "k").unwrap().as_deref(), Some(&b"v"[..]));
-        assert!(store
-            .cas("ns", "k", Some(b"v"), Some(b"v2".to_vec()))
-            .unwrap());
-        assert_eq!(store.scan("ns", "", 0).unwrap().len(), 1);
-        assert!(store.delete("ns", "k").unwrap());
-    }
-}
-
-/// Wire-level proof: drive the `Method::Kv*` ops through the SAME `dispatch`
-/// entrypoint a real request hits (auth → top-level routing → handler → store),
-/// over a `ServerState` carrying a durable KV store.
-#[cfg(test)]
-mod dispatch_tests {
-    use crate::protocol::{Method, Request, ResultPayload};
-    use crate::server::{
-        auth::{build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap},
-        ServerState,
-    };
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-
-    const SECRET: &str = "kv-test-secret";
-    const TEST_AGENT: &str = "unit-test-agent";
-
-    fn state_with_kv(dir: &str) -> Arc<RwLock<ServerState>> {
-        let kv = Arc::new(super::KvStore::open(Some(dir)).unwrap());
-        let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation(TEST_AGENT));
-        state.persist_dir = Some(dir.to_string());
-        #[cfg(feature = "kv")]
-        {
-            state.kv = Some(kv);
-        }
-        #[cfg(not(feature = "kv"))]
-        let _ = kv;
-        Arc::new(RwLock::new(state))
-    }
-
-    fn req(id: u64, method: Method) -> Request {
-        build_shared_test_request(SECRET, id, "__commons__", TEST_AGENT, method)
-    }
-
-    #[tokio::test]
-    async fn kv_dispatch_put_get_scan_delete_cas() {
-        let dir = std::env::temp_dir().join(format!("eg-kv-dispatch-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let state = state_with_kv(&dir.to_string_lossy());
-
-        // KvPut → "ok"
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                1,
-                Method::KvPut {
-                    namespace: "cfg".into(),
-                    key: "k".into(),
-                    value: b"v1".to_vec(),
-                },
-            ),
-        )
-        .await;
-        assert!(
-            matches!(r.result, Some(ResultPayload::String(s)) if s == "ok"),
-            "{:?}",
-            r.error
-        );
-
-        // KvGet → the opaque bytes verbatim.
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                2,
-                Method::KvGet {
-                    namespace: "cfg".into(),
-                    key: "k".into(),
-                },
-            ),
-        )
-        .await;
-        match r.result {
-            Some(ResultPayload::Raw(v)) => assert_eq!(v, b"v1"),
-            other => panic!("KvGet: {other:?} / {:?}", r.error),
-        }
-
-        // KvScan → ordered [(key, value)].
-        dispatch_on_heap(
-            &state,
-            req(
-                3,
-                Method::KvPut {
-                    namespace: "cfg".into(),
-                    key: "k2".into(),
-                    value: b"v2".to_vec(),
-                },
-            ),
-        )
-        .await;
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                4,
-                Method::KvScan {
-                    namespace: "cfg".into(),
-                    prefix: "k".into(),
-                    limit: 0,
-                },
-            ),
-        )
-        .await;
-        let pairs: Vec<(String, serde_bytes::ByteBuf)> = match r.result {
-            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
-            other => panic!("KvScan: {other:?} / {:?}", r.error),
-        };
-        assert_eq!(pairs.len(), 2);
-        assert_eq!(pairs[0].0, "k");
-
-        // KvCas → swaps only on match.
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                5,
-                Method::KvCas {
-                    namespace: "cfg".into(),
-                    key: "k".into(),
-                    expected: Some(b"v1".to_vec()),
-                    new: Some(b"V1".to_vec()),
-                },
-            ),
-        )
-        .await;
-        assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
-
-        // KvDelete → existed.
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                6,
-                Method::KvDelete {
-                    namespace: "cfg".into(),
-                    key: "k2".into(),
-                },
-            ),
-        )
-        .await;
-        assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
-
-        // Bad auth is rejected before routing.
-        let mut bad = req(
-            7,
-            Method::KvGet {
-                namespace: "cfg".into(),
-                key: "k".into(),
-            },
-        );
-        bad.auth_token = "bogus".into();
-        let r = dispatch_on_heap(&state, bad).await;
-        assert_eq!(r.error.as_deref(), Some("Authentication failed"));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
 
 /// Bundle the durable namespaced KV surface (CONCEPT:EG-KG.backend.networked-shared-kv) into
 /// an online backup.
@@ -1123,3 +843,8 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
         KvStore::is_durable(self)
     }
 }
+
+#[cfg(test)]
+mod dispatch_tests;
+#[cfg(test)]
+mod tests;

@@ -29,6 +29,7 @@ mod admitted;
 mod commit;
 mod kernel;
 mod ledger;
+mod maintenance;
 mod participant;
 mod read;
 mod replay;
@@ -37,6 +38,7 @@ mod tables;
 
 pub use admitted::{AdmittedMutation, AdmittedOwnerWrite};
 pub use kernel::MutationKernelV1;
+pub use maintenance::MaintenanceBatch;
 pub use participant::{
     decode_record, decode_record_key, encode_record, encode_record_key, is_sealed_payload,
     sealed_blob_digest, validate_key_matches_record, validate_transition,

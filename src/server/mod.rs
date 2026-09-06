@@ -7,6 +7,7 @@ use hmac::Mac as _;
 
 pub(crate) mod access;
 pub(crate) mod auth;
+pub(crate) mod request_replay;
 
 /// Verified minimum stack for engine Tokio workers.
 ///
