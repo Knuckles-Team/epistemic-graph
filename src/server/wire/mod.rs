@@ -6198,14 +6198,14 @@ mod wired_catalog_tests {
         // capability prevents any competing source decision during each attempt.
         let created_at_ms = crate::server::txn::now_ms();
         let expected_version = store
-            .mutation_version(&tenant_scope, graph)
+            .mutation_version(tenant, graph)
             .expect("read SQL mutation version");
         let batch = crate::server::mutation_batch::compile_opaque_method(
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &batch_id,
                 request_id,
                 principal: Some(owner.actor_scope()),
-                tenant: &tenant_scope,
+                tenant,
                 graph,
                 placement_epoch: 0,
                 idempotency_key: &batch_id,

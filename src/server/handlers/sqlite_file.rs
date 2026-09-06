@@ -263,12 +263,19 @@ fn committed_import_report(
             .find_map(|intent| intent.headers.get("actor"))
             .cloned()
     };
+    // `MutationOperation` carries no `PartialEq` (it is a wire type owned by
+    // `eg-types`), so the operation list is compared on its canonical encoding
+    // -- the same bytes the kernel's own replay identity is taken over, just
+    // over this one field instead of the whole batch.
+    let operations = |candidate: &MutationBatch| {
+        rmp_serde::to_vec_named(&candidate.operations).map_err(|error| error.to_string())
+    };
     let exact = record.status == eg_types::mutation_batch::MutationBatchStatus::Committed
         && record.batch.batch_id == batch.batch_id
         && record.batch.idempotency_key == batch.idempotency_key
         && record.batch.context.request_id == batch.context.request_id
         && record.batch.identity == batch.identity
-        && record.batch.operations == batch.operations
+        && operations(&record.batch)? == operations(batch)?
         && actor(&record.batch).is_some()
         && actor(&record.batch) == actor(batch);
     if !exact {
