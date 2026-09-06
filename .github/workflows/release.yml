@@ -150,8 +150,10 @@ jobs:
         run: pip install pytest
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
-      - name: Protocol parity (Python client ⇄ Rust Method enum)
-        run: python -m pytest tests/test_protocol_parity.py --noconftest -q
+      - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
+        run: cargo run -q -p eg-capabilities --features contract --bin gen_contract -- --check
+      - name: Generated Python client contract
+        run: python3 tests/test_generated_client_contract.py
 
       # numeric-parity + NE-249: the developer-only reference gate proves EVERY
       # kernel op matches its NumPy reference, AND that the kernel still imports

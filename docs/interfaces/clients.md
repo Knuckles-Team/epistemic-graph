@@ -14,7 +14,7 @@ variant name + its exact param fields.
 
 | Language | Location | Scope | Tested |
 |----------|----------|-------|--------|
-| **Python** | [`epistemic_graph/client.py`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/epistemic_graph/client.py) | **Full** — graph/vector/RDF/SQL/txn/broker plus governed `modalities` and native `knowledge` streaming. | `tests/test_pb_clients.py`, `tests/test_modality_stream_clients.py`, and the `tests/test_protocol_parity.py` drift gate. |
+| **Python** | [`epistemic_graph/client.py`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/epistemic_graph/client.py) | **Full** — graph/vector/RDF/SQL/txn/broker plus governed `modalities` and native `knowledge` streaming. | `tests/test_pb_clients.py`, `tests/test_modality_stream_clients.py`, and the `gen_contract --check` engine-contract gate. |
 | **JS / Node** | [`clients/js`](https://github.com/Knuckles-Team/epistemic-graph/tree/main/clients/js) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run the package tests before release. |
 | **Go** | [`clients/go`](https://github.com/Knuckles-Team/epistemic-graph/tree/main/clients/go) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run `go test ./...` before release. |
 
@@ -148,13 +148,20 @@ flowchart LR
 
 ## Parity gate
 
-`tests/test_protocol_parity.py` enforces the Python client ⇄ `Method` enum contract:
-every method the client sends must be a real variant, and the set of UNBOUND variants must
-equal `tests/protocol_unbound_baseline.txt`. B1.7 removed the broker/streams/NL/RBAC/backup
-entries from that baseline (they now have Python senders) and baselined the remaining
-un-bound EG-KG.memory.eg-batch-decay-caller memory/scene/trajectory + CEP ops (deferred to roadmap B3.16 / B3.14).
-The JS/Go thin clients are generated from the same `Method` list by hand and kept in sync
-by review against `protocol.rs`.
+RF-RULING-003 made the contract itself the gate. `crates/eg-capabilities` declares one
+`MethodDescriptor` per `Method` variant, and
+`cargo run -p eg-capabilities --features contract --bin gen_contract -- --check`
+regenerates `contract/methods.json`, `contract/schemas/*.json`, `contract/receipt.json`,
+`docs/capabilities.generated.md` and `epistemic_graph/generated/*.py` in memory, then
+byte-diffs the committed tree. "Does the Python client send this method" is now the
+descriptor's `consumer_profiles` field, and a method with no consumer is
+`stability: internal` on its own row — so the old
+`tests/protocol_unbound_baseline.txt` ratchet is deleted rather than re-baselined.
+`crates/eg-capabilities/tests/contract_registry.rs` proves the registry and the `Method`
+enum are a bijection with no baseline, and `tests/test_generated_client_contract.py`
+(pure stdlib) proves the generated Python surface is exactly the published profile.
+The JS/Go thin clients are still hand-maintained; their `ConsumerProfile` values exist in
+the descriptor but no generator emits them yet.
 
 ---
 

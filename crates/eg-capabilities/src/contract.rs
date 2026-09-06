@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use crate::{ConsumerProfile, MethodDescriptor, SchemaRef, Stability};
 
 mod format_identity;
+mod python;
 mod schema;
 
 pub use format_identity::{collect_format_identities, FormatIdentity};
@@ -231,6 +232,7 @@ fn body_artifacts(root: &Path) -> Vec<Artifact> {
         },
     ];
     out.extend(schema::artifacts());
+    out.extend(python::artifacts());
     let _ = root;
     out
 }

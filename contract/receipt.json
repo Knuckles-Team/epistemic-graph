@@ -10,7 +10,21 @@
     "contract/schemas/result.NodeList.json": "584c3712101c532f50581a956cf755b9e84b280bbe2d189ece85b9e577365e4b",
     "contract/schemas/result.String.json": "a3e272c53a4f5de4d4d6d51ff824bf63bfb22b3aa59609d990cd53065148a4ab",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "docs/capabilities.generated.md": "25d32ead78d072eba0c44e362835345ec37568d3f14c2200ca5636b17dffbd80"
+    "docs/capabilities.generated.md": "25d32ead78d072eba0c44e362835345ec37568d3f14c2200ca5636b17dffbd80",
+    "epistemic_graph/generated/__init__.py": "a800de57951402d4bf51db5d72c249847c230934aeb07280b8056c9a447dbf02",
+    "epistemic_graph/generated/_ids.py": "3c876a5bbc24e280c76e3f165b0e4c672a6396ceb55cf0f0725adc0fdff14d25",
+    "epistemic_graph/generated/_runtime.py": "dcc1e6ad2d3ca966e669464e35a9e43306e3ba4e0738ca48a26ff1aff7f9318b",
+    "epistemic_graph/generated/cluster.py": "e3df94d4db582d0dd01b6e0e725bbae3f29b99138e7783ebdfb7f0f12d40ef59",
+    "epistemic_graph/generated/compute.py": "cd20d42d10a5ec313fd69c8b858501854a46d6db7a7a4c429a4dc8c88d72c9a0",
+    "epistemic_graph/generated/coordination.py": "bb6101b944563215c471d5e686ff220ce026b58b322420d589d59820b2b19e8f",
+    "epistemic_graph/generated/graph.py": "fb180fcfb03f9311f3b3f93606a3531d2fd45678c69a7dc1812331bdaf174670",
+    "epistemic_graph/generated/ingestion.py": "c10682d22ccc53af084bf466e1bc38f5f8731b00140a705b6b1ccf34035b72eb",
+    "epistemic_graph/generated/messaging.py": "f88d2f50e9cacb566e0fb30aa31d18a06bb865ee5ff4e9f729e63d91453cec1d",
+    "epistemic_graph/generated/query.py": "fdb619edb5850215e6438cf65ec99620faf0d2768ee71d17b437f8a4144cd873",
+    "epistemic_graph/generated/reasoning.py": "82c322c7410722882530b4be65aa4d2c02d82c61ff35f7df62c4c9cd68cbfb36",
+    "epistemic_graph/generated/security.py": "52f4118b1e5e0e8eddc59695090420431bbe79af08fdbf5f3b18137aadb6f31d",
+    "epistemic_graph/generated/storage.py": "61a88f7f25bd0e77445c3e223bda4ed84e4f08f439d13c0c51a28678f3ba26bc",
+    "epistemic_graph/generated/transactions.py": "418525921decc7da2080459bd656dd26f03b571d58fa39b216cf8b331863c50f"
   },
   "cargo_lock_sha256": "e6a3e0ec2641ace430f44a58df19068d6568cdf1949f1bdf92a04369ee53d6b4",
   "contract_version": 1,
@@ -223,6 +237,6 @@
   "method_count": 408,
   "opaque_result_methods": 279,
   "python_client_methods": 389,
-  "source_tree_oid": "9f861e55aac962d40d1f44e1a013eb7f26690101fc0bacb73f2aa681719296eb",
+  "source_tree_oid": "744e04da13de23d0d66474aa33e731bc585b0bfada6afede62ca47b427b6c2a7",
   "typed_result_methods": 129
 }

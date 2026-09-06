@@ -472,16 +472,24 @@ repos:
     always_run: true
     require_serial: true
     stages: [pre-push, manual]
-  # perf/gate-dedup (2026-08-15): the standalone `protocol-parity` hook that used
-  # to live here ran `python3 -m pytest tests/test_protocol_parity.py --noconftest
-  # -q` on every push — byte-for-byte the SAME command release.yml's `gates` job
-  # runs as its "Protocol parity (Python client ⇄ Rust Method enum)" step, which
-  # `ci-gate-replica` (above) executes verbatim by parsing release.yml at run
-  # time. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed from the
-  # automatic pre-push stage so the check runs once per push, not twice; the
-  # commit-stage `protocol-parity`-equivalent coverage is unaffected (this hook
-  # was pre-push/manual only, never commit-stage). To run it standalone:
-  #   python3 -m pytest tests/test_protocol_parity.py --noconftest -q
+  # RF-RULING-003: the engine contract replaced the `protocol-parity` pytest gate
+  # and its `tests/protocol_unbound_baseline.txt` ratchet. `gen_contract --check`
+  # regenerates every committed artifact (`contract/methods.json`,
+  # `contract/schemas/*.json`, `contract/receipt.json`,
+  # `docs/capabilities.generated.md`, `epistemic_graph/generated/*.py`) in memory and
+  # byte-diffs the tree, so "is this method bound in the Python client" is answered by
+  # the descriptor's `consumer_profiles` rather than by a regex over two files and a
+  # baseline nobody re-reviews. It runs on the SAME pre-push/manual stage the old
+  # standalone hook did, and release.yml runs the identical command so
+  # `ci-gate-replica` stays a verbatim replica.
+  - id: engine-contract-check
+    name: Engine contract (registry ⇄ Method enum ⇄ generated client) — gen_contract --check
+    entry: cargo run -q -p eg-capabilities --features contract --bin gen_contract -- --check
+    language: system
+    pass_filenames: false
+    always_run: true
+    require_serial: true
+    stages: [pre-push, manual]
   # rust-ci gate 1 — scoped, pinned, check-only format guard. Never invoke
   # `cargo fmt --all` from a developer or merge track: an auto-applying
   # workspace formatter rewrites unrelated files in another lane's worktree.
