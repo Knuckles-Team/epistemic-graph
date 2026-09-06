@@ -29,10 +29,12 @@ pub use codec::{
     decode_batch_record, decode_ledger_record, decode_outbox_record, encode_bounded,
     CollectionBudget,
 };
-pub use kernel::{MutationOwnerAuthority, StorageKernelV1};
+pub use kernel::{
+    MutationOwnerAuthority, StorageKernelV1, StoreDurability, StoreOpenOptions,
+};
 pub use owner::blob_shared::{
     BlobSharedRead, BlobSharedServiceHandle, BlobSharedServiceVerifier, BlobSharedTable,
-    CasChunkRows, CasRefcountRows,
+    BlobSharedWrite, CasChunkRows, CasRefcountRows,
 };
 pub use owner::domain::{
     BlobOwner, ClusterHierarchyOwner, ColdTierOwner, JobsOwner, KvOwner, LedgerOnlyOwner,

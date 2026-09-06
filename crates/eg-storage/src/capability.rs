@@ -208,6 +208,18 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         retire_scope_in(self.store, &self.transaction, &self.identity)
     }
 
+    /// The physical store this capability was minted over.
+    ///
+    /// Crate-private: a `&PhysicalStore` is the whole physical authority — the
+    /// database, the incarnation and the manifest — and handing one out would
+    /// make every capability bound on this type vacuous. It exists so
+    /// [`crate::owner::blob_shared`] can re-prove the blob layout's independent
+    /// shared-service authority against the same store, inside this same
+    /// already-open write transaction.
+    pub(crate) fn store(&self) -> &PhysicalStore {
+        self.store
+    }
+
     /// The exact serving scope this capability was issued for.
     pub fn scope(&self) -> &MutationScopeIdentity {
         &self.identity
@@ -242,6 +254,26 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
 
     pub fn abort(self) -> Result<(), String> {
         self.transaction.abort().map_err(|error| error.to_string())
+    }
+}
+
+impl<'w> PhysicalWriteCapability<'w, crate::owner::domain::BlobOwner> {
+    /// Mint the blob layout's independent shared-service write over **this**
+    /// already-open, already-admitted write transaction.
+    ///
+    /// `cas_chunks` and `cas_refcount` are declared `TableScope::SharedService`
+    /// and are not owner rows: they are reached through the blob service's own
+    /// authority, not through a serving scope's owner-row adapter. But `redb`
+    /// permits one writer, and on every batch path that writer is this
+    /// capability, so the shared-service write borrows it instead of opening a
+    /// second transaction — a chunk row and the refcount that accounts for it
+    /// then commit with the batch's ledger rows, or neither lands.
+    pub fn blob_shared_write(
+        &'w self,
+        owner: &crate::owner::blob_shared::BlobSharedServiceHandle,
+        principal: &str,
+    ) -> Result<crate::owner::blob_shared::BlobSharedWrite<'w>, String> {
+        crate::owner::blob_shared::write_blob_shared(self, owner, principal)
     }
 }
 

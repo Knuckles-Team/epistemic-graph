@@ -21,4 +21,6 @@ pub(crate) use registry::{
 };
 
 #[cfg(test)]
+mod blob_shared_tests;
+#[cfg(test)]
 mod tests;

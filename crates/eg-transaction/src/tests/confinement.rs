@@ -213,3 +213,97 @@ fn purging_a_layout_with_owner_tables_requires_an_owner_payload_retirement() {
         .unwrap()
         .is_none());
 }
+
+/// The shared-service CAS write is reachable from an admitted mutation and from
+/// an open owner-row admission, and it is the SAME transaction: a chunk row,
+/// the refcount that accounts for it and the batch's own `cas_blobs` row commit
+/// together, or a failed batch leaves none of them.
+#[test]
+fn a_shared_chunk_and_its_refcount_commit_with_the_batch_or_not_at_all() {
+    const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
+    const DIGEST: &str = "aa11bb22cc33dd44ee55ff6600778899aa11bb22cc33dd44ee55ff6600778899";
+
+    struct SharedVerifier;
+    impl eg_storage::BlobSharedServiceVerifier for SharedVerifier {
+        fn verify(
+            &self,
+            _physical: &eg_storage::PhysicalStoreIdentity,
+            principal: &str,
+            proof: &[u8],
+        ) -> Result<(), String> {
+            (principal == "blob-service" && proof == b"verified")
+                .then_some(())
+                .ok_or_else(|| "test shared blob authority rejected".to_string())
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("blob.redb");
+    let identity = native_identity("tenant-a", "incarnation:blob:a");
+    let fixture = Fixture::create::<BlobOwner>(&path, "physical:blob:shared", None);
+    let service = fixture
+        .kernel
+        .authenticate_blob_shared_service(&SharedVerifier, "blob-service".to_string(), b"verified")
+        .unwrap();
+    let owner =
+        fixture.bind::<BlobOwner>(&verifier("tenant-a", OwnerLayout::Blob), identity.clone());
+
+    // A batch that writes an owner row AND the shared CAS rows, then fails.
+    let failed = batch(identity.clone(), "batch-failed");
+    let (write, _) = fixture.mutations.admit(&owner, &failed).unwrap();
+    {
+        let rows = write.owner_rows(&owner, &failed).unwrap();
+        rows.open_table(BLOB_ROWS)
+            .unwrap()
+            .insert(blob_key("scope", "object").as_str(), b"manifest".as_slice())
+            .unwrap();
+        let shared = rows.blob_shared_write(&service, "blob-service").unwrap();
+        assert!(shared.insert_chunk_if_absent(DIGEST, b"chunk").unwrap());
+        assert_eq!(shared.adjust_refcount(DIGEST, 1).unwrap(), 1);
+        drop(shared);
+        rows.finish_owner().unwrap();
+    }
+    write.abort().unwrap();
+
+    let read = fixture.kernel.read_blob_shared(&service, "blob-service").unwrap();
+    assert!(!read.chunk_present(DIGEST).unwrap());
+    assert_eq!(read.refcount(DIGEST).unwrap(), 0);
+    drop(read);
+    let scoped = fixture.kernel.read_scope(&owner).unwrap();
+    assert!(scoped
+        .open_owner_table(BLOB_ROWS)
+        .unwrap()
+        .get(blob_key("scope", "object").as_str())
+        .unwrap()
+        .is_none());
+    drop(scoped);
+
+    // The same shape, committed: every row of the batch lands together.
+    let applied = batch(identity.clone(), "batch-applied");
+    let (write, begun) = fixture.mutations.admit(&owner, &applied).unwrap();
+    let source_version = match begun {
+        Begin::Apply { source_version } => source_version,
+        Begin::Replay(_) => panic!("unexpected replay"),
+    };
+    {
+        let shared = write.blob_shared_write(&service, "blob-service").unwrap();
+        assert!(shared.insert_chunk_if_absent(DIGEST, b"chunk").unwrap());
+        assert_eq!(shared.adjust_refcount(DIGEST, 1).unwrap(), 1);
+    }
+    let rows = write.owner_rows(&owner, &applied).unwrap();
+    rows.open_table(BLOB_ROWS)
+        .unwrap()
+        .insert(blob_key("scope", "object").as_str(), b"manifest".as_slice())
+        .unwrap();
+    rows.finish_owner().unwrap();
+    fixture
+        .mutations
+        .finish(&write, &applied, None, 2, source_version)
+        .unwrap();
+    fixture.mutations.commit(write, &applied).unwrap();
+
+    let read = fixture.kernel.read_blob_shared(&service, "blob-service").unwrap();
+    assert!(read.chunk_present(DIGEST).unwrap());
+    assert_eq!(read.refcount(DIGEST).unwrap(), 1);
+    assert_eq!(read.chunk_bytes(DIGEST).unwrap().as_deref(), Some(&b"chunk"[..]));
+}

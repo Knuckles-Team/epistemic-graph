@@ -8,8 +8,9 @@
 
 use crate::admission::AdmissionState;
 use eg_storage::{
-    LedgerRowScope, MutationClass, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain,
-    OwnerLayout, OwnerReadTable, PhysicalWriteCapability, ScopedTableMut,
+    BlobOwner, BlobSharedServiceHandle, BlobSharedWrite, LedgerRowScope, MutationClass,
+    MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain, OwnerLayout, OwnerReadTable,
+    PhysicalWriteCapability, ScopedTableMut,
 };
 use eg_types::{MutationBatch, MutationScopeIdentity};
 use redb::{Table, TableDefinition};
@@ -149,6 +150,26 @@ impl<'a, D: OwnerDomain> AdmittedMutation<'a, D> {
     }
 }
 
+impl<'a> AdmittedMutation<'a, BlobOwner> {
+    /// Mint the blob layout's independent shared-service write over **this**
+    /// admitted mutation's transaction.
+    ///
+    /// `cas_chunks`/`cas_refcount` are `TableScope::SharedService`, not owner
+    /// rows, so they are authorised by the blob service's own handle rather
+    /// than by this write's serving scope. They still have to land in this
+    /// transaction: `redb` permits one writer, this mutation is holding it, and
+    /// a chunk row whose refcount lands in a different transaction is a row
+    /// that a failed batch orphans. The returned capability therefore borrows
+    /// this write and commits or aborts with it.
+    pub fn blob_shared_write(
+        &'a self,
+        owner: &BlobSharedServiceHandle,
+        principal: &str,
+    ) -> Result<BlobSharedWrite<'a>, String> {
+        self.capability.blob_shared_write(owner, principal)
+    }
+}
+
 /// Consuming owner-write gate. Dropping it unfinished poisons the outer write.
 ///
 /// ```compile_fail
@@ -192,6 +213,21 @@ impl<D: OwnerDomain> AdmittedOwnerWrite<'_, D> {
 
     pub fn identity(&self) -> &MutationScopeIdentity {
         &self.identity
+    }
+}
+
+impl<'a> AdmittedOwnerWrite<'a, BlobOwner> {
+    /// The shared-service write, reached from inside an open owner-row
+    /// admission so a batch closure that writes `cas_blobs`/`cas_uploads` can
+    /// write the chunk and refcount rows of the same batch without leaving the
+    /// transaction. Delegates to
+    /// [`AdmittedMutation::blob_shared_write`]; it adds no authority of its own.
+    pub fn blob_shared_write(
+        &self,
+        owner: &BlobSharedServiceHandle,
+        principal: &str,
+    ) -> Result<BlobSharedWrite<'a>, String> {
+        self.write.blob_shared_write(owner, principal)
     }
 }
 

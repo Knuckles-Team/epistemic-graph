@@ -1,4 +1,5 @@
 use crate::codec::encode_bounded;
+use crate::kernel::StoreOpenOptions;
 use crate::owner::{validate_declared_tables_write, validate_manifest_write};
 use crate::physical::incarnation::{
     persisted_root, require_persisted_root, StoreIncarnation, STORE_ROOT_KEY,
@@ -68,6 +69,11 @@ pub(crate) struct PhysicalStore {
     physical_path: PathBuf,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
     owner_manifest: OwnerManifest,
+    /// How this handle was opened — page cache, durability, write authority.
+    /// Never part of the store's identity: no digest, manifest or incarnation
+    /// check reads it, so the same file opened with different options is the
+    /// same store.
+    options: StoreOpenOptions,
 }
 
 impl PhysicalStore {
@@ -86,13 +92,20 @@ impl PhysicalStore {
     /// Begin the one physical write transaction, revalidating physical root,
     /// persisted root, manifest authority and the declared table census first.
     pub(crate) fn begin_write(&self) -> Result<WriteTransaction, String> {
+        // The read-only refusal is here as well as in the kernel's withheld
+        // mutation authority: one bound is on the token, this one is on the
+        // physical file, so neither a leaked token nor a crate-internal caller
+        // can write a store that was opened read-only.
+        if self.options.is_read_only() {
+            return Err("store was opened read-only".to_string());
+        }
         self.validate_physical_root()?;
         let mut transaction = self
             .database
             .begin_write()
             .map_err(|error| error.to_string())?;
         transaction
-            .set_durability(redb::Durability::Immediate)
+            .set_durability(self.options.write_durability())
             .map_err(|error| error.to_string())?;
         validate_handle_write(&self.handle, &transaction)?;
         let manifest = &self.owner_manifest;
@@ -140,7 +153,20 @@ impl PhysicalStore {
             physical_path,
             private_integrity,
             owner_manifest,
+            options: StoreOpenOptions::default(),
         }
+    }
+
+    /// Apply the open options this handle was created under. Separate from
+    /// [`Self::from_parts`] so every existing physical path keeps the default —
+    /// which is exactly the behaviour that predates options.
+    pub(crate) fn with_options(mut self, options: StoreOpenOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub(crate) fn options(&self) -> StoreOpenOptions {
+        self.options
     }
 }
 
