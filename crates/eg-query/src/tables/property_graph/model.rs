@@ -26,9 +26,73 @@ pub const MAX_PROPERTY_GRAPH_KEY_COLUMNS: usize = 32;
 pub const MAX_SQL_IDENTIFIER_BYTES: usize = 63;
 pub const MAX_QUALIFIED_NAME_PARTS: usize = 3;
 pub const MAX_TENANT_SCOPE_BYTES: usize = 512;
+pub const PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION: u16 = 1;
+pub const MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES: usize = 512 * 1024;
+pub const MAX_CATALOG_ID_BYTES: usize = 256;
+pub const MAX_CATALOG_OWNER_BYTES: usize = 256;
+
+/// A tenant-scoped SQL name. Tenant is an opaque security scope, not an SQL
+/// identifier. An unqualified name resolves to the tenant's `public` schema.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanonicalCatalogName {
+    pub tenant_scope: String,
+    pub catalog: Option<SqlIdentifier>,
+    pub schema: SqlIdentifier,
+    pub object: SqlIdentifier,
+}
+
+impl CanonicalCatalogName {
+    pub fn resolve(tenant_scope: &str, name: &SqlName) -> Result<Self, String> {
+        validate_bounded_text(tenant_scope, "tenant scope", MAX_TENANT_SCOPE_BYTES)?;
+        name.validate()?;
+        let public = || SqlIdentifier::unquoted("public");
+        match name.0.as_slice() {
+            [object] => Ok(Self {
+                tenant_scope: tenant_scope.into(),
+                catalog: None,
+                schema: public()?,
+                object: object.clone(),
+            }),
+            [schema, object] => Ok(Self {
+                tenant_scope: tenant_scope.into(),
+                catalog: None,
+                schema: schema.clone(),
+                object: object.clone(),
+            }),
+            [catalog, schema, object] => Ok(Self {
+                tenant_scope: tenant_scope.into(),
+                catalog: Some(catalog.clone()),
+                schema: schema.clone(),
+                object: object.clone(),
+            }),
+            _ => Err("SQL catalog name must have one, two, or three parts".into()),
+        }
+    }
+
+    pub fn sql_name(&self) -> Result<SqlName, String> {
+        let mut parts = Vec::with_capacity(if self.catalog.is_some() { 3 } else { 2 });
+        if let Some(catalog) = &self.catalog {
+            parts.push(catalog.clone());
+        }
+        parts.push(self.schema.clone());
+        parts.push(self.object.clone());
+        SqlName::new(parts)
+    }
+
+    pub(super) fn validate(&self) -> Result<(), String> {
+        validate_bounded_text(&self.tenant_scope, "tenant scope", MAX_TENANT_SCOPE_BYTES)?;
+        if let Some(catalog) = &self.catalog {
+            catalog.validate()?;
+        }
+        self.schema.validate()?;
+        self.object.validate()
+    }
+}
 
 /// One SQL identifier with PostgreSQL folding already applied.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SqlIdentifier {
     value: String,
 }
@@ -110,6 +174,7 @@ pub enum PropertySet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PropertyDefinition {
     /// The source column.  PostgreSQL also permits general expressions; this
     /// bounded first slice intentionally accepts column references only, so a
@@ -119,12 +184,14 @@ pub struct PropertyDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LabelDefinition {
     pub name: SqlIdentifier,
     pub properties: PropertySet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PropertyGraphDefinition {
     pub schema_version: u16,
     pub tenant_scope: String,
@@ -274,6 +341,36 @@ pub(super) fn validate_bounded_text(value: &str, field: &str, max: usize) -> Res
     bounded_text_is_valid(value, max)
         .then_some(())
         .ok_or_else(|| format!("{field} must contain 1..={max} non-NUL bytes"))
+}
+
+pub(super) fn validate_revision(value: u64, field: &str) -> Result<(), String> {
+    if value == 0 {
+        return Err(format!("{field} must be positive"));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_digest(value: &str, field: &str) -> Result<(), String> {
+    require(
+        value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        &format!("{field} must be a 64-character hexadecimal SHA-256"),
+    )
+}
+
+pub(super) fn require(condition: bool, message: &str) -> Result<(), String> {
+    condition.then_some(()).ok_or_else(|| message.to_string())
+}
+
+pub(super) fn digest_value<T: Serialize>(
+    domain: &[u8],
+    value: &T,
+    field: &str,
+) -> Result<String, String> {
+    let encoded = serde_json::to_vec(value).map_err(|error| format!("encode {field}: {error}"))?;
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    hasher.update(encoded);
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn bounded_text_is_valid(value: &str, max: usize) -> bool {

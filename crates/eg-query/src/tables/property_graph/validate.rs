@@ -5,10 +5,155 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::tables::schema::{Column, ColumnType, TableConstraint, TableSchema};
+
 use super::model::*;
 use super::{DropBehavior, ElementKind, GraphOwner};
 
+pub(super) fn primary_key(schema: &TableSchema) -> Result<Option<Vec<SqlIdentifier>>, String> {
+    let table_constraint = schema
+        .constraints()
+        .iter()
+        .find_map(|constraint| {
+            if let TableConstraint::PrimaryKey { columns, .. } = constraint {
+                Some(identifiers(columns))
+            } else {
+                None
+            }
+        })
+        .transpose()?;
+    if table_constraint.is_some() {
+        return Ok(table_constraint);
+    }
+    let columns: Vec<_> = schema
+        .columns()
+        .iter()
+        .filter(|column| column.primary_key)
+        .map(|column| SqlIdentifier::quoted(column.name.clone()))
+        .collect::<Result<_, _>>()?;
+    Ok((!columns.is_empty()).then_some(columns))
+}
+
+pub(super) fn is_unique_key(
+    schema: &TableSchema,
+    columns: &[SqlIdentifier],
+) -> Result<bool, String> {
+    let names: Vec<_> = columns.iter().map(SqlIdentifier::value).collect();
+    if primary_key(schema)?.is_some_and(|primary| {
+        primary
+            .iter()
+            .map(SqlIdentifier::value)
+            .eq(names.iter().copied())
+    }) {
+        return Ok(true);
+    }
+    if names.len() == 1 && schema.column(names[0]).is_some_and(Column::is_unique) {
+        return Ok(true);
+    }
+    Ok(schema.constraints().iter().any(|constraint| {
+        matches!(constraint, TableConstraint::Unique { columns, .. }
+            if columns.iter().map(String::as_str).eq(names.iter().copied()))
+    }))
+}
+
+pub(super) fn add_columns(
+    schema: &TableSchema,
+    columns: &[SqlIdentifier],
+    used: &mut BTreeMap<SqlIdentifier, ColumnType>,
+) -> Result<(), String> {
+    for name in columns {
+        let column = find_column(schema, name)?;
+        used.insert(name.clone(), column.ty);
+    }
+    Ok(())
+}
+
+pub(super) fn find_column<'a>(
+    schema: &'a TableSchema,
+    name: &SqlIdentifier,
+) -> Result<&'a Column, String> {
+    schema.column(name.value()).ok_or_else(|| {
+        format!(
+            "base relation `{}` has no column `{}`",
+            schema.name,
+            name.value()
+        )
+    })
+}
+
+pub(super) fn identifiers(names: &[String]) -> Result<Vec<SqlIdentifier>, String> {
+    names
+        .iter()
+        .map(|name| SqlIdentifier::quoted(name.clone()))
+        .collect()
+}
+
+pub(super) fn merge_resolved_property_types(
+    types: &mut BTreeMap<(SqlIdentifier, SqlIdentifier), ColumnType>,
+    schema: &TableSchema,
+    labels: &[LabelDefinition],
+) -> Result<(), String> {
+    for label in labels {
+        let PropertySet::Explicit(properties) = &label.properties else {
+            continue;
+        };
+        for property in properties {
+            let column_type = find_column(schema, &property.source_column)?.ty;
+            let key = (label.name.clone(), property.property_name.clone());
+            if types
+                .insert(key, column_type)
+                .is_some_and(|prior| prior != column_type)
+            {
+                return Err(format!(
+                    "label `{}` property `{}` resolves to inconsistent column types",
+                    label.name.value(),
+                    property.property_name.value()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn resolve_labels(
+    schema: &TableSchema,
+    labels: &[LabelDefinition],
+) -> Result<(Vec<LabelDefinition>, BTreeMap<SqlIdentifier, ColumnType>), String> {
+    let mut used = BTreeMap::new();
+    let mut resolved = Vec::with_capacity(labels.len());
+    for label in labels {
+        let properties = match &label.properties {
+            PropertySet::None => PropertySet::None,
+            PropertySet::AllColumns => {
+                let mut properties = Vec::with_capacity(schema.columns().len());
+                for column in schema.columns() {
+                    let name = SqlIdentifier::quoted(column.name.clone())?;
+                    used.insert(name.clone(), column.ty);
+                    properties.push(PropertyDefinition {
+                        source_column: name.clone(),
+                        property_name: name,
+                    });
+                }
+                PropertySet::Explicit(properties)
+            }
+            PropertySet::Explicit(properties) => {
+                for property in properties {
+                    let column = find_column(schema, &property.source_column)?;
+                    used.insert(property.source_column.clone(), column.ty);
+                }
+                PropertySet::Explicit(properties.clone())
+            }
+        };
+        resolved.push(LabelDefinition {
+            name: label.name.clone(),
+            properties,
+        });
+    }
+    Ok((resolved, used))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VertexTableDefinition {
     pub relation: SqlName,
     pub alias: SqlIdentifier,
@@ -19,6 +164,7 @@ pub struct VertexTableDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EdgeEndpoint {
     /// Empty means “resolve an applicable foreign key at admission”.
     pub edge_key_columns: Vec<SqlIdentifier>,
@@ -29,6 +175,7 @@ pub struct EdgeEndpoint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EdgeTableDefinition {
     pub relation: SqlName,
     pub alias: SqlIdentifier,

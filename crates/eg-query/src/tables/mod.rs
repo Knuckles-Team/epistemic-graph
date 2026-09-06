@@ -43,10 +43,14 @@ pub use index::{
     SecondaryIndexSpec,
 };
 pub use property_graph::{
-    decode_property_graph, AlterElementAction, AlterPropertyGraphAction, DropBehavior,
-    EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution, ElementKind, EndpointResolution,
-    GraphOwner, LabelDefinition, PropertyDefinition, PropertyGraphDefinition,
-    PropertyGraphStatement, PropertySet, SqlIdentifier, SqlName, VertexTableDefinition,
+    decode_property_graph, decode_property_graph_catalog_record, AlterElementAction,
+    AlterPropertyGraphAction, CanonicalCatalogName, DropBehavior, EdgeEndpoint,
+    EdgeTableDefinition, ElementKeyResolution, ElementKind, EndpointResolution, GraphOwner,
+    LabelDefinition, PropertyDefinition, PropertyGraphCatalog, PropertyGraphCatalogRecord,
+    PropertyGraphDefinition, PropertyGraphDependency, PropertyGraphObjectId, PropertyGraphOwner,
+    PropertyGraphStatement, PropertySet, RelationCatalogSnapshot, RelationKind, RelationObjectId,
+    ResolvedColumnDependency, SqlIdentifier, SqlName, VertexTableDefinition,
+    MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES, PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION,
     PROPERTY_GRAPH_SCHEMA_VERSION,
 };
 pub use schema::{

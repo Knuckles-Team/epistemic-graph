@@ -3,11 +3,13 @@
 //! A property graph is a read-only relational view. This module owns its
 //! bounded, tenant-scoped definition and DDL model, but no data or executor.
 
+mod catalog;
 mod model;
 mod validate;
 
 use serde::{Deserialize, Serialize};
 
+pub use catalog::*;
 pub use model::*;
 pub use validate::*;
 
@@ -21,6 +23,13 @@ pub enum ElementKind {
 pub enum DropBehavior {
     Restrict,
     Cascade,
+}
+
+/// Kind of relational object occupying the table/view/graph namespace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelationKind {
+    Table,
+    View,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
