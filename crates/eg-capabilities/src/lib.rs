@@ -33,7 +33,13 @@
 //! turned on -- see `Cargo.toml` for why). It is not a dependency of the main
 //! `epistemic-graph` package's default build; see the root `Cargo.toml`'s `members` comment.
 
+mod descriptor;
 mod domains;
+
+pub use descriptor::{
+    error_set_for, format_identities_for, replay_class_for, ConsumerProfile, MethodDescriptor,
+    MethodId, MethodSpec, OpaqueKind, PayloadShape, ReplayClass, SchemaRef, Stability,
+};
 
 use eg_types::protocol::{CypherMode, Method};
 
@@ -174,7 +180,17 @@ pub struct ProtocolPolicyInventoryEntry {
 /// This is the only public policy inventory. It is derived directly from the eleven
 /// domain-owned `ROWS` declarations and has no separately ordered projection.
 pub fn method_policy_entries() -> impl Iterator<Item = (&'static str, MethodPolicy, &'static str)> {
-    domains::rows().copied()
+    domains::rows().map(|(name, spec, note)| (*name, spec.policy, *note))
+}
+
+/// Iterate the full engine contract, one [`MethodDescriptor`] per `Method` variant, in
+/// the same deterministic domain declaration order.
+///
+/// This is the canonical registry RF-RULING-003 makes EG the sole owner of: every
+/// generated artifact under `contract/`, `docs/capabilities.generated.md`, and the
+/// generated Python client are projections of this one iterator.
+pub fn method_descriptors() -> impl Iterator<Item = MethodDescriptor> {
+    domains::descriptors()
 }
 
 /// Generate the protocol-method -> primitive-policy inventory from the domain registry.

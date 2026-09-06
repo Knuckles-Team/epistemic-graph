@@ -1,6 +1,27 @@
 //! Domain-owned method-policy registry.
 
-pub(crate) type PolicyRow = (&'static str, super::MethodPolicy, &'static str);
+pub(crate) use super::descriptor::{NO_CONSUMER, PYTHON};
+
+/// One hand-authored contract row: `(method id, authored spec, note)`.
+///
+/// The id is the exact `Method` serde tag; the domain is the registry key this row's
+/// module is filed under, so neither is repeated inside the spec.
+pub(crate) type PolicyRow = (&'static str, super::MethodSpec, &'static str);
+
+/// Assemble the authored half of a [`super::MethodDescriptor`].
+pub(crate) const fn spec(
+    policy: super::MethodPolicy,
+    result_schema: super::SchemaRef,
+    consumer_profiles: &'static [super::ConsumerProfile],
+    stability: super::Stability,
+) -> super::MethodSpec {
+    super::MethodSpec {
+        policy,
+        result_schema,
+        consumer_profiles,
+        stability,
+    }
+}
 
 pub(crate) struct PolicyFlags {
     pub(crate) idempotent: bool,
@@ -59,4 +80,12 @@ const REGISTRY: &[(&str, &[PolicyRow])] = &[
 
 pub(crate) fn rows() -> impl Iterator<Item = &'static PolicyRow> {
     REGISTRY.iter().flat_map(|(_, rows)| rows.iter())
+}
+
+/// Every row paired with the domain module it is filed under.
+pub(crate) fn descriptors() -> impl Iterator<Item = super::MethodDescriptor> {
+    REGISTRY.iter().flat_map(|(domain, rows)| {
+        rows.iter()
+            .map(move |(id, spec, note)| super::MethodDescriptor::assemble(id, domain, *spec, note))
+    })
 }
