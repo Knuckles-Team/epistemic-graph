@@ -1,4 +1,4 @@
-use crate::owner::{
+use crate::owner::domain::{
     BlobOwner, JobsOwner, KvOwner, OwnerDomain, RbacOwner, SemanticIndexOwner, StatechartOwner,
     TimeSeriesOwner,
 };

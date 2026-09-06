@@ -1,6 +1,10 @@
-use super::*;
-use crate::owner::{table_contract, OwnerLayout, LEDGER_TABLE_NAMES};
-use redb::{Key, ReadTransaction, TableHandle, Value};
+use crate::owner::contract::expected_owner_table_contract;
+use crate::owner::layout::{OwnerLayout, LEDGER_TABLE_NAMES};
+use crate::physical::root::is_retired_prototype_table;
+use crate::recovery::evidence::{copy_table, HashSnapshot, StrictTableEvidence};
+use crate::tables::open_declared_ledger_tables;
+use redb::{Key, ReadTransaction, TableDefinition, TableHandle, Value, WriteTransaction};
+use sha2::Sha256;
 
 // Closed owner-table registry. These names and types are the manifest contract.
 const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac_v1");
@@ -186,7 +190,7 @@ pub(crate) fn validate_declared_tables_write(
             .map_err(|error| error.to_string())?,
         layout,
     )?;
-    open_product_tables(wtx)?;
+    open_declared_ledger_tables(wtx)?;
     open_declared_owner_tables(wtx, layout)
 }
 
@@ -283,7 +287,7 @@ pub(crate) fn copy_declared_owner_tables(
     let mut rows = 0;
     macro_rules! copy {
         ($table:expr) => {{
-            rows += crate::strict_recovery::copy_table(source, target, $table)?;
+            rows += copy_table(source, target, $table)?;
         }};
     }
     visit_owner_tables!(layout, copy);
@@ -291,7 +295,7 @@ pub(crate) fn copy_declared_owner_tables(
 }
 
 pub(crate) fn hash_declared_owner_tables(
-    source: crate::strict_recovery::HashSnapshot<'_>,
+    source: HashSnapshot<'_>,
     layout: OwnerLayout,
     hasher: &mut Sha256,
     tables: &mut Vec<StrictTableEvidence>,
@@ -366,6 +370,10 @@ pub(crate) fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] 
     }
 }
 
+pub(crate) fn is_mutation_authority_marker(name: &str) -> bool {
+    is_known_mutation_table(name) || is_retired_prototype_table(name)
+}
+
 pub(crate) fn is_known_mutation_table(name: &str) -> bool {
     LEDGER_TABLE_NAMES.contains(&name)
         || owner_layouts()
@@ -406,7 +414,7 @@ where
     K: Key + 'static,
     V: Value + 'static,
 {
-    let contract = table_contract(table.name(), Some(layout));
+    let contract = expected_owner_table_contract(table.name(), layout);
     if contract.key_type_id != K::type_name().name()
         || contract.value_type_id != V::type_name().name()
     {

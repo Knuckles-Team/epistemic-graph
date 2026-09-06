@@ -1,4 +1,9 @@
-use super::*;
+use crate::owner::identity::PhysicalStoreIdentity;
+use crate::owner::layout::OwnerLayout;
+use crate::owner::table_api::OwnerTableAccess;
+use crate::owner::{validate_declared_owner_tables, validate_manifest_read};
+use crate::physical::root::{validate_incarnation_read, PhysicalStore};
+use crate::recovery::evidence::strict_snapshot_read;
 use redb::ReadTransaction;
 
 /// Independent authority for the two physical shared-service CAS tables.
@@ -45,42 +50,41 @@ pub struct BlobSharedRead {
     transaction: ReadTransaction,
 }
 
-impl MutationStore {
-    pub fn authenticate_blob_shared_service(
-        &self,
-        verifier: &dyn BlobSharedServiceVerifier,
-        principal: String,
-        proof: &[u8],
-    ) -> Result<BlobSharedServiceHandle, String> {
-        let manifest = self.current_owner_manifest()?;
+pub(crate) fn authenticate_blob_shared_service(
+    store: &PhysicalStore,
+    verifier: &dyn BlobSharedServiceVerifier,
+    principal: String,
+    proof: &[u8],
+) -> Result<BlobSharedServiceHandle, String> {
+    {
+        let manifest = crate::kernel::current_owner_manifest(store)?;
         if manifest.layout != OwnerLayout::Blob {
             return Err("shared blob authority requires the blob owner layout".to_string());
         }
         verifier.verify(&manifest.physical_identity, &principal, proof)?;
         Ok(BlobSharedServiceHandle {
             principal,
-            authority_digest: manifest.authority_digest(self.incarnation()),
+            authority_digest: manifest.authority_digest(store.incarnation()),
         })
     }
+}
 
-    pub fn read_blob_shared(
-        &self,
-        owner: &BlobSharedServiceHandle,
-        principal: &str,
-    ) -> Result<BlobSharedRead, String> {
-        let transaction = self
-            .database
-            .begin_read()
-            .map_err(|error| error.to_string())?;
-        self.validate_physical_root()?;
-        crate::identity::validate_incarnation_read(&transaction, self.incarnation())?;
-        let cached = self.strict_manifest()?;
+pub(crate) fn read_blob_shared(
+    store: &PhysicalStore,
+    owner: &BlobSharedServiceHandle,
+    principal: &str,
+) -> Result<BlobSharedRead, String> {
+    {
+        let transaction = store.begin_read()?;
+        store.validate_physical_root()?;
+        validate_incarnation_read(&transaction, store.incarnation())?;
+        let cached = store.manifest();
         let manifest =
             validate_manifest_read(&transaction, &cached.physical_identity, cached.layout)?;
         validate_declared_owner_tables(&transaction, manifest.layout)?;
         if manifest != *cached
             || manifest.layout != OwnerLayout::Blob
-            || manifest.authority_digest(self.incarnation()) != owner.authority_digest
+            || manifest.authority_digest(store.incarnation()) != owner.authority_digest
             || owner.principal != principal
         {
             return Err(

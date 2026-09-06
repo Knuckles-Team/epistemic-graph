@@ -1,10 +1,27 @@
-use super::*;
-use eg_types::{CommittedVersion, VersionExpectation, MUTATION_BATCH_VERSION};
+//! Admission, ordering, fencing and terminal metadata for one mutation batch.
+
+use crate::ledger::{
+    idempotency_batch_id, persist_idempotency, persist_record, read_record_in_write,
+    remove_private, scope_identity_key, source_version, verify_replay_identity,
+};
+use crate::ledger_tables::{Fence, BATCHES, FENCES, IDEMPOTENCY, OUTBOX, SCOPE_BINDINGS, VERSIONS};
+use crate::write::MutationWrite;
+use crate::Begin;
+use eg_storage::{decode_batch_record, decode_ledger_record, encode_bounded, OwnerDomain};
+use eg_types::mutation_batch::MutationCommitPhase;
+use eg_types::{
+    CommittedVersion, MutationBatch, MutationBatchRecord, MutationBatchStatus,
+    MutationOutboxRecord, MutationScopeIdentity, VersionExpectation, MUTATION_BATCH_VERSION,
+};
+use redb::{ReadableTable, WriteTransaction};
 
 /// Validate binding, exact idempotency, OCC, and route fencing before owner rows change.
-pub fn begin(write: &MutationWrite, batch: &MutationBatch) -> Result<Begin, String> {
+pub fn begin<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
+    batch: &MutationBatch,
+) -> Result<Begin, String> {
     batch.validate_write_budget()?;
-    binding_for_write(write, &batch.identity)?;
+    write.verify_scope(&batch.identity)?;
     if let Some(batch_id) = idempotency_batch_id(write, batch)? {
         return replay_begin(write, batch, &batch_id);
     }
@@ -41,8 +58,8 @@ pub fn begin(write: &MutationWrite, batch: &MutationBatch) -> Result<Begin, Stri
     Ok(Begin::Apply { source_version })
 }
 
-fn replay_begin(
-    write: &MutationWrite,
+fn replay_begin<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     batch: &MutationBatch,
     batch_id: &str,
 ) -> Result<Begin, String> {
@@ -65,7 +82,7 @@ fn reject_stale_fence(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<(
     let current = table
         .get(identity_key.as_str())
         .map_err(|error| error.to_string())?
-        .map(|value| decode_record::<Fence>(value.value()))
+        .map(|value| decode_ledger_record::<Fence>(value.value()))
         .transpose()?
         .unwrap_or(Fence {
             placement_epoch: 0,
@@ -91,14 +108,14 @@ fn reject_stale_fence(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<(
 }
 
 /// Persist terminal metadata after owner rows changed in the same transaction.
-pub fn finish(
-    write: &MutationWrite,
+pub fn finish<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     batch: &MutationBatch,
     result_msgpack: Option<Vec<u8>>,
     committed_at_ms: u64,
     source_version: Option<u64>,
 ) -> Result<MutationBatchRecord, String> {
-    binding_for_write(write, &batch.identity)?;
+    write.verify_scope(&batch.identity)?;
     eg_types::mutation_batch::apply_certification_fault(
         batch,
         MutationCommitPhase::AfterRowsBeforeMetadata,
@@ -200,8 +217,11 @@ fn write_outbox(
     Ok(())
 }
 
-pub fn commit(write: MutationWrite, batch: &MutationBatch) -> Result<(), String> {
-    binding_for_write(&write, &batch.identity)?;
+pub fn commit<D: OwnerDomain>(
+    write: MutationWrite<'_, D>,
+    batch: &MutationBatch,
+) -> Result<(), String> {
+    write.verify_scope(&batch.identity)?;
     write.validate_commit_admission(batch)?;
     eg_types::mutation_batch::apply_certification_fault(batch, MutationCommitPhase::BeforeCommit)?;
     write.commit()?;
@@ -212,8 +232,11 @@ pub fn commit(write: MutationWrite, batch: &MutationBatch) -> Result<(), String>
 }
 
 /// Atomically remove authority for one exact logical generation.
-pub fn purge_scope(write: &MutationWrite, identity: &MutationScopeIdentity) -> Result<(), String> {
-    binding_for_write(write, identity)?;
+pub fn purge_scope<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
+    identity: &MutationScopeIdentity,
+) -> Result<(), String> {
+    write.verify_scope(identity)?;
     let identity_key = scope_identity_key(identity);
     let batch_ids = collect_batch_ids(write.transaction(), identity, &identity_key)?;
     for batch_id in &batch_ids {

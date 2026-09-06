@@ -3,13 +3,14 @@ name = "eg-mutation-store"
 version = "0.1.0"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
-description = "Shared redb subordinate-domain ledger for canonical MutationBatch commits"
+description = "Mutation ledger over storage-kernel-issued capabilities: admission, commit, saga, replay, outbox"
 license = "MIT"
 
 [lib]
 name = "eg_mutation_store"
 
 [dependencies]
+eg-storage = { path = "../eg-storage" }
 eg-types = { path = "../eg-types" }
 redb = "4.1"
 rmp-serde = "1.3"

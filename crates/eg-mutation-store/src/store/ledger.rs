@@ -1,42 +1,20 @@
-use super::*;
-use eg_types::VersionExpectation;
-use redb::{Key, Value};
-use serde::Serialize;
-use std::io::Write;
+//! Durable ledger row primitives, written through a storage-kernel capability.
 
-pub(crate) fn open_product_tables(wtx: &WriteTransaction) -> Result<(), String> {
-    ensure_table(wtx, STORE_ROOT)?;
-    ensure_table(wtx, SCOPE_BINDINGS)?;
-    ensure_table(wtx, OWNER_MANIFEST)?;
-    ensure_table(wtx, BATCHES)?;
-    ensure_table(wtx, IDEMPOTENCY)?;
-    ensure_table(wtx, VERSIONS)?;
-    ensure_table(wtx, FENCES)?;
-    ensure_table(wtx, OUTBOX)?;
-    ensure_table(wtx, PRIVATE_PAYLOADS)?;
-    ensure_table(wtx, OUTBOX_TOPIC_INDEX)?;
-    ensure_table(wtx, OUTBOX_CONSUMERS)?;
-    ensure_table(wtx, OUTBOX_DELIVERIES)?;
-    ensure_table(wtx, OUTBOX_CURSORS)?;
-    ensure_table(wtx, OUTBOX_CLAIM_CURSORS)?;
-    ensure_table(wtx, OUTBOX_FAIRNESS)
+use crate::ledger_tables::{BATCHES, IDEMPOTENCY, PRIVATE_PAYLOADS, VERSIONS};
+use crate::write::MutationWrite;
+use eg_storage::{decode_batch_record, encode_bounded, private_payload_digest, OwnerDomain};
+use eg_types::{MutationBatch, MutationBatchRecord, MutationScopeIdentity, VersionExpectation};
+use redb::{ReadableTable, WriteTransaction};
+
+const MAX_PRIVATE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
+
+/// Stable per-scope ledger key.
+pub(crate) fn scope_identity_key(identity: &MutationScopeIdentity) -> String {
+    identity.identity_digest().to_hex()
 }
 
-fn ensure_table<K, V>(
-    wtx: &WriteTransaction,
-    definition: TableDefinition<'static, K, V>,
-) -> Result<(), String>
-where
-    K: Key + 'static,
-    V: Value + 'static,
-{
-    wtx.open_table(definition)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
-pub(crate) fn idempotency_batch_id(
-    write: &MutationWrite,
+pub(crate) fn idempotency_batch_id<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     batch: &MutationBatch,
 ) -> Result<Option<String>, String> {
     let identity_key = scope_identity_key(&batch.identity);
@@ -51,8 +29,8 @@ pub(crate) fn idempotency_batch_id(
     Ok(existing)
 }
 
-pub(crate) fn source_version(
-    write: &MutationWrite,
+pub(crate) fn source_version<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     batch: &MutationBatch,
 ) -> Result<Option<u64>, String> {
     if batch.version_expectation == VersionExpectation::Unversioned {
@@ -71,8 +49,8 @@ pub(crate) fn source_version(
     version
 }
 
-pub(crate) fn read_record_in_write(
-    write: &MutationWrite,
+pub(crate) fn read_record_in_write<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     identity: &MutationScopeIdentity,
     batch_id: &str,
 ) -> Result<Option<MutationBatchRecord>, String> {
@@ -89,8 +67,8 @@ pub(crate) fn read_record_in_write(
     record
 }
 
-pub(crate) fn persist_record(
-    write: &MutationWrite,
+pub(crate) fn persist_record<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     record: &MutationBatchRecord,
 ) -> Result<(), String> {
     record.validate_write_budget()?;
@@ -108,8 +86,8 @@ pub(crate) fn persist_record(
     Ok(())
 }
 
-pub(crate) fn persist_idempotency(
-    write: &MutationWrite,
+pub(crate) fn persist_idempotency<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     batch: &MutationBatch,
 ) -> Result<(), String> {
     let identity_key = scope_identity_key(&batch.identity);
@@ -125,8 +103,8 @@ pub(crate) fn persist_idempotency(
     Ok(())
 }
 
-pub(crate) fn persist_private(
-    write: &MutationWrite,
+pub(crate) fn persist_private<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     record: &MutationBatchRecord,
     sealed: &[u8],
 ) -> Result<(), String> {
@@ -147,8 +125,8 @@ pub(crate) fn persist_private(
     Ok(())
 }
 
-pub(crate) fn read_private_in_write(
-    write: &MutationWrite,
+pub(crate) fn read_private_in_write<D: OwnerDomain>(
+    write: &MutationWrite<'_, D>,
     record: &MutationBatchRecord,
 ) -> Result<Option<Vec<u8>>, String> {
     let identity_key = scope_identity_key(&record.identity);
@@ -196,91 +174,9 @@ pub(crate) fn verify_replay_identity(
     }
 }
 
-/// The digest that BINDS a sealed private payload to its parent record.
-///
-/// Deliberately does not inspect `event_type`. This value is an authentication
-/// input on the hot read/write path (`persist_private`, `read_private_in_write`,
-/// `read_private_payload`); what makes it valid is that the parent carries a
-/// single `ApplyMutation` whose query is a `sha256:` digest, not which family of
-/// plan it belongs to. Gating the binding on a hard-coded event type is what
-/// silently broke every SPARQL-HTTP saga: before this store was refactored the
-/// string check lived only in the backup scan, and extracting a shared helper
-/// carried it onto paths that never had it.
-pub(crate) fn private_payload_digest(record: &MutationBatchRecord) -> Option<&str> {
-    let operation = record.batch.operations.first()?;
-    if record.batch.operations.len() != 1 {
-        return None;
-    }
-    match &operation.method {
-        eg_types::protocol::Method::ApplyMutation { query, .. }
-            if query.len() == 71
-                && query.starts_with("sha256:")
-                && query[7..]
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
-        {
-            Some(&query[7..])
-        }
-        _ => None,
-    }
-}
-
-/// A payload digest whose parent is one of the DECLARED private-payload plan
-/// shapes (`eg_types::mutation_batch::PRIVATE_PAYLOAD_EVENT_TYPES`).
-///
-/// Used only by the recovery/backup scan, which legitimately asserts that every
-/// sealed row it walks belongs to a known plan family. The hot path must use
-/// [`private_payload_digest`] instead.
-pub(crate) fn recovery_plan_digest(record: &MutationBatchRecord) -> Option<&str> {
-    let operation = record.batch.operations.first()?;
-    let eg_types::protocol::Method::ApplyMutation { event_type, .. } = &operation.method else {
-        return None;
-    };
-    if !eg_types::mutation_batch::PRIVATE_PAYLOAD_EVENT_TYPES
-        .iter()
-        .any(|known| known == event_type)
-    {
-        return None;
-    }
-    private_payload_digest(record)
-}
-
-pub(crate) fn encode_bounded<T: Serialize>(value: &T, label: &str) -> Result<Vec<u8>, String> {
-    let mut counter = ByteBudget::default();
-    rmp_serde::encode::write_named(&mut counter, value)
-        .map_err(|_| format!("{label} exceeds its serialization budget"))?;
-    let bytes = rmp_serde::to_vec_named(value).map_err(|error| error.to_string())?;
-    if bytes.len() != counter.written {
-        return Err(format!(
-            "{label} serialization length changed after preflight"
-        ));
-    }
-    Ok(bytes)
-}
-
 fn validate_private_size(sealed: &[u8]) -> Result<(), String> {
-    if sealed.is_empty() || sealed.len() > MAX_MUTATION_RECORD_BYTES {
+    if sealed.is_empty() || sealed.len() > MAX_PRIVATE_PAYLOAD_BYTES {
         return Err("private recovery payload exceeds its write budget".to_string());
     }
     Ok(())
-}
-
-#[derive(Default)]
-struct ByteBudget {
-    written: usize,
-}
-
-impl Write for ByteBudget {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.written = self
-            .written
-            .checked_add(bytes.len())
-            .filter(|count| *count <= MAX_MUTATION_RECORD_BYTES)
-            .ok_or_else(|| std::io::Error::other("mutation serialization budget exceeded"))?;
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
 }

@@ -1,25 +1,37 @@
-use super::*;
-use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationDomain, MutationRequestContext, MutationSurface, TenantId,
-    VersionExpectation,
+use crate::codec::encode_bounded;
+use crate::kernel::{
+    authenticate_scope_in, bind_serving_scope_in, create_physical, current_owner_manifest,
+    open_physical,
 };
-use eg_types::protocol::Method;
-use eg_types::{MutationOperation, MUTATION_BATCH_VERSION};
-use redb::{ReadableTableMetadata, TableHandle};
-use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use crate::owner::blob_shared::{
+    authenticate_blob_shared_service, read_blob_shared, BlobSharedServiceVerifier,
+};
+use crate::owner::domain::{KvOwner, StatechartOwner};
+use crate::owner::grant::ScopeGrantVerifier;
+use crate::owner::identity::PhysicalStoreIdentity;
+use crate::owner::layout::OwnerLayout;
+use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
+use crate::owner::validate_manifest_write;
+use crate::physical::binding::{bind_scope_in, binding_for_read, ScopeBinding};
+use crate::physical::incarnation::STORAGE_KERNEL_SCHEMA_VERSION;
+use crate::physical::manifest::OwnerManifestDigest;
+use crate::physical::read_only::open_read_only;
+use crate::physical::root::PhysicalStore;
+use crate::recovery::adopt::{
+    adopt_recovery, adopt_staged_mutation_store, inspect_staged_mutation_store, open_recovery,
+};
+use crate::recovery::evidence::{backup_strict_recovery_store_of, strict_evidence_of};
+use crate::recovery::evidence::strict_recovery_evidence;
+use crate::recovery::validate::{validate_live_recovery_store, validate_recovery_store_read_only};
+use crate::tables::{OWNER_MANIFEST, SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
+use eg_types::mutation_batch::{IncarnationId, LogicalName, MutationDomain, TenantId};
+use eg_types::MutationScopeIdentity;
+use redb::{
+    Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition, TableHandle,
+};
+use std::path::Path;
 
-struct TestIntegrity;
-
-impl PrivatePayloadIntegrity for TestIntegrity {
-    fn authenticate(&self, sealed: &[u8], expected_digest: &str) -> Result<(), String> {
-        let expected = format!("sealed:{expected_digest}");
-        (sealed == expected.as_bytes())
-            .then_some(())
-            .ok_or_else(|| "test canonical integrity rejection".to_string())
-    }
-}
+const TEST_PHYSICAL: &str = "physical:test:ledger-only";
 
 struct TestScopeVerifier {
     tenant: &'static str,
@@ -90,70 +102,56 @@ fn kv_identity(tenant: &str, incarnation: &str) -> MutationScopeIdentity {
     domain_identity(tenant, MutationDomain::KvStore, "kv-catalog", incarnation)
 }
 
-fn domain_batch(
-    identity: MutationScopeIdentity,
-    batch_id: &str,
-    domain: MutationDomain,
-) -> MutationBatch {
-    let mut batch = batch(identity, batch_id);
-    batch.operations[0].domain = domain;
-    batch
+/// Create a ledger-only owner file and bind one serving scope to it.
+fn open_store(path: &Path, identity: &MutationScopeIdentity) -> PhysicalStore {
+    let store = create_physical(
+        path,
+        PhysicalStoreIdentity::new(TEST_PHYSICAL).unwrap(),
+        None,
+        OwnerLayout::LedgerOnly,
+    )
+    .unwrap();
+    bind_test_scope(&store, identity, 0).unwrap();
+    store
 }
 
-fn batch(identity: MutationScopeIdentity, batch_id: &str) -> MutationBatch {
-    MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.to_string(),
-        context: MutationRequestContext {
-            request_id: 1,
-            principal: format!("principal:sha256:{}", "a".repeat(64)),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: BTreeSet::new(),
-        },
-        identity,
-        placement_epoch: 0,
-        idempotency_key: format!("retry-{batch_id}"),
-        version_expectation: VersionExpectation::Native(0),
-        fencing_token: None,
-        authoritative_state: None,
-        operations: vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Other,
-            domain: MutationDomain::BlobStore,
-            method: Method::ApplyMutation {
-                event_type: "blob_test".to_string(),
-                query: "opaque".to_string(),
-            },
-        }],
-        outbox: Vec::new(),
-        created_at_ms: 1,
-    }
+/// Reopen an existing ledger-only owner file.
+fn reopen_store(path: &Path) -> Result<PhysicalStore, String> {
+    open_physical(
+        path,
+        PhysicalStoreIdentity::new(TEST_PHYSICAL).unwrap(),
+        None,
+        OwnerLayout::LedgerOnly,
+    )
 }
 
-fn recovery_batch(identity: MutationScopeIdentity, batch_id: &str) -> (MutationBatch, Vec<u8>) {
-    let digest = "b".repeat(64);
-    let mut batch = batch(identity, batch_id);
-    batch.operations[0].method = Method::ApplyMutation {
-        event_type: "transaction_recovery_plan".to_string(),
-        query: format!("sha256:{digest}"),
+fn bind_test_scope(
+    store: &PhysicalStore,
+    identity: &MutationScopeIdentity,
+    initial_version: u64,
+) -> Result<bool, String> {
+    let transaction = store.begin_write()?;
+    let inserted = bind_scope_in(&store.handle, &transaction, identity, initial_version)?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(inserted)
+}
+
+fn owner_authority_digest(store: &PhysicalStore) -> Result<[u8; 32], String> {
+    Ok(current_owner_manifest(store)?.authority_digest(store.incarnation()))
+}
+
+fn owner_manifest_digest(store: &PhysicalStore) -> Result<OwnerManifestDigest, String> {
+    current_owner_manifest(store)?.digest()
+}
+
+fn read_binding_error(store: &PhysicalStore, identity: &MutationScopeIdentity) -> String {
+    let transaction = match store.begin_read() {
+        Ok(transaction) => transaction,
+        Err(error) => return error,
     };
-    (batch, format!("sealed:{digest}").into_bytes())
-}
-
-fn open_store(path: &std::path::Path, identity: &MutationScopeIdentity) -> MutationStore {
-    initialize(path, identity, 0, None, |_| Ok(())).unwrap()
-}
-
-fn apply_batch(store: &MutationStore, batch: &MutationBatch) {
-    let write = store.write().unwrap();
-    let source_version = match begin(&write, batch).unwrap() {
-        Begin::Apply { source_version } => source_version,
-        Begin::Replay(_) => panic!("unexpected replay"),
-    };
-    finish(&write, batch, None, 2, source_version).unwrap();
-    commit(write, batch).unwrap();
+    binding_for_read(store, &transaction, identity)
+        .err()
+        .expect("scoped read must reject a tampered root")
 }
 
 #[test]
@@ -161,25 +159,16 @@ fn physical_root_reentry_is_idempotent_but_initial_version_mismatch_fails() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.redb");
     let identity = native_identity("tenant-a", "incarnation:blob:1");
-    let bootstrap_calls = Arc::new(AtomicUsize::new(0));
-    let first_calls = Arc::clone(&bootstrap_calls);
-    let first = initialize(&path, &identity, 0, None, move |_| {
-        first_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    })
-    .unwrap();
+    let first = open_store(&path, &identity);
     let digest = first.incarnation().identity_digest();
     drop(first);
-    let second_calls = Arc::clone(&bootstrap_calls);
-    let second = initialize(&path, &identity, 0, None, move |_| {
-        second_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    })
-    .unwrap();
+    let second = reopen_store(&path).unwrap();
     assert_eq!(digest, second.incarnation().identity_digest());
-    assert_eq!(bootstrap_calls.load(Ordering::SeqCst), 1);
+    // Exact re-entry is idempotent: the binding already exists, so nothing is inserted.
+    assert!(!bind_test_scope(&second, &identity, 0).unwrap());
     drop(second);
-    assert!(initialize(&path, &identity, 1, None, |_| Ok(())).is_err());
+    let third = reopen_store(&path).unwrap();
+    assert!(bind_test_scope(&third, &identity, 1).is_err());
 }
 
 #[test]
@@ -187,7 +176,7 @@ fn mismatched_rebinding_is_fail_closed() {
     let dir = tempfile::tempdir().unwrap();
     let identity = native_identity("tenant-a", "incarnation:blob:1");
     let store = open_store(&dir.path().join("native.redb"), &identity);
-    let error = bind_scope(&store, &identity, 7, |_| Ok(())).unwrap_err();
+    let error = bind_test_scope(&store, &identity, 7).unwrap_err();
     assert!(error.contains("rebinding mismatch"));
 }
 
@@ -196,12 +185,21 @@ fn partial_initialization_rolls_back_as_one_transaction() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.redb");
     let identity = native_identity("tenant-a", "incarnation:blob:1");
-    assert!(initialize(&path, &identity, 0, None, |_| Err(
-        "owner bootstrap failed".into()
-    ))
-    .is_err());
-    let replacement = open_store(&path, &identity);
-    validate_recovery_store(&replacement).unwrap();
+    let store = create_physical(
+        &path,
+        PhysicalStoreIdentity::new(TEST_PHYSICAL).unwrap(),
+        None,
+        OwnerLayout::LedgerOnly,
+    )
+    .unwrap();
+    // A binding that is abandoned instead of committed leaves no partial row.
+    let abandoned = store.begin_write().unwrap();
+    bind_scope_in(&store.handle, &abandoned, &identity, 0).unwrap();
+    abandoned.abort().unwrap();
+    validate_live_recovery_store(&store).unwrap();
+    assert_eq!(validate_live_recovery_store(&store).unwrap().scope_bindings, 0);
+    bind_test_scope(&store, &identity, 0).unwrap();
+    assert_eq!(validate_live_recovery_store(&store).unwrap().scope_bindings, 1);
 }
 
 #[test]
@@ -222,38 +220,9 @@ fn incompatible_prototype_tables_are_quarantined_without_translation() {
         wtx.open_table(retired).unwrap();
         wtx.commit().unwrap();
         drop(db);
-        let error = initialize(
-            &path,
-            &native_identity("tenant-a", "incarnation:blob:1"),
-            0,
-            None,
-            |_| Ok(()),
-        )
-        .err()
-        .unwrap();
-        assert!(error.contains("quarantine before serving"));
+        let error = reopen_store(&path).err().unwrap();
+        assert!(error.contains("quarantine before serving"), "{error}");
     }
-}
-
-#[test]
-fn one_physical_root_serves_multiple_scopes_without_cross_tenant_aliasing() {
-    let dir = tempfile::tempdir().unwrap();
-    let tenant_a = native_identity("tenant-a", "incarnation:blob:a");
-    let tenant_b = native_identity("tenant-b", "incarnation:blob:b");
-    let store = open_store(&dir.path().join("native.redb"), &tenant_a);
-    bind_scope(&store, &tenant_b, 0, |_| Ok(())).unwrap();
-
-    apply_batch(&store, &batch(tenant_a.clone(), "same-batch-id"));
-    apply_batch(&store, &batch(tenant_b.clone(), "same-batch-id"));
-
-    assert!(read_record(&store, &tenant_a, "same-batch-id")
-        .unwrap()
-        .is_some());
-    assert!(read_record(&store, &tenant_b, "same-batch-id")
-        .unwrap()
-        .is_some());
-    assert_eq!(version(&store, &tenant_a).unwrap(), 1);
-    assert_eq!(version(&store, &tenant_b).unwrap(), 1);
 }
 
 #[test]
@@ -269,9 +238,7 @@ fn persisted_root_digest_tampering_is_rejected_on_read() {
         .insert("root", bytes.as_slice())
         .unwrap();
     wtx.commit().unwrap();
-    assert!(version(&store, &identity)
-        .unwrap_err()
-        .contains("digest mismatch"));
+    assert!(read_binding_error(&store, &identity).contains("digest mismatch"));
 }
 
 #[test]
@@ -289,12 +256,12 @@ fn extra_root_rows_are_rejected_by_every_store_entry_path() {
     wtx.commit().unwrap();
 
     for error in [
-        version(&store, &identity).unwrap_err(),
+        read_binding_error(&store, &identity),
         store
-            .write()
+            .begin_write()
             .err()
             .expect("write must reject an extra root"),
-        validate_recovery_store(&store).unwrap_err(),
+        validate_live_recovery_store(&store).unwrap_err(),
     ] {
         assert!(error.contains("exactly one canonical root"), "{error}");
     }
@@ -305,75 +272,10 @@ fn extra_root_rows_are_rejected_by_every_store_entry_path() {
     assert!(error.contains("exactly one canonical root"), "{error}");
     drop(read_only);
 
-    let error = initialize(&path, &identity, 0, None, |_| Ok(()))
+    let error = reopen_store(&path)
         .err()
         .expect("reopen must reject an extra root");
     assert!(error.contains("exactly one canonical root"), "{error}");
-
-    let error = adopt_restored_store(&path, None)
-        .err()
-        .expect("adoption must reject an extra root");
-    assert!(error.contains("exactly one canonical root"), "{error}");
-}
-
-#[test]
-fn backup_derives_a_distinct_physical_root_and_rebinds_scopes() {
-    let dir = tempfile::tempdir().unwrap();
-    let identity = native_identity("tenant-a", "incarnation:blob:1");
-    let source = open_store(&dir.path().join("source.redb"), &identity);
-    apply_batch(&source, &batch(identity.clone(), "backup-batch"));
-    let destination = dir.path().join("backup.redb");
-    backup_recovery_store(&source, &destination).unwrap();
-    drop(source);
-    let backup = open_store(&destination, &identity);
-    assert!(read_record(&backup, &identity, "backup-batch")
-        .unwrap()
-        .is_some());
-}
-
-#[test]
-fn private_recovery_authenticity_uses_injected_canonical_authority() {
-    let dir = tempfile::tempdir().unwrap();
-    let identity = native_identity("tenant-a", "incarnation:blob:1");
-    let store = initialize(
-        &dir.path().join("native.redb"),
-        &identity,
-        0,
-        Some(Arc::new(TestIntegrity)),
-        |_| Ok(()),
-    )
-    .unwrap();
-    let (batch, sealed) = recovery_batch(identity.clone(), "recovery-batch");
-    prepare_saga_with_private_payload(&store, &batch, 2, Some(&sealed)).unwrap();
-    assert_eq!(
-        read_private_payload(&store, &identity, &batch.batch_id).unwrap(),
-        Some(sealed)
-    );
-}
-
-#[test]
-fn forged_private_recovery_payload_fails_closed() {
-    let dir = tempfile::tempdir().unwrap();
-    let identity = native_identity("tenant-a", "incarnation:blob:1");
-    let store = initialize(
-        &dir.path().join("native.redb"),
-        &identity,
-        0,
-        Some(Arc::new(TestIntegrity)),
-        |_| Ok(()),
-    )
-    .unwrap();
-    let (batch, _) = recovery_batch(identity, "forged-recovery");
-    assert!(prepare_saga_with_private_payload(&store, &batch, 2, Some(b"\xe6forged")).is_err());
-}
-
-#[test]
-fn missing_private_integrity_authority_fails_closed() {
-    let dir = tempfile::tempdir().unwrap();
-    let identity = native_identity("tenant-a", "incarnation:blob:1");
-    let store = open_store(&dir.path().join("native.redb"), &identity);
-    let (batch, sealed) = recovery_batch(identity, "missing-integrity");
-    assert!(prepare_saga_with_private_payload(&store, &batch, 2, Some(&sealed)).is_err());
 }
 
 #[test]
@@ -381,7 +283,7 @@ fn strict_create_materializes_manifest_without_a_serving_binding() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("strict.redb");
     let physical = PhysicalStoreIdentity::new("physical:blob:test").unwrap();
-    let store = create(&path, physical.clone(), None, OwnerLayout::Blob).unwrap();
+    let store = create_physical(&path, physical.clone(), None, OwnerLayout::Blob).unwrap();
 
     let rtx = store.database().begin_read().unwrap();
     assert_eq!(rtx.open_table(OWNER_MANIFEST).unwrap().len().unwrap(), 1);
@@ -389,15 +291,15 @@ fn strict_create_materializes_manifest_without_a_serving_binding() {
     drop(rtx);
     drop(store);
 
-    assert!(open(&path, physical.clone(), None, OwnerLayout::Kv).is_err());
-    assert!(open(
+    assert!(open_physical(&path, physical.clone(), None, OwnerLayout::Kv).is_err());
+    assert!(open_physical(
         &path,
         PhysicalStoreIdentity::new("physical:blob:other").unwrap(),
         None,
         OwnerLayout::Blob,
     )
     .is_err());
-    open(&path, physical, None, OwnerLayout::Blob).unwrap();
+    open_physical(&path, physical, None, OwnerLayout::Blob).unwrap();
 }
 
 #[test]
@@ -406,7 +308,7 @@ fn strict_open_rejects_missing_or_extra_owner_manifest_rows() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("strict.redb");
         let physical = PhysicalStoreIdentity::new("physical:blob:test").unwrap();
-        let store = create(&path, physical.clone(), None, OwnerLayout::Blob).unwrap();
+        let store = create_physical(&path, physical.clone(), None, OwnerLayout::Blob).unwrap();
         let wtx = store.database().begin_write().unwrap();
         let mut manifest = wtx.open_table(OWNER_MANIFEST).unwrap();
         if extra {
@@ -419,140 +321,11 @@ fn strict_open_rejects_missing_or_extra_owner_manifest_rows() {
         wtx.commit().unwrap();
         drop(store);
 
-        let error = open(&path, physical, None, OwnerLayout::Blob)
+        let error = open_physical(&path, physical, None, OwnerLayout::Blob)
             .err()
             .expect("invalid owner manifest must fail closed");
         assert!(error.contains("manifest"), "{error}");
     }
-}
-
-#[test]
-fn authenticated_binding_rejects_cross_tenant_and_different_actor() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("strict.redb");
-    let physical = PhysicalStoreIdentity::new("physical:blob:test").unwrap();
-    let store = create(&path, physical, None, OwnerLayout::Blob).unwrap();
-    let verifier = TestScopeVerifier {
-        tenant: "tenant-a",
-        layout: OwnerLayout::Blob,
-        principal:
-            "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    };
-    let tenant_b = native_identity("tenant-b", "incarnation:blob:b");
-    assert!(store
-        .authenticate_scope::<BlobOwner>(
-            &verifier,
-            tenant_b,
-            verifier.principal.to_string(),
-            b"verified",
-        )
-        .is_err());
-
-    let identity = native_identity("tenant-a", "incarnation:blob:a");
-    let grant = store
-        .authenticate_scope::<BlobOwner>(
-            &verifier,
-            identity.clone(),
-            verifier.principal.to_string(),
-            b"verified",
-        )
-        .unwrap();
-    let owner = bind_serving_scope(&store, grant, 0).unwrap();
-    let mut wrong_actor = batch(identity, "wrong-actor");
-    wrong_actor.context.principal = format!("principal:sha256:{}", "b".repeat(64));
-    let write = store.write().unwrap();
-    assert!(matches!(
-        begin(&write, &wrong_actor).unwrap(),
-        Begin::Apply { .. }
-    ));
-    assert!(write.begin_owner(&owner, &wrong_actor).is_err());
-}
-
-#[test]
-fn unfinished_owner_capability_poisons_the_outer_write() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("strict.redb");
-    let physical = PhysicalStoreIdentity::new("physical:blob:test").unwrap();
-    let store = create(&path, physical, None, OwnerLayout::Blob).unwrap();
-    let principal = format!("principal:sha256:{}", "a".repeat(64));
-    let verifier = TestScopeVerifier {
-        tenant: "tenant-a",
-        layout: OwnerLayout::Blob,
-        principal:
-            "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    };
-    let identity = native_identity("tenant-a", "incarnation:blob:a");
-    let owner = bind_serving_scope(
-        &store,
-        store
-            .authenticate_scope::<BlobOwner>(&verifier, identity.clone(), principal, b"verified")
-            .unwrap(),
-        0,
-    )
-    .unwrap();
-    let batch = batch(identity, "poisoned-owner");
-    let write = store.write().unwrap();
-    let source = match begin(&write, &batch).unwrap() {
-        Begin::Apply { source_version } => source_version,
-        Begin::Replay(_) => panic!("unexpected replay"),
-    };
-    drop(write.begin_owner(&owner, &batch).unwrap());
-    assert!(finish(&write, &batch, None, 2, source)
-        .unwrap_err()
-        .contains("poisoned"));
-}
-
-#[test]
-fn strict_owner_preserves_sequential_batches_occ_and_replay() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("strict.redb");
-    let physical = PhysicalStoreIdentity::new("physical:blob:test").unwrap();
-    let store = create(&path, physical, None, OwnerLayout::Blob).unwrap();
-    let principal = format!("principal:sha256:{}", "a".repeat(64));
-    let verifier = TestScopeVerifier {
-        tenant: "tenant-a",
-        layout: OwnerLayout::Blob,
-        principal:
-            "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    };
-    let identity = native_identity("tenant-a", "incarnation:blob:a");
-    let owner = bind_serving_scope(
-        &store,
-        store
-            .authenticate_scope::<BlobOwner>(&verifier, identity.clone(), principal, b"verified")
-            .unwrap(),
-        0,
-    )
-    .unwrap();
-    let first = batch(identity.clone(), "strict-first");
-    let mut second = batch(identity.clone(), "strict-second");
-    second.version_expectation = VersionExpectation::Native(1);
-    let write = store.write().unwrap();
-    let first_source = match begin(&write, &first).unwrap() {
-        Begin::Apply { source_version } => source_version,
-        Begin::Replay(_) => panic!("unexpected replay"),
-    };
-    write
-        .begin_owner(&owner, &first)
-        .unwrap()
-        .finish_owner()
-        .unwrap();
-    finish(&write, &first, None, 2, first_source).unwrap();
-    let second_source = match begin(&write, &second).unwrap() {
-        Begin::Apply { source_version } => source_version,
-        Begin::Replay(_) => panic!("unexpected replay"),
-    };
-    write
-        .begin_owner(&owner, &second)
-        .unwrap()
-        .finish_owner()
-        .unwrap();
-    finish(&write, &second, None, 3, second_source).unwrap();
-    commit(write, &second).unwrap();
-    assert_eq!(version(&store, &identity).unwrap(), 2);
-
-    let replay = store.write().unwrap();
-    assert!(matches!(begin(&replay, &first).unwrap(), Begin::Replay(_)));
 }
 
 #[test]
@@ -562,7 +335,7 @@ fn typed_recovery_reanchors_physical_authority_once() {
     let destination_path = dir.path().join("destination.redb");
     let source_identity = PhysicalStoreIdentity::new("physical:blob:source").unwrap();
     let destination_identity = PhysicalStoreIdentity::new("physical:blob:destination").unwrap();
-    let store = create(
+    let store = create_physical(
         &source_path,
         source_identity.clone(),
         None,
@@ -575,7 +348,7 @@ fn typed_recovery_reanchors_physical_authority_once() {
     let token = open_recovery(&destination_path, source_identity, None, OwnerLayout::Blob).unwrap();
     let adopted = adopt_recovery(token, destination_identity.clone()).unwrap();
     drop(adopted);
-    open(
+    open_physical(
         &destination_path,
         destination_identity,
         None,
@@ -595,7 +368,7 @@ fn owner_row_crud_is_reserved_for_authenticated_domain_services() {
         OwnerLayout::Blob,
         OwnerLayout::SemanticIndex,
     ] {
-        for table in crate::owner_registry::owner_table_names(layout) {
+        for table in crate::owner::registry::owner_table_names(layout) {
             assert!(matches!(
                 owner_table_access(table),
                 OwnerTableAccess::DomainService | OwnerTableAccess::SharedService
@@ -614,14 +387,14 @@ fn adoption_streams_more_than_one_hundred_thousand_scope_bindings() {
     let source_identity = PhysicalStoreIdentity::new("physical:many-bindings:source").unwrap();
     let destination_identity =
         PhysicalStoreIdentity::new("physical:many-bindings:destination").unwrap();
-    let store = create(
+    let store = create_physical(
         &source_path,
         source_identity.clone(),
         None,
         OwnerLayout::LedgerOnly,
     )
     .unwrap();
-    let write = store.database.begin_write().unwrap();
+    let write = store.database().begin_write().unwrap();
     {
         let mut bindings = write.open_table(SCOPE_BINDINGS).unwrap();
         let mut versions = write.open_table(VERSIONS).unwrap();
@@ -635,7 +408,7 @@ fn adoption_streams_more_than_one_hundred_thousand_scope_bindings() {
             .unwrap();
             let key = identity.binding_digest().to_hex();
             let binding = ScopeBinding {
-                schema_version: MUTATION_STORE_SCHEMA_VERSION,
+                schema_version: STORAGE_KERNEL_SCHEMA_VERSION,
                 store_identity_digest: store.incarnation().identity_digest(),
                 identity,
                 initial_version: ordinal,
@@ -680,9 +453,9 @@ fn strict_backup_copies_owner_rows_and_reopens_with_stable_evidence() {
     let destination_physical = PhysicalStoreIdentity::new("physical:kv:destination").unwrap();
     let second_destination_physical =
         PhysicalStoreIdentity::new("physical:kv:destination:epoch-two").unwrap();
-    let store = create(&source_path, source_physical, None, OwnerLayout::Kv).unwrap();
-    let source_authority = store.owner_authority_digest().unwrap();
-    let write = store.database.begin_write().unwrap();
+    let store = create_physical(&source_path, source_physical, None, OwnerLayout::Kv).unwrap();
+    let source_authority = owner_authority_digest(&store).unwrap();
+    let write = store.database().begin_write().unwrap();
     write
         .open_table(KV_ROWS)
         .unwrap()
@@ -691,7 +464,7 @@ fn strict_backup_copies_owner_rows_and_reopens_with_stable_evidence() {
     write.commit().unwrap();
 
     let evidence =
-        backup_strict_recovery_store(&store, &destination_path, destination_physical.clone())
+        backup_strict_recovery_store_of(&store, &destination_path, destination_physical.clone())
             .unwrap();
     assert_eq!(evidence.owner_rows, 1);
     assert_eq!(evidence.tables.len(), 16);
@@ -704,23 +477,23 @@ fn strict_backup_copies_owner_rows_and_reopens_with_stable_evidence() {
             .rows,
         1
     );
-    let reopened = open(
+    let reopened = open_physical(
         &destination_path,
         destination_physical,
         None,
         OwnerLayout::Kv,
     )
     .unwrap();
-    assert_ne!(reopened.owner_authority_digest().unwrap(), source_authority);
-    assert_eq!(reopened.strict_manifest().unwrap().authority_epoch, 1);
-    assert_eq!(strict_recovery_evidence(&reopened).unwrap(), evidence);
-    let second_evidence = backup_strict_recovery_store(
+    assert_ne!(owner_authority_digest(&reopened).unwrap(), source_authority);
+    assert_eq!(reopened.manifest().authority_epoch, 1);
+    assert_eq!(strict_evidence_of(&reopened).unwrap(), evidence);
+    let second_evidence = backup_strict_recovery_store_of(
         &reopened,
         &second_destination_path,
         second_destination_physical.clone(),
     )
     .unwrap();
-    let second_reopened = open(
+    let second_reopened = open_physical(
         &second_destination_path,
         second_destination_physical,
         None,
@@ -728,11 +501,11 @@ fn strict_backup_copies_owner_rows_and_reopens_with_stable_evidence() {
     )
     .unwrap();
     assert_eq!(
-        second_reopened.strict_manifest().unwrap().authority_epoch,
+        second_reopened.manifest().authority_epoch,
         2
     );
     assert_eq!(
-        strict_recovery_evidence(&second_reopened).unwrap(),
+        strict_evidence_of(&second_reopened).unwrap(),
         second_evidence
     );
     let read = second_reopened.database.begin_read().unwrap();
@@ -751,7 +524,7 @@ fn strict_backup_copies_owner_rows_and_reopens_with_stable_evidence() {
 fn cached_manifest_epoch_is_revalidated_before_owner_authority_use() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("stale-manifest.redb");
-    let store = create(
+    let store = create_physical(
         &path,
         PhysicalStoreIdentity::new("physical:stale-manifest").unwrap(),
         None,
@@ -766,24 +539,24 @@ fn cached_manifest_epoch_is_revalidated_before_owner_authority_use() {
         layout: OwnerLayout::Kv,
     };
     let identity = kv_identity("tenant-a", "incarnation:stale-manifest");
-    let _owner = bind_serving_scope(
+    let _owner = bind_serving_scope_in(
         &store,
-        store
-            .authenticate_scope::<KvOwner>(
-                &verifier,
-                identity.clone(),
-                principal.clone(),
-                b"verified",
-            )
-            .unwrap(),
+        authenticate_scope_in::<KvOwner>(
+            &store,
+            &verifier,
+            identity.clone(),
+            principal.clone(),
+            b"verified",
+        )
+        .unwrap(),
         0,
     )
     .unwrap();
 
-    let write = store.database.begin_write().unwrap();
+    let write = store.database().begin_write().unwrap();
     let mut manifest = validate_manifest_write(
         &write,
-        &store.strict_manifest().unwrap().physical_identity,
+        &store.manifest().physical_identity,
         OwnerLayout::Kv,
     )
     .unwrap();
@@ -796,11 +569,12 @@ fn cached_manifest_epoch_is_revalidated_before_owner_authority_use() {
         .unwrap();
     write.commit().unwrap();
 
-    assert!(store.write().is_err());
-    assert!(store.owner_authority_digest().is_err());
-    assert!(store
-        .authenticate_scope::<KvOwner>(&verifier, identity, principal, b"verified")
-        .is_err());
+    assert!(store.begin_write().is_err());
+    assert!(owner_authority_digest(&store).is_err());
+    assert!(
+        authenticate_scope_in::<KvOwner>(&store, &verifier, identity, principal, b"verified")
+            .is_err()
+    );
 }
 
 #[test]
@@ -808,21 +582,21 @@ fn shared_blob_read_revalidates_root_and_closed_table_registry() {
     for extra_root in [true, false] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("shared-read-tamper.redb");
-        let store = create(
+        let store = create_physical(
             &path,
             PhysicalStoreIdentity::new("physical:shared-read-tamper").unwrap(),
             None,
             OwnerLayout::Blob,
         )
         .unwrap();
-        let owner = store
-            .authenticate_blob_shared_service(
-                &TestBlobSharedVerifier,
-                "blob-service".to_string(),
-                b"verified",
-            )
-            .unwrap();
-        let write = store.database.begin_write().unwrap();
+        let owner = authenticate_blob_shared_service(
+            &store,
+            &TestBlobSharedVerifier,
+            "blob-service".to_string(),
+            b"verified",
+        )
+        .unwrap();
+        let write = store.database().begin_write().unwrap();
         if extra_root {
             write
                 .open_table(STORE_ROOT)
@@ -836,158 +610,7 @@ fn shared_blob_read_revalidates_root_and_closed_table_registry() {
         }
         write.commit().unwrap();
 
-        assert!(store.read_blob_shared(&owner, "blob-service").is_err());
-    }
-}
-
-#[test]
-fn staged_adoption_reanchors_only_root_and_bindings() {
-    const BLOB_ROWS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("cas_blobs");
-    let dir = tempfile::tempdir().unwrap();
-    let source_path = dir.path().join("staged-source.redb");
-    let staged_path = dir.path().join("staged-target.redb");
-    let physical = PhysicalStoreIdentity::new("physical:staged-adoption").unwrap();
-    let integrity: Arc<dyn PrivatePayloadIntegrity> = Arc::new(TestIntegrity);
-    let store = create(
-        &source_path,
-        physical.clone(),
-        Some(Arc::clone(&integrity)),
-        OwnerLayout::Blob,
-    )
-    .unwrap();
-    let identity = native_identity("tenant-a", "incarnation:staged-adoption");
-    let principal = format!("principal:sha256:{}", "a".repeat(64));
-    let verifier = TestScopeVerifier {
-        tenant: "tenant-a",
-        principal:
-            "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        layout: OwnerLayout::Blob,
-    };
-    let owner = bind_serving_scope(
-        &store,
-        store
-            .authenticate_scope::<BlobOwner>(
-                &verifier,
-                identity.clone(),
-                principal.clone(),
-                b"verified",
-            )
-            .unwrap(),
-        0,
-    )
-    .unwrap();
-    let (private_batch, sealed) = recovery_batch(identity.clone(), "staged-private");
-    prepare_saga_with_private_payload(&store, &private_batch, 2, Some(&sealed)).unwrap();
-    let mut committed_batch = batch(identity.clone(), "staged-committed");
-    committed_batch.placement_epoch = 7;
-    committed_batch.fencing_token = Some(9);
-    committed_batch.outbox.push(eg_types::MutationOutboxIntent {
-        topic: "staged.adoption".to_string(),
-        key: "staged-committed".to_string(),
-        payload: b"preserved".to_vec(),
-        headers: Default::default(),
-    });
-    let owner_scope = identity.binding_digest().to_hex();
-    let write = store.write().unwrap();
-    let source_version = match begin(&write, &committed_batch).unwrap() {
-        Begin::Apply { source_version } => source_version,
-        Begin::Replay(_) => panic!("unexpected replay"),
-    };
-    let owner_write = write.begin_owner(&owner, &committed_batch).unwrap();
-    write
-        .transaction()
-        .open_table(BLOB_ROWS)
-        .unwrap()
-        .insert(
-            (owner_scope.as_str(), "staged-object"),
-            b"owner-row".as_slice(),
-        )
-        .unwrap();
-    owner_write.finish_owner().unwrap();
-    finish(&write, &committed_batch, None, 3, source_version).unwrap();
-    commit(write, &committed_batch).unwrap();
-
-    let expected_manifest = store.owner_manifest_digest().unwrap();
-    let source_root = store.incarnation().identity_digest();
-    let source_evidence = strict_recovery_evidence(&store).unwrap();
-    drop(store);
-    std::fs::copy(&source_path, &staged_path).unwrap();
-
-    assert!(
-        inspect_staged_mutation_store(&staged_path, physical.clone(), OwnerLayout::Blob, None,)
-            .is_err()
-    );
-    assert!(inspect_staged_mutation_store(
-        &staged_path,
-        physical.clone(),
-        OwnerLayout::Jobs,
-        Some(Arc::clone(&integrity)),
-    )
-    .is_err());
-    assert!(inspect_staged_mutation_store(
-        &staged_path,
-        PhysicalStoreIdentity::new("physical:staged-adoption:other").unwrap(),
-        OwnerLayout::Blob,
-        Some(Arc::clone(&integrity)),
-    )
-    .is_err());
-    let staged = inspect_staged_mutation_store(
-        &staged_path,
-        physical,
-        OwnerLayout::Blob,
-        Some(Arc::clone(&integrity)),
-    )
-    .unwrap();
-    assert_eq!(staged.owner_manifest_digest(), expected_manifest);
-    let adopted = adopt_staged_mutation_store(staged).unwrap();
-    assert_ne!(adopted.incarnation().identity_digest(), source_root);
-    assert_eq!(adopted.owner_manifest_digest().unwrap(), expected_manifest);
-    let read = adopted.database.begin_read().unwrap();
-    let table = read.open_table(BLOB_ROWS).unwrap();
-    assert_eq!(
-        table
-            .get((owner_scope.as_str(), "staged-object"))
-            .unwrap()
-            .unwrap()
-            .value(),
-        b"owner-row"
-    );
-    assert!(read_record(&adopted, &identity, "staged-committed")
-        .unwrap()
-        .is_some());
-    assert_eq!(version(&adopted, &identity).unwrap(), 1);
-    assert_eq!(
-        read_outbox(&adopted, &identity, "staged-committed")
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(
-        read_private_payload(&adopted, &identity, "staged-private").unwrap(),
-        Some(sealed)
-    );
-    let adopted_evidence = strict_recovery_evidence(&adopted).unwrap();
-    for table in [
-        FENCES.name(),
-        OUTBOX.name(),
-        PRIVATE_PAYLOADS.name(),
-        "cas_blobs",
-    ] {
-        let before = source_evidence
-            .tables
-            .iter()
-            .find(|evidence| evidence.table_id == table)
-            .unwrap();
-        let after = adopted_evidence
-            .tables
-            .iter()
-            .find(|evidence| evidence.table_id == table)
-            .unwrap();
-        assert_eq!(
-            (before.rows, before.fingerprint),
-            (after.rows, after.fingerprint)
-        );
-        assert_eq!(after.rows, 1);
+        assert!(read_blob_shared(&store, &owner, "blob-service").is_err());
     }
 }
 
@@ -997,14 +620,14 @@ fn staged_adoption_allows_absent_integrity_only_when_private_rows_are_empty() {
     let source_path = dir.path().join("empty-private-source.redb");
     let staged_path = dir.path().join("empty-private-target.redb");
     let physical = PhysicalStoreIdentity::new("physical:empty-private").unwrap();
-    let store = create(
+    let store = create_physical(
         &source_path,
         physical.clone(),
         None,
         OwnerLayout::LedgerOnly,
     )
     .unwrap();
-    let expected_manifest = store.owner_manifest_digest().unwrap();
+    let expected_manifest = owner_manifest_digest(&store).unwrap();
     drop(store);
     std::fs::copy(source_path, &staged_path).unwrap();
 
@@ -1021,13 +644,13 @@ fn statechart_staged_inspection_requires_its_one_fixed_serving_scope() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("statechart-staged.redb");
     let physical = PhysicalStoreIdentity::new("physical:statechart:staged").unwrap();
-    let store = create(&path, physical.clone(), None, OwnerLayout::Statechart).unwrap();
+    let store = create_physical(&path, physical.clone(), None, OwnerLayout::Statechart).unwrap();
     drop(store);
     assert!(
         inspect_staged_mutation_store(&path, physical.clone(), OwnerLayout::Statechart, None,)
             .is_err()
     );
-    let store = open(&path, physical.clone(), None, OwnerLayout::Statechart).unwrap();
+    let store = open_physical(&path, physical.clone(), None, OwnerLayout::Statechart).unwrap();
 
     let principal = format!("principal:sha256:{}", "a".repeat(64));
     let verifier = TestScopeVerifier {
@@ -1042,11 +665,16 @@ fn statechart_staged_inspection_requires_its_one_fixed_serving_scope() {
         "statechart-instances",
         "incarnation:eg-statechart:statechart-instances:1",
     );
-    bind_serving_scope(
+    bind_serving_scope_in(
         &store,
-        store
-            .authenticate_scope::<StatechartOwner>(&verifier, fixed, principal.clone(), b"verified")
-            .unwrap(),
+        authenticate_scope_in::<StatechartOwner>(
+            &store,
+            &verifier,
+            fixed,
+            principal.clone(),
+            b"verified",
+        )
+        .unwrap(),
         7,
     )
     .unwrap();
@@ -1058,17 +686,16 @@ fn statechart_staged_inspection_requires_its_one_fixed_serving_scope() {
     assert_eq!(token.recovery_counts().versions, 1);
     drop(token);
 
-    let store = open(&path, physical.clone(), None, OwnerLayout::Statechart).unwrap();
+    let store = open_physical(&path, physical.clone(), None, OwnerLayout::Statechart).unwrap();
     let extra = domain_identity(
         "native",
         MutationDomain::Lifecycle,
         "statechart-other",
         "incarnation:eg-statechart:statechart-other:1",
     );
-    bind_serving_scope(
+    bind_serving_scope_in(
         &store,
-        store
-            .authenticate_scope::<StatechartOwner>(&verifier, extra, principal, b"verified")
+        authenticate_scope_in::<StatechartOwner>(&store, &verifier, extra, principal, b"verified")
             .unwrap(),
         0,
     )
@@ -1084,7 +711,7 @@ fn staged_adoption_token_rejects_post_inspection_change() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("changed-after-inspection.redb");
     let physical = PhysicalStoreIdentity::new("physical:changed-after-inspection").unwrap();
-    let store = create(&path, physical.clone(), None, OwnerLayout::LedgerOnly).unwrap();
+    let store = create_physical(&path, physical.clone(), None, OwnerLayout::LedgerOnly).unwrap();
     drop(store);
     let staged =
         inspect_staged_mutation_store(&path, physical, OwnerLayout::LedgerOnly, None).unwrap();

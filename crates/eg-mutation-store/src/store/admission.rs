@@ -1,4 +1,9 @@
-use super::*;
+//! Per-write admission state machine: exactly one admitted batch, exactly one
+//! owner-row window inside it, and a poisoned write on any unfinished drop.
+
+use crate::write::{is_ledger_only, MutationWrite};
+use eg_storage::{encode_bounded, OwnerDomain, OwnerLayout};
+use eg_types::MutationBatch;
 
 pub(crate) enum AdmissionState {
     Idle,
@@ -10,13 +15,7 @@ pub(crate) enum AdmissionState {
     Poisoned,
 }
 
-impl MutationWrite {
-    pub(crate) fn strict_manifest(&self) -> Result<&OwnerManifest, String> {
-        self.owner_manifest.as_ref().ok_or_else(|| {
-            "mutation owner authority is unavailable on a cutover-only raw write".to_string()
-        })
-    }
-
+impl<D: OwnerDomain> MutationWrite<'_, D> {
     pub(crate) fn admit_apply_batch(&self, batch: &MutationBatch) -> Result<(), String> {
         let encoded = encode_bounded(batch, "admitted mutation batch")?;
         let mut state = self.admission.borrow_mut();
@@ -85,9 +84,7 @@ impl MutationWrite {
                 batch: admitted,
                 owner,
             } if admitted.as_slice() == encoded.as_slice()
-                && (self.owner_manifest.is_none()
-                    || self.strict_manifest()?.layout == OwnerLayout::LedgerOnly
-                    || owner.is_some()) =>
+                && (is_ledger_only(D::LAYOUT) || owner.is_some()) =>
             {
                 *state = AdmissionState::Finished(encoded);
                 Ok(())

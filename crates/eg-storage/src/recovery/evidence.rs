@@ -1,5 +1,26 @@
-use super::*;
-use redb::{Key, ReadTransaction, ReadableTable, TableDefinition, TableHandle, Value};
+use crate::codec::{decode_ledger_record, encode_bounded};
+use crate::kernel::{create_physical, open_physical};
+use crate::owner::identity::PhysicalStoreIdentity;
+use crate::owner::layout::OwnerLayout;
+use crate::owner::{
+    copy_declared_owner_tables, hash_declared_owner_tables, validate_declared_owner_tables,
+    validate_declared_tables_write, validate_manifest_read,
+};
+use crate::physical::binding::ScopeBinding;
+use crate::physical::incarnation::StoreIncarnation;
+use crate::physical::manifest::OwnerManifest;
+use crate::physical::root::PhysicalStore;
+use crate::recovery::validate::validate_recovery_content;
+use crate::tables::{
+    BATCHES, FENCES, IDEMPOTENCY, OUTBOX, OUTBOX_CLAIM_CURSORS, OUTBOX_CONSUMERS,
+    OUTBOX_CURSORS, OUTBOX_DELIVERIES, OUTBOX_FAIRNESS, OUTBOX_TOPIC_INDEX, OWNER_MANIFEST,
+    PRIVATE_PAYLOADS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
+};
+use crate::StorageKernelV1;
+use redb::{
+    Key, ReadTransaction, ReadableTable, TableDefinition, TableHandle, Value, WriteTransaction,
+};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,11 +38,17 @@ pub struct StrictRecoveryEvidence {
     pub tables: Vec<StrictTableEvidence>,
 }
 
-pub fn strict_recovery_evidence(store: &MutationStore) -> Result<StrictRecoveryEvidence, String> {
-    let rtx = store
-        .database
-        .begin_read()
-        .map_err(|error| error.to_string())?;
+/// Per-table row counts and fingerprints over one owner file's whole census.
+pub fn strict_recovery_evidence(
+    kernel: &StorageKernelV1,
+) -> Result<StrictRecoveryEvidence, String> {
+    strict_evidence_of(kernel.store())
+}
+
+pub(crate) fn strict_evidence_of(
+    store: &PhysicalStore,
+) -> Result<StrictRecoveryEvidence, String> {
+    let rtx = store.begin_read()?;
     let manifest = validated_source_manifest(store, &rtx)?;
     let authenticate = |sealed: &[u8], digest: &str| store.authenticate_private(sealed, digest);
     validate_recovery_content(store.incarnation(), &rtx, &authenticate)?;
@@ -29,31 +56,37 @@ pub fn strict_recovery_evidence(store: &MutationStore) -> Result<StrictRecoveryE
     strict_snapshot_read(&rtx, manifest.layout)
 }
 
+/// Copy one owner file to a new physical identity and prove the copy exactly.
 pub fn backup_strict_recovery_store(
-    source: &MutationStore,
+    source: &StorageKernelV1,
+    destination: &Path,
+    destination_identity: PhysicalStoreIdentity,
+) -> Result<StrictRecoveryEvidence, String> {
+    backup_strict_recovery_store_of(source.store(), destination, destination_identity)
+}
+
+pub(crate) fn backup_strict_recovery_store_of(
+    source: &PhysicalStore,
     destination: &Path,
     destination_identity: PhysicalStoreIdentity,
 ) -> Result<StrictRecoveryEvidence, String> {
     if destination.exists() {
         return Err("strict backup destination already exists".to_string());
     }
-    let rtx = source
-        .database
-        .begin_read()
-        .map_err(|error| error.to_string())?;
+    let rtx = source.begin_read()?;
     let manifest = validated_source_manifest(source, &rtx)?;
     let authenticate = |sealed: &[u8], digest: &str| source.authenticate_private(sealed, digest);
     validate_recovery_content(source.incarnation(), &rtx, &authenticate)?;
     validate_declared_owner_tables(&rtx, manifest.layout)?;
     let source_evidence = strict_snapshot_read(&rtx, manifest.layout)?;
-    let target = create(
+    let target = create_physical(
         destination,
         destination_identity.clone(),
         source.private_integrity(),
         manifest.layout,
     )?;
     let mut wtx = target
-        .database
+        .database()
         .begin_write()
         .map_err(|error| error.to_string())?;
     wtx.set_durability(redb::Durability::Immediate)
@@ -79,13 +112,13 @@ pub fn backup_strict_recovery_store(
     drop(rtx);
     drop(target);
 
-    let reopened = open(
+    let reopened = open_physical(
         destination,
         destination_identity,
         source.private_integrity(),
         manifest.layout,
     )?;
-    let evidence = strict_recovery_evidence(&reopened)?;
+    let evidence = strict_evidence_of(&reopened)?;
     if evidence != target_evidence {
         return Err("strict backup fingerprint changed after reopen".to_string());
     }
@@ -96,11 +129,11 @@ pub fn backup_strict_recovery_store(
 }
 
 fn validated_source_manifest(
-    store: &MutationStore,
+    store: &PhysicalStore,
     transaction: &ReadTransaction,
 ) -> Result<OwnerManifest, String> {
     store.validate_physical_root()?;
-    let cached = store.strict_manifest()?;
+    let cached = store.manifest();
     let persisted = validate_manifest_read(transaction, &cached.physical_identity, cached.layout)?;
     if persisted != *cached {
         return Err("strict recovery manifest authority changed".to_string());
@@ -212,7 +245,7 @@ fn copy_bindings(
     let mut rows = 0;
     for row in source_table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
-        let mut binding: ScopeBinding = decode_record(value.value())?;
+        let mut binding: ScopeBinding = decode_ledger_record(value.value())?;
         binding.store_identity_digest = root.identity_digest();
         let bytes = encode_bounded(&binding, "strict backup scope binding")?;
         target_table

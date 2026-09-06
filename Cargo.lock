@@ -2924,6 +2924,7 @@ dependencies = [
 name = "eg-mutation-store"
 version = "0.1.0"
 dependencies = [
+ "eg-storage",
  "eg-types",
  "redb",
  "rmp-serde",

@@ -1,5 +1,20 @@
-use super::*;
-use redb::{ReadTransaction, TableHandle};
+//! The one recovery-invariant content check for a physical owner file.
+
+use crate::codec::{decode_batch_record, decode_ledger_record, decode_outbox_record};
+use crate::payload::recovery_plan_digest;
+use crate::physical::binding::{scope_identity_key, ScopeBinding};
+use crate::physical::incarnation::{
+    require_persisted_root, StoreIncarnation, STORAGE_KERNEL_SCHEMA_VERSION,
+};
+use crate::physical::read_only::ReadOnlyStore;
+use crate::physical::root::{reject_prototype_names, PhysicalStore};
+use crate::tables::{
+    Fence, BATCHES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, SCOPE_BINDINGS, STORE_ROOT,
+    VERSIONS,
+};
+use crate::StorageKernelV1;
+use eg_types::{MutationBatchRecord, MutationBatchStatus};
+use redb::{ReadTransaction, ReadableDatabase, ReadableTable, TableHandle};
 
 type PrivateAuthenticator<'a> = dyn Fn(&[u8], &str) -> Result<(), String> + 'a;
 
@@ -19,10 +34,16 @@ pub struct RecoveryStoreCounts {
     pub encrypted_private_payloads: u64,
 }
 
-/// Validate a LIVE, read-write-capable store: proves the physical file has
-/// not been substituted since it was opened, then runs the same content
-/// checks as [`validate_recovery_store_read_only`].
-pub fn validate_recovery_store(store: &MutationStore) -> Result<RecoveryStoreCounts, String> {
+/// Validate a LIVE, read-write-capable owner file: proves the physical file has
+/// not been substituted since it was opened, then runs the same content checks
+/// as [`validate_recovery_store_read_only`].
+pub fn validate_recovery_store(kernel: &StorageKernelV1) -> Result<RecoveryStoreCounts, String> {
+    validate_live_recovery_store(kernel.store())
+}
+
+pub(crate) fn validate_live_recovery_store(
+    store: &PhysicalStore,
+) -> Result<RecoveryStoreCounts, String> {
     store.validate_physical_root()?;
     let rtx = store
         .database()
@@ -39,7 +60,7 @@ pub fn validate_recovery_store(store: &MutationStore) -> Result<RecoveryStoreCou
 /// same content checks as [`validate_recovery_store`]; the only difference
 /// is how the caller reached a readable handle on the file.
 pub fn validate_recovery_store_read_only(
-    store: &ReadOnlyMutationStore,
+    store: &ReadOnlyStore,
 ) -> Result<RecoveryStoreCounts, String> {
     store.validate_physical_root()?;
     let rtx = store
@@ -52,7 +73,7 @@ pub fn validate_recovery_store_read_only(
 
 /// The one recovery-invariant content check, shared by every caller that can
 /// produce `(expected incarnation, read transaction, private-payload
-/// authenticator)` -- a live [`MutationStore`], a [`ReadOnlyMutationStore`],
+/// authenticator)` -- a live [`MutationStore`], a [`ReadOnlyStore`],
 /// or [`crate::adopt_restored_store`]'s pre-rewrite proof that a copied
 /// bundle's bytes are self-consistent under the incarnation they were
 /// stamped with. Never opens a write transaction and never touches physical
@@ -92,7 +113,7 @@ fn validate_root(
     let table = rtx
         .open_table(STORE_ROOT)
         .map_err(|error| error.to_string())?;
-    let root = super::identity::require_persisted_root(&table)?;
+    let root = require_persisted_root(&table)?;
     if &root != expected {
         return Err(
             "mutation store persisted root does not match its physical database".to_string(),
@@ -114,10 +135,10 @@ fn validate_bindings(
         .map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
-        let binding: ScopeBinding = decode_record(value.value())?;
+        let binding: ScopeBinding = decode_ledger_record(value.value())?;
         binding.identity.validate_digest()?;
         let expected_key = binding.identity.binding_digest().to_hex();
-        if binding.schema_version != MUTATION_STORE_SCHEMA_VERSION
+        if binding.schema_version != STORAGE_KERNEL_SCHEMA_VERSION
             || binding.store_identity_digest != root.identity_digest()
             || key.value() != expected_key
         {
@@ -216,7 +237,7 @@ fn validate_fences(
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         read_binding(rtx, root, key.value())?;
-        decode_record::<Fence>(value.value())?;
+        decode_ledger_record::<Fence>(value.value())?;
         increment(&mut counts.fences, "fence count")?;
     }
     Ok(())
@@ -297,9 +318,9 @@ fn read_binding(
         .get(key)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "mutation row references an unbound identity".to_string())?;
-    let binding: ScopeBinding = decode_record(bytes.value())?;
+    let binding: ScopeBinding = decode_ledger_record(bytes.value())?;
     binding.identity.validate_digest()?;
-    if binding.schema_version != MUTATION_STORE_SCHEMA_VERSION
+    if binding.schema_version != STORAGE_KERNEL_SCHEMA_VERSION
         || binding.store_identity_digest != root.identity_digest()
         || binding.identity.binding_digest().to_hex() != key
     {
@@ -330,99 +351,4 @@ fn increment(value: &mut u64, label: &str) -> Result<(), String> {
         .checked_add(1)
         .ok_or_else(|| format!("{label} overflow"))?;
     Ok(())
-}
-
-pub fn version(store: &MutationStore, identity: &MutationScopeIdentity) -> Result<u64, String> {
-    let rtx = store
-        .database()
-        .begin_read()
-        .map_err(|error| error.to_string())?;
-    binding_for_read(store, &rtx, identity)?;
-    let key = identity.binding_digest().to_hex();
-    let table = rtx
-        .open_table(VERSIONS)
-        .map_err(|error| error.to_string())?;
-    table
-        .get(key.as_str())
-        .map_err(|error| error.to_string())?
-        .map(|value| value.value())
-        .ok_or_else(|| "mutation scope binding is missing its version row".to_string())
-}
-
-pub fn read_record(
-    store: &MutationStore,
-    identity: &MutationScopeIdentity,
-    batch_id: &str,
-) -> Result<Option<MutationBatchRecord>, String> {
-    let rtx = store
-        .database()
-        .begin_read()
-        .map_err(|error| error.to_string())?;
-    binding_for_read(store, &rtx, identity)?;
-    let key = scope_identity_key(identity);
-    let table = rtx.open_table(BATCHES).map_err(|error| error.to_string())?;
-    table
-        .get((key.as_str(), batch_id))
-        .map_err(|error| error.to_string())?
-        .map(|value| decode_batch_record(value.value()))
-        .transpose()
-}
-
-pub fn read_outbox(
-    store: &MutationStore,
-    identity: &MutationScopeIdentity,
-    batch_id: &str,
-) -> Result<Vec<MutationOutboxRecord>, String> {
-    let rtx = store
-        .database()
-        .begin_read()
-        .map_err(|error| error.to_string())?;
-    binding_for_read(store, &rtx, identity)?;
-    let identity_key = scope_identity_key(identity);
-    let table = rtx.open_table(OUTBOX).map_err(|error| error.to_string())?;
-    let mut rows = Vec::new();
-    let mut budget = CollectionBudget::default();
-    for row in table
-        .range((identity_key.as_str(), batch_id, 0)..=(identity_key.as_str(), batch_id, u32::MAX))
-        .map_err(|error| error.to_string())?
-    {
-        let (_, value) = row.map_err(|error| error.to_string())?;
-        budget.account(value.value().len())?;
-        rows.push(decode_outbox_record(value.value())?);
-    }
-    Ok(rows)
-}
-
-pub fn read_private_payload(
-    store: &MutationStore,
-    identity: &MutationScopeIdentity,
-    batch_id: &str,
-) -> Result<Option<Vec<u8>>, String> {
-    let rtx = store
-        .database()
-        .begin_read()
-        .map_err(|error| error.to_string())?;
-    binding_for_read(store, &rtx, identity)?;
-    let identity_key = scope_identity_key(identity);
-    let record = rtx
-        .open_table(BATCHES)
-        .map_err(|error| error.to_string())?
-        .get((identity_key.as_str(), batch_id))
-        .map_err(|error| error.to_string())?
-        .map(|value| decode_batch_record(value.value()))
-        .transpose()?
-        .ok_or_else(|| "private recovery plan has no parent receipt".to_string())?;
-    let table = rtx
-        .open_table(PRIVATE_PAYLOADS)
-        .map_err(|error| error.to_string())?;
-    let sealed = table
-        .get((identity_key.as_str(), batch_id))
-        .map_err(|error| error.to_string())?
-        .map(|value| value.value().to_vec());
-    if let Some(bytes) = &sealed {
-        let digest = private_payload_digest(&record)
-            .ok_or_else(|| "private recovery payload has no digest-bound parent".to_string())?;
-        store.authenticate_private(bytes, digest)?;
-    }
-    Ok(sealed)
 }

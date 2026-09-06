@@ -1,13 +1,25 @@
-use super::*;
-use redb::{Key, ReadTransaction, Value};
+use crate::codec::{decode_ledger_record, encode_bounded};
+use crate::kernel::create_physical;
+use crate::physical::binding::ScopeBinding;
+use crate::physical::incarnation::StoreIncarnation;
+use crate::physical::root::PhysicalStore;
+use crate::recovery::validate::{validate_live_recovery_store, RecoveryStoreCounts};
+use crate::tables::{
+    BATCHES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
+};
+use crate::StorageKernelV1;
+use redb::{Key, ReadTransaction, ReadableTable, TableDefinition, Value, WriteTransaction};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
-pub fn recovery_store_fingerprint(store: &MutationStore) -> Result<[u8; 32], String> {
-    validate_recovery_store(store)?;
-    let rtx = store
-        .database()
-        .begin_read()
-        .map_err(|error| error.to_string())?;
+/// Stable content fingerprint over one owner file's physical and ledger rows.
+pub fn recovery_store_fingerprint(kernel: &StorageKernelV1) -> Result<[u8; 32], String> {
+    recovery_store_fingerprint_of(kernel.store())
+}
+
+pub(crate) fn recovery_store_fingerprint_of(store: &PhysicalStore) -> Result<[u8; 32], String> {
+    validate_live_recovery_store(store)?;
+    let rtx = store.begin_read()?;
     let mut hasher = Sha256::new();
     hash_bytes_table(&rtx, &mut hasher, b"root", STORE_ROOT)?;
     hash_bytes_table(&rtx, &mut hasher, b"bindings", SCOPE_BINDINGS)?;
@@ -115,18 +127,28 @@ fn hash_outbox_table(rtx: &ReadTransaction, hasher: &mut Sha256) -> Result<(), S
 /// Create a physical backup with a newly derived destination root and exact
 /// rebinding of every logical scope to that root.
 pub fn backup_recovery_store(
-    source: &MutationStore,
+    source: &StorageKernelV1,
+    destination: &Path,
+) -> Result<RecoveryStoreCounts, String> {
+    backup_recovery_store_of(source.store(), destination)
+}
+
+pub(crate) fn backup_recovery_store_of(
+    source: &PhysicalStore,
     destination: &Path,
 ) -> Result<RecoveryStoreCounts, String> {
     if destination.exists() {
         return Err("coordinator backup destination already exists".to_string());
     }
-    validate_recovery_store(source)?;
-    let target = MutationStore::empty_physical(destination, source.private_integrity())?;
-    let rtx = source
-        .database()
-        .begin_read()
-        .map_err(|error| error.to_string())?;
+    validate_live_recovery_store(source)?;
+    let manifest = source.manifest();
+    let target = create_physical(
+        destination,
+        manifest.physical_identity.clone(),
+        source.private_integrity(),
+        manifest.layout,
+    )?;
+    let rtx = source.begin_read()?;
     let mut wtx = target
         .database()
         .begin_write()
@@ -141,7 +163,7 @@ pub fn backup_recovery_store(
     copy_table(&rtx, &wtx, OUTBOX)?;
     copy_table(&rtx, &wtx, PRIVATE_PAYLOADS)?;
     wtx.commit().map_err(|error| error.to_string())?;
-    validate_recovery_store(&target)
+    validate_live_recovery_store(&target)
 }
 
 fn copy_bindings(
@@ -157,7 +179,7 @@ fn copy_bindings(
         .map_err(|error| error.to_string())?;
     for row in source_table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
-        let mut binding: ScopeBinding = decode_record(value.value())?;
+        let mut binding: ScopeBinding = decode_ledger_record(value.value())?;
         binding.store_identity_digest = root.identity_digest();
         let bytes = encode_bounded(&binding, "backup mutation scope binding")?;
         target_table

@@ -1,16 +1,31 @@
-use super::*;
-use crate::owner::PhysicalStoreIdentity;
-use crate::owner_manifest_types::OwnerManifest;
+use crate::owner::identity::PhysicalStoreIdentity;
+use crate::owner::layout::OwnerLayout;
+use crate::owner::registry::is_mutation_authority_marker;
+use crate::owner::{
+    read_current_manifest, validate_declared_owner_tables, validate_manifest_read,
+};
+use crate::physical::binding::decode_binding;
+use crate::physical::incarnation::{require_persisted_root, StoreIncarnation};
+use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
+use crate::physical::manifest::{OwnerManifest, OwnerManifestDigest};
+use crate::physical::root::{store_handle, PhysicalStore};
+use crate::recovery::authority::{reanchor_staged_store_authority, rewrite_store_authority};
+use crate::recovery::evidence::{
+    strict_evidence_of, strict_snapshot_read, strict_snapshot_write, StrictRecoveryEvidence,
+};
+use crate::recovery::validate::{validate_recovery_content, RecoveryStoreCounts};
+use crate::tables::{SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
+use crate::StorageKernelV1;
 use eg_types::mutation_batch::MutationDomain;
-use eg_types::{IncarnationId, LogicalName, TenantId};
-use redb::{ReadTransaction, ReadableTable, TableHandle};
+use eg_types::{IncarnationId, LogicalName, MutationScopeIdentity, TenantId};
+use redb::{Database, ReadTransaction, ReadableDatabase, ReadableTable, TableHandle, WriteTransaction};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Recovery validation token bound to source identity, layout and epoch.
 ///
 /// ```compile_fail
-/// # use eg_mutation_store::{adopt_recovery, PhysicalStoreIdentity, ValidatedRecoveryStore};
+/// # use eg_storage::{adopt_recovery, PhysicalStoreIdentity, ValidatedRecoveryStore};
 /// fn cannot_reuse(token: ValidatedRecoveryStore, destination: PhysicalStoreIdentity) {
 ///     let _ = adopt_recovery(token, destination.clone());
 ///     let _ = adopt_recovery(token, destination);
@@ -28,7 +43,7 @@ pub struct ValidatedRecoveryStore {
 /// its dynamic manifest digest and is consumed by adoption.
 ///
 /// ```compile_fail
-/// # use eg_mutation_store::{adopt_staged_mutation_store, ValidatedStagedMutationStore};
+/// # use eg_storage::{adopt_staged_mutation_store, ValidatedStagedMutationStore};
 /// fn cannot_reuse(token: ValidatedStagedMutationStore) {
 ///     let _ = adopt_staged_mutation_store(token);
 ///     let _ = adopt_staged_mutation_store(token);
@@ -121,11 +136,6 @@ pub fn classify_recovery_store(
     }
 }
 
-fn is_mutation_authority_marker(name: &str) -> bool {
-    crate::owner_registry::is_known_mutation_table(name)
-        || crate::identity::is_retired_prototype_table(name)
-}
-
 pub fn open_recovery(
     path: &Path,
     physical_identity: PhysicalStoreIdentity,
@@ -138,11 +148,11 @@ pub fn open_recovery(
     let root = rtx
         .open_table(STORE_ROOT)
         .map_err(|error| error.to_string())?;
-    let recorded_root = crate::identity::require_persisted_root(&root)?;
+    let recorded_root = require_persisted_root(&root)?;
     let authenticate = |sealed: &[u8], digest: &str| {
-        crate::identity::authenticate_with(private_integrity.as_deref(), sealed, digest)
+        authenticate_with(private_integrity.as_deref(), sealed, digest)
     };
-    crate::validate_recovery_content(&recorded_root, &rtx, &authenticate)?;
+    validate_recovery_content(&recorded_root, &rtx, &authenticate)?;
     validate_layout_binding_contract(&rtx, layout)?;
     validate_declared_owner_tables(&rtx, layout)?;
     let evidence = strict_snapshot_read(&rtx, layout)?;
@@ -180,9 +190,9 @@ pub fn inspect_staged_mutation_store(
     let root = rtx
         .open_table(STORE_ROOT)
         .map_err(|error| error.to_string())?;
-    let recorded_root = crate::identity::require_persisted_root(&root)?;
+    let recorded_root = require_persisted_root(&root)?;
     let authenticate = |sealed: &[u8], digest: &str| {
-        crate::identity::authenticate_with(private_integrity.as_deref(), sealed, digest)
+        authenticate_with(private_integrity.as_deref(), sealed, digest)
     };
     let counts = validate_recovery_content(&recorded_root, &rtx, &authenticate)?;
     validate_layout_binding_contract(&rtx, manifest.layout)?;
@@ -272,7 +282,7 @@ where
 /// the final write lock before any change.
 pub fn adopt_staged_mutation_store(
     token: ValidatedStagedMutationStore,
-) -> Result<MutationStore, String> {
+) -> Result<StorageKernelV1, String> {
     let database = Database::open(&token.path).map_err(|error| error.to_string())?;
     let (adopted, physical_path) = StoreIncarnation::derive(&token.path)?;
     if adopted != token.target_root || physical_path != token.physical_path {
@@ -284,23 +294,24 @@ pub fn adopt_staged_mutation_store(
     if strict_snapshot_write(&wtx, token.manifest.layout)? != token.evidence {
         return Err("staged mutation image changed before atomic adoption".to_string());
     }
-    crate::reanchor_staged_store_authority(&wtx, &token.recorded_root, &token.manifest, &adopted)?;
+    reanchor_staged_store_authority(&wtx, &token.recorded_root, &token.manifest, &adopted)?;
     validate_layout_binding_contract_write(&wtx, token.manifest.layout)?;
     wtx.commit().map_err(|error| error.to_string())?;
 
-    let store = MutationStore::from_parts(
+    let manifest_digest = token.manifest.digest()?;
+    let store = PhysicalStore::from_parts(
         database,
-        crate::identity::store_handle(adopted),
+        store_handle(adopted),
         physical_path,
         token.private_integrity,
-        Some(token.manifest),
+        token.manifest,
     );
-    let adopted_evidence = strict_recovery_evidence(&store)?;
+    let adopted_evidence = strict_evidence_of(&store)?;
     validate_staged_reanchor(&token.evidence, &adopted_evidence)?;
-    if store.owner_manifest_digest()? != token.manifest_digest {
+    if manifest_digest != token.manifest_digest {
         return Err("staged mutation owner manifest changed during adoption".to_string());
     }
-    Ok(store)
+    Ok(StorageKernelV1::from_store(store))
 }
 
 fn validate_staged_reanchor(
@@ -331,7 +342,7 @@ fn validate_staged_reanchor(
 pub fn adopt_recovery(
     token: ValidatedRecoveryStore,
     destination_identity: PhysicalStoreIdentity,
-) -> Result<MutationStore, String> {
+) -> Result<StorageKernelV1, String> {
     let database = Database::open(&token.path).map_err(|error| error.to_string())?;
     let rtx = database.begin_read().map_err(|error| error.to_string())?;
     let current = validate_manifest_read(
@@ -345,13 +356,13 @@ pub fn adopt_recovery(
     let root = rtx
         .open_table(STORE_ROOT)
         .map_err(|error| error.to_string())?;
-    if crate::identity::require_persisted_root(&root)? != token.recorded_root {
+    if require_persisted_root(&root)? != token.recorded_root {
         return Err("recovery root changed after validation".to_string());
     }
     let authenticate = |sealed: &[u8], digest: &str| {
-        crate::identity::authenticate_with(token.private_integrity.as_deref(), sealed, digest)
+        authenticate_with(token.private_integrity.as_deref(), sealed, digest)
     };
-    crate::validate_recovery_content(&token.recorded_root, &rtx, &authenticate)?;
+    validate_recovery_content(&token.recorded_root, &rtx, &authenticate)?;
     validate_declared_owner_tables(&rtx, token.manifest.layout)?;
     if strict_snapshot_read(&rtx, token.manifest.layout)? != token.evidence {
         return Err("recovery snapshot changed after validation".to_string());
@@ -369,13 +380,13 @@ pub fn adopt_recovery(
         .ok_or_else(|| "mutation authority epoch exhausted".to_string())?;
     manifest.validate()?;
     commit_adoption(&database, &token, &source_manifest, &adopted, &manifest)?;
-    Ok(MutationStore::from_parts(
+    Ok(StorageKernelV1::from_store(PhysicalStore::from_parts(
         database,
-        crate::identity::store_handle(adopted),
+        store_handle(adopted),
         physical_path,
         token.private_integrity,
-        Some(manifest),
-    ))
+        manifest,
+    )))
 }
 
 fn commit_adoption(
@@ -391,7 +402,7 @@ fn commit_adoption(
     if strict_snapshot_write(&wtx, source_manifest.layout)? != token.evidence {
         return Err("recovery snapshot changed before atomic adoption".to_string());
     }
-    crate::rewrite_store_authority(
+    rewrite_store_authority(
         &wtx,
         &token.recorded_root,
         source_manifest,

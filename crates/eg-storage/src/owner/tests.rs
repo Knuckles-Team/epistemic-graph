@@ -1,6 +1,15 @@
-use super::*;
-use crate::owner_registry::owner_table_names;
-use redb::{MultimapTableDefinition, TableDefinition};
+use crate::kernel::{create_physical, open_physical};
+use crate::owner::contract::{CAP_CAS, CAP_DELETE, CAP_INSERT, CAP_READ, CAP_UPDATE};
+use crate::owner::identity::PhysicalStoreIdentity;
+use crate::owner::layout::{OwnerLayout, LEDGER_TABLE_NAMES, OWNER_LAYOUT_DOMAINS};
+use crate::owner::registry::{
+    declared_table_names, is_known_mutation_table, owner_table_names, KV,
+};
+use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
+use crate::physical::manifest::{OwnerManifest, TableContract, TableOwnership, TableScope};
+use crate::physical::root::{is_retired_prototype_table, retired_prototype_table_names};
+use crate::recovery::adopt::{classify_recovery_store, RecoveryExpectation};
+use redb::{MultimapTableDefinition, ReadableDatabase, TableDefinition};
 
 #[test]
 fn owner_layout_registry_has_frozen_cardinality() {
@@ -70,7 +79,12 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
 
 #[test]
 fn manifest_has_no_compatibility_or_inference_entrypoint() {
-    let source = include_str!("owner.rs");
+    let source = concat!(
+        include_str!("contract.rs"),
+        include_str!("layout.rs"),
+        include_str!("manifest_io.rs"),
+        include_str!("../physical/manifest.rs"),
+    );
     for forbidden in [
         concat!("migrate_", "owner_manifest"),
         concat!("load_or_", "derive_manifest"),
@@ -505,8 +519,8 @@ fn open_rejects_unknown_normal_and_multimap_tables() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("closed-world.redb");
         let physical = PhysicalStoreIdentity::new("physical:test:closed-world").unwrap();
-        let store = create(&path, physical.clone(), None, OwnerLayout::LedgerOnly).unwrap();
-        let wtx = store.database.begin_write().unwrap();
+        let store = create_physical(&path, physical.clone(), None, OwnerLayout::LedgerOnly).unwrap();
+        let wtx = store.database().begin_write().unwrap();
         if multimap {
             let definition: MultimapTableDefinition<&str, &str> =
                 MultimapTableDefinition::new("undeclared_multimap");
@@ -517,7 +531,7 @@ fn open_rejects_unknown_normal_and_multimap_tables() {
         }
         wtx.commit().unwrap();
         drop(store);
-        assert!(open(&path, physical, None, OwnerLayout::LedgerOnly).is_err());
+        assert!(open_physical(&path, physical, None, OwnerLayout::LedgerOnly).is_err());
     }
 }
 
@@ -527,16 +541,16 @@ fn write_rejects_missing_or_wrong_type_without_recreating_table() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("wrong-table.redb");
         let physical = PhysicalStoreIdentity::new("physical:test:wrong-table").unwrap();
-        let store = create(&path, physical, None, OwnerLayout::Kv).unwrap();
-        let wtx = store.database.begin_write().unwrap();
+        let store = create_physical(&path, physical, None, OwnerLayout::Kv).unwrap();
+        let wtx = store.database().begin_write().unwrap();
         wtx.delete_table(KV).unwrap();
         if wrong_type {
             let wrong: TableDefinition<&str, &str> = TableDefinition::new("kv");
             wtx.open_table(wrong).unwrap();
         }
         wtx.commit().unwrap();
-        assert!(store.write().is_err());
-        let rtx = store.database.begin_read().unwrap();
+        assert!(store.begin_write().is_err());
+        let rtx = store.database().begin_read().unwrap();
         let names = rtx
             .list_tables()
             .unwrap()
@@ -580,12 +594,12 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
 
 #[test]
 fn plain_recovery_rejects_every_retired_mutation_table_marker() {
-    let names = crate::identity::retired_prototype_table_names();
+    let names = retired_prototype_table_names();
     assert_eq!(names.len(), 11);
     assert!(names.contains(&"mutation_versions"));
     assert!(names.contains(&"mutation_store_root_v3"));
     for (ordinal, name) in names.iter().copied().enumerate() {
-        assert!(crate::identity::is_retired_prototype_table(name));
+        assert!(is_retired_prototype_table(name));
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(format!("retired-marker-{ordinal}.redb"));
         let database = redb::Database::create(&path).unwrap();

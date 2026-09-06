@@ -1,4 +1,10 @@
-use super::*;
+use crate::codec::encode_bounded;
+use crate::owner::validate_manifest_write;
+use crate::physical::binding::decode_binding;
+use crate::physical::incarnation::{require_persisted_root, StoreIncarnation, STORE_ROOT_KEY};
+use crate::physical::manifest::OwnerManifest;
+use crate::tables::{OWNER_MANIFEST, SCOPE_BINDINGS, STORE_ROOT};
+use redb::{ReadableTable, WriteTransaction};
 use std::ops::Bound;
 
 pub(crate) fn rewrite_store_authority(
