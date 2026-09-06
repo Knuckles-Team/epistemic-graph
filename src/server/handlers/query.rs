@@ -5376,14 +5376,16 @@ fn graph_table_rows(
     // Defence in depth: this file is per-principal, so a record admitted under
     // another tenant cannot be here -- and if one ever were, it is not readable.
     let record = store
-        .property_graph(&query.graph)?
-        .filter(|record| record.name.tenant_scope == tenant_scope)
+        .property_graph(tenant_scope, &query.graph)?
         .ok_or_else(|| {
             format!(
                 "property graph `{}` does not exist",
                 query.graph.leaf().value()
             )
         })?;
+    // Read-time proof that every pinned base relation still has its admitted
+    // schema digest -- defence in depth behind the base-DDL fence.
+    store.verify_property_graph_dependencies(&record)?;
     eg_query::exec_graph_table_typed_with_tables(
         &read_core.analysis_snapshot(),
         store,

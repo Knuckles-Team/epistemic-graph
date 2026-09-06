@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Display;
 
-use redb::{ReadTransaction, ReadableTable, TableDefinition, WriteTransaction};
+use redb::{ReadTransaction, ReadableTable, TableDefinition, TableHandle, WriteTransaction};
 
 use crate::tables::schema::TableSchema;
 
@@ -27,8 +27,8 @@ use super::{
 };
 
 /// `graph object name -> canonical catalog-record bytes`.
-const PROPERTY_GRAPHS: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("__sql_property_graphs__");
+const PROPERTY_GRAPHS_TABLE: &str = "__sql_property_graphs__";
+const PROPERTY_GRAPHS: TableDefinition<&str, &[u8]> = TableDefinition::new(PROPERTY_GRAPHS_TABLE);
 /// `counter -> next value`: the catalog-wide stable object-id and
 /// catalog-revision allocators. Both are monotonic and never reused, so a
 /// renamed graph keeps its object id while its revisions strictly advance.
@@ -54,9 +54,23 @@ pub(crate) struct RelationCatalogInput {
 /// The `ALTER PROPERTY GRAPH` target and action, grouped so the durable entry
 /// point keeps a small argument list.
 pub(crate) struct AlterRequest<'a> {
+    /// The VERIFIED request scope, carried from the parsed statement. A record
+    /// admitted under another tenant is not alterable through it: the physical
+    /// catalog file is the boundary today, and this is the defence in depth
+    /// that survives a store ever being opened multi-tenant.
+    pub(crate) tenant_scope: &'a str,
     pub(crate) name: &'a SqlName,
     pub(crate) if_exists: bool,
     pub(crate) action: &'a AlterPropertyGraphAction,
+}
+
+/// Read one record only when it belongs to `tenant_scope`.
+fn record_for_tenant_in(
+    wtx: &WriteTransaction,
+    tenant_scope: &str,
+    key: &str,
+) -> Result<Option<PropertyGraphCatalogRecord>, String> {
+    Ok(record_in(wtx, key)?.filter(|record| record.name.tenant_scope == tenant_scope))
 }
 
 fn store_error<E: Display>(error: E) -> String {
@@ -66,6 +80,12 @@ fn store_error<E: Display>(error: E) -> String {
 /// Resolve a graph name to its durable row key. Phase 1 admits exactly the
 /// tenant `public` schema, so a catalog-qualified or foreign-schema name fails
 /// closed rather than being silently folded into `public`.
+///
+/// COUPLED with `sql::pgq::lower_graph_table`'s canonical-name comparison: a
+/// query naming `shop` matches an admitted `public.shop` only because BOTH
+/// sites agree that `public` is the one admitted schema. A Phase-2 multi-schema
+/// catalog must change them together, or that fold becomes a real cross-schema
+/// name collision.
 fn canonical_key(name: &SqlName) -> Result<String, String> {
     name.validate()?;
     match name.0.as_slice() {
@@ -76,7 +96,15 @@ fn canonical_key(name: &SqlName) -> Result<String, String> {
 }
 
 /// Build the authoritative base-relation snapshots one admission resolves
-/// against. A stored relation whose name cannot be spelled as one SQL
+/// against.
+///
+/// The pinned `catalog_revision` is the table's governed schema version plus
+/// one. That is a WEAK signal: a table that has never been through a governed
+/// migration sits at version 0 forever, so every such relation pins revision 1
+/// and the revision alone never detects drift. The SCHEMA DIGEST is the real
+/// binding, the base-DDL fence is what prevents drift, and
+/// `TableStore::verify_property_graph_dependencies` re-checks the digest at
+/// read time so neither is trusted alone. A stored relation whose name cannot be spelled as one SQL
 /// identifier still occupies the namespace but supplies no snapshot: it cannot
 /// be named by a definition either, so a graph referencing it fails closed with
 /// "base relation does not exist".
@@ -132,17 +160,35 @@ where
     Ok(records)
 }
 
+/// Whether this catalog has ever held a property graph.
+///
+/// `WriteTransaction::open_table` CREATES a missing table, so every `DROP
+/// TABLE`/`ALTER TABLE` on a store that uses no property graphs would otherwise
+/// materialise this one as a side effect of being fenced.
+fn graphs_exist(wtx: &WriteTransaction) -> Result<bool, String> {
+    for handle in wtx.list_tables().map_err(store_error)? {
+        if handle.name() == PROPERTY_GRAPHS_TABLE {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn record_in(
     wtx: &WriteTransaction,
     key: &str,
 ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
+    if !graphs_exist(wtx)? {
+        return Ok(None);
+    }
     let table = wtx.open_table(PROPERTY_GRAPHS).map_err(store_error)?;
     lookup(&table, key)
 }
 
-/// Read one admitted record from a read snapshot.
+/// Read one admitted record from a read snapshot, only for `tenant_scope`.
 pub(crate) fn property_graph_snapshot(
     rtx: &ReadTransaction,
+    tenant_scope: &str,
     name: &SqlName,
 ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
     let key = canonical_key(name)?;
@@ -151,7 +197,7 @@ pub(crate) fn property_graph_snapshot(
         Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
         Err(error) => return Err(store_error(error)),
     };
-    lookup(&table, &key)
+    Ok(lookup(&table, &key)?.filter(|record| record.name.tenant_scope == tenant_scope))
 }
 
 /// Every admitted graph name, sorted for determinism.
@@ -255,7 +301,7 @@ pub(crate) fn alter_property_graph_in(
     request: AlterRequest<'_>,
 ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
     let key = canonical_key(request.name)?;
-    let Some(current) = record_in(wtx, &key)? else {
+    let Some(current) = record_for_tenant_in(wtx, request.tenant_scope, &key)? else {
         if request.if_exists {
             return Ok(None);
         }
@@ -299,10 +345,14 @@ fn next_owner(
 }
 
 /// `DROP PROPERTY GRAPH`. Nothing in this catalog depends on a property graph —
-/// it is itself a leaf view over base relations — so RESTRICT and CASCADE remove
-/// exactly the named graphs; drop behavior matters only for base-relation DDL.
+/// it is itself a leaf view over base relations — so RESTRICT and CASCADE are
+/// EQUIVALENT here and both remove exactly the named graphs. Drop behaviour is
+/// meaningful only for base-relation DDL, and for `ALTER … DROP TABLES` inside a
+/// graph. `drop_cascade_and_restrict_are_equivalent_for_a_leaf_graph` asserts
+/// this rather than leaving the ignored parameter unexplained.
 pub(crate) fn drop_property_graphs_in(
     wtx: &WriteTransaction,
+    tenant_scope: &str,
     names: &[SqlName],
     if_exists: bool,
     _behavior: DropBehavior,
@@ -310,7 +360,7 @@ pub(crate) fn drop_property_graphs_in(
     let mut dropped = 0usize;
     for name in names {
         let key = canonical_key(name)?;
-        if record_in(wtx, &key)?.is_none() {
+        if record_for_tenant_in(wtx, tenant_scope, &key)?.is_none() {
             if if_exists {
                 continue;
             }
@@ -327,6 +377,9 @@ pub(crate) fn property_graph_dependents_in(
     wtx: &WriteTransaction,
     relation: &str,
 ) -> Result<Vec<String>, String> {
+    if !graphs_exist(wtx)? {
+        return Ok(Vec::new());
+    }
     let table = wtx.open_table(PROPERTY_GRAPHS).map_err(store_error)?;
     let mut dependents: Vec<String> = scan(&table)?
         .into_iter()

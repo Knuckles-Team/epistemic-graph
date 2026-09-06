@@ -70,7 +70,10 @@ fn validate_lowering_authority(
     }
     // An admitted definition carries its canonical schema-qualified name while
     // a query names the graph as written, so the two are compared as canonical
-    // catalog names rather than as raw identifier lists.
+    // catalog names rather than as raw identifier lists. COUPLED with
+    // `property_graph::persist::canonical_key`, which admits exactly the tenant
+    // `public` schema: a Phase-2 multi-schema catalog must change both together
+    // or this fold becomes a real cross-schema name collision.
     if CanonicalCatalogName::resolve(verified_tenant_scope, &definition.name)?
         != CanonicalCatalogName::resolve(verified_tenant_scope, &query.graph)?
     {
@@ -565,6 +568,11 @@ fn labels_match(expression: Option<&LabelExpr>, labels: &[LabelDefinition]) -> b
     expression.matches(&present)
 }
 
+/// Every label a pattern names, INCLUDING under a negation. A negated label the
+/// catalog does not declare is therefore rejected rather than treated as
+/// matching everything: the standard reading would accept it, but a graph whose
+/// catalog has no such label is far more likely a typo than an intent, and this
+/// boundary fails closed. Documented divergence, not an oversight.
 fn referenced_labels(pattern: &ElementPattern) -> BTreeSet<&SqlIdentifier> {
     let mut names = BTreeSet::new();
     if let Some(expression) = &pattern.label_expr {

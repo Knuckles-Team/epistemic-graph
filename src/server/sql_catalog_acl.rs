@@ -1848,8 +1848,7 @@ pub(crate) fn authorized_graph_table_sql(
     let tenant_scope = authority.tenant_scope();
     let store = sql_tables::tenant_table_store(tenant_scope, persist_dir)?;
     let record = store
-        .property_graph(&query.graph)?
-        .filter(|record| record.name.tenant_scope == tenant_scope)
+        .property_graph(tenant_scope, &query.graph)?
         .ok_or_else(|| ACCESS_DENIED.to_string())?;
     let selectable: BTreeSet<String> = selectable_tables(authority, persist_dir)?
         .into_iter()
@@ -1861,6 +1860,10 @@ pub(crate) fn authorized_graph_table_sql(
     {
         return Err(ACCESS_DENIED.to_string());
     }
+    // The base-DDL fence prevents a pinned relation from changing underneath an
+    // admitted graph; this re-checks the pinned schema digests at READ time so a
+    // bypass fails closed instead of lowering against a schema that moved.
+    store.verify_property_graph_dependencies(&record)?;
     eg_query::sql::lower_graph_table(query, &record.accepted_definition, tenant_scope)
         .map(|plan| plan.to_sql())
 }

@@ -2147,10 +2147,10 @@ impl WireSession {
         kind: StatementKind,
         in_txn: bool,
     ) -> WireResult<WireOutcome> {
+        if let Some(rejection) = property_graph_ddl_txn_rejection(&kind, in_txn) {
+            return Err(user_err(rejection));
+        }
         match kind {
-            StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_) if in_txn => Err(user_err(
-                "SQL/PGQ property-graph DDL cannot be buffered into a multi-statement transaction",
-            )),
             StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_) => {
                 self.run_property_graph_ddl(graph, sql).await
             }
@@ -4813,6 +4813,24 @@ enum XmodalStmt {
     SparqlConstruct(String),
 }
 
+/// Why property-graph DDL cannot be buffered into an open transaction.
+///
+/// Neither buffering leaf recognises the kind, so it reaches dispatch with
+/// `in_txn` set and would otherwise COMMIT in the middle of a transaction that
+/// has not committed. It cannot simply be buffered instead: the classifier's
+/// admission value carries names and an operation, never the definition, so a
+/// buffered op could not be rebuilt from it without the statement text.
+/// Rejecting is the fail-closed half of that gap; carrying the text is Phase 2.
+#[cfg(feature = "query")]
+fn property_graph_ddl_txn_rejection(kind: &StatementKind, in_txn: bool) -> Option<&'static str> {
+    match (kind, in_txn) {
+        (StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_), true) => {
+            Some("SQL/PGQ property-graph DDL cannot be buffered into a multi-statement transaction")
+        }
+        _ => None,
+    }
+}
+
 /// Project a unified-query result (`[(id, score)]`) into a two-column typed row set
 /// (`id TEXT`, `score FLOAT8`) so the wire encodes it exactly like any other read.
 #[cfg(feature = "query")]
@@ -6613,5 +6631,39 @@ mod wired_catalog_tests {
             .execute("DROP TABLE temp_tbl")
             .await
             .expect("owner may DROP their own table");
+    }
+}
+
+#[cfg(all(test, feature = "query"))]
+mod property_graph_dispatch_tests {
+    use super::*;
+
+    fn classify_kind(sql: &str) -> StatementKind {
+        eg_query::classify(sql).expect("statement classifies")
+    }
+
+    /// Property-graph DDL is neither buffered nor committed inside an open
+    /// `BEGIN` block: it is refused. A `GRAPH_TABLE` read is a read and is
+    /// unaffected, and outside a transaction the DDL routes normally.
+    #[test]
+    fn property_graph_ddl_is_refused_inside_an_open_transaction() {
+        let ddl =
+            classify_kind("CREATE PROPERTY GRAPH shop VERTEX TABLES (customers KEY (customer_id))");
+        let read =
+            classify_kind("SELECT * FROM GRAPH_TABLE (shop MATCH (c:customer) COLUMNS (c.name))");
+
+        assert_eq!(
+            property_graph_ddl_txn_rejection(&ddl, true),
+            Some(
+                "SQL/PGQ property-graph DDL cannot be buffered into a multi-statement transaction"
+            )
+        );
+        assert_eq!(property_graph_ddl_txn_rejection(&ddl, false), None);
+        assert_eq!(property_graph_ddl_txn_rejection(&read, true), None);
+        assert_eq!(property_graph_ddl_txn_rejection(&read, false), None);
+        assert_eq!(
+            property_graph_ddl_txn_rejection(&classify_kind("SELECT 1"), true),
+            None
+        );
     }
 }

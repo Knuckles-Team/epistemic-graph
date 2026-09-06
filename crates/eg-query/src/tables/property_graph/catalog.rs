@@ -6,20 +6,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::tables::schema::{ColumnType, TableConstraint, TableSchema};
+use crate::tables::schema::{ColumnType, TableSchema};
 
 use super::model::{
     digest_value, require, validate_bounded_text, validate_digest, validate_revision,
 };
-use super::validate::{
-    add_columns, find_column, identifiers, is_unique_key, merge_resolved_property_types,
-    primary_key, resolve_labels,
-};
+use super::resolve::{resolve_edge, resolve_vertex, DependencyAccumulator, RelationIndex};
+use super::validate::merge_resolved_property_types;
 use super::{
-    CanonicalCatalogName, EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution,
-    EndpointResolution, PropertyGraphDefinition, RelationKind, SqlIdentifier, SqlName,
-    VertexTableDefinition, MAX_CATALOG_ID_BYTES, MAX_CATALOG_OWNER_BYTES,
-    MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES, MAX_TENANT_SCOPE_BYTES,
+    CanonicalCatalogName, PropertyGraphDefinition, RelationKind, SqlIdentifier, SqlName,
+    MAX_CATALOG_ID_BYTES, MAX_CATALOG_OWNER_BYTES, MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES,
     PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION,
 };
 
@@ -197,17 +193,28 @@ pub struct PropertyGraphCatalogRecord {
 }
 
 impl PropertyGraphCatalogRecord {
-    /// Resolve one draft definition against an exact relational-catalog
-    /// snapshot. Checks run in a FIXED order and the FIRST failure is reported,
-    /// so a caller must expect the earliest applicable error: (1) revision
-    /// bounds; (2) draft shape, canonical order and digest; (3) temporary
-    /// rejection; (4) snapshot validity, tenant scope and duplicate relation
-    /// name/id; (5) graph-name namespace collision; (6) per element in
-    /// canonical alias order, vertices before edges: relation existence, then
-    /// key resolution and uniqueness, then label/property column existence;
-    /// (7) cross-element shared-label property type equality; (8) edge endpoint
-    /// reference, key width and column types; (9) dependency consistency and
-    /// record-digest binding.
+    /// Resolve one draft definition against an exact relational-catalog snapshot.
+    ///
+    /// Admission checks run in a fixed order, and the FIRST failure is the
+    /// reported error. Callers -- and fixtures -- must expect the earliest
+    /// applicable failure, never a later one:
+    ///
+    /// 1. revision bounds: catalog and definition revisions must be positive;
+    /// 2. draft self-consistency: shape, canonical ordering, and digest;
+    /// 3. temporary graphs: rejected, they need a connection-scoped catalog;
+    /// 4. authoritative snapshot validity: per-relation validation, tenant
+    ///    scope, and duplicate relation name or object id;
+    /// 5. shared relation-namespace collision on the graph name;
+    /// 6. per-element resolution, in canonical alias order, vertices before
+    ///    edges. Within one element: base-relation existence, then element key
+    ///    resolution and uniqueness, then label/property column existence;
+    /// 7. cross-element shared-label property type equality, checked after each
+    ///    element resolves -- so a property naming a column its OWN relation
+    ///    does not have fails at step 6, not here. That distinction is why a
+    ///    fixture attaching one relation's column to another sees a
+    ///    column-resolution error rather than the type error it intended;
+    /// 8. edge endpoint resolution: vertex reference, key width, column types;
+    /// 9. dependency accumulation consistency, then record-digest binding.
     pub fn admit(
         object_id: PropertyGraphObjectId,
         owner: PropertyGraphOwner,
@@ -576,300 +583,6 @@ impl PropertyGraphCatalog {
             "base relation has property graph dependents",
         )?;
         Ok(dependents)
-    }
-}
-
-struct RelationIndex<'a> {
-    by_name: BTreeMap<CanonicalCatalogName, &'a RelationCatalogSnapshot>,
-    leaf_counts: BTreeMap<SqlIdentifier, usize>,
-}
-
-impl<'a> RelationIndex<'a> {
-    fn new(tenant_scope: &str, relations: &'a [RelationCatalogSnapshot]) -> Result<Self, String> {
-        validate_bounded_text(tenant_scope, "tenant scope", MAX_TENANT_SCOPE_BYTES)?;
-        let mut by_name = BTreeMap::new();
-        let mut object_ids = BTreeSet::new();
-        let mut leaf_counts = BTreeMap::new();
-        for relation in relations {
-            relation.validate()?;
-            if relation.name.tenant_scope != tenant_scope {
-                return Err("relation snapshot belongs to another tenant scope".into());
-            }
-            if by_name.insert(relation.name.clone(), relation).is_some() {
-                return Err("duplicate relation name in authoritative catalog snapshot".into());
-            }
-            if !object_ids.insert(relation.object_id.clone()) {
-                return Err(
-                    "duplicate relation object id in authoritative catalog snapshot".into(),
-                );
-            }
-            *leaf_counts.entry(relation.name.object.clone()).or_default() += 1;
-        }
-        Ok(Self {
-            by_name,
-            leaf_counts,
-        })
-    }
-
-    fn resolve(
-        &self,
-        tenant_scope: &str,
-        name: &SqlName,
-    ) -> Result<&'a RelationCatalogSnapshot, String> {
-        let canonical = CanonicalCatalogName::resolve(tenant_scope, name)?;
-        self.by_name
-            .get(&canonical)
-            .copied()
-            .ok_or_else(|| format!("base relation `{}` does not exist", name.quoted_sql()))
-    }
-
-    fn has_unambiguous_leaf(&self, name: &SqlIdentifier) -> bool {
-        self.leaf_counts.get(name) == Some(&1)
-    }
-}
-
-#[derive(Clone)]
-struct ElementBinding<'a> {
-    table: &'a RelationCatalogSnapshot,
-    key_columns: Vec<SqlIdentifier>,
-    used_columns: BTreeMap<SqlIdentifier, ColumnType>,
-}
-
-type DependencyAccumulator = (
-    RelationKind,
-    CanonicalCatalogName,
-    u64,
-    String,
-    BTreeMap<SqlIdentifier, ColumnType>,
-);
-
-impl ElementBinding<'_> {
-    fn add_to(
-        &self,
-        used: &mut BTreeMap<RelationObjectId, DependencyAccumulator>,
-    ) -> Result<(), String> {
-        let entry = used.entry(self.table.object_id.clone()).or_insert_with(|| {
-            (
-                self.table.kind,
-                self.table.name.clone(),
-                self.table.catalog_revision,
-                self.table.schema_digest.clone(),
-                BTreeMap::new(),
-            )
-        });
-        if entry.0 != self.table.kind
-            || entry.1 != self.table.name
-            || entry.2 != self.table.catalog_revision
-            || entry.3 != self.table.schema_digest
-        {
-            return Err("one relation object id resolved to inconsistent snapshots".into());
-        }
-        for (name, column_type) in &self.used_columns {
-            if let Some(previous) = entry.4.insert(name.clone(), *column_type) {
-                if previous != *column_type {
-                    return Err("one dependency column resolved to inconsistent types".into());
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-fn resolve_vertex<'a>(
-    vertex: &VertexTableDefinition,
-    tenant_scope: &str,
-    relations: &RelationIndex<'a>,
-) -> Result<(VertexTableDefinition, ElementBinding<'a>), String> {
-    let table = relations.resolve(tenant_scope, &vertex.relation)?;
-    let key_columns = resolve_element_key(
-        &table.schema,
-        vertex.key_resolution,
-        &vertex.key_columns,
-        &vertex.alias,
-    )?;
-    let (labels, mut used_columns) = resolve_labels(&table.schema, &vertex.labels)?;
-    add_columns(&table.schema, &key_columns, &mut used_columns)?;
-    Ok((
-        VertexTableDefinition {
-            relation: table.name.sql_name()?,
-            alias: vertex.alias.clone(),
-            key_columns: key_columns.clone(),
-            key_resolution: ElementKeyResolution::Explicit,
-            labels,
-        },
-        ElementBinding {
-            table,
-            key_columns,
-            used_columns,
-        },
-    ))
-}
-
-fn resolve_edge<'a>(
-    edge: &EdgeTableDefinition,
-    tenant_scope: &str,
-    relations: &RelationIndex<'a>,
-    vertices: &BTreeMap<SqlIdentifier, ElementBinding<'a>>,
-) -> Result<(EdgeTableDefinition, ElementBinding<'a>), String> {
-    let table = relations.resolve(tenant_scope, &edge.relation)?;
-    let key_columns = resolve_element_key(
-        &table.schema,
-        edge.key_resolution,
-        &edge.key_columns,
-        &edge.alias,
-    )?;
-    let (labels, mut used_columns) = resolve_labels(&table.schema, &edge.labels)?;
-    add_columns(&table.schema, &key_columns, &mut used_columns)?;
-    let source = resolve_endpoint(
-        &table.schema,
-        &edge.source,
-        relations,
-        vertices,
-        &mut used_columns,
-    )?;
-    let destination = resolve_endpoint(
-        &table.schema,
-        &edge.destination,
-        relations,
-        vertices,
-        &mut used_columns,
-    )?;
-    Ok((
-        EdgeTableDefinition {
-            relation: table.name.sql_name()?,
-            alias: edge.alias.clone(),
-            key_columns: key_columns.clone(),
-            key_resolution: ElementKeyResolution::Explicit,
-            source,
-            destination,
-            labels,
-        },
-        ElementBinding {
-            table,
-            key_columns,
-            used_columns,
-        },
-    ))
-}
-
-fn resolve_element_key(
-    schema: &TableSchema,
-    resolution: ElementKeyResolution,
-    columns: &[SqlIdentifier],
-    alias: &SqlIdentifier,
-) -> Result<Vec<SqlIdentifier>, String> {
-    let resolved = match resolution {
-        ElementKeyResolution::Explicit => columns.to_vec(),
-        ElementKeyResolution::PrimaryKey => primary_key(schema)?.ok_or_else(|| {
-            format!(
-                "element `{}` requires a base-table primary key",
-                alias.value()
-            )
-        })?,
-    };
-    add_columns(schema, &resolved, &mut BTreeMap::new())?;
-    if !is_unique_key(schema, &resolved)? {
-        return Err(format!(
-            "element `{}` key is not a primary or unique key",
-            alias.value()
-        ));
-    }
-    Ok(resolved)
-}
-
-fn resolve_endpoint(
-    edge_schema: &TableSchema,
-    endpoint: &EdgeEndpoint,
-    relations: &RelationIndex<'_>,
-    vertices: &BTreeMap<SqlIdentifier, ElementBinding<'_>>,
-    edge_used: &mut BTreeMap<SqlIdentifier, ColumnType>,
-) -> Result<EdgeEndpoint, String> {
-    let vertex = vertices.get(&endpoint.vertex_alias).ok_or_else(|| {
-        format!(
-            "edge endpoint references unknown vertex `{}`",
-            endpoint.vertex_alias.value()
-        )
-    })?;
-    let (edge_columns, vertex_columns) = match endpoint.resolution {
-        EndpointResolution::Explicit => (
-            endpoint.edge_key_columns.clone(),
-            endpoint.vertex_key_columns.clone(),
-        ),
-        EndpointResolution::ExplicitEdgeCatalogVertexKey => (
-            endpoint.edge_key_columns.clone(),
-            vertex.key_columns.clone(),
-        ),
-        EndpointResolution::ForeignKey => resolve_foreign_key(edge_schema, vertex, relations)?,
-    };
-    if vertex_columns != vertex.key_columns {
-        return Err("edge endpoint must reference the admitted vertex key exactly".into());
-    }
-    if edge_columns.len() != vertex_columns.len() {
-        return Err("edge endpoint key widths differ".into());
-    }
-    for (edge_column, vertex_column) in edge_columns.iter().zip(&vertex_columns) {
-        let edge_type = find_column(edge_schema, edge_column)?.ty;
-        let vertex_type = find_column(&vertex.table.schema, vertex_column)?.ty;
-        if edge_type != vertex_type {
-            return Err(format!(
-                "edge column `{}` and vertex column `{}` have different types",
-                edge_column.value(),
-                vertex_column.value()
-            ));
-        }
-        edge_used.insert(edge_column.clone(), edge_type);
-    }
-    Ok(EdgeEndpoint {
-        edge_key_columns: edge_columns,
-        vertex_alias: endpoint.vertex_alias.clone(),
-        vertex_key_columns: vertex_columns,
-        resolution: EndpointResolution::Explicit,
-    })
-}
-
-fn resolve_foreign_key(
-    edge_schema: &TableSchema,
-    vertex: &ElementBinding<'_>,
-    relations: &RelationIndex<'_>,
-) -> Result<(Vec<SqlIdentifier>, Vec<SqlIdentifier>), String> {
-    if !relations.has_unambiguous_leaf(&vertex.table.name.object) {
-        return Err("foreign-key relation name is ambiguous across schemas".into());
-    }
-    let expected_ref: Vec<_> = vertex
-        .key_columns
-        .iter()
-        .map(|column| column.value())
-        .collect();
-    let mut matches = Vec::new();
-    for constraint in edge_schema.constraints() {
-        let TableConstraint::ForeignKey {
-            columns,
-            ref_table,
-            ref_columns,
-            ..
-        } = constraint
-        else {
-            continue;
-        };
-        if ref_table == vertex.table.name.object.value()
-            && ref_columns
-                .iter()
-                .map(String::as_str)
-                .eq(expected_ref.iter().copied())
-        {
-            matches.push((identifiers(columns)?, identifiers(ref_columns)?));
-        }
-    }
-    match matches.as_slice() {
-        [resolved] => Ok(resolved.clone()),
-        [] => Err(format!(
-            "no foreign key resolves edge table `{}` to vertex table `{}`",
-            edge_schema.name, vertex.table.schema.name
-        )),
-        _ => Err(format!(
-            "multiple foreign keys resolve edge table `{}` to vertex table `{}`",
-            edge_schema.name, vertex.table.schema.name
-        )),
     }
 }
 

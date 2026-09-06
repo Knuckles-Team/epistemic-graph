@@ -7,6 +7,7 @@ use eg_core::graph::GraphCore;
 use eg_query::sql::{
     classify, exec_graph_table_typed_with_tables, parse_property_graph_ddl, StatementKind,
 };
+use eg_query::tables::schema::TableConstraint;
 use eg_query::tables::{
     AlterPropertyGraphAction, Column, ColumnType, DropBehavior, ElementKind, GraphOwner,
     LabelDefinition, PropertyGraphDefinition, PropertyGraphStatement, PropertyGraphTxnOp,
@@ -48,6 +49,10 @@ fn definition(sql: &str) -> PropertyGraphDefinition {
 
 fn text(column: &str, primary_key: bool) -> Column {
     Column::new(column, ColumnType::Text, !primary_key, primary_key)
+}
+
+fn text_col(column: &str) -> Column {
+    text(column, false)
 }
 
 fn open_store() -> (TableStore, std::path::PathBuf) {
@@ -98,7 +103,10 @@ fn shop_store() -> (TableStore, std::path::PathBuf) {
 #[test]
 fn a_created_graph_is_durable_with_tenant_identity_owner_and_dependencies() {
     let (store, _path) = shop_store();
-    let record = store.property_graph(&name("shop")).unwrap().unwrap();
+    let record = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
     assert_eq!(record.name.tenant_scope, TENANT);
     assert_eq!(record.name.schema.value(), "public");
     assert_eq!(record.name.object.value(), "shop");
@@ -126,7 +134,7 @@ fn a_created_graph_is_durable_with_tenant_identity_owner_and_dependencies() {
     drop(store);
     let reopened = TableStore::open_scoped(&_path, TENANT).unwrap();
     assert_eq!(
-        reopened.property_graph(&name("shop")).unwrap(),
+        reopened.property_graph(TENANT, &name("shop")).unwrap(),
         Some(record)
     );
 }
@@ -201,7 +209,7 @@ fn an_admitted_graph_fences_ddl_on_every_base_relation_it_pins() {
 
     assert_eq!(
         store
-            .drop_property_graph(&[name("shop")], false, DropBehavior::Restrict)
+            .drop_property_graph(TENANT, &[name("shop")], false, DropBehavior::Restrict)
             .unwrap(),
         1
     );
@@ -212,31 +220,35 @@ fn an_admitted_graph_fences_ddl_on_every_base_relation_it_pins() {
 fn drop_is_exact_and_if_exists_is_the_only_tolerated_absence() {
     let (store, _path) = shop_store();
     assert!(store
-        .drop_property_graph(&[name("missing")], false, DropBehavior::Restrict)
+        .drop_property_graph(TENANT, &[name("missing")], false, DropBehavior::Restrict)
         .unwrap_err()
         .contains("does not exist"));
     assert_eq!(
         store
-            .drop_property_graph(&[name("missing")], true, DropBehavior::Restrict)
+            .drop_property_graph(TENANT, &[name("missing")], true, DropBehavior::Restrict)
             .unwrap(),
         0
     );
     assert_eq!(
         store
-            .drop_property_graph(&[name("shop")], true, DropBehavior::Cascade)
+            .drop_property_graph(TENANT, &[name("shop")], true, DropBehavior::Cascade)
             .unwrap(),
         1
     );
-    assert_eq!(store.property_graph(&name("shop")).unwrap(), None);
+    assert_eq!(store.property_graph(TENANT, &name("shop")).unwrap(), None);
     assert!(store.list_property_graphs().unwrap().is_empty());
 }
 
 #[test]
 fn rename_keeps_the_object_id_while_revisions_advance_and_the_old_name_frees() {
     let (store, _path) = shop_store();
-    let before = store.property_graph(&name("shop")).unwrap().unwrap();
+    let before = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
     let renamed = store
         .alter_property_graph(
+            TENANT,
             &name("shop"),
             false,
             &AlterPropertyGraphAction::RenameTo(id("storefront")),
@@ -249,7 +261,7 @@ fn rename_keeps_the_object_id_while_revisions_advance_and_the_old_name_frees() {
     assert_eq!(renamed.name.object.value(), "storefront");
     assert!(renamed.definition_revision > before.definition_revision);
     assert!(renamed.catalog_revision > before.catalog_revision);
-    assert_eq!(store.property_graph(&name("shop")).unwrap(), None);
+    assert_eq!(store.property_graph(TENANT, &name("shop")).unwrap(), None);
 
     // The freed name is available to an ordinary relation again.
     store
@@ -257,6 +269,7 @@ fn rename_keeps_the_object_id_while_revisions_advance_and_the_old_name_frees() {
         .unwrap();
     assert!(store
         .alter_property_graph(
+            TENANT,
             &name("storefront"),
             false,
             &AlterPropertyGraphAction::RenameTo(id("shop")),
@@ -271,6 +284,7 @@ fn alter_resolves_owner_element_and_label_changes_and_rejects_set_schema() {
     let (store, _path) = shop_store();
     let owned = store
         .alter_property_graph(
+            TENANT,
             &name("shop"),
             false,
             &AlterPropertyGraphAction::OwnerTo(GraphOwner::CurrentUser),
@@ -282,6 +296,7 @@ fn alter_resolves_owner_element_and_label_changes_and_rejects_set_schema() {
 
     assert!(store
         .alter_property_graph(
+            TENANT,
             &name("shop"),
             false,
             &AlterPropertyGraphAction::SetSchema(id("archive")),
@@ -298,6 +313,7 @@ fn alter_resolves_owner_element_and_label_changes_and_rejects_set_schema() {
     };
     assert!(store
         .alter_property_graph(
+            TENANT,
             &name("shop"),
             false,
             &drop_orders(DropBehavior::Restrict),
@@ -307,6 +323,7 @@ fn alter_resolves_owner_element_and_label_changes_and_rejects_set_schema() {
         .contains("CASCADE"));
     let cascaded = store
         .alter_property_graph(
+            TENANT,
             &name("shop"),
             false,
             &drop_orders(DropBehavior::Cascade),
@@ -329,6 +346,7 @@ fn alter_resolves_owner_element_and_label_changes_and_rejects_set_schema() {
 
     let labelled = store
         .alter_property_graph(
+            TENANT,
             &name("shop"),
             false,
             &AlterPropertyGraphAction::AlterElement {
@@ -357,6 +375,7 @@ fn alter_resolves_owner_element_and_label_changes_and_rejects_set_schema() {
 
     assert!(store
         .alter_property_graph(
+            TENANT,
             &name("missing"),
             false,
             &AlterPropertyGraphAction::OwnerTo(GraphOwner::SessionUser),
@@ -381,7 +400,10 @@ fn the_graph_record_commits_in_the_same_catalog_transaction_as_its_base_tables()
         owner: OWNER.to_string(),
     }));
     store.commit_txn(&txn).unwrap();
-    assert!(store.property_graph(&name("social")).unwrap().is_some());
+    assert!(store
+        .property_graph(TENANT, &name("social"))
+        .unwrap()
+        .is_some());
 
     // A graph that cannot be admitted rolls the whole catalog transaction back,
     // including the table staged before it.
@@ -398,10 +420,11 @@ fn the_graph_record_commits_in_the_same_catalog_transaction_as_its_base_tables()
     }));
     assert!(store.commit_txn(&failing).is_err());
     assert!(!store.list_tables().unwrap().contains(&"places".to_string()));
-    assert_eq!(store.property_graph(&name("cities")).unwrap(), None);
+    assert_eq!(store.property_graph(TENANT, &name("cities")).unwrap(), None);
 
     let mut removal = TableTxn::new();
     removal.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::Drop {
+        tenant_scope: TENANT.to_string(),
         names: vec![name("social")],
         if_exists: false,
         behavior: DropBehavior::Restrict,
@@ -411,7 +434,7 @@ fn the_graph_record_commits_in_the_same_catalog_transaction_as_its_base_tables()
         if_exists: false,
     });
     store.commit_txn(&removal).unwrap();
-    assert_eq!(store.property_graph(&name("social")).unwrap(), None);
+    assert_eq!(store.property_graph(TENANT, &name("social")).unwrap(), None);
 }
 
 #[test]
@@ -463,7 +486,7 @@ fn create_then_select_from_graph_table_round_trips_through_the_store() {
     let StatementKind::GraphTableReadRequiresCatalogAdmission(query) = statement else {
         panic!("expected a GRAPH_TABLE read");
     };
-    let record = store.property_graph(&query.graph).unwrap().unwrap();
+    let record = store.property_graph(TENANT, &query.graph).unwrap().unwrap();
     let view = GraphCore::new().analysis_snapshot();
     let result = exec_graph_table_typed_with_tables(
         &view,
@@ -477,9 +500,9 @@ fn create_then_select_from_graph_table_round_trips_through_the_store() {
 
     // The same read fails closed once the graph is gone from the catalog.
     store
-        .drop_property_graph(&[name("shop")], false, DropBehavior::Restrict)
+        .drop_property_graph(TENANT, &[name("shop")], false, DropBehavior::Restrict)
         .unwrap();
-    assert_eq!(store.property_graph(&query.graph).unwrap(), None);
+    assert_eq!(store.property_graph(TENANT, &query.graph).unwrap(), None);
 }
 
 #[test]
@@ -515,7 +538,7 @@ fn element_id_stays_unique_across_a_label_disjunction_union() {
     .unwrap() else {
         panic!("expected a GRAPH_TABLE read");
     };
-    let record = store.property_graph(&query.graph).unwrap().unwrap();
+    let record = store.property_graph(TENANT, &query.graph).unwrap().unwrap();
     let view = GraphCore::new().analysis_snapshot();
     let result = exec_graph_table_typed_with_tables(
         &view,
@@ -528,4 +551,265 @@ fn element_id_stays_unique_across_a_label_disjunction_union() {
     let mut ids: Vec<_> = result.rows.iter().map(|row| row[0].clone()).collect();
     ids.sort_by_key(|value| value.to_string());
     assert_eq!(ids, vec![json!("people:k1"), json!("places:k1")]);
+}
+
+#[test]
+fn a_graph_admitted_under_one_tenant_is_not_readable_under_another() {
+    let (store, _path) = shop_store();
+    let other = "tenant/other";
+    // The record carries its admitting tenant, so a read under a different
+    // verified scope sees nothing at all -- not a different error, nothing.
+    assert_eq!(store.property_graph(other, &name("shop")).unwrap(), None);
+    assert!(store
+        .drop_property_graph(other, &[name("shop")], false, DropBehavior::Restrict)
+        .unwrap_err()
+        .contains("does not exist"));
+    assert!(store
+        .alter_property_graph(
+            other,
+            &name("shop"),
+            false,
+            &AlterPropertyGraphAction::RenameTo(id("stolen")),
+            "role/ops",
+        )
+        .unwrap_err()
+        .contains("does not exist"));
+    // …and it is untouched for its own tenant.
+    assert!(store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .is_some());
+
+    // Lowering refuses a definition whose scope is not the verified one.
+    let record = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
+    let StatementKind::GraphTableReadRequiresCatalogAdmission(query) =
+        classify("SELECT * FROM GRAPH_TABLE (shop MATCH (c:customer) COLUMNS (c.name))").unwrap()
+    else {
+        panic!("expected a GRAPH_TABLE read");
+    };
+    let view = GraphCore::new().analysis_snapshot();
+    assert!(exec_graph_table_typed_with_tables(
+        &view,
+        &store,
+        &query,
+        &record.accepted_definition,
+        other,
+    )
+    .unwrap_err()
+    .contains("tenant scope"));
+}
+
+#[test]
+fn quoted_identifiers_in_a_persisted_graph_cannot_escape_the_emitted_sql() {
+    let (store, _path) = open_store();
+    // A relation, a column, an element alias and a graph name each carrying the
+    // exact bytes that would break out of a quoted identifier or a literal.
+    store
+        .create_table(
+            &TableSchema::new(
+                r#"tab";drop"#,
+                vec![text(r#"id";--"#, true), text(r#"na'me"#, false)],
+            ),
+            false,
+        )
+        .unwrap();
+    let ddl = concat!(
+        r#"CREATE PROPERTY GRAPH "g"";drop" VERTEX TABLES ("#,
+        r#""tab"";drop" AS "al'ias" KEY ("id"";--") LABEL "lab'el" PROPERTIES ("na'me"))"#
+    );
+    store
+        .create_property_graph(&definition(ddl), OWNER)
+        .unwrap();
+
+    let graph = SqlName::new(vec![SqlIdentifier::quoted(r#"g";drop"#).unwrap()]).unwrap();
+    let record = store.property_graph(TENANT, &graph).unwrap().unwrap();
+    let StatementKind::GraphTableReadRequiresCatalogAdmission(query) = classify(concat!(
+        r#"SELECT * FROM GRAPH_TABLE ("g"";drop" MATCH (v:"lab'el") "#,
+        r#"COLUMNS (ELEMENT_ID(v) AS element_id, v."na'me" AS n))"#
+    ))
+    .unwrap() else {
+        panic!("expected a GRAPH_TABLE read");
+    };
+    let sql = eg_query::sql::lower_graph_table(&query, &record.accepted_definition, TENANT)
+        .unwrap()
+        .to_sql();
+
+    // Identifiers are `"`-doubled; the ELEMENT_ID tag is a literal, so its `'`
+    // is `'`-doubled. Both dangerous bytes exist ONLY inside those quotings.
+    assert!(sql.contains(r#""tab"";drop""#), "{sql}");
+    assert!(sql.contains(r#""id"";--""#), "{sql}");
+    assert!(sql.contains(r#"'al''ias:'"#), "{sql}");
+    assert_eq!(sql.matches('"').count() % 2, 0, "unbalanced quoting: {sql}");
+
+    // The proof that nothing escaped: the SQL parser reads this as EXACTLY ONE
+    // statement (the lowerer rejects any other count), and re-renders the same
+    // doubled identifier -- so `";drop` was one identifier, never a boundary.
+    let statement =
+        eg_query::sql::lower_graph_table_to_datafusion(&query, &record.accepted_definition, TENANT)
+            .unwrap();
+    let rendered = statement.to_string();
+    assert!(rendered.contains(r#""tab"";drop""#), "{rendered}");
+    assert!(
+        !rendered.to_ascii_uppercase().contains("DROP TABLE"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn a_table_cannot_be_renamed_onto_an_admitted_graph_name() {
+    let (store, _path) = shop_store();
+    store
+        .create_table(&TableSchema::new("staging", vec![text("id", true)]), false)
+        .unwrap();
+    // Renaming a table ONTO the graph's name is the reverse of the fence, and
+    // it is refused before the rename does any work.
+    assert!(store
+        .rename_table("staging", "shop")
+        .unwrap_err()
+        .contains("is a property graph"));
+    assert!(store
+        .list_tables()
+        .unwrap()
+        .contains(&"staging".to_string()));
+    assert!(store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .is_some());
+    // A free name still works, proving the guard is not blanket.
+    store.rename_table("staging", "staged").unwrap();
+}
+
+#[test]
+fn drop_cascade_and_restrict_are_equivalent_for_a_leaf_graph() {
+    for behavior in [DropBehavior::Restrict, DropBehavior::Cascade] {
+        let (store, _path) = shop_store();
+        assert_eq!(
+            store
+                .drop_property_graph(TENANT, &[name("shop")], false, behavior)
+                .unwrap(),
+            1
+        );
+        assert_eq!(store.property_graph(TENANT, &name("shop")).unwrap(), None);
+        // Nothing depends on a property graph, so neither behaviour removed
+        // anything else either.
+        let mut tables = store.list_tables().unwrap();
+        tables.sort();
+        assert_eq!(tables, ["customer_orders", "customers", "orders"]);
+    }
+}
+
+#[test]
+fn a_composite_key_element_id_fails_closed_through_the_persisted_catalog() {
+    let (store, _path) = open_store();
+    store
+        .create_table(
+            &TableSchema::new("pairs", vec![text_col("left_id"), text_col("right_id")])
+                .with_constraints(vec![TableConstraint::PrimaryKey {
+                    name: Some("pairs_pk".into()),
+                    columns: vec!["left_id".into(), "right_id".into()],
+                }]),
+            false,
+        )
+        .unwrap();
+    store
+        .create_property_graph(
+            &definition(
+                "CREATE PROPERTY GRAPH pairs_graph VERTEX TABLES (\
+                 pairs KEY (left_id, right_id) LABEL pair PROPERTIES (left_id))",
+            ),
+            OWNER,
+        )
+        .unwrap();
+    let StatementKind::GraphTableReadRequiresCatalogAdmission(query) = classify(
+        "SELECT * FROM GRAPH_TABLE (pairs_graph MATCH (p:pair) COLUMNS (ELEMENT_ID(p) AS eid))",
+    )
+    .unwrap() else {
+        panic!("expected a GRAPH_TABLE read");
+    };
+    let record = store.property_graph(TENANT, &query.graph).unwrap().unwrap();
+    let view = GraphCore::new().analysis_snapshot();
+    assert!(exec_graph_table_typed_with_tables(
+        &view,
+        &store,
+        &query,
+        &record.accepted_definition,
+        TENANT,
+    )
+    .unwrap_err()
+    .contains("single-column element key"));
+}
+
+#[test]
+fn negation_and_conjunction_select_the_right_element_tables_from_the_catalog() {
+    let (store, _path) = open_store();
+    for schema in [
+        TableSchema::new("people", vec![text("person_id", true)]),
+        TableSchema::new("places", vec![text("place_id", true)]),
+    ] {
+        store.create_table(&schema, false).unwrap();
+    }
+    store
+        .insert_rows("people", &["person_id".into()], &[vec![json!("p1")]])
+        .unwrap();
+    store
+        .insert_rows("places", &["place_id".into()], &[vec![json!("q1")]])
+        .unwrap();
+    store
+        .create_property_graph(
+            &definition(
+                "CREATE PROPERTY GRAPH labelled VERTEX TABLES (\
+                 people KEY (person_id) LABEL person PROPERTIES (person_id) \
+                 LABEL staff PROPERTIES (person_id), \
+                 places KEY (place_id) LABEL place PROPERTIES (place_id))",
+            ),
+            OWNER,
+        )
+        .unwrap();
+
+    // Which element tables each label expression actually selects, proven by the
+    // rows returned -- not by the AST shape.
+    for (pattern, expected) in [
+        ("(v:person & staff)", vec![json!("people:p1")]),
+        ("(v:!person)", vec![json!("places:q1")]),
+        ("(v:!person & !place)", vec![]),
+        (
+            "(v:person | place)",
+            vec![json!("people:p1"), json!("places:q1")],
+        ),
+    ] {
+        let sql = format!(
+            "SELECT * FROM GRAPH_TABLE (labelled MATCH {pattern} COLUMNS (ELEMENT_ID(v) AS eid))"
+        );
+        let StatementKind::GraphTableReadRequiresCatalogAdmission(query) = classify(&sql).unwrap()
+        else {
+            panic!("expected a GRAPH_TABLE read");
+        };
+        let record = store.property_graph(TENANT, &query.graph).unwrap().unwrap();
+        let view = GraphCore::new().analysis_snapshot();
+        let outcome = exec_graph_table_typed_with_tables(
+            &view,
+            &store,
+            &query,
+            &record.accepted_definition,
+            TENANT,
+        );
+        if expected.is_empty() {
+            assert!(
+                outcome.unwrap_err().contains("matches no catalog element"),
+                "{pattern} should select nothing"
+            );
+            continue;
+        }
+        let mut ids: Vec<_> = outcome
+            .unwrap()
+            .rows
+            .iter()
+            .map(|row| row[0].clone())
+            .collect();
+        ids.sort_by_key(|value| value.to_string());
+        assert_eq!(ids, expected, "{pattern}");
+    }
 }

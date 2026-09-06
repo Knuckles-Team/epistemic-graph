@@ -1,6 +1,9 @@
 use super::*;
-use crate::tables::property_graph::{LabelDefinition, PropertyDefinition, PropertySet};
-use crate::tables::schema::{Column, RefAction};
+use crate::tables::property_graph::{
+    EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution, EndpointResolution, LabelDefinition,
+    PropertyDefinition, PropertySet, VertexTableDefinition,
+};
+use crate::tables::schema::{Column, RefAction, TableConstraint};
 
 const TENANT: &str = "tenant/acme";
 

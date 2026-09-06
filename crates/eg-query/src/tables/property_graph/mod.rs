@@ -8,6 +8,7 @@ mod catalog;
 mod model;
 /// Durable catalog rows, written by the store's sole SQL catalog transaction.
 pub(crate) mod persist;
+mod resolve;
 mod validate;
 
 use serde::{Deserialize, Serialize};

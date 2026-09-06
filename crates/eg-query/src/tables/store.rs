@@ -446,15 +446,18 @@ pub enum PropertyGraphTxnOp {
         owner: String,
     },
     /// `ALTER PROPERTY GRAPH`. `actor` resolves `OWNER TO CURRENT_USER` and
-    /// `OWNER TO SESSION_USER`.
+    /// `OWNER TO SESSION_USER`; `tenant_scope` is the verified request scope the
+    /// statement was parsed under.
     Alter {
+        tenant_scope: String,
         name: SqlName,
         if_exists: bool,
         action: AlterPropertyGraphAction,
         actor: String,
     },
-    /// `DROP PROPERTY GRAPH`.
+    /// `DROP PROPERTY GRAPH`, under the verified request scope.
     Drop {
+        tenant_scope: String,
         names: Vec<SqlName>,
         if_exists: bool,
         behavior: DropBehavior,
@@ -482,12 +485,13 @@ impl PropertyGraphTxnOp {
                 "CREATE PROPERTY GRAPH",
             ),
             Statement::Alter {
+                tenant_scope,
                 name,
                 if_exists,
                 action,
-                ..
             } => (
                 Self::Alter {
+                    tenant_scope,
                     name,
                     if_exists,
                     action,
@@ -496,12 +500,13 @@ impl PropertyGraphTxnOp {
                 "ALTER PROPERTY GRAPH",
             ),
             Statement::Drop {
+                tenant_scope,
                 names,
                 if_exists,
                 behavior,
-                ..
             } => (
                 Self::Drop {
+                    tenant_scope,
                     names,
                     if_exists,
                     behavior,
@@ -1752,6 +1757,7 @@ impl TableStore {
     /// graph.
     pub fn alter_property_graph(
         &self,
+        tenant_scope: &str,
         name: &SqlName,
         if_exists: bool,
         action: &AlterPropertyGraphAction,
@@ -1764,6 +1770,7 @@ impl TableStore {
             actor,
             &input,
             AlterRequest {
+                tenant_scope,
                 name,
                 if_exists,
                 action,
@@ -1777,13 +1784,19 @@ impl TableStore {
     /// were removed.
     pub fn drop_property_graph(
         &self,
+        tenant_scope: &str,
         names: &[SqlName],
         if_exists: bool,
         behavior: DropBehavior,
     ) -> Result<usize, String> {
         let wtx = self.begin()?;
-        let dropped =
-            property_graph_persist::drop_property_graphs_in(&wtx, names, if_exists, behavior)?;
+        let dropped = property_graph_persist::drop_property_graphs_in(
+            &wtx,
+            tenant_scope,
+            names,
+            if_exists,
+            behavior,
+        )?;
         wtx.commit().map_err(map_err)?;
         Ok(dropped)
     }
@@ -1793,10 +1806,37 @@ impl TableStore {
     /// `GRAPH_TABLE` read lowers against.
     pub fn property_graph(
         &self,
+        tenant_scope: &str,
         name: &SqlName,
     ) -> Result<Option<PropertyGraphCatalogRecord>, String> {
         let rtx = self.db.begin_read().map_err(map_err)?;
-        property_graph_persist::property_graph_snapshot(&rtx, name)
+        property_graph_persist::property_graph_snapshot(&rtx, tenant_scope, name)
+    }
+
+    /// Re-verify that every base relation a record pins still carries EXACTLY
+    /// the schema digest it was admitted against.
+    ///
+    /// The base-DDL fence already prevents that drift, so this is defence in
+    /// depth rather than the primary control: it is what makes a read fail
+    /// closed if the fence is ever bypassed, and it is the only check that does
+    /// not trust the pinned `catalog_revision`, which is a weak signal for a
+    /// table that has never been through a governed migration.
+    pub fn verify_property_graph_dependencies(
+        &self,
+        record: &PropertyGraphCatalogRecord,
+    ) -> Result<(), String> {
+        for dependency in &record.dependencies {
+            let relation = dependency.name.object.value();
+            let schema = self
+                .get_schema(relation)?
+                .ok_or_else(|| format!("base relation `{relation}` no longer exists"))?;
+            if schema.schema_digest()? != dependency.schema_digest {
+                return Err(format!(
+                    "base relation `{relation}` changed since the property graph was admitted"
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Every admitted property-graph name (sorted for determinism).
@@ -2906,6 +2946,7 @@ fn apply_txn_op_property_graph(
             property_graph_persist::create_property_graph_in(wtx, owner, &input, definition)?;
         }
         PropertyGraphTxnOp::Alter {
+            tenant_scope,
             name,
             if_exists,
             action,
@@ -2916,6 +2957,7 @@ fn apply_txn_op_property_graph(
                 actor,
                 &input,
                 AlterRequest {
+                    tenant_scope,
                     name,
                     if_exists: *if_exists,
                     action,
@@ -2923,11 +2965,18 @@ fn apply_txn_op_property_graph(
             )?;
         }
         PropertyGraphTxnOp::Drop {
+            tenant_scope,
             names,
             if_exists,
             behavior,
         } => {
-            property_graph_persist::drop_property_graphs_in(wtx, names, *if_exists, *behavior)?;
+            property_graph_persist::drop_property_graphs_in(
+                wtx,
+                tenant_scope,
+                names,
+                *if_exists,
+                *behavior,
+            )?;
         }
     }
     Ok(0)
@@ -5983,9 +6032,11 @@ fn rekey_table_catalog_entry_in(
     new_name: &str,
     schema: &mut TableSchema,
 ) -> Result<(), String> {
-    drop_secondary_indexes_for_table_in(wtx, tenant_scope, table)?;
+    // Fence BEFORE any effect: an aborted transaction would roll the index drop
+    // back, but a check must not run after the work it guards.
     property_graph_persist::fence_base_relation_ddl_in(wtx, table)?;
     property_graph_persist::ensure_relation_name_free_in(wtx, new_name)?;
+    drop_secondary_indexes_for_table_in(wtx, tenant_scope, table)?;
     // Catalog: drop the old key, write the schema under the new name.
     schema.name = new_name.to_string();
     {
