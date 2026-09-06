@@ -2091,7 +2091,7 @@ async fn commit_mutation_body_replay_response(
             )
             .map_err(|_| "committed MutationBatch result is corrupt".to_string())
         })
-        .map(|payload| Response::ok(ctx.req_id, payload))
+        .map(|payload: ResultPayload| Response::ok(ctx.req_id, payload))
         .unwrap_or_else(|error| Response::err(ctx.req_id, error));
     if let Some(key) = &prep.dedup_key {
         idempotency_store().insert(key.clone(), response.clone());
@@ -2943,7 +2943,7 @@ async fn commit_conditional_replay_response(
             )
             .map_err(|_| "committed MutationBatch result is corrupt".to_string())
         })
-        .map(|payload| Response::ok(ctx.req_id, payload))
+        .map(|payload: ResultPayload| Response::ok(ctx.req_id, payload))
         .unwrap_or_else(|error| Response::err(ctx.req_id, error));
     if let Some(key) = &prep.dedup_key {
         idempotency_store().insert(key.clone(), response.clone());

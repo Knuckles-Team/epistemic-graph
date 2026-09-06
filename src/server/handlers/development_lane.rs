@@ -43,6 +43,7 @@ async fn enforce_leadership(ctx: &HandleContext<'_>) -> Result<(), Response> {
     multi
         .read_barrier_group(routed.group_id)
         .await
+        .map(|_barrier_index| ())
         .map_err(|error| {
             Response::err(
                 ctx.req_id,
