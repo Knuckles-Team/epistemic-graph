@@ -7,9 +7,10 @@ use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser as SqlParser;
 
 use super::ast::*;
+use super::label::LabelExpr;
 use super::lex::{SqlNumber, MAX_GRAPH_EXPR_DEPTH, MAX_GRAPH_TABLE_BRANCHES};
 use crate::tables::property_graph::{
-    EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution, EndpointResolution,
+    EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution, EndpointResolution, LabelDefinition,
     PropertyGraphDefinition, PropertySet, SqlIdentifier, SqlName, VertexTableDefinition,
 };
 
@@ -593,28 +594,98 @@ fn lower_expr(
     if depth > MAX_GRAPH_EXPR_DEPTH {
         return Err("graph expression depth limit exceeded".into());
     }
-    Ok(match expr {
+    match expr {
         GraphExpr::Property(variable, property) => {
-            let (element, alias) = vars
-                .get(variable)
-                .ok_or_else(|| format!("unknown graph variable '{}'", variable.value()))?;
-            RelationalExpr::Column(ColumnRef {
-                relation_alias: alias.clone(),
-                column: resolve_property(*element, property)?,
+            lower_element_column(vars, variable, |element| {
+                resolve_property(element, property)
             })
         }
-        GraphExpr::String(v) => RelationalExpr::String(v.clone()),
-        GraphExpr::Number(v) => RelationalExpr::Number(v.clone()),
-        GraphExpr::Boolean(v) => RelationalExpr::Boolean(*v),
+        GraphExpr::ElementId(variable) => lower_element_column(vars, variable, element_id_column),
+        GraphExpr::Not(value) => Ok(RelationalExpr::Not(Box::new(lower_expr(
+            value,
+            vars,
+            depth + 1,
+        )?))),
+        GraphExpr::Binary(left, op, right) => Ok(RelationalExpr::Binary(
+            Box::new(lower_expr(left, vars, depth + 1)?),
+            *op,
+            Box::new(lower_expr(right, vars, depth + 1)?),
+        )),
+        literal @ (GraphExpr::String(_)
+        | GraphExpr::Number(_)
+        | GraphExpr::Boolean(_)
+        | GraphExpr::Null
+        | GraphExpr::CurrentDate) => lower_literal(literal),
+    }
+}
+
+/// The literal leaves of a graph expression. They bind no variable and consume
+/// no depth budget, so they are lowered apart from the recursive forms.
+fn lower_literal(expr: &GraphExpr) -> Result<RelationalExpr, String> {
+    Ok(match expr {
+        GraphExpr::String(value) => RelationalExpr::String(value.clone()),
+        GraphExpr::Number(value) => RelationalExpr::Number(value.clone()),
+        GraphExpr::Boolean(value) => RelationalExpr::Boolean(*value),
         GraphExpr::Null => RelationalExpr::Null,
         GraphExpr::CurrentDate => RelationalExpr::CurrentDate,
-        GraphExpr::Not(v) => RelationalExpr::Not(Box::new(lower_expr(v, vars, depth + 1)?)),
-        GraphExpr::Binary(a, op, b) => RelationalExpr::Binary(
-            Box::new(lower_expr(a, vars, depth + 1)?),
-            *op,
-            Box::new(lower_expr(b, vars, depth + 1)?),
-        ),
+        _ => return Err("graph literal lowering received a non-literal expression".into()),
     })
+}
+
+/// Resolve a bound graph variable to one column of its relational alias. The
+/// column choice is the caller's: a property reference resolves through the
+/// element's labels, `ELEMENT_ID` through its admitted key.
+fn lower_element_column(
+    vars: &VariableBindings<'_>,
+    variable: &SqlIdentifier,
+    column: impl FnOnce(Selected<'_>) -> Result<SqlIdentifier, String>,
+) -> Result<RelationalExpr, String> {
+    let (element, alias) = vars
+        .get(variable)
+        .ok_or_else(|| format!("unknown graph variable '{}'", variable.value()))?;
+    Ok(RelationalExpr::Column(ColumnRef {
+        relation_alias: alias.clone(),
+        column: column(*element)?,
+    }))
+}
+
+/// `ELEMENT_ID(v)` resolves to the element's admitted key. A single-column key
+/// is that column; a composite key has no single-column relational spelling in
+/// this lowering boundary and is rejected rather than silently concatenated.
+fn element_id_column(element: Selected<'_>) -> Result<SqlIdentifier, String> {
+    let (alias, key_columns) = match element {
+        Selected::Vertex(table) => (&table.alias, &table.key_columns),
+        Selected::Edge(table) => (&table.alias, &table.key_columns),
+    };
+    match key_columns.as_slice() {
+        [column] => Ok(column.clone()),
+        [] => Err(format!(
+            "ELEMENT_ID on '{}' has no admitted element key",
+            alias.value()
+        )),
+        _ => Err(format!(
+            "ELEMENT_ID on '{}' requires a single-column element key",
+            alias.value()
+        )),
+    }
+}
+
+/// Whether an element table's declared labels satisfy the pattern's label
+/// expression. An absent expression places no restriction.
+fn labels_match(expression: Option<&LabelExpr>, labels: &[LabelDefinition]) -> bool {
+    let Some(expression) = expression else {
+        return true;
+    };
+    let present: BTreeSet<&SqlIdentifier> = labels.iter().map(|label| &label.name).collect();
+    expression.matches(&present)
+}
+
+fn referenced_labels(pattern: &ElementPattern) -> BTreeSet<&SqlIdentifier> {
+    let mut names = BTreeSet::new();
+    if let Some(expression) = &pattern.label_expr {
+        expression.label_names(&mut names);
+    }
+    names
 }
 
 fn resolve_property(
@@ -656,7 +727,7 @@ fn vertex_candidates<'a>(
     pattern: &ElementPattern,
     definition: &'a PropertyGraphDefinition,
 ) -> Result<Vec<&'a VertexTableDefinition>, String> {
-    for label in &pattern.labels {
+    for label in referenced_labels(pattern) {
         if !definition
             .vertex_tables
             .iter()
@@ -668,7 +739,7 @@ fn vertex_candidates<'a>(
     let values = definition
         .vertex_tables
         .iter()
-        .filter(|table| vertex_matches_labels(table, &pattern.labels))
+        .filter(|table| labels_match(pattern.label_expr.as_ref(), &table.labels))
         .collect::<Vec<_>>();
     if values.is_empty() {
         Err("vertex pattern matches no catalog element".into())
@@ -681,15 +752,11 @@ fn vertex_has_label(table: &VertexTableDefinition, label: &SqlIdentifier) -> boo
     table.labels.iter().any(|item| &item.name == label)
 }
 
-fn vertex_matches_labels(table: &VertexTableDefinition, labels: &[SqlIdentifier]) -> bool {
-    labels.is_empty() || labels.iter().any(|label| vertex_has_label(table, label))
-}
-
 fn edge_candidates<'a>(
     pattern: &ElementPattern,
     definition: &'a PropertyGraphDefinition,
 ) -> Result<Vec<&'a EdgeTableDefinition>, String> {
-    for label in &pattern.labels {
+    for label in referenced_labels(pattern) {
         if !definition
             .edge_tables
             .iter()
@@ -701,7 +768,7 @@ fn edge_candidates<'a>(
     let values = definition
         .edge_tables
         .iter()
-        .filter(|table| edge_matches_labels(table, &pattern.labels))
+        .filter(|table| labels_match(pattern.label_expr.as_ref(), &table.labels))
         .collect::<Vec<_>>();
     if values.is_empty() {
         Err("edge pattern matches no catalog element".into())
@@ -712,10 +779,6 @@ fn edge_candidates<'a>(
 
 fn edge_has_label(table: &EdgeTableDefinition, label: &SqlIdentifier) -> bool {
     table.labels.iter().any(|item| &item.name == label)
-}
-
-fn edge_matches_labels(table: &EdgeTableDefinition, labels: &[SqlIdentifier]) -> bool {
-    labels.is_empty() || labels.iter().any(|label| edge_has_label(table, label))
 }
 
 fn generated_alias(kind: &str, index: usize) -> Result<SqlIdentifier, String> {

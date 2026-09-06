@@ -116,6 +116,109 @@ fn graph_table_fixed_path_lowers_to_the_existing_relational_surface() {
     lower_graph_table_to_datafusion(&query, &definition, TENANT).unwrap();
 }
 
+fn labelled_definition(sql: &str) -> PropertyGraphDefinition {
+    match parse_property_graph_ddl(sql, TENANT).expect("valid SQL/PGQ definition") {
+        PropertyGraphStatement::Create(definition) => definition,
+        _ => panic!("expected CREATE definition"),
+    }
+}
+
+fn multi_label_definition() -> PropertyGraphDefinition {
+    labelled_definition(
+        r#"
+        CREATE PROPERTY GRAPH labelled
+        VERTEX TABLES (
+            people KEY (person_id)
+                LABEL person PROPERTIES (person_id)
+                LABEL staff PROPERTIES (person_id),
+            places KEY (place_id)
+                LABEL place PROPERTIES (place_id)
+        )
+    "#,
+    )
+}
+
+fn branches(definition: &PropertyGraphDefinition, pattern: &str) -> Result<usize, String> {
+    let sql =
+        format!("GRAPH_TABLE (labelled MATCH {pattern} COLUMNS (ELEMENT_ID(v) AS element_id))");
+    let query = parse_graph_table(&sql)?;
+    lower_graph_table(&query, definition, TENANT).map(|plan| plan.branch_count())
+}
+
+#[test]
+fn colon_label_tests_lower_exactly_like_the_is_keyword() {
+    let definition = shop_definition();
+    let colon = parse_graph_table(
+        r#"GRAPH_TABLE (
+            shop
+            MATCH (c:customer)-[h:has_placed]->(o:"order")
+            COLUMNS (c.name AS customer_name, h.since AS relationship_since)
+        )"#,
+    )
+    .unwrap();
+    let keyword = parse_graph_table(
+        r#"GRAPH_TABLE (
+            shop
+            MATCH (c IS customer)-[h IS has_placed]->(o IS "order")
+            COLUMNS (c.name AS customer_name, h.since AS relationship_since)
+        )"#,
+    )
+    .unwrap();
+    assert_eq!(colon, keyword);
+    let plan = lower_graph_table(&colon, &definition, TENANT).unwrap();
+    assert_eq!(plan.branch_count(), 1);
+    assert!(plan.to_sql().contains(r#"FROM "customers" AS "_pgq_v0""#));
+}
+
+#[test]
+fn label_conjunction_disjunction_and_negation_select_catalog_elements() {
+    let definition = multi_label_definition();
+    assert_eq!(branches(&definition, "(v:person & staff)").unwrap(), 1);
+    assert_eq!(branches(&definition, "(v:person | place)").unwrap(), 2);
+    assert_eq!(branches(&definition, "(v:!person)").unwrap(), 1);
+    assert_eq!(branches(&definition, "(v)").unwrap(), 2);
+    for empty in ["(v:!(person | place))", "(v:person & place)"] {
+        assert!(branches(&definition, empty)
+            .unwrap_err()
+            .contains("matches no catalog element"));
+    }
+    assert!(branches(&definition, "(v:person & typo)")
+        .unwrap_err()
+        .contains("unknown vertex label"));
+}
+
+#[test]
+fn element_id_resolves_to_the_admitted_key_and_rejects_a_composite_key() {
+    let definition = multi_label_definition();
+    let query = parse_graph_table(
+        "GRAPH_TABLE (labelled MATCH (v:person) COLUMNS (ELEMENT_ID(v) AS element_id))",
+    )
+    .unwrap();
+    let sql = lower_graph_table(&query, &definition, TENANT)
+        .unwrap()
+        .to_sql();
+    assert!(sql.contains(r#""_pgq_v0"."person_id" AS "element_id""#));
+
+    let composite = labelled_definition(
+        "CREATE PROPERTY GRAPH pairs_graph VERTEX TABLES (pairs KEY (left_id, right_id) LABEL pair PROPERTIES (left_id))",
+    );
+    let query = parse_graph_table(
+        "GRAPH_TABLE (pairs_graph MATCH (p:pair) COLUMNS (ELEMENT_ID(p) AS element_id))",
+    )
+    .unwrap();
+    assert!(lower_graph_table(&query, &composite, TENANT)
+        .unwrap_err()
+        .contains("single-column element key"));
+
+    let unknown = parse_graph_table(
+        "GRAPH_TABLE (labelled MATCH (v:person) COLUMNS (ELEMENT_ID(other) AS element_id))",
+    )
+    .unwrap();
+    assert!(lower_graph_table(&unknown, &definition, TENANT)
+        .unwrap_err()
+        .contains("unknown graph variable"));
+}
+
 #[test]
 fn tenant_and_structure_bounds_fail_closed() {
     let definition = shop_definition();

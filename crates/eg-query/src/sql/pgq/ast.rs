@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use super::label::{parse_label_expr, LabelExpr};
 use super::lex::{
     parse_name, Cursor, SqlNumber, Token, MAX_GRAPH_EXPR_DEPTH, MAX_GRAPH_PATTERN_EDGES,
     MAX_GRAPH_TABLE_COLUMNS,
@@ -18,7 +19,8 @@ pub enum EdgeDirection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementPattern {
     pub variable: Option<SqlIdentifier>,
-    pub labels: Vec<SqlIdentifier>,
+    /// `None` means the pattern places no label restriction on the element.
+    pub label_expr: Option<LabelExpr>,
     pub predicate: Option<GraphExpr>,
 }
 
@@ -49,6 +51,8 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphExpr {
     Property(SqlIdentifier, SqlIdentifier),
+    /// `ELEMENT_ID(v)` — the element's catalog key, resolved at lowering time.
+    ElementId(SqlIdentifier),
     String(String),
     Number(SqlNumber),
     Boolean(bool),
@@ -152,15 +156,13 @@ fn parse_element(cursor: &mut Cursor, open: char, close: char) -> Result<Element
     } else {
         None
     };
-    let mut labels = Vec::new();
-    if cursor.keyword("IS") {
-        loop {
-            labels.push(cursor.identifier()?);
-            if !cursor.symbol('|') {
-                break;
-            }
-        }
-    }
+    // `:` is the standard label-test spelling; `IS` is the equivalent keyword
+    // form. Both introduce exactly the same label expression.
+    let label_expr = if cursor.keyword("IS") || cursor.symbol(':') {
+        Some(parse_label_expr(cursor, 0)?)
+    } else {
+        None
+    };
     let predicate = if cursor.keyword("WHERE") {
         Some(parse_expr(cursor, 0, 0)?)
     } else {
@@ -169,7 +171,7 @@ fn parse_element(cursor: &mut Cursor, open: char, close: char) -> Result<Element
     cursor.expect(close)?;
     Ok(ElementPattern {
         variable,
-        labels,
+        label_expr,
         predicate,
     })
 }
@@ -200,37 +202,58 @@ pub(super) fn parse_expr(cursor: &mut Cursor, min: u8, depth: usize) -> Result<G
 
 fn parse_atom(cursor: &mut Cursor) -> Result<GraphExpr, String> {
     match cursor.tokens.get(cursor.at).cloned() {
-        Some(Token::StringLiteral(v)) => {
+        Some(Token::StringLiteral(value)) => {
             cursor.at += 1;
-            Ok(GraphExpr::String(v))
+            Ok(GraphExpr::String(value))
         }
-        Some(Token::Number(v)) => {
+        Some(Token::Number(value)) => {
             cursor.at += 1;
-            Ok(GraphExpr::Number(SqlNumber::parse(&v)?))
+            Ok(GraphExpr::Number(SqlNumber::parse(&value)?))
         }
-        Some(Token::Word(v)) if v.eq_ignore_ascii_case("TRUE") => {
-            cursor.at += 1;
-            Ok(GraphExpr::Boolean(true))
-        }
-        Some(Token::Word(v)) if v.eq_ignore_ascii_case("FALSE") => {
-            cursor.at += 1;
-            Ok(GraphExpr::Boolean(false))
-        }
-        Some(Token::Word(v)) if v.eq_ignore_ascii_case("NULL") => {
-            cursor.at += 1;
-            Ok(GraphExpr::Null)
-        }
-        Some(Token::Word(v)) if v.eq_ignore_ascii_case("CURRENT_DATE") => {
-            cursor.at += 1;
-            Ok(GraphExpr::CurrentDate)
-        }
-        Some(Token::Word(_) | Token::QuotedIdentifier(_)) => {
-            let variable = cursor.identifier()?;
-            cursor.expect('.')?;
-            Ok(GraphExpr::Property(variable, cursor.identifier()?))
-        }
+        Some(Token::Word(value)) => parse_word_atom(cursor, &value),
+        Some(Token::QuotedIdentifier(_)) => parse_property_atom(cursor),
         value => Err(format!("expected graph expression, found {value:?}")),
     }
+}
+
+/// A bare word is a keyword literal, an `ELEMENT_ID` application, or the
+/// variable half of a property reference — in that order.
+fn parse_word_atom(cursor: &mut Cursor, word: &str) -> Result<GraphExpr, String> {
+    if let Some(literal) = keyword_literal(word) {
+        cursor.at += 1;
+        return Ok(literal);
+    }
+    if is_element_id_call(cursor, word) {
+        cursor.at += 1;
+        cursor.expect('(')?;
+        let variable = cursor.identifier()?;
+        cursor.expect(')')?;
+        return Ok(GraphExpr::ElementId(variable));
+    }
+    parse_property_atom(cursor)
+}
+
+fn parse_property_atom(cursor: &mut Cursor) -> Result<GraphExpr, String> {
+    let variable = cursor.identifier()?;
+    cursor.expect('.')?;
+    Ok(GraphExpr::Property(variable, cursor.identifier()?))
+}
+
+/// The keyword-spelled literals this bounded expression grammar accepts.
+fn keyword_literal(word: &str) -> Option<GraphExpr> {
+    if word.eq_ignore_ascii_case("TRUE") {
+        return Some(GraphExpr::Boolean(true));
+    }
+    if word.eq_ignore_ascii_case("FALSE") {
+        return Some(GraphExpr::Boolean(false));
+    }
+    if word.eq_ignore_ascii_case("NULL") {
+        return Some(GraphExpr::Null);
+    }
+    if word.eq_ignore_ascii_case("CURRENT_DATE") {
+        return Some(GraphExpr::CurrentDate);
+    }
+    None
 }
 
 fn parse_binary_op(cursor: &Cursor) -> Option<(u8, BinaryOp)> {
@@ -247,10 +270,18 @@ fn parse_binary_op(cursor: &Cursor) -> Option<(u8, BinaryOp)> {
     }
 }
 
+/// `ELEMENT_ID` is only the standard element-identity function when it is
+/// immediately applied; a bare word of the same spelling stays an ordinary
+/// variable reference.
+fn is_element_id_call(cursor: &Cursor, word: &str) -> bool {
+    word.eq_ignore_ascii_case("ELEMENT_ID")
+        && matches!(cursor.tokens.get(cursor.at + 1), Some(Token::Symbol('(')))
+}
+
 fn empty_element_pattern() -> ElementPattern {
     ElementPattern {
         variable: None,
-        labels: vec![],
+        label_expr: None,
         predicate: None,
     }
 }
@@ -317,4 +348,57 @@ fn parse_graph_table_tokens(p: &mut Cursor) -> Result<GraphTableQuery, String> {
         path,
         columns,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn label(value: &str) -> LabelExpr {
+        LabelExpr::Label(SqlIdentifier::unquoted(value).expect("label"))
+    }
+
+    fn first_element(sql: &str) -> ElementPattern {
+        parse_graph_table(sql).expect("pattern parses").path.first
+    }
+
+    #[test]
+    fn colon_and_is_produce_the_same_label_test() {
+        let colon = first_element("GRAPH_TABLE (g MATCH (a:person) COLUMNS (a.name))");
+        let keyword = first_element("GRAPH_TABLE (g MATCH (a IS person) COLUMNS (a.name))");
+        assert_eq!(colon, keyword);
+        assert_eq!(colon.label_expr, Some(label("person")));
+        assert_eq!(
+            first_element("GRAPH_TABLE (g MATCH (:person) COLUMNS (a.name))").variable,
+            None
+        );
+        assert_eq!(
+            first_element("GRAPH_TABLE (g MATCH (a) COLUMNS (a.name))").label_expr,
+            None
+        );
+    }
+
+    #[test]
+    fn element_id_is_a_call_but_a_bare_word_stays_a_variable() {
+        let query =
+            parse_graph_table("GRAPH_TABLE (g MATCH (a:person) COLUMNS (ELEMENT_ID(a) AS eid))")
+                .expect("element id parses");
+        assert_eq!(
+            query.columns[0].expression,
+            GraphExpr::ElementId(SqlIdentifier::unquoted("a").unwrap())
+        );
+        let property = parse_graph_table(
+            "GRAPH_TABLE (g MATCH (element_id:person) COLUMNS (element_id.name))",
+        )
+        .expect("bare word stays a variable");
+        assert!(matches!(
+            property.columns[0].expression,
+            GraphExpr::Property(_, _)
+        ));
+        assert!(
+            parse_graph_table("GRAPH_TABLE (g MATCH (a:person) COLUMNS (ELEMENT_ID(a)))")
+                .unwrap_err()
+                .contains("requires AS alias")
+        );
+    }
 }

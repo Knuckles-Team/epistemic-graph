@@ -8,6 +8,7 @@ pub(super) const MAX_GRAPH_PATTERN_EDGES: usize = 32;
 pub(super) const MAX_GRAPH_TABLE_COLUMNS: usize = 256;
 pub(super) const MAX_GRAPH_TABLE_BRANCHES: usize = 64;
 pub(super) const MAX_GRAPH_EXPR_DEPTH: usize = 32;
+pub(super) const MAX_LABEL_EXPR_DEPTH: usize = 32;
 
 /// Whether `sql` starts with a property-graph DDL keyword sequence owned by this
 /// module. This deliberately recognizes only the current SQL/PGQ surface; once
@@ -298,7 +299,21 @@ fn lex_symbol(bytes: &[u8], at: usize) -> Result<(Token, usize), String> {
 fn is_symbol(byte: u8) -> bool {
     matches!(
         byte,
-        b'(' | b')' | b'[' | b']' | b',' | b'.' | b';' | b'|' | b'=' | b'<' | b'>' | b'-' | b'*'
+        b'(' | b')'
+            | b'['
+            | b']'
+            | b','
+            | b'.'
+            | b';'
+            | b'|'
+            | b'&'
+            | b'!'
+            | b':'
+            | b'='
+            | b'<'
+            | b'>'
+            | b'-'
+            | b'*'
     )
 }
 
