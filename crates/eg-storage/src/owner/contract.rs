@@ -5,6 +5,7 @@
 //! the hash of exactly these contracts, so a divergent redeclaration anywhere
 //! fails the manifest digest closed.
 
+use crate::owner::graph_shard;
 use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
 use crate::owner::registry::owner_table_names;
 use crate::physical::manifest::{TableContract, TableOwnership, TableScope};
@@ -58,7 +59,7 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
             | "semantic_lexical_manifests_v1"
             | "semantic_ann_manifests_v1"
             | "semantic_vectors_v1"
-    );
+    ) || (owner == Some(OwnerLayout::GraphShard) && graph_shard::is_derived_index(name));
     let shared = matches!(name, "cas_chunks" | "cas_refcount");
     let key_type_id = key_type_id(name);
     let value_type_id = value_type_id(name);
@@ -75,6 +76,8 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
         domain: owner.map(|layout| OWNER_LAYOUT_DOMAINS[layout as usize]),
         scope: if shared {
             TableScope::SharedService
+        } else if let Some(scope) = shard_scope(name, owner) {
+            scope
         } else if matches!(
             owner,
             Some(
@@ -122,6 +125,7 @@ fn key_type_id(name: &str) -> &'static str {
         .or_else(|| owner_key_type(name))
         .or_else(|| semantic_key_type(name))
         .or_else(|| sql_key_type(name))
+        .or_else(|| graph_shard::key_type(name))
         .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}"))
 }
 
@@ -301,7 +305,8 @@ fn value_type_id(name: &str) -> &'static str {
         | "node_info"
         | "node_info_meta"
         | "cluster_hierarchy" => "&[u8]",
-        _ => unreachable!("table outside closed owner manifest: {name}"),
+        name => graph_shard::value_type(name)
+            .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }
 }
 
@@ -388,7 +393,8 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "series_projection_state"
         | "cas_blobs"
         | "cas_uploads" => "msgpack-v1",
-        _ => unreachable!("table outside closed owner manifest: {name}"),
+        name => graph_shard::logical_codec(name)
+            .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }
 }
 
@@ -463,6 +469,17 @@ fn table_capabilities(name: &str) -> u16 {
         | "semantic_graph_projection_manifests_v1"
         | "semantic_authorization_receipts_v1"
         | "semantic_generation_checkpoints_v1" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
-        _ => unreachable!("table outside closed owner manifest: {name}"),
+        name => graph_shard::capabilities(name)
+            .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }
+}
+
+/// The graph shard classifies its tables' scope per table rather than per
+/// layout: most keys lead with the graph name (the serving scope), while the
+/// Raft, cross-shard, matview, canary and series rows belong to the file.
+fn shard_scope(name: &str, owner: Option<OwnerLayout>) -> Option<TableScope> {
+    if owner != Some(OwnerLayout::GraphShard) {
+        return None;
+    }
+    graph_shard::scope(name)
 }

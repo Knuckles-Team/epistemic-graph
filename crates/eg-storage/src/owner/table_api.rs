@@ -137,6 +137,12 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "node_info_meta"
         | "cluster_hierarchy" => OwnerTableAccess::DomainService,
         name if name.starts_with("__sql_") => OwnerTableAccess::DomainService,
+        // Every graph-shard table is reached through the shard's own admitted
+        // owner write, never as a shared service: one shard file is one
+        // physical authority serving the graphs bound to it.
+        name if crate::owner::graph_shard::GRAPH_SHARD_TABLES.contains(&name) => {
+            OwnerTableAccess::DomainService
+        }
         _ => unreachable!("table outside closed owner access registry: {table}"),
     }
 }

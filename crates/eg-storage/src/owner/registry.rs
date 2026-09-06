@@ -252,6 +252,9 @@ macro_rules! visit_owner_tables {
                 $visit!(NODE_INFO_META);
             }
             OwnerLayout::ClusterHierarchy => $visit!(CLUSTER_HIERARCHY),
+            OwnerLayout::GraphShard => {
+                crate::owner::graph_shard::visit_graph_shard_tables!($visit)
+            }
         }
     }};
 }
@@ -451,6 +454,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
         OwnerLayout::TenantCatalog => &["tenant_catalog"],
         OwnerLayout::NodeInfo => &["node_info", "node_info_meta"],
         OwnerLayout::ClusterHierarchy => &["cluster_hierarchy"],
+        OwnerLayout::GraphShard => crate::owner::graph_shard::GRAPH_SHARD_TABLES,
     }
 }
 
@@ -538,7 +542,7 @@ where
     Ok(())
 }
 
-pub(crate) fn owner_layouts() -> [OwnerLayout; 16] {
+pub(crate) fn owner_layouts() -> [OwnerLayout; 17] {
     [
         OwnerLayout::LedgerOnly,
         OwnerLayout::Rbac,
@@ -556,6 +560,7 @@ pub(crate) fn owner_layouts() -> [OwnerLayout; 16] {
         OwnerLayout::TenantCatalog,
         OwnerLayout::NodeInfo,
         OwnerLayout::ClusterHierarchy,
+        OwnerLayout::GraphShard,
     ]
 }
 

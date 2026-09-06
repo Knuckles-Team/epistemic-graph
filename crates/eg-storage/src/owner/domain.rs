@@ -36,4 +36,5 @@ owner_domains!(
     TenantCatalogOwner => TenantCatalog,
     NodeInfoOwner => NodeInfo,
     ClusterHierarchyOwner => ClusterHierarchy,
+    GraphShardOwner => GraphShard,
 );

@@ -13,6 +13,8 @@ use crate::recovery::adopt::{classify_recovery_store, RecoveryExpectation};
 use crate::tables::ledger_table_names;
 use redb::{MultimapTableDefinition, ReadableDatabase, TableDefinition};
 
+mod graph_shard;
+
 #[test]
 fn owner_layout_registry_has_frozen_cardinality() {
     // The physical ledger has exactly 18 tables total. OWNER_MANIFEST is one
@@ -49,7 +51,16 @@ fn owner_layout_registry_has_frozen_cardinality() {
     assert_eq!(owner_table_names(OwnerLayout::TenantCatalog).len(), 1);
     assert_eq!(owner_table_names(OwnerLayout::NodeInfo).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::ClusterHierarchy).len(), 1);
-    assert_eq!(owner_layouts().len(), 16);
+    // The authoritative graph shard `graph-N.redb`: 53 tables. That is the
+    // complete physical census of the shard file (39 in `redb_store.rs`, 4
+    // capacity-lease, 3 work-item-capability, 10 development-lane, plus
+    // `raft_meta` and `encryption_canary` from `redb_backend.rs`, and the three
+    // `series_*` tables the cross-modal atomic commit writes into the same
+    // transaction) MINUS the eight `mutation_*` tables of the shard's retired
+    // private ledger, which RF-RULING-004 gives to `MutationKernelV1` alone:
+    // 39 + 4 + 3 + 10 + 2 + 3 - 8 = 53.
+    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 53);
+    assert_eq!(owner_layouts().len(), 17);
 }
 
 #[test]
@@ -91,8 +102,14 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // `eg_ann` becoming typed and generation-keyed moved no table in or out.
     // +2 more: the two SQL/PGQ property-graph catalog tables, which `eg-query`
     // wrote without ever declaring until the SQL kernel cutover. -5: the
-    // `__sql_mutation_*__` private ledger RF-RULING-006 retired.
-    assert_eq!((names.len(), service, shared), (66, 64, 2));
+    // `__sql_mutation_*__` private ledger RF-RULING-006 retired. That is the
+    // 66 of the sixteen non-shard layouts.
+    // +50 on top of that 66: the graph shard declares 53 tables, three of
+    // which (`series_chunks`, `series_meta`, `series_projection_state`) were
+    // already declared by `OwnerLayout::TimeSeries` and so add no new name.
+    // Every shard table is `DomainService`, so the two `SharedService` names
+    // (`cas_chunks`, `cas_refcount`) are unchanged: 116 = 114 + 2.
+    assert_eq!((names.len(), service, shared), (116, 114, 2));
 }
 
 #[test]
@@ -210,6 +227,7 @@ fn every_owner_table_declares_its_partition_boundary() {
                         | OwnerLayout::Blob
                         | OwnerLayout::SemanticIndex
                         | OwnerLayout::Sql
+                        | OwnerLayout::GraphShard
                 )),
                 TableScope::StorePrivate => {
                     assert!(matches!(
@@ -226,6 +244,7 @@ fn every_owner_table_declares_its_partition_boundary() {
                             | OwnerLayout::TenantCatalog
                             | OwnerLayout::NodeInfo
                             | OwnerLayout::ClusterHierarchy
+                            | OwnerLayout::GraphShard
                     ));
                 }
                 TableScope::SharedService => {
@@ -676,14 +695,16 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     for layout in owner_layouts() {
         names.extend(owner_table_names(layout));
     }
-    // 18 ledger + 66 owner tables across the sixteen layouts. The
+    // 18 ledger + 116 owner tables across the seventeen layouts. The
     // consumer-owned tables `path_index_v1`, `eg_ann`, `eg_kvcache_cold` and
     // the 17 `__sql_*` tables joined the registry because RF-RULING-004 puts
     // the complete physical table registry in the storage kernel; the seven
     // root-binary sidecar tables joined it when their raw opens were cut, and
     // the two property-graph catalog tables when the SQL store was cut, while
-    // the five `__sql_mutation_*__` tables of the retired private ledger left.
-    assert_eq!(names.len(), 84);
+    // the five `__sql_mutation_*__` tables of the retired private ledger left;
+    // and the graph shard's 50 new names joined it with
+    // `OwnerLayout::GraphShard`. 18 + 66 + 50 = 134.
+    assert_eq!(names.len(), 134);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
