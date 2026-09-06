@@ -43,9 +43,17 @@ const GRANT_PROOF_DOMAIN: &[u8] = b"eg/root-scope-grant/v1\0";
 /// The stable principal this engine serves every store-private scope as.
 ///
 /// It is durable state — it lands in `mutation_scope_bindings_v1` and in the
-/// actor of every batch this engine commits — so it may not be derived from
-/// the per-process secret.
-pub const ENGINE_PRINCIPAL: &str = "principal:epistemic-graph:engine";
+/// context principal of every maintenance batch this engine commits — so it may
+/// not be derived from the per-process secret.
+///
+/// The value is `principal:sha256:` + SHA-256("epistemic-graph:engine"), because
+/// `MutationBatch::validate` (`eg-types` `validate_principal`) accepts ONLY that
+/// opaque-digest form: a readable principal string is unrepresentable in a batch,
+/// so a store bound under one could never commit a maintenance mutation. It is
+/// the same construction `server::mutation_batch::digest::principal_fingerprint`
+/// applies to a caller identity, over the engine's own name.
+pub const ENGINE_PRINCIPAL: &str =
+    "principal:sha256:41290b0e412ac542f312d4312a7a299e771eec66e3ffbbf7edb6369576875fb2";
 
 /// The composition root's scope-grant authority.
 pub struct EngineScopeAuthority {
@@ -220,6 +228,24 @@ mod tests {
                 )
                 .is_err());
         }
+    }
+
+    /// A store bound under a principal a `MutationBatch` cannot carry could never
+    /// commit a maintenance mutation, and nothing would catch it until runtime.
+    #[test]
+    fn the_engine_principal_is_a_representable_batch_principal() {
+        use sha2::{Digest, Sha256};
+        let digest = ENGINE_PRINCIPAL
+            .strip_prefix("principal:sha256:")
+            .expect("engine principal must carry the opaque-digest prefix");
+        assert_eq!(digest.len(), 64);
+        assert!(digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')));
+        assert_eq!(
+            digest,
+            hex::encode(Sha256::digest("epistemic-graph:engine".as_bytes()))
+        );
     }
 
     #[test]

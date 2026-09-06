@@ -150,7 +150,13 @@ async fn tenant_graph_owner_visibility_survives_an_isolation_layer_restart() {
     const OWNER_PRINCIPAL: &str = "ne045-webui-end-user";
 
     {
-        let mut isolation = IsolationLayer::with_persist_dir(&dir_s).expect("open rbac store");
+        let mut isolation = IsolationLayer::with_persist_dir(
+            &dir_s,
+            epistemic_graph::store_authority::process_authority().as_ref(),
+            epistemic_graph::store_authority::process_authority().principal(),
+            &epistemic_graph::store_authority::process_authority().proof(),
+        )
+        .expect("open rbac store");
         isolation.register_agent(AgentIdentity {
             agent_id: OWNER_PRINCIPAL.to_string(),
             role: AgentRole::Agent,
@@ -194,7 +200,12 @@ async fn tenant_graph_owner_visibility_survives_an_isolation_layer_restart() {
     let reopened = {
         let mut attempt = 0;
         loop {
-            match IsolationLayer::with_persist_dir(&dir_s) {
+            match IsolationLayer::with_persist_dir(
+                &dir_s,
+                epistemic_graph::store_authority::process_authority().as_ref(),
+                epistemic_graph::store_authority::process_authority().principal(),
+                &epistemic_graph::store_authority::process_authority().proof(),
+            ) {
                 Ok(layer) => break layer,
                 Err(error) if attempt < 100 => {
                     attempt += 1;

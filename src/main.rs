@@ -648,9 +648,9 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         };
         match eg_tsdb::store::SeriesStore::open(
             &path,
-            crate::store_authority::process_verifier(),
-            crate::store_authority::process_authority().principal(),
-            &crate::store_authority::process_authority().proof(),
+            epistemic_graph::store_authority::process_verifier(),
+            epistemic_graph::store_authority::process_authority().principal(),
+            &epistemic_graph::store_authority::process_authority().proof(),
         ) {
             Ok(s) => {
                 info!("Time-series store (tsdb): durable store ready");
@@ -739,9 +739,9 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         let isolation = match args.persist_dir.as_deref() {
             Some(dir) => match IsolationLayer::with_persist_dir(
                 dir,
-                crate::store_authority::process_authority().as_ref(),
-                crate::store_authority::process_authority().principal(),
-                &crate::store_authority::process_authority().proof(),
+                epistemic_graph::store_authority::process_authority().as_ref(),
+                epistemic_graph::store_authority::process_authority().principal(),
+                &epistemic_graph::store_authority::process_authority().proof(),
             ) {
                 Ok(layer) => layer,
                 Err(error) => {

@@ -196,14 +196,18 @@ async fn execute_rdf(
         let raw = raw_payload(&source_result, "RDF")?;
         let result: crate::protocol::SparqlResult =
             decode_knowledge_result(raw).map_err(|_| "invalid RDF result shape".to_string())?;
+        // A failed encode must not become an EMPTY row identity: two unencodable
+        // bindings would then share one identity and silently collapse into one
+        // another downstream. It is an error, and it is returned as one.
         let rows = result
             .rows
             .iter()
             .map(|binding| {
-                let encoded = rmp_serde::to_vec_named(binding).unwrap_or_default();
-                native_row(authority, "rdf_binding", &encoded, 1.0, None)
+                let encoded = rmp_serde::to_vec_named(binding)
+                    .map_err(|error| format!("RDF binding is not encodable: {error}"))?;
+                Ok(native_row(authority, "rdf_binding", &encoded, 1.0, None))
             })
-            .collect();
+            .collect::<Result<Vec<_>, String>>()?;
         Ok(FamilyExecution {
             rows,
             source_result,
@@ -309,18 +313,27 @@ async fn execute_time_series(
         let raw = raw_payload(&source_result, "time-series")?;
         let points: Vec<(i64, Vec<f64>)> = decode_knowledge_result(raw)
             .map_err(|_| "invalid time-series result shape".to_string())?;
+        // As above: an empty fallback identity would make every unencodable point
+        // the same point.
         let rows = points
             .iter()
             .map(|(timestamp, values)| {
-                let identity = rmp_serde::to_vec_named(&(series_id, timestamp)).unwrap_or_default();
+                let identity = rmp_serde::to_vec_named(&(series_id, timestamp))
+                    .map_err(|error| format!("time-series point is not encodable: {error}"))?;
                 let score = values
                     .first()
                     .copied()
                     .filter(|value| value.is_finite())
                     .map(|value| value as f32);
-                native_row(authority, "time_series_point", &identity, 1.0, score)
+                Ok(native_row(
+                    authority,
+                    "time_series_point",
+                    &identity,
+                    1.0,
+                    score,
+                ))
             })
-            .collect();
+            .collect::<Result<Vec<_>, String>>()?;
         Ok(FamilyExecution {
             rows,
             source_result,
@@ -349,7 +362,9 @@ async fn execute_job(
             .rows
             .iter()
             .map(|row| {
-                let encoded = rmp_serde::to_vec_named(row).unwrap_or_default();
+                // As above: an empty fallback identity collapses distinct rows.
+                let encoded = rmp_serde::to_vec_named(row)
+                    .map_err(|error| format!("job result row is not encodable: {error}"))?;
                 let confidence = normalized_confidence(
                     row.get("confidence").and_then(serde_json::Value::as_f64),
                 );
@@ -358,9 +373,15 @@ async fn execute_job(
                     .or_else(|| row.get("support"))
                     .and_then(serde_json::Value::as_f64)
                     .map(|value| value as f32);
-                native_row(authority, "job_result", &encoded, confidence, score)
+                Ok(native_row(
+                    authority,
+                    "job_result",
+                    &encoded,
+                    confidence,
+                    score,
+                ))
             })
-            .collect();
+            .collect::<Result<Vec<_>, String>>()?;
         let source_result = ResultPayload::raw(&result)?;
         Ok(FamilyExecution {
             rows,

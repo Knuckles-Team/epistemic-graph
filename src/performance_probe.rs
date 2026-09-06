@@ -975,9 +975,9 @@ fn probe_analytics(
     let result = (|| -> Result<Observation, ProbeError> {
         let store = JobStore::open(
             &path,
-            crate::store_authority::process_authority().as_ref(),
-            crate::store_authority::process_authority().principal(),
-            &crate::store_authority::process_authority().proof(),
+            epistemic_graph::store_authority::process_authority().as_ref(),
+            epistemic_graph::store_authority::process_authority().principal(),
+            &epistemic_graph::store_authority::process_authority().proof(),
         )?;
         let mut last = None;
         for index in 0..scale {
@@ -993,9 +993,9 @@ fn probe_analytics(
                 drop(store);
                 let reopened = JobStore::open(
                     &path,
-                    crate::store_authority::process_authority().as_ref(),
-                    crate::store_authority::process_authority().principal(),
-                    &crate::store_authority::process_authority().proof(),
+                    epistemic_graph::store_authority::process_authority().as_ref(),
+                    epistemic_graph::store_authority::process_authority().principal(),
+                    &epistemic_graph::store_authority::process_authority().proof(),
                 )?;
                 let (next, latency) = timed(|| reopened.submit(job_spec(scale)));
                 let next = next?;
