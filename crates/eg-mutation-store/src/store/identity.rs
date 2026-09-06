@@ -2,6 +2,7 @@ use super::*;
 use eg_types::IncarnationId;
 use redb::{ReadOnlyDatabase, ReadTransaction, TableHandle};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -9,7 +10,7 @@ use std::sync::Arc;
 use std::os::unix::fs::MetadataExt;
 
 pub const MUTATION_STORE_SCHEMA_VERSION: u16 = 1;
-const STORE_ROOT_KEY: &str = "root";
+pub(crate) const STORE_ROOT_KEY: &str = "root";
 const STORE_DIGEST_DOMAIN: &[u8] = b"eg/mutation-store-root/v1\0";
 const PHYSICAL_ROOT_DOMAIN: &[u8] = b"eg/mutation-store-physical-root/v1\0";
 // NOTE: bare `mutation_batches`/`mutation_idempotency`/`mutation_outbox` are
@@ -43,6 +44,12 @@ const RETIRED_PROTOTYPE_TABLES: &[&str] = &[
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct StoreIdentityDigest([u8; 32]);
+
+impl StoreIdentityDigest {
+    pub(crate) fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
 
 /// Immutable physical identity of one common mutation-store database.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -139,7 +146,7 @@ where
     decode_incarnation(value.value()).map(Some)
 }
 
-pub(super) fn require_persisted_root<T>(table: &T) -> Result<StoreIncarnation, String>
+pub(crate) fn require_persisted_root<T>(table: &T) -> Result<StoreIncarnation, String>
 where
     T: redb::ReadableTable<&'static str, &'static [u8]>,
 {
@@ -155,26 +162,33 @@ pub trait PrivatePayloadIntegrity: Send + Sync {
 /// Non-serializable proof that a store root was derived from and matched the
 /// exact physical database.
 #[derive(Debug, Clone)]
-struct StoreHandle {
-    incarnation: StoreIncarnation,
+pub(crate) struct StoreHandle {
+    pub(crate) incarnation: StoreIncarnation,
 }
 
 /// Open physical database plus its non-forgeable root and integrity authority.
 pub struct MutationStore {
-    database: Database,
+    pub(crate) database: Database,
     handle: StoreHandle,
     physical_path: PathBuf,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    // CUTOVER-ONLY: Phase 2 deletes the raw constructors whose stores carry
+    // `None`. Every new authority-bearing API requires `Some` and fails closed.
+    owner_manifest: Option<OwnerManifest>,
 }
 
 /// Write transaction minted only by its owning [`MutationStore`].
 pub struct MutationWrite {
     transaction: WriteTransaction,
-    handle: StoreHandle,
+    pub(crate) handle: StoreHandle,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    pub(crate) owner_manifest: Option<OwnerManifest>,
+    pub(crate) admission: RefCell<AdmissionState>,
 }
 
 impl MutationStore {
+    /// CUTOVER-ONLY raw escape for Phase 2 consumer migration. This is not an
+    /// accepted product API and is deleted once typed owner adapters land.
     pub fn database(&self) -> &Database {
         &self.database
     }
@@ -193,10 +207,25 @@ impl MutationStore {
             .set_durability(redb::Durability::Immediate)
             .map_err(|error| error.to_string())?;
         validate_handle_write(&self.handle, &transaction)?;
+        if let Some(manifest) = &self.owner_manifest {
+            let persisted = validate_manifest_write(
+                &transaction,
+                &manifest.physical_identity,
+                manifest.layout,
+            )?;
+            if persisted != *manifest {
+                return Err(
+                    "cached owner manifest differs from persisted write authority".to_string(),
+                );
+            }
+            validate_declared_tables_write(&transaction, manifest.layout)?;
+        }
         Ok(MutationWrite {
             transaction,
             handle: self.handle.clone(),
             private_integrity: self.private_integrity.clone(),
+            owner_manifest: self.owner_manifest.clone(),
+            admission: RefCell::new(AdmissionState::Idle),
         })
     }
 
@@ -233,6 +262,29 @@ impl MutationStore {
             handle,
             physical_path,
             private_integrity,
+            owner_manifest: None,
+        })
+    }
+
+    pub(crate) fn from_parts(
+        database: Database,
+        handle: StoreHandle,
+        physical_path: PathBuf,
+        private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+        owner_manifest: Option<OwnerManifest>,
+    ) -> Self {
+        Self {
+            database,
+            handle,
+            physical_path,
+            private_integrity,
+            owner_manifest,
+        }
+    }
+
+    pub(crate) fn strict_manifest(&self) -> Result<&OwnerManifest, String> {
+        self.owner_manifest.as_ref().ok_or_else(|| {
+            "mutation owner authority is unavailable on a cutover-only raw store".to_string()
         })
     }
 }
@@ -338,6 +390,8 @@ pub fn open_read_only(
 ///
 /// This is the distinction that matters: "there is nothing here to adopt" and
 /// "what is here does not add up" must not collapse into one error.
+/// CUTOVER-ONLY mixed-store probe retained until Phase 2 migrates its two
+/// callers to typed recovery. It is not part of the accepted current API.
 pub fn adopt_restored_store_if_mutation_store(
     path: &Path,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
@@ -360,6 +414,8 @@ pub fn adopt_restored_store_if_mutation_store(
     adopt_restored_store(path, private_integrity).map(Some)
 }
 
+/// CUTOVER-ONLY raw recovery retained until Phase 2 migrates its callers to
+/// [`crate::open_recovery`] plus [`crate::adopt_recovery`].
 pub fn adopt_restored_store(
     path: &Path,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
@@ -434,10 +490,13 @@ pub fn adopt_restored_store(
         },
         physical_path,
         private_integrity,
+        owner_manifest: None,
     })
 }
 
 impl MutationWrite {
+    /// CUTOVER-ONLY raw escape for Phase 2 consumer migration. This is not an
+    /// accepted product API and is deleted once typed owner adapters land.
     pub fn owner_rows(&self) -> &WriteTransaction {
         &self.transaction
     }
@@ -468,8 +527,8 @@ pub(crate) struct ScopeBinding {
     pub initial_version: u64,
 }
 
-/// Open the exact physical database, initialize its derived root, bind one
-/// logical scope, and execute owner bootstrap rows in one transaction.
+/// CUTOVER-ONLY raw constructor retained until Phase 2 migrates all consumers.
+/// New code must use [`crate::create`] and an authenticated serving bind.
 pub fn initialize<F>(
     path: &Path,
     identity: &MutationScopeIdentity,
@@ -495,10 +554,12 @@ where
         handle,
         physical_path,
         private_integrity,
+        owner_manifest: None,
     })
 }
 
-/// Bind another logical scope and its owner bootstrap rows atomically.
+/// CUTOVER-ONLY raw binding retained until Phase 2 migrates all consumers.
+/// New code must use [`crate::bind_serving_scope`].
 pub fn bind_scope<F>(
     store: &MutationStore,
     identity: &MutationScopeIdentity,
@@ -554,9 +615,22 @@ fn initialize_in(
     })
 }
 
+pub(crate) fn initialize_strict_in(
+    wtx: &WriteTransaction,
+    expected: &StoreIncarnation,
+    manifest: &OwnerManifest,
+) -> Result<StoreHandle, String> {
+    manifest.validate()?;
+    initialize_in(wtx, expected)
+}
+
+pub(crate) fn store_handle(incarnation: StoreIncarnation) -> StoreHandle {
+    StoreHandle { incarnation }
+}
+
 /// Bind a logical scope once. Exact re-entry is idempotent; any generation,
 /// tenant, domain, resource, store-root, or initial-version mismatch fails closed.
-fn bind_scope_in(
+pub(crate) fn bind_scope_in(
     handle: &StoreHandle,
     wtx: &WriteTransaction,
     identity: &MutationScopeIdentity,
@@ -583,6 +657,24 @@ fn bind_scope_in(
             Ok(true)
         }
     }
+}
+
+pub(crate) fn validate_incarnation_read(
+    rtx: &ReadTransaction,
+    expected: &StoreIncarnation,
+) -> Result<(), String> {
+    reject_prototype_names(
+        rtx.list_tables()
+            .map_err(|error| error.to_string())?
+            .map(|table| table.name().to_string()),
+    )?;
+    let root = rtx
+        .open_table(STORE_ROOT)
+        .map_err(|error| error.to_string())?;
+    if require_persisted_root(&root)? != *expected {
+        return Err("mutation store root incarnation mismatch".to_string());
+    }
+    Ok(())
 }
 
 fn read_scope_binding(wtx: &WriteTransaction, key: &str) -> Result<Option<ScopeBinding>, String> {
@@ -659,6 +751,12 @@ pub(crate) fn binding_for_write(
     let handle = &write.handle;
     let wtx = write.transaction();
     validate_handle_write(handle, wtx)?;
+    let cached = write.strict_manifest()?;
+    let persisted = validate_manifest_write(wtx, &cached.physical_identity, cached.layout)?;
+    if persisted != *cached {
+        return Err("mutation write manifest authority changed".to_string());
+    }
+    validate_declared_tables_write(wtx, persisted.layout)?;
     identity.validate_digest()?;
     let key = identity.binding_digest().to_hex();
     let table = wtx
@@ -678,6 +776,12 @@ pub(crate) fn binding_for_read(
 ) -> Result<ScopeBinding, String> {
     store.validate_physical_root()?;
     let handle = &store.handle;
+    let cached = store.strict_manifest()?;
+    let persisted = validate_manifest_read(rtx, &cached.physical_identity, cached.layout)?;
+    if persisted != *cached {
+        return Err("mutation read manifest authority changed".to_string());
+    }
+    validate_declared_owner_tables(rtx, persisted.layout)?;
     reject_prototype_names(
         rtx.list_tables()
             .map_err(|error| error.to_string())?
@@ -719,7 +823,7 @@ pub(crate) fn scope_identity_key(identity: &MutationScopeIdentity) -> String {
     identity.identity_digest().to_hex()
 }
 
-fn decode_binding(bytes: &[u8]) -> Result<ScopeBinding, String> {
+pub(crate) fn decode_binding(bytes: &[u8]) -> Result<ScopeBinding, String> {
     let binding: ScopeBinding = decode_record(bytes)?;
     if binding.schema_version != MUTATION_STORE_SCHEMA_VERSION {
         return Err("unsupported mutation scope-binding schema".to_string());
@@ -731,12 +835,21 @@ fn decode_binding(bytes: &[u8]) -> Result<ScopeBinding, String> {
 pub(crate) fn reject_prototype_names(
     mut names: impl Iterator<Item = String>,
 ) -> Result<(), String> {
-    if names.any(|name| RETIRED_PROTOTYPE_TABLES.contains(&name.as_str())) {
+    if names.any(|name| is_retired_prototype_table(&name)) {
         return Err(
             "incompatible prototype mutation tables require quarantine before serving".to_string(),
         );
     }
     Ok(())
+}
+
+pub(crate) fn is_retired_prototype_table(name: &str) -> bool {
+    RETIRED_PROTOTYPE_TABLES.contains(&name)
+}
+
+#[cfg(test)]
+pub(crate) fn retired_prototype_table_names() -> &'static [&'static str] {
+    RETIRED_PROTOTYPE_TABLES
 }
 
 fn store_digest(schema_version: u16, root_id: &IncarnationId) -> StoreIdentityDigest {
@@ -759,6 +872,14 @@ fn authenticate_private(
         .ok_or_else(|| "private recovery integrity authority is unavailable".to_string())?
         .authenticate(sealed, digest)
         .map_err(|_| "private recovery payload failed canonical authentication".to_string())
+}
+
+pub(crate) fn authenticate_with(
+    integrity: Option<&dyn PrivatePayloadIntegrity>,
+    sealed: &[u8],
+    digest: &str,
+) -> Result<(), String> {
+    authenticate_private(integrity, sealed, digest)
 }
 
 // NOTE: deliberately does NOT hash `path`. A store's physical identity is the

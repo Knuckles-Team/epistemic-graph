@@ -120,6 +120,7 @@ pub fn commit_saga(
             batch.batch_id
         ));
     }
+    write.admit_prepared_batch(batch)?;
     let source_version = source_version(&write, batch)?;
     let committed = finish(
         &write,

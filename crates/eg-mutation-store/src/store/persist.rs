@@ -70,20 +70,13 @@ pub(crate) fn validate_recovery_content(
         store_roots: 1,
         ..RecoveryStoreCounts::default()
     };
-    let mut budget = CollectionBudget::default();
-    let bindings = validate_bindings(rtx, &root, &mut counts, &mut budget)?;
-    validate_versions(rtx, &bindings, &mut counts)?;
-    let records = validate_batches(rtx, &bindings, &mut counts, &mut budget)?;
-    validate_idempotency(rtx, &records, &mut counts, &mut budget)?;
-    validate_fences(rtx, &bindings, &mut counts)?;
-    validate_outbox(rtx, &records, &mut counts, &mut budget)?;
-    validate_private(
-        authenticate_private,
-        rtx,
-        &records,
-        &mut counts,
-        &mut budget,
-    )?;
+    validate_bindings(rtx, &root, &mut counts)?;
+    validate_versions(rtx, &root, &mut counts)?;
+    validate_batches(rtx, &root, &mut counts)?;
+    validate_idempotency(rtx, &mut counts)?;
+    validate_fences(rtx, &root, &mut counts)?;
+    validate_outbox(rtx, &mut counts)?;
+    validate_private(authenticate_private, rtx, &mut counts)?;
     Ok(counts)
 }
 
@@ -112,15 +105,15 @@ fn validate_bindings(
     rtx: &ReadTransaction,
     root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
-    budget: &mut CollectionBudget,
-) -> Result<std::collections::BTreeMap<String, ScopeBinding>, String> {
+) -> Result<(), String> {
     let table = rtx
         .open_table(SCOPE_BINDINGS)
         .map_err(|error| error.to_string())?;
-    let mut bindings = std::collections::BTreeMap::new();
+    let versions = rtx
+        .open_table(VERSIONS)
+        .map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
-        budget.account(key.value().len() + value.value().len())?;
         let binding: ScopeBinding = decode_record(value.value())?;
         binding.identity.validate_digest()?;
         let expected_key = binding.identity.binding_digest().to_hex();
@@ -132,141 +125,110 @@ fn validate_bindings(
                 "mutation scope binding is malformed or attached to another root".to_string(),
             );
         }
-        let identity_key = scope_identity_key(&binding.identity);
-        if bindings.insert(identity_key, binding).is_some() {
-            return Err("mutation store contains duplicate logical identity bindings".to_string());
+        if versions
+            .get(key.value())
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            return Err("mutation scope binding is missing its version row".to_string());
         }
-        counts.scope_bindings = counts.scope_bindings.saturating_add(1);
+        increment(&mut counts.scope_bindings, "scope binding count")?;
     }
-    Ok(bindings)
+    Ok(())
 }
 
 fn validate_versions(
     rtx: &ReadTransaction,
-    bindings: &std::collections::BTreeMap<String, ScopeBinding>,
+    root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
-    let expected = bindings
-        .values()
-        .map(|binding| binding.identity.binding_digest().to_hex())
-        .collect::<std::collections::BTreeSet<_>>();
     let table = rtx
         .open_table(VERSIONS)
         .map_err(|error| error.to_string())?;
-    let actual = table
-        .iter()
-        .map_err(|error| error.to_string())?
-        .map(|row| {
-            row.map(|(key, _)| key.value().to_string())
-                .map_err(|error| error.to_string())
-        })
-        .take(MAX_MUTATION_COLLECTION_ROWS + 1)
-        .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
-    if actual.len() > MAX_MUTATION_COLLECTION_ROWS || actual != expected {
-        return Err("mutation version rows do not exactly match scope bindings".to_string());
+    for row in table.iter().map_err(|error| error.to_string())? {
+        let (key, _) = row.map_err(|error| error.to_string())?;
+        read_binding(rtx, root, key.value())?;
+        increment(&mut counts.versions, "version count")?;
     }
-    counts.versions = actual.len() as u64;
     Ok(())
 }
 
 fn validate_batches(
     rtx: &ReadTransaction,
-    bindings: &std::collections::BTreeMap<String, ScopeBinding>,
+    root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
-    budget: &mut CollectionBudget,
-) -> Result<std::collections::BTreeMap<(String, String), MutationBatchRecord>, String> {
+) -> Result<(), String> {
     let table = rtx.open_table(BATCHES).map_err(|error| error.to_string())?;
-    let mut records = std::collections::BTreeMap::new();
+    let idempotency = rtx
+        .open_table(IDEMPOTENCY)
+        .map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id) = key.value();
-        budget.account(identity_key.len() + batch_id.len() + value.value().len())?;
         let record = decode_batch_record(value.value())?;
-        let binding = bindings
-            .get(identity_key)
-            .ok_or_else(|| "mutation batch references an unbound identity".to_string())?;
+        let binding = read_binding(rtx, root, identity_key)?;
         if record.identity != binding.identity || record.batch.batch_id != batch_id {
             return Err("mutation batch key does not bind its receipt identity".to_string());
         }
+        let linked = idempotency
+            .get((identity_key, record.batch.idempotency_key.as_str()))
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "mutation receipt is missing its idempotency row".to_string())?;
+        if linked.value() != batch_id {
+            return Err("mutation receipt idempotency row points elsewhere".to_string());
+        }
         match record.status {
-            MutationBatchStatus::Prepared => counts.prepared = counts.prepared.saturating_add(1),
-            MutationBatchStatus::Committed => counts.committed = counts.committed.saturating_add(1),
-            MutationBatchStatus::Aborted => counts.aborted = counts.aborted.saturating_add(1),
+            MutationBatchStatus::Prepared => increment(&mut counts.prepared, "prepared count")?,
+            MutationBatchStatus::Committed => increment(&mut counts.committed, "committed count")?,
+            MutationBatchStatus::Aborted => increment(&mut counts.aborted, "aborted count")?,
         }
-        if records
-            .insert((identity_key.to_string(), batch_id.to_string()), record)
-            .is_some()
-        {
-            return Err("duplicate mutation receipt key".to_string());
-        }
-        counts.batches = counts.batches.saturating_add(1);
+        increment(&mut counts.batches, "batch count")?;
     }
-    Ok(records)
+    Ok(())
 }
 
 fn validate_idempotency(
     rtx: &ReadTransaction,
-    records: &std::collections::BTreeMap<(String, String), MutationBatchRecord>,
     counts: &mut RecoveryStoreCounts,
-    budget: &mut CollectionBudget,
 ) -> Result<(), String> {
     let table = rtx
         .open_table(IDEMPOTENCY)
         .map_err(|error| error.to_string())?;
-    let mut linked = std::collections::BTreeSet::new();
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, idempotency_key) = key.value();
         let batch_id = value.value();
-        budget.account(identity_key.len() + idempotency_key.len() + batch_id.len())?;
-        let record = records
-            .get(&(identity_key.to_string(), batch_id.to_string()))
-            .ok_or_else(|| "mutation idempotency row points to a missing receipt".to_string())?;
-        if record.batch.idempotency_key != idempotency_key
-            || !linked.insert((identity_key.to_string(), batch_id.to_string()))
-        {
+        let record = read_batch(rtx, identity_key, batch_id)?;
+        if record.batch.idempotency_key != idempotency_key {
             return Err("mutation idempotency row does not bind exactly one receipt".to_string());
         }
-        counts.idempotency = counts.idempotency.saturating_add(1);
-    }
-    if linked != records.keys().cloned().collect() {
-        return Err("mutation receipt is missing its idempotency row".to_string());
+        increment(&mut counts.idempotency, "idempotency count")?;
     }
     Ok(())
 }
 
 fn validate_fences(
     rtx: &ReadTransaction,
-    bindings: &std::collections::BTreeMap<String, ScopeBinding>,
+    root: &StoreIncarnation,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
     let table = rtx.open_table(FENCES).map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
-        if !bindings.contains_key(key.value()) {
-            return Err("mutation fence references an unbound identity".to_string());
-        }
+        read_binding(rtx, root, key.value())?;
         decode_record::<Fence>(value.value())?;
-        counts.fences = counts.fences.saturating_add(1);
+        increment(&mut counts.fences, "fence count")?;
     }
     Ok(())
 }
 
-fn validate_outbox(
-    rtx: &ReadTransaction,
-    records: &std::collections::BTreeMap<(String, String), MutationBatchRecord>,
-    counts: &mut RecoveryStoreCounts,
-    budget: &mut CollectionBudget,
-) -> Result<(), String> {
+fn validate_outbox(rtx: &ReadTransaction, counts: &mut RecoveryStoreCounts) -> Result<(), String> {
     let table = rtx.open_table(OUTBOX).map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id, ordinal) = key.value();
-        budget.account(identity_key.len() + batch_id.len() + value.value().len())?;
         let receipt = decode_outbox_record(value.value())?;
-        let parent = records
-            .get(&(identity_key.to_string(), batch_id.to_string()))
-            .ok_or_else(|| "mutation outbox row has no parent receipt".to_string())?;
+        let parent = read_batch(rtx, identity_key, batch_id)?;
         let bound = parent.status == MutationBatchStatus::Committed
             && receipt.identity == parent.identity
             && receipt.batch_id == batch_id
@@ -276,7 +238,7 @@ fn validate_outbox(
         if !bound {
             return Err("mutation outbox row is not exactly bound to its parent".to_string());
         }
-        counts.outbox = counts.outbox.saturating_add(1);
+        increment(&mut counts.outbox, "outbox count")?;
     }
     Ok(())
 }
@@ -284,40 +246,89 @@ fn validate_outbox(
 fn validate_private(
     authenticate_private: &PrivateAuthenticator<'_>,
     rtx: &ReadTransaction,
-    records: &std::collections::BTreeMap<(String, String), MutationBatchRecord>,
     counts: &mut RecoveryStoreCounts,
-    budget: &mut CollectionBudget,
 ) -> Result<(), String> {
     let table = rtx
         .open_table(PRIVATE_PAYLOADS)
         .map_err(|error| error.to_string())?;
-    let mut private = std::collections::BTreeSet::new();
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id) = key.value();
-        budget.account(identity_key.len() + batch_id.len() + value.value().len())?;
-        let record = records
-            .get(&(identity_key.to_string(), batch_id.to_string()))
-            .ok_or_else(|| "private recovery plan has no parent receipt".to_string())?;
-        let digest = recovery_plan_digest(record)
+        let record = read_batch(rtx, identity_key, batch_id)?;
+        let digest = recovery_plan_digest(&record)
             .filter(|_| record.status == MutationBatchStatus::Prepared)
             .ok_or_else(|| {
                 "private recovery plan has no authenticated prepared parent".to_string()
             })?;
         authenticate_private(value.value(), digest)?;
-        private.insert((identity_key.to_string(), batch_id.to_string()));
-        counts.encrypted_private_payloads = counts.encrypted_private_payloads.saturating_add(1);
+        increment(
+            &mut counts.encrypted_private_payloads,
+            "private payload count",
+        )?;
     }
-    for (key, record) in records {
+    let records = rtx.open_table(BATCHES).map_err(|error| error.to_string())?;
+    for row in records.iter().map_err(|error| error.to_string())? {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let record = decode_batch_record(value.value())?;
         if record.status == MutationBatchStatus::Prepared
-            && recovery_plan_digest(record).is_some()
-            && !private.contains(key)
+            && recovery_plan_digest(&record).is_some()
+            && table
+                .get(key.value())
+                .map_err(|error| error.to_string())?
+                .is_none()
         {
             return Err(
                 "prepared transaction parent is missing encrypted recovery state".to_string(),
             );
         }
     }
+    Ok(())
+}
+
+fn read_binding(
+    rtx: &ReadTransaction,
+    root: &StoreIncarnation,
+    key: &str,
+) -> Result<ScopeBinding, String> {
+    let table = rtx
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    let bytes = table
+        .get(key)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "mutation row references an unbound identity".to_string())?;
+    let binding: ScopeBinding = decode_record(bytes.value())?;
+    binding.identity.validate_digest()?;
+    if binding.schema_version != MUTATION_STORE_SCHEMA_VERSION
+        || binding.store_identity_digest != root.identity_digest()
+        || binding.identity.binding_digest().to_hex() != key
+    {
+        return Err("mutation row references a malformed scope binding".to_string());
+    }
+    Ok(binding)
+}
+
+fn read_batch(
+    rtx: &ReadTransaction,
+    identity_key: &str,
+    batch_id: &str,
+) -> Result<MutationBatchRecord, String> {
+    let table = rtx.open_table(BATCHES).map_err(|error| error.to_string())?;
+    let bytes = table
+        .get((identity_key, batch_id))
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "mutation row points to a missing receipt".to_string())?;
+    let record = decode_batch_record(bytes.value())?;
+    if scope_identity_key(&record.identity) != identity_key || record.batch.batch_id != batch_id {
+        return Err("mutation receipt does not match its table key".to_string());
+    }
+    Ok(record)
+}
+
+fn increment(value: &mut u64, label: &str) -> Result<(), String> {
+    *value = value
+        .checked_add(1)
+        .ok_or_else(|| format!("{label} overflow"))?;
     Ok(())
 }
 

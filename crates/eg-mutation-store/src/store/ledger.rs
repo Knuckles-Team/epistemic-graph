@@ -7,12 +7,19 @@ use std::io::Write;
 pub(crate) fn open_product_tables(wtx: &WriteTransaction) -> Result<(), String> {
     ensure_table(wtx, STORE_ROOT)?;
     ensure_table(wtx, SCOPE_BINDINGS)?;
+    ensure_table(wtx, OWNER_MANIFEST)?;
     ensure_table(wtx, BATCHES)?;
     ensure_table(wtx, IDEMPOTENCY)?;
     ensure_table(wtx, VERSIONS)?;
     ensure_table(wtx, FENCES)?;
     ensure_table(wtx, OUTBOX)?;
-    ensure_table(wtx, PRIVATE_PAYLOADS)
+    ensure_table(wtx, PRIVATE_PAYLOADS)?;
+    ensure_table(wtx, OUTBOX_TOPIC_INDEX)?;
+    ensure_table(wtx, OUTBOX_CONSUMERS)?;
+    ensure_table(wtx, OUTBOX_DELIVERIES)?;
+    ensure_table(wtx, OUTBOX_CURSORS)?;
+    ensure_table(wtx, OUTBOX_CLAIM_CURSORS)?;
+    ensure_table(wtx, OUTBOX_FAIRNESS)
 }
 
 fn ensure_table<K, V>(

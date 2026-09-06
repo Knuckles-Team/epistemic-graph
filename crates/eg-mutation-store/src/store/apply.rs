@@ -37,6 +37,7 @@ pub fn begin(write: &MutationWrite, batch: &MutationBatch) -> Result<Begin, Stri
 
     reject_stale_fence(write.transaction(), batch)?;
     eg_types::mutation_batch::apply_certification_fault(batch, MutationCommitPhase::BeforeRows)?;
+    write.admit_apply_batch(batch)?;
     Ok(Begin::Apply { source_version })
 }
 
@@ -116,6 +117,7 @@ pub fn finish(
     write_version(write.transaction(), batch, committed_version)?;
     write_fence(write.transaction(), batch)?;
     write_outbox(write.transaction(), batch, committed_version)?;
+    write.finish_batch_admission(batch)?;
     Ok(record)
 }
 
@@ -200,6 +202,7 @@ fn write_outbox(
 
 pub fn commit(write: MutationWrite, batch: &MutationBatch) -> Result<(), String> {
     binding_for_write(&write, &batch.identity)?;
+    write.validate_commit_admission(batch)?;
     eg_types::mutation_batch::apply_certification_fault(batch, MutationCommitPhase::BeforeCommit)?;
     write.commit()?;
     eg_types::mutation_batch::apply_certification_fault(

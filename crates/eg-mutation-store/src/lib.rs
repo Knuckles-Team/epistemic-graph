@@ -16,22 +16,39 @@ const MAX_MUTATION_RECORD_ITEMS: usize = 1_000_000;
 const MAX_MUTATION_COLLECTION_ROWS: usize = 100_000;
 const MAX_MUTATION_COLLECTION_BYTES: usize = 512 * 1024 * 1024;
 
-pub const STORE_ROOT: TableDefinition<'static, &str, &[u8]> =
+pub(crate) const STORE_ROOT: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("mutation_store_root_v1");
-pub const SCOPE_BINDINGS: TableDefinition<'static, &str, &[u8]> =
+pub(crate) const SCOPE_BINDINGS: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("mutation_scope_bindings_v1");
-pub const BATCHES: TableDefinition<'static, (&str, &str), &[u8]> =
+pub(crate) const OWNER_MANIFEST: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("mutation_owner_manifest_v1");
+pub(crate) const BATCHES: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("mutation_batches_v1");
-pub const IDEMPOTENCY: TableDefinition<'static, (&str, &str), &str> =
+pub(crate) const IDEMPOTENCY: TableDefinition<'static, (&str, &str), &str> =
     TableDefinition::new("mutation_idempotency_v1");
-pub const VERSIONS: TableDefinition<'static, &str, u64> =
+pub(crate) const VERSIONS: TableDefinition<'static, &str, u64> =
     TableDefinition::new("mutation_versions_v1");
-pub const FENCES: TableDefinition<'static, &str, &[u8]> =
+pub(crate) const FENCES: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("mutation_fences_v1");
-pub const OUTBOX: TableDefinition<'static, (&str, &str, u32), &[u8]> =
+pub(crate) const OUTBOX: TableDefinition<'static, (&str, &str, u32), &[u8]> =
     TableDefinition::new("mutation_outbox_v1");
-pub const PRIVATE_PAYLOADS: TableDefinition<'static, (&str, &str), &[u8]> =
+pub(crate) const OUTBOX_TOPIC_INDEX: TableDefinition<
+    'static,
+    (&str, &str, u64, u64, &str, u32),
+    (),
+> = TableDefinition::new("mutation_outbox_topic_index_v1");
+pub(crate) const PRIVATE_PAYLOADS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("mutation_private_payloads_v1");
+pub(crate) const OUTBOX_CONSUMERS: TableDefinition<'static, (&str, &str), &str> =
+    TableDefinition::new("mutation_outbox_consumers_v1");
+pub(crate) const OUTBOX_DELIVERIES: TableDefinition<'static, (&str, &str, &str, u32), &[u8]> =
+    TableDefinition::new("mutation_outbox_deliveries_v1");
+pub(crate) const OUTBOX_CURSORS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("mutation_outbox_cursors_v1");
+pub(crate) const OUTBOX_CLAIM_CURSORS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("mutation_outbox_claim_cursors_v1");
+pub(crate) const OUTBOX_FAIRNESS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("mutation_outbox_fairness_v1");
 
 fn decode_record<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     eg_types::msgpack::decode_bounded(
@@ -108,8 +125,60 @@ pub use identity::{
     StoreIdentityDigest, StoreIncarnation, MUTATION_STORE_SCHEMA_VERSION,
 };
 pub(crate) use identity::{
-    binding_for_read, binding_for_write, reject_prototype_names, scope_identity_key, ScopeBinding,
+    binding_for_read, binding_for_write, decode_binding, reject_prototype_names,
+    require_persisted_root, scope_identity_key, ScopeBinding, STORE_ROOT_KEY,
 };
+
+#[path = "store/admission.rs"]
+mod admission;
+pub(crate) use admission::AdmissionState;
+
+#[path = "store/authority.rs"]
+mod authority;
+pub(crate) use authority::{reanchor_staged_store_authority, rewrite_store_authority};
+
+#[path = "store/strict_recovery.rs"]
+mod strict_recovery;
+pub use strict_recovery::{
+    backup_strict_recovery_store, strict_recovery_evidence, StrictRecoveryEvidence,
+    StrictTableEvidence,
+};
+pub(crate) use strict_recovery::{strict_snapshot_read, strict_snapshot_write};
+
+#[path = "store/owner_table_api.rs"]
+mod owner_table_api;
+pub use owner_table_api::*;
+
+#[path = "store/blob_shared_access.rs"]
+mod blob_shared_access;
+pub use blob_shared_access::*;
+
+#[path = "store/owner.rs"]
+mod owner;
+#[path = "store/owner_manifest_types.rs"]
+mod owner_manifest_types;
+pub use owner_manifest_types::OwnerManifestDigest;
+#[path = "store/recovery_authority.rs"]
+mod recovery_authority;
+pub use recovery_authority::{
+    adopt_recovery, adopt_staged_mutation_store, classify_recovery_store,
+    inspect_staged_mutation_store, open_recovery, ClassifiedRecoveryStore, RecoveryExpectation,
+    ValidatedPlainRecoveryStore, ValidatedRecoveryStore, ValidatedStagedMutationStore,
+};
+#[path = "store/owner_registry.rs"]
+mod owner_registry;
+pub use owner::{
+    bind_serving_scope, create, open, AdmittedOwnerWrite, AuthenticatedScopeGrant, BlobOwner,
+    JobsOwner, KvOwner, LedgerOnlyOwner, OwnerDomain, OwnerHandle, OwnerLayout,
+    PhysicalStoreIdentity, RbacOwner, ScopeGrantVerifier, SemanticIndexOwner, StatechartOwner,
+    TimeSeriesOwner,
+};
+pub(crate) use owner::{
+    copy_declared_owner_tables, hash_declared_owner_tables, open_declared_owner_tables,
+    read_current_manifest, validate_declared_owner_tables, validate_declared_tables_write,
+    validate_manifest_read, validate_manifest_write, OwnerManifest,
+};
+pub use owner_registry::declared_table_names;
 
 #[path = "store/ledger.rs"]
 mod ledger;
