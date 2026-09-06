@@ -219,6 +219,21 @@ async fn handle_semantic_search(
 }
 
 /// Handle semantic and embedding operations.
+///
+/// Every arm here is a READ, and every read is served from `core.semantic_store`
+/// — the resident generation. That IS the live generation: the only thing that
+/// makes an index resident and serving is
+/// `SemanticStore::adopt_generation(&image)`, and the only image
+/// `server::semantic_activation` ever adopts is the one
+/// `SemanticCodeStore::read_live()` returns, which serves the live generation
+/// and nothing else (a superseded or retired generation is unreachable through
+/// it). So there is no second read path to add: taking a query through
+/// `read_live()` would decode a whole IVF-PQ artifact per search and would bypass
+/// the raw arena that `semantic_search`'s exact brute-force fallback needs while
+/// an index is cold or warming.
+///
+/// `AddEmbedding` is the one mutating member of the family and it is
+/// `mutation::GATEWAY_ROUTED`, so it is structurally unreachable here.
 pub(super) async fn try_handle_semantic_compute(
     ctx: GraphOpsContext<'_>,
     method: Method,

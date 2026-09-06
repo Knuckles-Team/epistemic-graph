@@ -2055,10 +2055,17 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
     // ~168k vectors) INLINE while holding the per-graph lock — minutes pegged on one
     // core, never finishing within the request timeout, so the graph never self-
     // warmed. Here, after recovery, a background task builds the index for every
-    // large graph (or REOPENS a persisted one with no rebuild) so the first query is
-    // served by the index, or by an exact brute-force fallback while it warms — never
-    // by an inline build. The built index is persisted so subsequent restarts reopen
-    // it in milliseconds. Feature-gated: a non-`ann` build is byte-for-byte unchanged.
+    // large graph (or REOPENS the live durable generation with no rebuild) so the
+    // first query is served by the index, or by an exact brute-force fallback while
+    // it warms — never by an inline build. The built index is activated as a new
+    // durable generation so subsequent restarts reopen it in milliseconds.
+    // Feature-gated: a non-`ann` build is byte-for-byte unchanged.
+    //
+    // This is trigger 1 of the three in `server::semantic_activation`, and it runs
+    // that module's `activate_one` rather than its own copy of the body: the boot
+    // task, the dispatch write-path tail and the periodic sweep below must reopen,
+    // build and activate identically or a graph's index depends on which trigger
+    // happened to fire.
     #[cfg(feature = "ann")]
     {
         let warm_state = state.clone();
@@ -2075,52 +2082,14 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
                     .collect()
             };
             let _ = tokio::task::spawn_blocking(move || {
-                use epistemic_graph::compute::semantic_ann::ANN_BUILD_THRESHOLD;
                 let mut warmed = 0usize;
                 for (name, core) in cores {
-                    let store = core.semantic_store.read();
-                    if store.len() < ANN_BUILD_THRESHOLD {
-                        continue; // brute force is exact + fast below the threshold
-                    }
-                    let idx_dir = warm_dir
-                        .as_ref()
-                        .map(|d| epistemic_graph::persist::annidx_dir(d, &name));
-                    // 1. Try the no-rebuild reopen of a persisted index.
-                    if let Some(dir) = &idx_dir {
-                        if dir.exists()
-                            && store.load_index(dir).is_ok()
-                            && store.index_matches_len()
-                        {
-                            info!(
-                                "semantic ANN index reopened (no rebuild) for graph '{}' ({} vectors)",
-                                name,
-                                store.len()
-                            );
-                            warmed += 1;
-                            continue;
-                        }
-                    }
-                    // 2. One-time build off the query path (logs build_ms, span).
-                    let t = std::time::Instant::now();
-                    store.warm(&name);
-                    if store.is_ready() {
+                    if epistemic_graph::server::semantic_activation::activate_one(
+                        &name,
+                        &core,
+                        warm_dir.as_deref(),
+                    ) {
                         warmed += 1;
-                        info!(
-                            "semantic ANN index warmed for graph '{}' ({} vectors) in {:.1}s",
-                            name,
-                            store.len(),
-                            t.elapsed().as_secs_f64()
-                        );
-                        // 3. Persist so the next restart REOPENS it (never rebuilds).
-                        if let Some(dir) = &idx_dir {
-                            if let Err(e) = store.save_index(dir) {
-                                tracing::warn!(
-                                    "semantic ANN index persist failed for graph '{}': {}",
-                                    name,
-                                    e
-                                );
-                            }
-                        }
                     }
                 }
                 if warmed > 0 {
@@ -2151,8 +2120,10 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
             loop {
                 ticker.tick().await;
                 let __loop_tick_started = std::time::Instant::now();
-                let n =
-                    epistemic_graph::server::ann_warm::sweep_resident_graphs(&sweep_state).await;
+                let n = epistemic_graph::server::semantic_activation::sweep_resident_graphs(
+                    &sweep_state,
+                )
+                .await;
                 if n > 0 {
                     tracing::info!(
                         "Semantic ANN warm re-check: spawned {} warm(s) for resident graph(s)",

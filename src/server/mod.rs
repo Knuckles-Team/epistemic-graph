@@ -303,13 +303,13 @@ pub mod cache_coherence;
 // `cold-tier-s3`. The seam + in-memory impl live in eg-core; this needs redb.
 #[cfg(all(feature = "cold-tier", feature = "redb"))]
 pub mod cold_tier_impl;
-// Warm-on-demand for the semantic ANN index (W0.4, CONCEPT:EG-KG.storage.semantic-index-directory): the
-// boot-time warm task only covers graphs resident at startup, so this module
-// supplies the post-write trigger + periodic backstop for a graph created — or
-// crossing `ANN_BUILD_THRESHOLD` — after boot. Gated with the `ann` feature the
-// warm mechanism itself requires; a non-`ann` build compiles none of it.
+// Semantic ANN index activation (W0.4, CONCEPT:EG-KG.storage.semantic-index-directory): the ONE
+// reopen-else-build-else-activate body plus the two triggers the boot-time task
+// cannot supply — the post-write hook and the periodic backstop — for a graph
+// created, or crossing `ANN_BUILD_THRESHOLD`, after boot. Gated with the `ann`
+// feature the mechanism requires; its durable tier additionally needs `ann-redb`.
 #[cfg(feature = "ann")]
-pub mod ann_warm;
+pub mod semantic_activation;
 // Native visualization engine-side state (D-VZ-1 lane V4, "engine integration"):
 // a persistent (process-lifetime, not fresh-per-request) ColumnStore plus a
 // content-addressed render cache and durable render provenance. Gated the SAME
@@ -352,8 +352,8 @@ pub mod graph_tile_server;
 pub(crate) mod graph_tile_source;
 // Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5): periodic
 // sweep that expires a `:Server` node whose `Method::RegisterServer`-issued
-// lease has lapsed. Always declared (mirrors `ann_warm` above) — the sweep is a
-// no-op when nothing has registered.
+// lease has lapsed. Always declared (mirrors `semantic_activation` above) — the
+// sweep is a no-op when nothing has registered.
 pub(crate) mod handlers;
 pub mod registry_reaper;
 // MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
@@ -3440,12 +3440,12 @@ mod tests {
         assert!(matches!(resp.result, Some(ResultPayload::Raw(_))));
     }
 
-    /// W0.4 — a graph that crosses `ANN_BUILD_THRESHOLD` AFTER "boot" (this
-    /// harness never runs `main.rs`'s boot-time warm task at all) must still
-    /// reach `is_ready()` WITHOUT a restart: the post-write dispatch-tail trigger
-    /// (`ann_warm::maybe_warm_after_write`) must spawn the warm the moment a
-    /// write on the graph observes the threshold crossed. Brute-force search
-    /// stays exactly correct both before the warm and after.
+    /// W0.4 — a graph crossing `ANN_BUILD_THRESHOLD` AFTER "boot" (this harness
+    /// never runs `main.rs`'s boot-time warm task) must still reach `is_ready()`
+    /// WITHOUT a restart: the post-write dispatch-tail trigger
+    /// (`semantic_activation::maybe_activate_after_write`) must spawn it the moment
+    /// a write observes the crossing. Brute force stays exact before and after. The
+    /// ONLY coverage of that hazard — re-pointed off `ann_warm`, never deleted.
     #[cfg(feature = "ann")]
     #[tokio::test]
     async fn test_ann_warms_on_demand_after_threshold_crossing_post_boot() {
