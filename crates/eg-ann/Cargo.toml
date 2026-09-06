@@ -21,9 +21,6 @@ memmap2 = "0.9"
 rayon = "1.10"
 rand = "0.8"
 rand_chacha = "0.3"
-# Durable codes tier — reuse the engine's embedded KV. OFF by default; only the
-# mmap file format is in the default build. Folded into the `redb` facade feature.
-redb = { version = "4.1", optional = true }
 # Lightweight tracing spans for ANN train/add throughput (CONCEPT:EG-011). The
 # `tracing` facade is a no-op unless a subscriber is installed (zero default cost).
 tracing = "0.1"
@@ -50,9 +47,6 @@ ndarray = { version = "0.17", optional = true }
 
 [features]
 default = []
-# Persist the durable PQ codes + meta into a redb table instead of (or alongside)
-# the mmap files, reusing the engine's KG-2.195 durability tier.
-redb = ["dep:redb"]
 # Embedding-set drift detection (population-stability-index over the norm /
 # per-dimension value distributions). OFF by default — see `src/drift.rs`.
 drift = ["dep:eg-numeric", "dep:ndarray"]

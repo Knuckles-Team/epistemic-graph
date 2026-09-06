@@ -9,7 +9,7 @@ spike, with **production-real recall** (the spike deliberately under-delivered i
 
 ```
 eg-types → eg-ann → eg-core → eg-compute → epistemic-graph
-                ↘ (leaf: serde + memmap2 + rayon + rand; redb optional)
+                ↘ (leaf: serde + memmap2 + rayon + rand -- no storage engine)
 ```
 
 `eg-ann` is a leaf crate (no workspace deps); `eg-core` depends on it under the
@@ -63,8 +63,12 @@ ids, `list_of`, tombstones, SQ8 min/scale), `codes.bin` (PQ codes), `refine.bin`
 (SQ8 codes). `persist::open` mmaps the two code files and rebuilds posting lists
 with **one O(N) integer pass** — no k-means, no SVD, no f32 reconstruction.
 `tests::persist_reopen_no_rebuild_matches` proves identical results after reopen.
-With the `redb` feature, `redb_store::{save_redb,open_redb}` persist into the
-engine's redb durable tier (CONCEPT:AU-KG.backend.backend-modes) instead.
+`durable_codes::{encode,decode}` produce and consume the SAME three buffers as
+an owned in-memory artifact, for a consumer that stores them in the engine's
+durable tier (the `eg_ann` owner table of `OwnerLayout::SemanticIndex`, keyed
+`(tenant, binding, generation, part)`). This crate opens no store of its own:
+the retired `redb_store` created its own `redb::Database`, which made a leaf
+crate a second physical authority and could hold only one generation.
 
 ## Updates
 

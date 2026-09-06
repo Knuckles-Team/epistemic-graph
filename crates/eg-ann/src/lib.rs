@@ -38,8 +38,11 @@ pub mod recall;
 pub mod scatter;
 pub mod version;
 
-#[cfg(feature = "redb")]
-pub mod redb_store;
+/// In-memory durable-code artifact (`meta`/`codes`/`refine`) for a trained
+/// index. Pure encode/decode: this crate opens no store of its own, so the
+/// artifact is handed to whatever durable authority the consumer serves under
+/// (RF-RULING-004 / RF-RULING-007). See `src/durable_codes.rs`.
+pub mod durable_codes;
 
 /// Embedding-set drift detection (PSI over the norm / per-dimension value
 /// distributions, CONCEPT:EG-KG.sharding.semantic-embedding-store-backed depth). Behind the crate's own opt-in

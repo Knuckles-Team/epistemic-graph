@@ -26,9 +26,12 @@ broker = ["eg-types/broker"]
 # the all-core parallel brute-force fallback — the path EVERY semantic_search hits
 # until the ANN index warms (and after every restart).
 ann = ["dep:rayon"]
-# Additionally persist the ANN codes into the engine's redb durable tier
-# (CONCEPT:KG-2.195) rather than only the mmap files.
-ann-redb = ["ann", "eg-ann/redb"]
+# Additionally persist the ANN codes into the engine's durable tier
+# (CONCEPT:KG-2.195) rather than only the mmap files. The codes live in the
+# `eg_ann` owner table of `OwnerLayout::SemanticIndex`, written through the
+# mutation kernel (RF-RULING-007) -- so this pulls the two kernels, not a raw
+# `redb` handle for eg-ann, which declares no storage dependency at all.
+ann-redb = ["ann", "dep:redb", "dep:eg-storage", "dep:eg-transaction"]
 # GPU distance dispatch seam (CONCEPT:EG-326) / real CUDA backend (CONCEPT:EG-327) for
 # the eg-ann index. `ann-gpu` opts into the seam; `ann-gpu-cuda` pulls the real cudarc
 # backend (dynamic-loading — no CUDA toolkit to build). OUT of pi/full (facade folds it
