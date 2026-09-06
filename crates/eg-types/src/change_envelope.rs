@@ -23,6 +23,7 @@ pub const MAX_ENVELOPES_PER_BATCH: usize = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CursorPosition {
     Sequence(u64),
     TimestampMillis(i64),
@@ -55,6 +56,7 @@ impl CursorPosition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChangeCursor {
     pub source: String,
     #[serde(default)]
@@ -65,6 +67,7 @@ pub struct ChangeCursor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ContentVersion {
     pub object_id: String,
     pub digest_algorithm: String,
@@ -77,6 +80,7 @@ pub struct ContentVersion {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ContentVersionPosition {
     Sequence(u64),
     TimestampMillis(i64),
@@ -105,12 +109,14 @@ impl ContentVersionPosition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MaterialOperation {
     Upsert,
     Delete,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct BlobReference {
     pub blob_id: String,
     pub operation: MaterialOperation,
@@ -121,22 +127,26 @@ pub struct BlobReference {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct FeatureRecord {
     pub feature_id: String,
     pub operation: MaterialOperation,
     pub object_id: String,
     pub kind: String,
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     #[serde(with = "serde_bytes")]
     pub value_msgpack: Vec<u8>,
     pub model_version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EvidenceRecord {
     pub evidence_id: String,
     pub operation: MaterialOperation,
     pub object_id: String,
     pub modality: String,
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     #[serde(with = "serde_bytes")]
     pub locus_msgpack: Vec<u8>,
     pub content_digest: String,
@@ -144,6 +154,7 @@ pub struct EvidenceRecord {
 
 /// Policy rows carry an opaque subject-set digest, never raw principals.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct PolicyRecord {
     pub policy_id: String,
     pub operation: MaterialOperation,
@@ -159,6 +170,7 @@ pub struct PolicyRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct LineageRecord {
     pub lineage_id: String,
     pub operation: MaterialOperation,
@@ -170,6 +182,7 @@ pub struct LineageRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct PrivacyAttestation {
     pub policy_version: String,
     pub sanitizer_version: String,
@@ -177,6 +190,7 @@ pub struct PrivacyAttestation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChangeEnvelope {
     pub schema_version: u16,
     pub envelope_id: String,

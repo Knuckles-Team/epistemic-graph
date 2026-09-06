@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ServedModalityKind {
     Document,
     Image,
@@ -18,6 +19,7 @@ pub enum ServedModalityKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ServedSegmentKind {
     Page,
     Paragraph,
@@ -37,6 +39,7 @@ pub enum ServedSegmentKind {
 /// includes it in cursors, logs, receipts, or persisted state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ServedNativePredicate {
     DocumentLexical {
         term: String,
@@ -69,14 +72,17 @@ pub enum ServedNativePredicate {
 /// the enclosing operation's modality and is decoded before any durable state changes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ServedModalityIngestItem {
     pub idempotency_ref: String,
     pub target_occurrence_id: String,
     #[serde(default)]
     pub expected_version: Option<u64>,
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     #[serde(with = "serde_bytes")]
     pub bundle_msgpack: Vec<u8>,
     /// Ephemeral decoder input; excluded from receipts, snapshots, events, and indexes.
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     #[serde(with = "serde_bytes")]
     pub source_bytes: Vec<u8>,
 }
@@ -88,6 +94,7 @@ pub struct ServedModalityIngestItem {
 /// verified request context, so a caller cannot widen its own RLS boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ServedModalityOp {
     /// Return the opaque policy references derived for this verified request. This
     /// lets a producer construct a matching certified `ArtifactBundle` without any
@@ -101,11 +108,13 @@ pub enum ServedModalityOp {
         target_occurrence_id: String,
         #[serde(default)]
         expected_version: Option<u64>,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         bundle_msgpack: Vec<u8>,
         /// Ephemeral source bytes. The runtime derives only normalized metadata and a
         /// content address; these bytes are omitted from snapshots, audit, CDC, and
         /// MutationBatch status/outbox records.
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         source_bytes: Vec<u8>,
     },

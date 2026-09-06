@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 /// after those checks succeed.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RequestContextClaims {
     /// Authenticated subject that originated the request.
     pub principal: String,
@@ -65,6 +66,7 @@ pub struct RequestContextClaims {
 
 /// Role of an agent in the system hierarchy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum AgentRole {
     /// System-level (can do anything).
     System,
@@ -97,6 +99,7 @@ pub struct AgentIdentity {
 
 /// An action a grant permits or denies over a resource (CONCEPT:EG-KG.compute.feature).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum RbacAction {
     Read,
     Write,
@@ -105,6 +108,7 @@ pub enum RbacAction {
 
 /// Whether a [`Grant`] permits or forbids the action (CONCEPT:EG-KG.compute.feature).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum GrantEffect {
     Allow,
     Deny,
@@ -116,6 +120,7 @@ pub enum GrantEffect {
 ///
 /// [`specificity`]: ResourceSelector::specificity
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ResourceSelector {
     /// Every resource (least specific).
     All,
@@ -190,6 +195,7 @@ impl ResourceContext {
 /// A durable RBAC role with an optional set of parent roles forming a hierarchy
 /// (CONCEPT:EG-KG.compute.feature). A role transitively inherits every grant of its parents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct Role {
     pub name: String,
     #[serde(default)]
@@ -215,6 +221,7 @@ impl Role {
 /// A grant binding a role to an (`resource`, `action`, `effect`) triple
 /// (CONCEPT:EG-KG.compute.feature).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct Grant {
     pub role: String,
     pub resource: ResourceSelector,
@@ -225,6 +232,7 @@ pub struct Grant {
 /// A single administrative mutation of the RBAC policy (CONCEPT:EG-KG.compute.feature), carried by
 /// `Method::RbacAdmin`. Unconditional so it sits below the `isolation` layer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum RbacAdminOp {
     AddRole(Role),
     RemoveRole(String),

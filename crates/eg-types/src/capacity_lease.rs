@@ -68,6 +68,7 @@ fn validate_non_empty(field: &str, value: &str) -> Result<(), String> {
 /// worker pool, `gpu_group_budget.py`'s per-GPU/model floors).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CapacityResourceClass {
     /// Shared LLM generator admission slots (composes with `resource_priority.py`).
     LlmGenerator,
@@ -98,6 +99,7 @@ pub enum CapacityResourceClass {
 /// hard cell-admission rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum LeasePriority {
     Interactive,
     Orchestration,
@@ -121,6 +123,7 @@ impl LeasePriority {
 /// indefinitely").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapacityCell {
     pub cell_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -88,6 +88,7 @@ fn default_argumentation_semantics() -> String {
 /// unsupported clause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CypherMode {
     Read,
     Write,
@@ -238,6 +239,7 @@ pub fn build_context_operation_signature_bytes(
 /// [`crate::modality::ServedModalityOp`]'s "one Method variant, many operations" shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum PlacementAdminOp {
     /// Assign the WHOLE keyspace of `tenant` to `group` (the placement DECISION leg).
     /// Collapses any prior split. Returns `{"epoch": u64}` — the new routing epoch
@@ -269,6 +271,7 @@ pub enum PlacementAdminOp {
 /// `tables` (the engine's OWN user tables).
 #[cfg(feature = "obda")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ObdaExternalSource {
     /// The foreign-source NAME the mapping's `TriplesMap`(s) reference as `logical_source`.
     pub name: String,
@@ -307,10 +310,12 @@ pub const DEVELOPMENT_LANE_CLEANUP_KIND: &str = "lane.cleanup";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "metrics", derive(strum::IntoStaticStr))]
 #[serde(tag = "method", content = "params", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum Method {
     // ── Node CRUD ────────────────────────────────────────────────────
     AddNode {
         node_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
     },
@@ -319,6 +324,7 @@ pub enum Method {
     /// atomic operation; an existing node is never overwritten.
     CreateNodeIfAbsent {
         node_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
     },
@@ -362,8 +368,10 @@ pub enum Method {
     /// the authoritative store; mirrors follow).
     CompareAndSetNodeFields {
         node_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         conditions_msgpack: Vec<u8>,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
     },
@@ -377,6 +385,7 @@ pub enum Method {
     /// Raft entry / replayed WAL record reproduces the same claim.
     ClaimNext {
         label: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
     },
@@ -417,6 +426,7 @@ pub enum Method {
     Publish {
         exchange: String,
         routing_key: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
     },
@@ -455,6 +465,7 @@ pub enum Method {
     PublishEx {
         exchange: String,
         routing_key: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
         /// EG-278: priority band; higher is delivered first (default 0).
@@ -741,6 +752,7 @@ pub enum Method {
     #[cfg(feature = "broker")]
     StreamPublish {
         stream: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
         /// Caller clock (ms) stamped as the message `ts` for age-based retention.
@@ -791,6 +803,7 @@ pub enum Method {
     PublishConfirmed {
         exchange: String,
         routing_key: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
         #[serde(default)]
@@ -816,6 +829,7 @@ pub enum Method {
     PublishIdempotent {
         exchange: String,
         routing_key: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
         /// Stable publisher identity; `None`/empty ⇒ at-least-once (no dedup).
@@ -889,6 +903,7 @@ pub enum Method {
     CreateSummaryNode {
         level: u32,
         child_ids: Vec<String>,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         props_msgpack: Vec<u8>,
     },
@@ -899,6 +914,7 @@ pub enum Method {
     /// reproduces it. Returns the semantic node id (`String`).
     Consolidate {
         episodic_ids: Vec<String>,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         semantic_props_msgpack: Vec<u8>,
     },
@@ -962,6 +978,7 @@ pub enum Method {
     /// deterministically from `(live node count, parent, pose)`, so WAL replay
     /// reproduces it. Returns the new object's id (`String`).
     AddSceneObject {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         pose_msgpack: Vec<u8>,
         parent: Option<String>,
@@ -970,6 +987,7 @@ pub enum Method {
     /// `pose_msgpack`. Deterministic. Returns `Bool` (whether the node existed).
     SetPose {
         node_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         pose_msgpack: Vec<u8>,
     },
@@ -998,6 +1016,7 @@ pub enum Method {
     /// monotonic under replay, so WAL replay reproduces it. Returns the trajectory id
     /// (`String`).
     StartTrajectory {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         props_msgpack: Vec<u8>,
     },
@@ -1009,6 +1028,7 @@ pub enum Method {
     /// step id, or nil if the trajectory is absent.
     AppendStep {
         traj_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         action_msgpack: Vec<u8>,
         reward: f64,
@@ -1050,6 +1070,7 @@ pub enum Method {
     AddEdge {
         source_id: String,
         target_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
     },
@@ -1074,6 +1095,7 @@ pub enum Method {
     SupersedeEdge {
         source_id: String,
         target_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
         prior_source: String,
@@ -1280,6 +1302,7 @@ pub enum Method {
         max_tokens: u32,
     },
     BatchUpdate {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         operations_msgpack: Vec<u8>,
     },
@@ -1295,6 +1318,7 @@ pub enum Method {
     /// is routed BEFORE the single-`graph` graph-op path in dispatch. The reply is
     /// `{ "results": { graph: <batch_result> }, "errors": { graph: msg } }`.
     MultiGraphBatchUpdate {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         batches_msgpack: Vec<u8>,
     },
@@ -1316,6 +1340,7 @@ pub enum Method {
     // ── Serialization ────────────────────────────────────────────────
     ToMsgpack,
     FromMsgpack {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         msgpack: Vec<u8>,
     },
@@ -1731,6 +1756,7 @@ pub enum Method {
     },
     Reconcile {
         graph_name: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         msgpack: Vec<u8>,
     },
@@ -1756,6 +1782,7 @@ pub enum Method {
     // ── AST Parsing ──────────────────────────────────────────────────
     ParseFile {
         file_path: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         source: Vec<u8>,
     },
@@ -1763,6 +1790,7 @@ pub enum Method {
     /// a MessagePack-encoded `Vec<(file_path, source_bytes)>`; the response is an
     /// ordered `Vec<ParseResult>`, one per input file. Mirrors `BatchUpdate`.
     ParseFiles {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         files_msgpack: Vec<u8>,
     },
@@ -1774,6 +1802,7 @@ pub enum Method {
     /// ids, not bare names. Use this (not `ParseFiles`) to ingest a repo's symbol
     /// graph; use `ParseFiles` only when per-file raw results are wanted.
     IndexRepository {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         files_msgpack: Vec<u8>,
     },
@@ -1786,6 +1815,7 @@ pub enum Method {
     /// `IndexRepository`. The screenshot bytes never persist — only its dimensions +
     /// content hash do, for frame-diff.
     ObserveScreen {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         obs_msgpack: Vec<u8>,
     },
@@ -2428,6 +2458,7 @@ pub enum Method {
     // `params_msgpack` is reserved for future bound parameters.
     Sql {
         query: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(default, with = "serde_bytes")]
         params_msgpack: Vec<u8>,
     },
@@ -2795,6 +2826,7 @@ pub enum Method {
     #[cfg(feature = "wasm-udf")]
     RegisterUdf {
         id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         wasm: Vec<u8>,
     },
@@ -2805,6 +2837,7 @@ pub enum Method {
     #[cfg(feature = "wasm-udf")]
     RunUdf {
         id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         input: Vec<u8>,
     },
@@ -2911,6 +2944,7 @@ pub enum Method {
     TxnAddNode {
         txn_id: String,
         node_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
         /// Optional target graph for THIS staged op (CONCEPT:EG-KG.txn.routes-cross-shard-txn — multi-graph
@@ -2930,6 +2964,7 @@ pub enum Method {
         txn_id: String,
         source_id: String,
         target_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
         #[serde(deserialize_with = "deserialize_required_option")]
@@ -2945,8 +2980,10 @@ pub enum Method {
     TxnCas {
         txn_id: String,
         node_id: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         conditions_msgpack: Vec<u8>,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
         #[serde(deserialize_with = "deserialize_required_option")]
@@ -2985,6 +3022,7 @@ pub enum Method {
         /// Target series id the points belong to.
         series: String,
         /// MessagePack `Vec<(i64, Vec<f64>)>` — the batch of points (one round-trip).
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         points: Vec<u8>,
         #[serde(deserialize_with = "deserialize_required_option")]
@@ -3137,6 +3175,7 @@ pub enum Method {
         #[serde(default)]
         field_names: Vec<String>,
         /// MessagePack `Vec<(i64, Vec<f64>)>` — the batch of points (one round-trip).
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         points_msgpack: Vec<u8>,
     },
@@ -3150,6 +3189,7 @@ pub enum Method {
         /// The "right" series each left event is joined to by nearest-prior ts.
         series_id: String,
         /// MessagePack `Vec<i64>` — the left event timestamps (ns).
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         left_ts_msgpack: Vec<u8>,
         /// Optional tolerance (ns); a match older than this is dropped (`None` =
@@ -3229,6 +3269,7 @@ pub enum Method {
     #[cfg(feature = "blob")]
     BlobChunkPut {
         cursor: u64,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         data: Vec<u8>,
     },
@@ -3290,6 +3331,7 @@ pub enum Method {
     KvPut {
         namespace: String,
         key: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         value: Vec<u8>,
     },
@@ -3314,8 +3356,10 @@ pub enum Method {
     KvCas {
         namespace: String,
         key: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(default, with = "serde_bytes")]
         expected: Option<Vec<u8>>,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(default, with = "serde_bytes")]
         new: Option<Vec<u8>>,
     },
@@ -3671,6 +3715,7 @@ pub enum Method {
     #[cfg(feature = "streaming")]
     RegisterContinuousQuery {
         name: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         spec_msgpack: Vec<u8>,
     },
@@ -3713,6 +3758,7 @@ pub enum Method {
         #[serde(default)]
         label: String,
         op: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(default, with = "serde_bytes")]
         action_msgpack: Vec<u8>,
     },
@@ -3761,6 +3807,7 @@ pub enum Method {
     /// pass to `CepPoll` / `CepUnsubscribe`.
     #[cfg(feature = "streaming")]
     CepSubscribe {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         pattern_msgpack: Vec<u8>,
         #[serde(default)]
@@ -4781,6 +4828,7 @@ impl Method {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MineAlgorithm {
     #[default]
     Fpgrowth,
@@ -4794,6 +4842,7 @@ pub enum MineAlgorithm {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MineSeqAlgorithm {
     #[default]
     Prefixspan,
@@ -4807,6 +4856,7 @@ pub enum MineSeqAlgorithm {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ForecastAlgorithm {
     #[default]
     Arima,
@@ -4820,6 +4870,7 @@ pub enum ForecastAlgorithm {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum TextAlgorithm {
     #[default]
     Tfidf,
@@ -4833,6 +4884,7 @@ pub enum TextAlgorithm {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SubgraphAlgorithm {
     #[default]
     Gspan,
@@ -4851,6 +4903,7 @@ fn default_max_subgraph_edges() -> usize {
 /// what a query actually retrieved (ranked) vs. what was actually relevant.
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RetrievalTraceSpec {
     /// Ranked ids the retrieval actually returned.
     pub retrieved: Vec<String>,
@@ -4862,6 +4915,7 @@ pub struct RetrievalTraceSpec {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CommunityAlgorithm {
     #[default]
     Louvain,
@@ -4922,6 +4976,7 @@ fn default_true() -> bool {
 /// `field` string property, tokenized (lowercase, alnum-run split).
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct TextSource {
     /// The node label whose instances each contribute one document.
     pub node_label: String,
@@ -5014,6 +5069,7 @@ fn default_confidence() -> f64 {
 /// one transaction ⇒ concept-co-occurrence rules).
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct TransactionSource {
     /// The node label whose instances each become one transaction/basket owner.
     pub node_label: String,
@@ -5050,6 +5106,7 @@ fn default_mine_direction() -> String {
 /// tsdb/event-log dependency), optionally filtered to a `relation`.
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SequenceSource {
     /// The node label whose instances each become one ordered sequence.
     pub node_label: String,
@@ -5079,6 +5136,7 @@ pub struct SequenceSource {
 /// embeddings of these nodes" runs compute-near-data over resident vectors.
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct VectorSource {
     /// The node label whose instances each contribute one embedding row.
     pub node_label: String,
@@ -5091,6 +5149,7 @@ pub struct VectorSource {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ClusterAlgorithm {
     #[default]
     Dbscan,
@@ -5103,6 +5162,7 @@ pub enum ClusterAlgorithm {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum Linkage {
     Single,
     Complete,
@@ -5114,6 +5174,7 @@ pub enum Linkage {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum AnomalyAlgorithm {
     #[default]
     Zscore,
@@ -5126,6 +5187,7 @@ pub enum AnomalyAlgorithm {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SvmKernel {
     #[default]
     Rbf,
@@ -5184,6 +5246,7 @@ fn default_nu() -> f64 {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ClassifyAlgorithm {
     /// Gaussian Naive Bayes (default) — continuous features.
     #[default]
@@ -5202,6 +5265,7 @@ pub enum ClassifyAlgorithm {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ReduceAlgorithm {
     /// Truncated SVD (default) — unsupervised linear projection.
     #[default]
@@ -5289,6 +5353,7 @@ fn default_tsne_lr() -> f64 {
 /// the KAN learns from. Isolated label instances are kept as candidate endpoints.
 #[cfg(feature = "graphlearn")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct GraphSource {
     /// The node label whose instances form the learning subgraph's vertices.
     pub node_label: String,
@@ -5314,6 +5379,7 @@ fn default_gl_direction() -> String {
 /// Training + architecture knobs for `GraphLearnFit` (CONCEPT:EG-KG.graphlearn.link-predictor).
 #[cfg(feature = "graphlearn")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct GraphLearnParams {
     /// Polynomial basis for the edge functions: `chebyshev` (default) or `jacobi`.
     #[serde(default = "default_gl_basis")]
@@ -5396,6 +5462,7 @@ fn default_gl_top_k() -> usize {
 /// always-on `PageRank`/`ConnectedComponents` ops.
 #[cfg(feature = "compute-dist")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DistAlgo {
     /// PageRank — `damping`·rank-mass propagation for `iterations` supersteps. The
     /// cross-shard result matches the single-graph result on the UNION graph.
@@ -5960,6 +6027,7 @@ pub struct ExplainBeliefResult {
 /// `eg-epistemic` in the crate DAG).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DisclosureLevelWire {
     Full,
     Skeleton,
@@ -6233,6 +6301,7 @@ pub struct ExplainEvidenceResult {
 /// error, never a panic.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct StructuralEquationWire {
     pub id: String,
     /// `(parent id, weight)` pairs.
@@ -6267,6 +6336,7 @@ pub struct CausalEstimateResult {
 /// `Method::CausalEstimate::do_values` feeds (EPI-P3-6).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CausalQueryModeWire {
     Intervene,
     Observe,
@@ -6288,6 +6358,7 @@ pub struct CausalCounterfactualResult {
 /// has one.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CalibrationWire {
     pub interval: (f64, f64),
     pub level: f64,
@@ -6298,6 +6369,7 @@ pub struct CalibrationWire {
 /// a `Method::RankByProvenance` request, before ranking.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RetrievalCandidateWire {
     pub id: String,
     pub similarity: f64,
@@ -6316,6 +6388,7 @@ pub struct RetrievalCandidateWire {
 /// equal-weighting default `eg_epistemic::RankWeights::default()` uses.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RankWeightsWire {
     pub similarity: f64,
     pub evidence_quality: f64,
@@ -6352,6 +6425,7 @@ pub struct RankByProvenanceResult {
 
 /// Graph type for multi-tenant registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum GraphType {
     Agent,
     Team,
@@ -6361,6 +6435,7 @@ pub enum GraphType {
 
 /// Channel type for dynamic communication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ChannelType {
     /// 1:1 direct messaging between two agents.
     PeerToPeer,
@@ -6373,6 +6448,7 @@ pub enum ChannelType {
 /// Untagged result payload for efficient serialization without JSON overhead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ResultPayload {
     Bool(bool),
     Count(u64),
@@ -6389,7 +6465,11 @@ pub enum ResultPayload {
     /// top-level `bytes` result with a second `unpackb`, recovering the exact same
     /// structure the `Json` path produced. Opaque-byte methods are explicitly
     /// identified by method at the client boundary and never decoded a second time.
-    Raw(#[serde(with = "serde_bytes")] Vec<u8>),
+    Raw(
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
+        #[serde(with = "serde_bytes")]
+        Vec<u8>,
+    ),
     Json(serde_json::Value),
 }
 

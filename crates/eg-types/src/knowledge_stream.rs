@@ -15,6 +15,7 @@ pub const KNOWLEDGE_STREAM_SCHEMA_VERSION: u16 = 1;
 /// The seven result-producing families sharing the native batch currency.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum KnowledgeResultFamily {
     Graph,
     Sql,
@@ -42,6 +43,7 @@ impl KnowledgeResultFamily {
 /// `ArrowIpcV1` is the sole engine-native result contract.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum KnowledgeStreamProjection {
     #[default]
     ArrowIpcV1,
@@ -50,6 +52,7 @@ pub enum KnowledgeStreamProjection {
 /// Typed query submitted to the shared result adapter.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "family", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum KnowledgeStreamQuery {
     Graph {
         /// Empty means every visible node.
@@ -61,6 +64,7 @@ pub enum KnowledgeStreamQuery {
     },
     Sql {
         query: String,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(default, with = "serde_bytes")]
         params_msgpack: Vec<u8>,
     },
@@ -111,6 +115,7 @@ impl KnowledgeStreamQuery {
 /// Every reference is an opaque `eg:<namespace>:<digest>` value.  The facade
 /// validates them by constructing `eg_modality::OpaqueRef`s before resuming.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct KnowledgeStreamCursorV1 {
     pub schema_version: u16,
     pub family: KnowledgeResultFamily,
@@ -132,6 +137,7 @@ pub struct KnowledgeStreamCursorV1 {
 
 /// One pull from the shared served stream.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct KnowledgeStreamRequestV1 {
     pub schema_version: u16,
     pub query: KnowledgeStreamQuery,

@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 /// already-verified model reference (GOC-36 owns acquisition; this crate
 /// never resolves a bare model name into a path or URL).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum AsrOp {
     TranscribeFile {
         model_path: String,

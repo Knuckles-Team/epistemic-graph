@@ -8,6 +8,7 @@ use crate::protocol::Method;
 /// the facts that were verified, not caller-controlled replacements for them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationRequestContext {
     pub request_id: u64,
     pub principal: String,
@@ -25,6 +26,7 @@ pub struct MutationRequestContext {
 /// value; it exists for policy/audit/projection consumers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MutationSurface {
     Graph,
     Transaction,
@@ -40,6 +42,7 @@ pub enum MutationSurface {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[repr(u8)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MutationDomain {
     GraphRows = 0,
     GraphSnapshot = 1,
@@ -173,6 +176,7 @@ impl MutationDomain {
 /// Admission capabilities that materially change persistence semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MutationCapability {
     /// Reserved for authenticated first-boot/system-recovery operations.
     UnversionedSystemMutation,
@@ -192,6 +196,7 @@ pub enum MutationCommitPhase {
 /// One ordered engine operation in a [`MutationBatch`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationOperation {
     pub ordinal: u32,
     pub surface: MutationSurface,

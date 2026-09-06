@@ -16,12 +16,14 @@ where
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum RequestContextSchemaVersion {
     #[serde(rename = "2")]
     V2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum RequestContextAuthenticationMethod {
     #[serde(rename = "workload_identity")]
     WorkloadIdentity,
@@ -34,12 +36,14 @@ pub enum RequestContextAuthenticationMethod {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MutationBatchSchemaVersion {
     #[serde(rename = "1")]
     V1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MutationOperationDomain {
     #[serde(rename = "graph")]
     Graph,
@@ -58,6 +62,7 @@ pub enum MutationOperationDomain {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MutationOperationAction {
     #[serde(rename = "upsert")]
     Upsert,
@@ -74,12 +79,14 @@ pub enum MutationOperationAction {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ChangeEnvelopeSchemaVersion {
     #[serde(rename = "1")]
     V1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ChangeEnvelopeOperation {
     #[serde(rename = "upsert")]
     Upsert,
@@ -90,6 +97,7 @@ pub enum ChangeEnvelopeOperation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SourceAccessClassification {
     #[serde(rename = "public")]
     Public,
@@ -240,12 +248,14 @@ pub enum PlacementRouteSchemaVersion {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum PlacementRouteRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ClaimWorkItemRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -296,12 +306,14 @@ pub enum OperationRedirectKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ResourceReservationRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ResourceReservationRequestTargetKind {
     #[serde(rename = "local")]
     Local,
@@ -400,6 +412,7 @@ pub enum ResourceTargetSnapshotKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ResourceReservationStatusRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -436,12 +449,14 @@ pub enum ResourceReservationSummaryState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ResourceHostUpdateRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ResourceHostUpdateRequestTargetKind {
     #[serde(rename = "local")]
     Local,
@@ -476,12 +491,14 @@ pub enum ResourceHostUpdateSnapshotTargetKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneIntentSchemaVersion {
     #[serde(rename = "1")]
     V1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneIntentHostTargetKind {
     #[serde(rename = "local")]
     Local,
@@ -490,6 +507,7 @@ pub enum DevelopmentLaneIntentHostTargetKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneCleanupCompleteRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -552,12 +570,14 @@ pub enum DevelopmentLaneCleanupIntentSchemaVersion {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneFinishRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneFinishRequestTerminalState {
     #[serde(rename = "succeeded")]
     Succeeded,
@@ -656,6 +676,7 @@ pub enum DevelopmentLaneHoldState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneObserveRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -712,6 +733,7 @@ pub enum DevelopmentLaneObserveResultDecision {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneQueryRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -774,12 +796,14 @@ pub enum DevelopmentLaneQuotaChargeSchemaVersion {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneQuotaPolicySchemaVersion {
     #[serde(rename = "1")]
     V1,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneQuotaUpdateRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -812,6 +836,7 @@ pub enum DevelopmentLaneQuotaUpdateResultDecision {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneRenewRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -868,6 +893,7 @@ pub enum DevelopmentLaneRenewResultDecision {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneReserveRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -924,6 +950,7 @@ pub enum DevelopmentLaneResultDecision {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DevelopmentLaneStatusRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -937,6 +964,7 @@ pub enum DevelopmentLaneStatusResultSchemaVersion {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RequestContext {
     pub schema_version: RequestContextSchemaVersion,
     pub request_id: String,
@@ -957,6 +985,7 @@ pub struct RequestContext {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationBatch {
     pub schema_version: MutationBatchSchemaVersion,
     pub batch_id: String,
@@ -973,6 +1002,7 @@ pub struct MutationBatch {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationOperation {
     pub operation_id: String,
     pub domain: MutationOperationDomain,
@@ -988,6 +1018,7 @@ pub struct MutationOperation {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChangeEnvelope {
     pub schema_version: ChangeEnvelopeSchemaVersion,
     pub envelope_id: String,
@@ -1017,6 +1048,7 @@ pub struct ChangeEnvelope {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SourceAccess {
     pub classification: SourceAccessClassification,
     pub read_scopes: Vec<String>,
@@ -1182,6 +1214,7 @@ pub struct PlacementRoute {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct PlacementRouteRequest {
     pub schema_version: PlacementRouteRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1191,6 +1224,7 @@ pub struct PlacementRouteRequest {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ClaimWorkItemRequest {
     pub schema_version: ClaimWorkItemRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1316,6 +1350,7 @@ pub struct OperationRedirect {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ResourceReservationRequest {
     pub schema_version: ResourceReservationRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1372,6 +1407,7 @@ pub struct ResourceCapacitySnapshot {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ResourceRequirement {
     pub cpu_weight: u64,
     pub memory_mib: u64,
@@ -1466,6 +1502,7 @@ pub struct ResourceTargetSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ResourceReservationStatusRequest {
     pub schema_version: ResourceReservationStatusRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1583,6 +1620,7 @@ pub struct ResourceReservationSummary {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ResourceHostUpdateRequest {
     pub schema_version: ResourceHostUpdateRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1605,6 +1643,7 @@ pub struct ResourceHostUpdateRequest {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ResourceCapacity {
     pub cpu_weight: u64,
     pub memory_mib: u64,
@@ -1677,6 +1716,7 @@ pub struct ResourceHostUpdateSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneIntent {
     pub schema_version: DevelopmentLaneIntentSchemaVersion,
     pub tenant_ref: String,
@@ -1705,6 +1745,7 @@ pub struct DevelopmentLaneIntent {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneCleanupCompleteRequest {
     pub schema_version: DevelopmentLaneCleanupCompleteRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1752,6 +1793,7 @@ pub struct DevelopmentLaneCleanupIntent {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneFinishRequest {
     pub schema_version: DevelopmentLaneFinishRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1839,6 +1881,7 @@ pub struct DevelopmentLaneHold {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneObserveRequest {
     pub schema_version: DevelopmentLaneObserveRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1873,6 +1916,7 @@ pub struct DevelopmentLaneObserveResult {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneQueryRequest {
     pub schema_version: DevelopmentLaneQueryRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1930,6 +1974,7 @@ pub struct DevelopmentLaneQuotaCharge {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneQuotaPolicy {
     pub schema_version: DevelopmentLaneQuotaPolicySchemaVersion,
     pub policy_name: String,
@@ -1970,6 +2015,7 @@ pub struct DevelopmentLaneQuotaPolicy {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneQuotaUpdateRequest {
     pub schema_version: DevelopmentLaneQuotaUpdateRequestSchemaVersion,
     pub tenant_ref: String,
@@ -1994,6 +2040,7 @@ pub struct DevelopmentLaneQuotaUpdateResult {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneRenewRequest {
     pub schema_version: DevelopmentLaneRenewRequestSchemaVersion,
     pub tenant_ref: String,
@@ -2027,6 +2074,7 @@ pub struct DevelopmentLaneRenewResult {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneReserveRequest {
     pub schema_version: DevelopmentLaneReserveRequestSchemaVersion,
     pub tenant_ref: String,
@@ -2058,6 +2106,7 @@ pub struct DevelopmentLaneResult {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DevelopmentLaneStatusRequest {
     pub schema_version: DevelopmentLaneStatusRequestSchemaVersion,
     pub tenant_ref: String,

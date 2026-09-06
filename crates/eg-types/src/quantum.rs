@@ -52,6 +52,7 @@ use serde::{Deserialize, Serialize};
 /// One candidate item for [`QuantumOp::Rank`], with the classical weight/score
 /// signal the ranking circuit is built from.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct QuantumRankCandidate {
     pub id: String,
     pub weight: f64,
@@ -61,6 +62,7 @@ pub struct QuantumRankCandidate {
 /// cost Hamiltonian from. `source`/`target` reference `nodes` by value, not index —
 /// stable across a caller re-ordering `nodes`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct QuantumQaoaEdge {
     pub source: String,
     pub target: String,
@@ -85,6 +87,7 @@ fn default_qaoa_p_layers() -> u32 {
 /// variant, many operations" shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum QuantumOp {
     /// Rank candidate items by a caller-supplied weight signal through a
     /// deterministic amplitude-encoding + interference circuit. The agent NEVER

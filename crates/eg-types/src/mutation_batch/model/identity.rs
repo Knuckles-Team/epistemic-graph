@@ -15,6 +15,7 @@ pub const RESERVED_SYSTEM_TENANT: &str = "__eg_system__";
 /// Validated tenant security boundary. Bytes are retained exactly as supplied.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct TenantId(String);
 
 impl TenantId {
@@ -40,6 +41,7 @@ impl TenantId {
 /// Validated graph or native-resource name with no filesystem semantics.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct LogicalName(String);
 
 impl LogicalName {
@@ -57,6 +59,7 @@ impl LogicalName {
 /// Opaque logical-generation identity. It is never derived from a resource name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct IncarnationId(String);
 
 impl IncarnationId {
@@ -91,6 +94,7 @@ impl_validated_deserialize!(IncarnationId);
 /// Typed logical owner of a durable mutation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MutationScope {
     Graph {
         graph: LogicalName,
@@ -131,6 +135,7 @@ impl MutationScope {
 /// Canonical SHA-256 identity digest persisted with every authority-bearing row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationScopeDigest([u8; 32]);
 
 impl MutationScopeDigest {
@@ -173,6 +178,7 @@ pub const COMPILED_BATCH_INCARNATION: &str = "epistemic-graph:mutation-batch-com
 /// Tenant + typed logical owner + exact lifecycle generation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationScopeIdentity {
     tenant: TenantId,
     scope: MutationScope,
@@ -208,11 +214,7 @@ impl MutationScopeIdentity {
     /// Prefer this over hand-rolling the sequence. It is fallible because the
     /// newtypes validate (see `validate_identifier`), so an invalid literal is
     /// a returned error rather than a panic at startup.
-    pub fn fixed_graph(
-        tenant: &str,
-        graph: &str,
-        incarnation_id: &str,
-    ) -> Result<Self, String> {
+    pub fn fixed_graph(tenant: &str, graph: &str, incarnation_id: &str) -> Result<Self, String> {
         Ok(Self::graph(
             TenantId::new(tenant)?,
             LogicalName::new(graph)?,

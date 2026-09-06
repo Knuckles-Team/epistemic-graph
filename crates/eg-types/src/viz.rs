@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 /// The native-visualization render control-plane operation (D-VZ-1, full V4).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum VizOp {
     /// Resolve a `ViewSpec` against a dataset and render it to static image bytes.
     Render(VizRenderRequest),
@@ -45,6 +46,7 @@ pub enum VizOp {
 /// target canvas size, the output format, and the frame budget
 /// `eg_viz_core::select_tier` resolves against.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct VizRenderRequest {
     /// A caller-provided `eg_viz_core::ViewSpec`, as JSON. Opaque here (this
     /// crate has no `eg-viz-core` dependency); the handler
@@ -75,6 +77,7 @@ pub struct VizRenderRequest {
 /// directly; the handler converts one-to-one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum VizFormat {
     Png,
     Svg,
@@ -83,6 +86,7 @@ pub enum VizFormat {
 
 /// Where `VizOp::Render` gets its rows from.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum VizDatasetSource {
     /// Caller-supplied columns, ingested verbatim into a fresh per-request
     /// `ColumnStore` under `VizRenderRequest::dataset_ref`.
@@ -114,6 +118,7 @@ pub enum VizDatasetSource {
 /// dependency-free; the handler converts to the real type at the verified
 /// boundary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum VizColumnValues {
     F64(Vec<f64>),
     Utf8(Vec<String>),

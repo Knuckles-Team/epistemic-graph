@@ -32,6 +32,7 @@ pub const MAX_SUBMIT_PROVENANCE_REFS: usize = 64;
 pub const MAX_SUBMIT_REF_BYTES: usize = 1_048_576;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum NativeControlSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -69,6 +70,7 @@ pub enum CapacityDecision {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapacityDemand {
     pub cell_id: String,
     pub resource_class: CapacityResourceClass,
@@ -77,6 +79,7 @@ pub struct CapacityDemand {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapacityLeaseFence {
     pub lease_id: String,
     pub lease_epoch: u64,
@@ -85,6 +88,7 @@ pub struct CapacityLeaseFence {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapacityAcquireRequest {
     pub schema_version: NativeControlSchemaVersion,
     pub tenant_ref: String,
@@ -104,6 +108,7 @@ pub struct CapacityAcquireRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapacityLeaseMutationRequest {
     pub schema_version: NativeControlSchemaVersion,
     pub tenant_ref: String,
@@ -116,6 +121,7 @@ pub struct CapacityLeaseMutationRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapacityReclaimRequest {
     pub schema_version: NativeControlSchemaVersion,
     pub tenant_ref: String,
@@ -127,6 +133,7 @@ pub struct CapacityReclaimRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapacityStatusRequest {
     pub schema_version: NativeControlSchemaVersion,
     pub tenant_ref: String,
@@ -138,6 +145,7 @@ pub struct CapacityStatusRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapacityCellUpdateRequest {
     pub schema_version: NativeControlSchemaVersion,
     pub cell: CapacityCell,
@@ -205,6 +213,7 @@ pub struct CapacityCellUpdateResult {
 /// not caller-controlled routing hints.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SubmitWorkItemRequest {
     pub schema_version: NativeControlSchemaVersion,
     pub context: RequestContext,
@@ -229,6 +238,7 @@ pub struct SubmitWorkItemRequest {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SubmitWorkItemsRequest {
     pub schema_version: NativeControlSchemaVersion,
     pub context: RequestContext,
