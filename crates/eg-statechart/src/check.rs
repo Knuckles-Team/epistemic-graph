@@ -26,7 +26,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::model::{EventName, StateId, StatechartDef};
+use crate::model::{EventName, State, StateId, StatechartDef};
 
 /// A hard structural defect that blocks storage.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,8 +171,22 @@ impl CompletenessReport {
 /// one hard error is present.
 pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessReport> {
     let mut report = CompletenessReport::default();
+    check_state_set(def, &mut report);
+    check_containment_tree(def, &mut report);
+    check_alphabet(def, &mut report);
+    check_initial_and_finals(def, &mut report);
+    check_transitions(def, &mut report);
+    check_reachability(def, &mut report);
+    warn_nondeterminism(def, &mut report);
+    if report.is_valid() {
+        Ok(report)
+    } else {
+        Err(report)
+    }
+}
 
-    // ── S well-formed ────────────────────────────────────────────────────────────
+/// S well-formed: at least one state, and no id declared twice.
+fn check_state_set(def: &StatechartDef, report: &mut CompletenessReport) {
     if def.states.is_empty() {
         report.errors.push(DefError::NoStates);
     }
@@ -184,36 +198,16 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
                 .push(DefError::DuplicateState(state.id.clone()));
         }
     }
+}
 
-    // ── containment tree well-formed (hierarchy / parallel / history) ────────────────
-    // A composite state's children must be declared, form a forest (single parent, no
-    // cycle), and any initial_child must be a real child; history only means something on
-    // a composite. This replaces the phase-1 blanket rejection of composite charts.
+/// The containment tree well-formed (hierarchy / parallel / history): a composite state's
+/// children must be declared, form a forest (single parent, no cycle), and any
+/// `initial_child` must be a real child; history only means something on a composite.
+fn check_containment_tree(def: &StatechartDef, report: &mut CompletenessReport) {
     let declared: BTreeSet<&str> = def.state_ids();
     let mut parents_of: BTreeMap<&str, usize> = BTreeMap::new();
     for state in &def.states {
-        for child in &state.children {
-            if !declared.contains(child.as_str()) {
-                report.errors.push(DefError::ChildNotDeclared {
-                    parent: state.id.clone(),
-                    child: child.clone(),
-                });
-            }
-            *parents_of.entry(child.as_str()).or_default() += 1;
-        }
-        if let Some(initial_child) = &state.initial_child {
-            if !state.children.iter().any(|c| c == initial_child) {
-                report.errors.push(DefError::InitialChildNotInChildren {
-                    parent: state.id.clone(),
-                    child: initial_child.clone(),
-                });
-            }
-        }
-        if state.history.is_some() && state.children.is_empty() {
-            report
-                .errors
-                .push(DefError::HistoryOnAtomic(state.id.clone()));
-        }
+        check_state_containment(state, &declared, &mut parents_of, report);
     }
     for (child, count) in &parents_of {
         if *count > 1 {
@@ -222,8 +216,50 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
                 .push(DefError::MultipleParents(child.to_string()));
         }
     }
-    // Cycle guard: walk each state up its (single-parent) containment chain; a revisit of
-    // the start, or an over-long walk, is a cycle.
+    check_containment_cycles(def, &parents_of, report);
+}
+
+/// One state's containment declarations: every child declared, any `initial_child` really
+/// among the children, and a history marker only on a composite. Each child's parent count
+/// is accumulated into `parents_of` so the forest check can see multi-parent states.
+fn check_state_containment<'a>(
+    state: &'a State,
+    declared: &BTreeSet<&str>,
+    parents_of: &mut BTreeMap<&'a str, usize>,
+    report: &mut CompletenessReport,
+) {
+    for child in &state.children {
+        if !declared.contains(child.as_str()) {
+            report.errors.push(DefError::ChildNotDeclared {
+                parent: state.id.clone(),
+                child: child.clone(),
+            });
+        }
+        *parents_of.entry(child.as_str()).or_default() += 1;
+    }
+    if let Some(initial_child) = &state.initial_child {
+        if !state.children.iter().any(|c| c == initial_child) {
+            report.errors.push(DefError::InitialChildNotInChildren {
+                parent: state.id.clone(),
+                child: initial_child.clone(),
+            });
+        }
+    }
+    if state.history.is_some() && state.children.is_empty() {
+        report
+            .errors
+            .push(DefError::HistoryOnAtomic(state.id.clone()));
+    }
+}
+
+/// Walk each state up its (single-parent) containment chain; a revisit of the start, or an
+/// over-long walk, is a cycle. States with several parents are already a reported error and
+/// carry no usable chain, so they are left out of the walk.
+fn check_containment_cycles(
+    def: &StatechartDef,
+    parents_of: &BTreeMap<&str, usize>,
+    report: &mut CompletenessReport,
+) {
     let single_parent: BTreeMap<&str, &str> = def
         .states
         .iter()
@@ -244,8 +280,10 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
             cur = single_parent.get(ancestor).copied();
         }
     }
+}
 
-    // ── Σ well-formed ────────────────────────────────────────────────────────────
+/// Sigma well-formed: no event symbol declared twice.
+fn check_alphabet(def: &StatechartDef, report: &mut CompletenessReport) {
     let mut seen_symbols = BTreeSet::new();
     for symbol in &def.alphabet {
         if !seen_symbols.insert(symbol.as_str()) {
@@ -254,8 +292,10 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
                 .push(DefError::DuplicateAlphabetSymbol(symbol.clone()));
         }
     }
+}
 
-    // ── s₀ ∈ S, F ⊆ S ────────────────────────────────────────────────────────────
+/// s0 in S and F subset of S.
+fn check_initial_and_finals(def: &StatechartDef, report: &mut CompletenessReport) {
     if !def.has_state(&def.initial) {
         report
             .errors
@@ -268,8 +308,12 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
                 .push(DefError::FinalNotDeclared(final_id.clone()));
         }
     }
+}
 
-    // ── δ well-formed + finals are terminal + alphabet usage ─────────────────────
+/// delta well-formed: both endpoints declared, the event in the alphabet, and no outgoing
+/// edge on a final state. Alphabet symbols no transition uses are warned about here, since
+/// this is the pass that learns which symbols are used.
+fn check_transitions(def: &StatechartDef, report: &mut CompletenessReport) {
     let mut used_symbols = BTreeSet::new();
     for t in &def.transitions {
         let label = t
@@ -309,22 +353,27 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
                 .push(DefWarning::UnusedAlphabetSymbol(symbol.clone()));
         }
     }
+}
 
-    // ── reachability from s₀ ─────────────────────────────────────────────────────
-    // Only meaningful when s₀ is real; otherwise the initial-not-declared error stands
-    // on its own and a reachability sweep would be noise.
-    if def.has_state(&def.initial) {
-        let reachable = reachable_from(def, &def.initial);
-        for state in &def.states {
-            if !reachable.contains(state.id.as_str()) {
-                report
-                    .errors
-                    .push(DefError::UnreachableState(state.id.clone()));
-            }
+/// Every state reachable from s0. Only meaningful when s0 is real; otherwise the
+/// initial-not-declared error stands on its own and a reachability sweep would be noise.
+fn check_reachability(def: &StatechartDef, report: &mut CompletenessReport) {
+    if !def.has_state(&def.initial) {
+        return;
+    }
+    let reachable = reachable_from(def, &def.initial);
+    for state in &def.states {
+        if !reachable.contains(state.id.as_str()) {
+            report
+                .errors
+                .push(DefError::UnreachableState(state.id.clone()));
         }
     }
+}
 
-    // ── nondeterminism warnings (unguarded duplicates on one (state,event)) ──────
+/// Warn about nondeterminism: more than one UNGUARDED transition on the same
+/// `(state, event)` pair.
+fn warn_nondeterminism(def: &StatechartDef, report: &mut CompletenessReport) {
     let mut unguarded: BTreeMap<(&str, &str), usize> = BTreeMap::new();
     for t in &def.transitions {
         if t.guard.is_none() {
@@ -342,12 +391,6 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
             });
         }
     }
-
-    if report.is_valid() {
-        Ok(report)
-    } else {
-        Err(report)
-    }
 }
 
 /// The set of state ids reachable from `start` (BFS). Two kinds of edge make a state
@@ -357,27 +400,26 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
 /// hierarchical chart pass the no-dead-state check.
 pub fn reachable_from<'a>(def: &'a StatechartDef, start: &str) -> BTreeSet<&'a str> {
     let mut reachable = BTreeSet::new();
-    if let Some(state) = def.state(start) {
-        let mut queue = VecDeque::new();
-        reachable.insert(state.id.as_str());
-        queue.push_back(state.id.as_str());
-        while let Some(current) = queue.pop_front() {
-            // transition targets
-            for t in def.transitions.iter().filter(|t| t.from == current) {
-                if let Some(target) = def.state(&t.to) {
-                    if reachable.insert(target.id.as_str()) {
-                        queue.push_back(target.id.as_str());
-                    }
-                }
-            }
-            // containment: children of a reachable composite are reachable
-            if let Some(state) = def.state(current) {
-                for child in &state.children {
-                    if let Some(child_state) = def.state(child) {
-                        if reachable.insert(child_state.id.as_str()) {
-                            queue.push_back(child_state.id.as_str());
-                        }
-                    }
+    let Some(state) = def.state(start) else {
+        return reachable;
+    };
+    let mut queue = VecDeque::new();
+    reachable.insert(state.id.as_str());
+    queue.push_back(state.id.as_str());
+    while let Some(current) = queue.pop_front() {
+        let targets = def
+            .transitions
+            .iter()
+            .filter(|t| t.from == current)
+            .map(|t| t.to.as_str());
+        let children = def
+            .state(current)
+            .into_iter()
+            .flat_map(|s| s.children.iter().map(String::as_str));
+        for id in targets.chain(children) {
+            if let Some(next) = def.state(id) {
+                if reachable.insert(next.id.as_str()) {
+                    queue.push_back(next.id.as_str());
                 }
             }
         }

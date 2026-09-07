@@ -42,7 +42,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::action::{apply_all, Action};
 use crate::context::{Context, EventInput};
 use crate::instance::Configuration;
-use crate::model::{HistoryKind, StateId, StatechartDef};
+use crate::model::{HistoryKind, State, StateId, StatechartDef};
 
 /// Why a `(state, event)` produced no state change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -340,56 +340,79 @@ fn exit_set(
         .collect()
 }
 
-/// Enter `id` (running its entry actions if newly activated), then descend into its
-/// default / history child(ren). The recursive OUTER-in entry primitive.
-fn enter_full(
-    def: &StatechartDef,
-    parent: &BTreeMap<&str, &str>,
+/// Activate `id`, running its entry actions the first time it enters the configuration,
+/// and answer with its definition only when there is something to descend into — `None`
+/// for an undeclared or atomic state. The shared prologue of every entry walk.
+fn activate<'a>(
+    def: &'a StatechartDef,
     id: &str,
-    history: &BTreeMap<StateId, BTreeSet<StateId>>,
     active: &mut BTreeSet<StateId>,
     actions: &mut Vec<Action>,
-) {
+) -> Option<&'a State> {
     if active.insert(id.to_string()) {
         if let Some(s) = def.state(id) {
             actions.extend(s.entry.iter().cloned());
         }
     }
-    let Some(s) = def.state(id) else { return };
+    let s = def.state(id)?;
     if s.children.is_empty() {
-        return;
+        None
+    } else {
+        Some(s)
     }
+}
+
+/// The child a compound state descends into when nothing is remembered: its declared
+/// `initial_child`, else its first child.
+fn default_child(s: &State) -> Option<StateId> {
+    s.initial_child
+        .clone()
+        .or_else(|| s.children.first().cloned())
+}
+
+/// The remembered child to resume into and how deeply to restore it, or `None` when this
+/// state carries no history marker or has nothing remembered inside it.
+fn remembered_child<'a>(
+    s: &'a State,
+    history: &'a BTreeMap<StateId, BTreeSet<StateId>>,
+) -> Option<(HistoryKind, &'a StateId, &'a BTreeSet<StateId>)> {
+    let kind = s.history?;
+    let remembered = history.get(&s.id)?;
+    let child = s.children.iter().find(|c| remembered.contains(*c))?;
+    Some((kind, child, remembered))
+}
+
+/// Enter `id` (running its entry actions if newly activated), then descend into its
+/// default / history child(ren). The recursive OUTER-in entry primitive.
+fn enter_full(
+    def: &StatechartDef,
+    id: &str,
+    history: &BTreeMap<StateId, BTreeSet<StateId>>,
+    active: &mut BTreeSet<StateId>,
+    actions: &mut Vec<Action>,
+) {
+    let Some(s) = activate(def, id, active, actions) else {
+        return;
+    };
     if s.parallel {
         // Every orthogonal region is entered.
         for child in &s.children {
-            enter_full(def, parent, child, history, active, actions);
+            enter_full(def, child, history, active, actions);
         }
         return;
     }
     // Compound: pick the child to descend into — resume from history if remembered.
-    if let Some(kind) = s.history {
-        if let Some(remembered) = history.get(&s.id) {
-            if let Some(child) = s.children.iter().find(|c| remembered.contains(*c)) {
-                match kind {
-                    HistoryKind::Shallow => {
-                        // Restore only the immediate child; descend by default below it.
-                        enter_full(def, parent, child, history, active, actions);
-                        return;
-                    }
-                    HistoryKind::Deep => {
-                        enter_restore(def, parent, child, remembered, history, active, actions);
-                        return;
-                    }
-                }
+    match remembered_child(s, history) {
+        // Shallow history restores only the immediate child; descend by default below it.
+        Some((HistoryKind::Shallow, child, _)) => enter_full(def, child, history, active, actions),
+        Some((HistoryKind::Deep, child, remembered)) => {
+            enter_restore(def, child, remembered, history, active, actions)
+        }
+        None => {
+            if let Some(child) = default_child(s) {
+                enter_full(def, &child, history, active, actions);
             }
         }
-    }
-    let child = s
-        .initial_child
-        .clone()
-        .or_else(|| s.children.first().cloned());
-    if let Some(child) = child {
-        enter_full(def, parent, &child, history, active, actions);
     }
 }
 
@@ -397,41 +420,31 @@ fn enter_full(
 /// subtree (falling back to defaults where the memory does not reach).
 fn enter_restore(
     def: &StatechartDef,
-    parent: &BTreeMap<&str, &str>,
     id: &str,
     remembered: &BTreeSet<StateId>,
     history: &BTreeMap<StateId, BTreeSet<StateId>>,
     active: &mut BTreeSet<StateId>,
     actions: &mut Vec<Action>,
 ) {
-    if active.insert(id.to_string()) {
-        if let Some(s) = def.state(id) {
-            actions.extend(s.entry.iter().cloned());
-        }
-    }
-    let Some(s) = def.state(id) else { return };
-    if s.children.is_empty() {
+    let Some(s) = activate(def, id, active, actions) else {
         return;
-    }
+    };
     if s.parallel {
         for child in &s.children {
             if remembered.contains(child) {
-                enter_restore(def, parent, child, remembered, history, active, actions);
+                enter_restore(def, child, remembered, history, active, actions);
             } else {
-                enter_full(def, parent, child, history, active, actions);
+                enter_full(def, child, history, active, actions);
             }
         }
         return;
     }
-    if let Some(child) = s.children.iter().find(|c| remembered.contains(*c)) {
-        enter_restore(def, parent, child, remembered, history, active, actions);
-    } else {
-        let child = s
-            .initial_child
-            .clone()
-            .or_else(|| s.children.first().cloned());
-        if let Some(child) = child {
-            enter_full(def, parent, &child, history, active, actions);
+    match s.children.iter().find(|c| remembered.contains(*c)) {
+        Some(child) => enter_restore(def, child, remembered, history, active, actions),
+        None => {
+            if let Some(child) = default_child(s) {
+                enter_full(def, &child, history, active, actions);
+            }
         }
     }
 }
@@ -459,35 +472,40 @@ fn enter_to_target(
         cur = parent.get(c).copied();
     }
     chain.reverse();
-    if chain.is_empty() {
+    let Some((&deepest, ancestors)) = chain.split_last() else {
         // target IS the domain (rare self-loop on a composite) — descend it fully.
-        enter_full(def, parent, target, history, active, actions);
+        enter_full(def, target, history, active, actions);
+        return;
+    };
+    for (i, node) in ancestors.iter().enumerate() {
+        enter_pass_through(def, node, chain[i + 1], history, active, actions);
+    }
+    enter_full(def, deepest, history, active, actions);
+}
+
+/// Enter a pass-through ancestor on an entry path: its entry actions only — it must NOT
+/// take its default child, because the path continues to `next`. A parallel pass-through
+/// still default-enters every region the path does not run through.
+fn enter_pass_through(
+    def: &StatechartDef,
+    node: &str,
+    next: &str,
+    history: &BTreeMap<StateId, BTreeSet<StateId>>,
+    active: &mut BTreeSet<StateId>,
+    actions: &mut Vec<Action>,
+) {
+    if active.insert(node.to_string()) {
+        if let Some(s) = def.state(node) {
+            actions.extend(s.entry.iter().cloned());
+        }
+    }
+    let Some(s) = def.state(node) else { return };
+    if !s.parallel {
         return;
     }
-    let last = chain.len() - 1;
-    for (i, node) in chain.iter().enumerate() {
-        if i == last {
-            enter_full(def, parent, node, history, active, actions);
-        } else {
-            // Pass-through ancestor: entry actions only, do NOT take its default child
-            // (the path continues to the next chain element).
-            if active.insert(node.to_string()) {
-                if let Some(s) = def.state(node) {
-                    actions.extend(s.entry.iter().cloned());
-                }
-            }
-            // If this pass-through node is parallel, its OTHER regions must still be
-            // entered by default.
-            if let Some(s) = def.state(node) {
-                if s.parallel {
-                    let next = chain[i + 1];
-                    for c in &s.children {
-                        if c.as_str() != next {
-                            enter_full(def, parent, c, history, active, actions);
-                        }
-                    }
-                }
-            }
+    for c in &s.children {
+        if c.as_str() != next {
+            enter_full(def, c, history, active, actions);
         }
     }
 }
@@ -500,19 +518,146 @@ pub fn initial_configuration(
     if def.state(&def.initial).is_none() {
         return Err(TransitionError::UnknownState(def.initial.clone()));
     }
-    let parent = parent_map(def);
     let mut active = BTreeSet::new();
     let mut actions = Vec::new();
     let history = BTreeMap::new();
-    enter_full(
-        def,
-        &parent,
-        &def.initial,
-        &history,
-        &mut active,
-        &mut actions,
-    );
+    enter_full(def, &def.initial, &history, &mut active, &mut actions);
     Ok((Configuration { active, history }, actions))
+}
+
+/// Selection: for each active leaf, walk up to the first ancestor with an ENABLED
+/// transition on the event (guards evaluated in declaration order). Deduplicated by
+/// transition index, so the result stays in document order.
+fn select_enabled(
+    def: &StatechartDef,
+    config: &Configuration,
+    context: &Context,
+    event: &EventInput,
+    parent: &BTreeMap<&str, &str>,
+) -> BTreeSet<usize> {
+    let mut candidate_idx: BTreeSet<usize> = BTreeSet::new();
+    for leaf in &config.leaves(def) {
+        let mut cur: Option<&str> = Some(*leaf);
+        'up: while let Some(s) = cur {
+            for (idx, t) in def.transitions.iter().enumerate() {
+                if t.from == s && t.event == event.name && t.guard_holds(context, event) {
+                    candidate_idx.insert(idx);
+                    break 'up;
+                }
+            }
+            cur = parent.get(s).copied();
+        }
+    }
+    candidate_idx
+}
+
+/// Conflict resolution: in document order, keep the transitions whose exit sets are
+/// pairwise disjoint — so orthogonal regions fire together, but two edges in the same
+/// region cannot.
+fn resolve_conflicts(
+    def: &StatechartDef,
+    parent: &BTreeMap<&str, &str>,
+    active: &BTreeSet<StateId>,
+    candidates: &BTreeSet<usize>,
+) -> Vec<usize> {
+    let exits_of = |i: usize| {
+        let t = &def.transitions[i];
+        exit_set(
+            parent,
+            active,
+            transition_domain(parent, def, &t.from, &t.to),
+        )
+    };
+    let mut selected: Vec<usize> = Vec::new();
+    for &i in candidates {
+        let ei = exits_of(i);
+        if !selected.iter().any(|&j| !ei.is_disjoint(&exits_of(j))) {
+            selected.push(i);
+        }
+    }
+    selected
+}
+
+/// Why nothing fired: distinguish "no edge for this event anywhere in the active nest"
+/// from "edges exist but every guard was false".
+fn no_transition_reason(
+    def: &StatechartDef,
+    active: &BTreeSet<StateId>,
+    event: &EventInput,
+) -> NoOpReason {
+    let had_candidate = def
+        .transitions
+        .iter()
+        .any(|t| t.event == event.name && active.contains(&t.from));
+    if had_candidate {
+        NoOpReason::AllGuardsFalse
+    } else {
+        NoOpReason::NoTransitionDefined
+    }
+}
+
+/// The combined exit set across every firing transition, plus each one's transition
+/// domain in `selected` order — the entry phase needs those domains again.
+fn exit_plan(
+    def: &StatechartDef,
+    parent: &BTreeMap<&str, &str>,
+    active: &BTreeSet<StateId>,
+    selected: &[usize],
+) -> (BTreeSet<StateId>, Vec<Option<String>>) {
+    let mut exit_all: BTreeSet<StateId> = BTreeSet::new();
+    let mut domains: Vec<Option<String>> = Vec::with_capacity(selected.len());
+    for &i in selected {
+        let t = &def.transitions[i];
+        let dom = transition_domain(parent, def, &t.from, &t.to).map(|s| s.to_string());
+        exit_all.extend(exit_set(parent, active, dom.as_deref()));
+        domains.push(dom);
+    }
+    (exit_all, domains)
+}
+
+/// Record history for every exited composite that carries a history marker. Necessarily
+/// BEFORE the active set is torn down, since the snapshot is of what is active now.
+fn record_history(
+    def: &StatechartDef,
+    parent: &BTreeMap<&str, &str>,
+    exit_all: &BTreeSet<StateId>,
+    active: &BTreeSet<StateId>,
+    history: &mut BTreeMap<StateId, BTreeSet<StateId>>,
+) {
+    for h in exit_all {
+        if !def.state(h).is_some_and(|st| st.history.is_some()) {
+            continue;
+        }
+        let snapshot: BTreeSet<StateId> = active
+            .iter()
+            .filter(|s| is_proper_descendant(parent, s.as_str(), h))
+            .cloned()
+            .collect();
+        history.insert(h.clone(), snapshot);
+    }
+}
+
+/// Exit inner-out (deepest first): run each state's exit actions and drop it from the
+/// active set.
+fn run_exits(
+    def: &StatechartDef,
+    parent: &BTreeMap<&str, &str>,
+    exit_all: &BTreeSet<StateId>,
+    active: &mut BTreeSet<StateId>,
+    actions: &mut Vec<Action>,
+) {
+    let mut exit_ordered: Vec<&StateId> = exit_all.iter().collect();
+    exit_ordered.sort_by(|a, b| {
+        depth(parent, b.as_str())
+            .cmp(&depth(parent, a.as_str()))
+            .then(b.cmp(a))
+    });
+    for s in exit_ordered {
+        if let Some(st) = def.state(s) {
+            actions.extend(st.exit.iter().cloned());
+        }
+        active.remove(s);
+    }
 }
 
 /// Apply an event to a whole [`Configuration`] (CONCEPT:INT-P2-2). Pure and total,
@@ -539,55 +684,10 @@ pub fn step(
     let parent = parent_map(def);
     let active = &config.active;
 
-    // ── Selection: for each active leaf, walk up to the first ancestor with an ENABLED
-    //    transition on the event (guards evaluated in declaration order). Dedup by
-    //    transition index, keep document order. ──────────────────────────────────────
-    let leaves: Vec<&str> = config.leaves(def);
-    let mut candidate_idx: BTreeSet<usize> = BTreeSet::new();
-    for leaf in &leaves {
-        let mut cur: Option<&str> = Some(*leaf);
-        'up: while let Some(s) = cur {
-            for (idx, t) in def.transitions.iter().enumerate() {
-                if t.from == s && t.event == event.name && t.guard_holds(context, event) {
-                    candidate_idx.insert(idx);
-                    break 'up;
-                }
-            }
-            cur = parent.get(s).copied();
-        }
-    }
-
-    // ── Conflict resolution: in document order keep transitions whose exit sets are
-    //    pairwise disjoint (so orthogonal regions fire together, but two edges in the
-    //    same region cannot). ──────────────────────────────────────────────────────
-    let mut selected: Vec<usize> = Vec::new();
-    for &i in &candidate_idx {
-        let ti = &def.transitions[i];
-        let di = transition_domain(&parent, def, &ti.from, &ti.to);
-        let ei = exit_set(&parent, active, di);
-        let conflict = selected.iter().any(|&j| {
-            let tj = &def.transitions[j];
-            let dj = transition_domain(&parent, def, &tj.from, &tj.to);
-            let ej = exit_set(&parent, active, dj);
-            !ei.is_disjoint(&ej)
-        });
-        if !conflict {
-            selected.push(i);
-        }
-    }
-
+    let candidates = select_enabled(def, config, context, event, &parent);
+    let selected = resolve_conflicts(def, &parent, active, &candidates);
     if selected.is_empty() {
-        // Distinguish "no edge for this event anywhere in the active nest" from "edges
-        // exist but every guard was false".
-        let had_candidate = def
-            .transitions
-            .iter()
-            .any(|t| t.event == event.name && active.contains(&t.from));
-        let reason = if had_candidate {
-            NoOpReason::AllGuardsFalse
-        } else {
-            NoOpReason::NoTransitionDefined
-        };
+        let reason = no_transition_reason(def, active, event);
         return Ok(StepOutcome::no_op(config, context, reason));
     }
 
@@ -595,46 +695,9 @@ pub fn step(
     let mut new_history = config.history.clone();
     let mut actions: Vec<Action> = Vec::new();
 
-    // Combined exit set across all firing transitions.
-    let mut exit_all: BTreeSet<StateId> = BTreeSet::new();
-    let mut domains: Vec<Option<String>> = Vec::with_capacity(selected.len());
-    for &i in &selected {
-        let t = &def.transitions[i];
-        let dom = transition_domain(&parent, def, &t.from, &t.to).map(|s| s.to_string());
-        for s in exit_set(&parent, &new_active, dom.as_deref()) {
-            exit_all.insert(s);
-        }
-        domains.push(dom);
-    }
-
-    // Record history for every exited composite that carries a history marker BEFORE we
-    // tear the active set down.
-    for h in &exit_all {
-        if let Some(st) = def.state(h) {
-            if st.history.is_some() {
-                let snapshot: BTreeSet<StateId> = new_active
-                    .iter()
-                    .filter(|s| is_proper_descendant(&parent, s.as_str(), h))
-                    .cloned()
-                    .collect();
-                new_history.insert(h.clone(), snapshot);
-            }
-        }
-    }
-
-    // Exit inner-out (deepest first): run exit actions, drop from active.
-    let mut exit_ordered: Vec<&StateId> = exit_all.iter().collect();
-    exit_ordered.sort_by(|a, b| {
-        depth(&parent, b.as_str())
-            .cmp(&depth(&parent, a.as_str()))
-            .then(b.cmp(a))
-    });
-    for s in exit_ordered {
-        if let Some(st) = def.state(s) {
-            actions.extend(st.exit.iter().cloned());
-        }
-        new_active.remove(s);
-    }
+    let (exit_all, domains) = exit_plan(def, &parent, &new_active, &selected);
+    record_history(def, &parent, &exit_all, &new_active, &mut new_history);
+    run_exits(def, &parent, &exit_all, &mut new_active, &mut actions);
 
     // Transition executable content, in document order.
     for &i in &selected {
@@ -680,7 +743,7 @@ mod tests {
     use super::*;
     use crate::action::{Action, ActionValue};
     use crate::guard::Guard;
-    use crate::model::{State, Transition};
+    use crate::model::Transition;
 
     /// A turnstile: Locked --coin--> Unlocked --push--> Locked, plus a guarded
     /// counter and entry/exit actions to exercise Moore+Mealy data flow.
