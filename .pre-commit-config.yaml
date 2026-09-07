@@ -299,6 +299,15 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # RF-ADR-006: component, crate, type, trait, function, module and table names
+  # carry no V<n>/_v<n> suffix. Pure stdlib, no cargo, no wheel; always_run so a
+  # `--files`-scoped commit cannot skip it (the whole point is a tree-wide sweep).
+  - id: no-version-suffixes
+    name: RF-ADR-006 — no version-suffixed component names
+    entry: python3 tests/test_no_version_suffixes.py
+    language: system
+    pass_filenames: false
+    always_run: true
   # w5-ci-gates-local (D-W5CG-1): rust-ci.yml `lint-and-test`'s first four
   # architecture-gate steps ran ONLY in CI before this — pure-stdlib, no cargo,
   # no wheel build, each <0.3s measured cold on this worktree. Same shape as
