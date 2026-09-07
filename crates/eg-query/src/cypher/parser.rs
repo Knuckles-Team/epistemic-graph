@@ -547,34 +547,65 @@ impl Parser {
 
     // ── WHERE boolean expressions (CONCEPT:EG-KG.query.eg-extend-read-side) ────────────────────────────
 
+    /// `<item> [, <item>]*` — every comma-separated list in the grammar.
+    ///
+    /// RETURN/WITH/YIELD/SET/REMOVE items and the DELETE variable list are the
+    /// same list production over different item parsers, so the separator
+    /// handling lives here once instead of in each clause.
+    fn parse_comma_separated<T>(
+        &mut self,
+        item: fn(&mut Self) -> Result<T, String>,
+    ) -> Result<Vec<T>, String> {
+        let mut items = vec![item(self)?];
+        while matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            items.push(item(self)?);
+        }
+        Ok(items)
+    }
+
+    /// An optional `AS <alias>` suffix, shared by the RETURN/WITH/YIELD items.
+    fn parse_optional_alias(&mut self) -> Result<Option<String>, String> {
+        if !self.peek_keyword("AS") {
+            return Ok(None);
+        }
+        self.eat_keyword("AS")?;
+        Ok(Some(self.ident()?))
+    }
+
     fn parse_where_expr(&mut self) -> Result<WhereExpr, String> {
         self.parse_or()
     }
 
     fn parse_or(&mut self) -> Result<WhereExpr, String> {
-        let first = self.parse_and()?;
-        if !self.peek_keyword("OR") {
-            return Ok(first);
-        }
-        let mut alts = vec![first];
-        while self.peek_keyword("OR") {
-            self.eat_keyword("OR")?;
-            alts.push(self.parse_and()?);
-        }
-        Ok(WhereExpr::Or(alts))
+        self.parse_keyword_chain("OR", Self::parse_and, WhereExpr::Or)
     }
 
     fn parse_and(&mut self) -> Result<WhereExpr, String> {
-        let first = self.parse_where_primary()?;
-        if !self.peek_keyword("AND") {
+        self.parse_keyword_chain("AND", Self::parse_where_primary, WhereExpr::And)
+    }
+
+    /// `<operand> [<keyword> <operand>]*`, flattened into one n-ary node.
+    ///
+    /// A lone operand is returned unwrapped, so `a` does not become `Or([a])` —
+    /// the two boolean precedence levels differ only in their keyword, operand
+    /// and node constructor.
+    fn parse_keyword_chain(
+        &mut self,
+        keyword: &str,
+        operand: fn(&mut Self) -> Result<WhereExpr, String>,
+        combine: fn(Vec<WhereExpr>) -> WhereExpr,
+    ) -> Result<WhereExpr, String> {
+        let first = operand(self)?;
+        if !self.peek_keyword(keyword) {
             return Ok(first);
         }
         let mut parts = vec![first];
-        while self.peek_keyword("AND") {
-            self.eat_keyword("AND")?;
-            parts.push(self.parse_where_primary()?);
+        while self.peek_keyword(keyword) {
+            self.eat_keyword(keyword)?;
+            parts.push(operand(self)?);
         }
-        Ok(WhereExpr::And(parts))
+        Ok(combine(parts))
     }
 
     fn parse_where_primary(&mut self) -> Result<WhereExpr, String> {
@@ -708,15 +739,7 @@ impl Parser {
     fn parse_literal(&mut self) -> Result<Value, String> {
         match self.next() {
             Some(Tok::Str(s)) => Ok(Value::String(s)),
-            Some(Tok::Num(n)) => {
-                if n.fract() == 0.0 && n.abs() < 9.007e15 {
-                    Ok(Value::Number((n as i64).into()))
-                } else {
-                    Ok(serde_json::Number::from_f64(n)
-                        .map(Value::Number)
-                        .unwrap_or(Value::Null))
-                }
-            }
+            Some(Tok::Num(n)) => Ok(super::number_value(n)),
             Some(Tok::Ident(s)) if s.eq_ignore_ascii_case("true") => Ok(Value::Bool(true)),
             Some(Tok::Ident(s)) if s.eq_ignore_ascii_case("false") => Ok(Value::Bool(false)),
             other => Err(format!("expected literal, found {other:?}")),
@@ -732,18 +755,13 @@ impl Parser {
         } else {
             false
         };
-        let mut star = false;
-        let mut items = Vec::new();
-        if matches!(self.peek(), Some(Tok::Star)) {
+        let star = matches!(self.peek(), Some(Tok::Star));
+        let items = if star {
             self.next();
-            star = true;
+            Vec::new()
         } else {
-            items.push(self.parse_return_item()?);
-            while matches!(self.peek(), Some(Tok::Comma)) {
-                self.next();
-                items.push(self.parse_return_item()?);
-            }
-        }
+            self.parse_comma_separated(Self::parse_return_item)?
+        };
         let order_by = self.parse_optional_order_by()?;
         let skip = self.parse_optional_int_kw("SKIP")?;
         let limit = self.parse_optional_int_kw("LIMIT")?;
@@ -759,12 +777,7 @@ impl Parser {
 
     fn parse_return_item(&mut self) -> Result<ReturnItem, String> {
         let expr = self.parse_proj_expr()?;
-        let alias = if self.peek_keyword("AS") {
-            self.eat_keyword("AS")?;
-            Some(self.ident()?)
-        } else {
-            None
-        };
+        let alias = self.parse_optional_alias()?;
         Ok(ReturnItem { expr, alias })
     }
 
@@ -962,11 +975,7 @@ impl Parser {
         }
         if self.peek_keyword("WITH") {
             self.eat_keyword("WITH")?;
-            let mut items = vec![self.parse_with_item()?];
-            while matches!(self.peek(), Some(Tok::Comma)) {
-                self.next();
-                items.push(self.parse_with_item()?);
-            }
+            let items = self.parse_comma_separated(Self::parse_with_item)?;
             let where_clause = self.parse_optional_where()?;
             return Ok(ReadStage::With {
                 items,
@@ -993,12 +1002,7 @@ impl Parser {
 
     fn parse_with_item(&mut self) -> Result<WithItem, String> {
         let var = self.ident()?;
-        let alias = if self.peek_keyword("AS") {
-            self.eat_keyword("AS")?;
-            Some(self.ident()?)
-        } else {
-            None
-        };
+        let alias = self.parse_optional_alias()?;
         Ok(WithItem { var, alias })
     }
 
@@ -1054,7 +1058,7 @@ impl Parser {
         let name = self.parse_proc_name()?;
         let args = self.parse_arg_list()?;
         self.eat_keyword("YIELD")?;
-        let yields = self.parse_yield_items()?;
+        let yields = self.parse_comma_separated(Self::parse_yield_item)?;
         Ok(ReadStage::CallProc { name, args, yields })
     }
 
@@ -1159,24 +1163,9 @@ impl Parser {
         self.parse_literal()
     }
 
-    /// `YIELD col [AS alias], …` (CONCEPT:EG-KG.query.cypher-planning).
-    fn parse_yield_items(&mut self) -> Result<Vec<YieldItem>, String> {
-        let mut items = vec![self.parse_yield_item()?];
-        while matches!(self.peek(), Some(Tok::Comma)) {
-            self.next();
-            items.push(self.parse_yield_item()?);
-        }
-        Ok(items)
-    }
-
     fn parse_yield_item(&mut self) -> Result<YieldItem, String> {
         let col = self.ident()?;
-        let alias = if self.peek_keyword("AS") {
-            self.eat_keyword("AS")?;
-            Some(self.ident()?)
-        } else {
-            None
-        };
+        let alias = self.parse_optional_alias()?;
         Ok(YieldItem { col, alias })
     }
 
@@ -1248,11 +1237,11 @@ impl Parser {
             Ok(WriteOp::Merge(node))
         } else if self.peek_keyword("SET") {
             self.eat_keyword("SET")?;
-            let items = self.parse_set_items()?;
+            let items = self.parse_comma_separated(Self::parse_set_item)?;
             Ok(WriteOp::Set(items))
         } else if self.peek_keyword("REMOVE") {
             self.eat_keyword("REMOVE")?;
-            let items = self.parse_remove_items()?;
+            let items = self.parse_comma_separated(Self::parse_remove_item)?;
             Ok(WriteOp::Remove(items))
         } else {
             // DELETE or DETACH DELETE.
@@ -1263,7 +1252,7 @@ impl Parser {
                 false
             };
             self.eat_keyword("DELETE")?;
-            let vars = self.parse_var_list()?;
+            let vars = self.parse_comma_separated(Self::ident)?;
             Ok(WriteOp::Delete { vars, detach })
         }
     }
@@ -1273,15 +1262,6 @@ impl Parser {
         self.peek().is_none() || self.at_write_clause() || self.peek_keyword("RETURN")
     }
 
-    fn parse_set_items(&mut self) -> Result<Vec<SetItem>, String> {
-        let mut items = vec![self.parse_set_item()?];
-        while matches!(self.peek(), Some(Tok::Comma)) {
-            self.next();
-            items.push(self.parse_set_item()?);
-        }
-        Ok(items)
-    }
-
     fn parse_set_item(&mut self) -> Result<SetItem, String> {
         let var = self.ident()?;
         self.expect(&Tok::Dot)?;
@@ -1289,16 +1269,6 @@ impl Parser {
         self.expect(&Tok::Eq)?;
         let value = self.parse_literal()?;
         Ok(SetItem { var, prop, value })
-    }
-
-    /// `REMOVE v.prop | v:Label [, …]` (CONCEPT:EG-KG.query.cypher-execution).
-    fn parse_remove_items(&mut self) -> Result<Vec<RemoveItem>, String> {
-        let mut items = vec![self.parse_remove_item()?];
-        while matches!(self.peek(), Some(Tok::Comma)) {
-            self.next();
-            items.push(self.parse_remove_item()?);
-        }
-        Ok(items)
     }
 
     fn parse_remove_item(&mut self) -> Result<RemoveItem, String> {
@@ -1320,15 +1290,6 @@ impl Parser {
         }
     }
 
-    fn parse_var_list(&mut self) -> Result<Vec<String>, String> {
-        let mut vars = vec![self.ident()?];
-        while matches!(self.peek(), Some(Tok::Comma)) {
-            self.next();
-            vars.push(self.ident()?);
-        }
-        Ok(vars)
-    }
-
     /// A trailing `RETURN <items>` on a WRITE statement — simple projection only (no
     /// aggregation/ORDER BY/SKIP/LIMIT/DISTINCT).
     fn parse_optional_simple_return(&mut self) -> Result<Vec<ReturnItem>, String> {
@@ -1336,12 +1297,7 @@ impl Parser {
             return Ok(Vec::new());
         }
         self.eat_keyword("RETURN")?;
-        let mut items = vec![self.parse_return_item()?];
-        while matches!(self.peek(), Some(Tok::Comma)) {
-            self.next();
-            items.push(self.parse_return_item()?);
-        }
-        Ok(items)
+        self.parse_comma_separated(Self::parse_return_item)
     }
 
     fn finish(&mut self) -> Result<(), String> {

@@ -24,6 +24,8 @@ use serde_json::Value;
 
 use eg_compute::algorithms;
 
+use super::number_value;
+
 /// A single yielded column value: either a graph node id (bindable as an anchorable
 /// node variable downstream) or an opaque scalar (CONCEPT:EG-KG.query.cypher-planning).
 #[derive(Debug, Clone)]
@@ -81,18 +83,6 @@ fn build_registry() -> HashMap<String, Box<dyn CypherProcedure>> {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-/// A finite `f64` as a JSON number (an integer when integral, mirroring the
-/// executor's numeric coercion), else null.
-fn num(x: f64) -> Value {
-    if x.fract() == 0.0 && x.abs() < 9.007e15 {
-        Value::Number((x as i64).into())
-    } else {
-        serde_json::Number::from_f64(x)
-            .map(Value::Number)
-            .unwrap_or(Value::Null)
-    }
-}
-
 /// `(node, score)` rows from a `Vec<(id, f64)>` algorithm result.
 fn score_rows(scored: Vec<(String, f64)>) -> Vec<ProcRow> {
     scored
@@ -100,7 +90,7 @@ fn score_rows(scored: Vec<(String, f64)>) -> Vec<ProcRow> {
         .map(|(id, s)| {
             vec![
                 ("node".to_string(), YieldValue::Node(id)),
-                ("score".to_string(), YieldValue::Scalar(num(s))),
+                ("score".to_string(), YieldValue::Scalar(number_value(s))),
             ]
         })
         .collect()
@@ -289,7 +279,7 @@ impl CypherProcedure for ApocCollSum {
     }
     fn call(&self, args: &[Value], _view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let sum: f64 = coll_nums(coll_arg(args)?).iter().sum();
-        Ok(single_value_row(num(sum)))
+        Ok(single_value_row(number_value(sum)))
     }
 }
 
@@ -306,7 +296,7 @@ impl CypherProcedure for ApocCollMax {
             .into_iter()
             .fold(f64::NEG_INFINITY, f64::max);
         Ok(single_value_row(if v.is_finite() {
-            num(v)
+            number_value(v)
         } else {
             Value::Null
         }))
@@ -326,7 +316,7 @@ impl CypherProcedure for ApocCollMin {
             .into_iter()
             .fold(f64::INFINITY, f64::min);
         Ok(single_value_row(if v.is_finite() {
-            num(v)
+            number_value(v)
         } else {
             Value::Null
         }))
@@ -346,7 +336,7 @@ impl CypherProcedure for ApocCollAvg {
         let v = if nums.is_empty() {
             Value::Null
         } else {
-            num(nums.iter().sum::<f64>() / nums.len() as f64)
+            number_value(nums.iter().sum::<f64>() / nums.len() as f64)
         };
         Ok(single_value_row(v))
     }
