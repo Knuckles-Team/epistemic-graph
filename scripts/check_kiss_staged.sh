@@ -187,9 +187,11 @@ symlink="$(find "${source_roots[@]}" -type l -print -quit 2>/dev/null)" || die \
   "could not inspect staged Rust roots for symlinks"
 [ -z "$symlink" ] || die "staged Rust tree contains a symlink: $symlink"
 
-MODULE_WALKER="$STAGED_ROOT/scripts/rust_module_tree.py"
-[ -f "$MODULE_WALKER" ] && [ ! -L "$MODULE_WALKER" ] || die \
-  "missing staged scripts/rust_module_tree.py module-closure authority"
+for authority in scripts/rust_module_tree.py scripts/rust_lexer.py; do
+  staged_authority="$STAGED_ROOT/$authority"
+  [ -f "$staged_authority" ] && [ ! -L "$staged_authority" ] || die \
+    "missing staged $authority module-closure authority"
+done
 
 validate_module_closure() {
   local path="$1"

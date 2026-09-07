@@ -12,107 +12,12 @@ import re
 from collections import namedtuple
 from pathlib import Path
 
-
-def require(condition: bool, message: str) -> None:
-    if not condition:
-        raise SystemExit(f"Rust module-tree scanner failed: {message}")
-
-
-def _balanced_code_step(
-    source: str,
-    index: int,
-    char: str,
-    following: str,
-    opener: str,
-    closer: str,
-    depth: int,
-) -> tuple[str, int, int, int | None]:
-    """Advance one code-state character in the balanced-span scanner."""
-
-    token = char + following
-    if token == "//":
-        return "line-comment", depth, 1, None
-    if token == "/*":
-        return "block-comment", depth, 1, None
-    if char == '"':
-        return "string", depth, 0, None
-    if char == "'":
-        char_literal = _CHAR_LITERAL.match(source, index)
-        if char_literal is not None:
-            return "code", depth, char_literal.end() - index - 1, None
-        return "code", depth, 0, None
-    if char == opener:
-        return "code", depth + 1, 0, None
-    if char == closer:
-        depth -= 1
-        if depth == 0:
-            return "code", depth, 0, index
-    return "code", depth, 0, None
-
-
-def _balanced_non_code_step(
-    state: str,
-    char: str,
-    following: str,
-    block_comment_depth: int,
-) -> tuple[str, int, int]:
-    """Advance one comment/string/character-literal scanner state."""
-
-    if state == "line-comment":
-        return ("code" if char == "\n" else state), block_comment_depth, 0
-    if state == "block-comment":
-        token = char + following
-        if token == "/*":
-            return state, block_comment_depth + 1, 1
-        if token == "*/":
-            block_comment_depth -= 1
-            return (
-                "code" if block_comment_depth == 0 else state,
-                block_comment_depth,
-                1,
-            )
-        return state, block_comment_depth, 0
-    quote = '"' if state == "string" else "'"
-    if char == "\\":
-        return state, block_comment_depth, 1
-    return ("code" if char == quote else state), block_comment_depth, 0
-
-
-def _balanced_span_from(source: str, start: int, opener: str, closer: str) -> int:
-    """Index of the `closer` that balances the `opener` at `start`, comment/string-aware.
-
-    The position-based core `_balanced_block` (and the call-graph resolution in
-    `_routing_call_offset`/`_function_with_callees`) share, factored out so the
-    latter can locate a function's body directly from a known start index instead
-    of re-searching the whole source with `_function`'s marker-based lookup for
-    every candidate — that repeated whole-source re-search is O(candidates ×
-    file size) and was measured costing ~5s on dispatch.rs's ~600-function scale.
-    """
-    require(source[start] == opener, f"expected {opener!r} at position {start}")
-    depth = 0
-    index = start
-    state = "code"
-    block_comment_depth = 0
-    while index < len(source):
-        char = source[index]
-        following = source[index + 1] if index + 1 < len(source) else ""
-        if state == "code":
-            state, depth, skip, closing_index = _balanced_code_step(
-                source, index, char, following, opener, closer, depth
-            )
-            block_comment_depth = int(state == "block-comment")
-        else:
-            state, block_comment_depth, skip = _balanced_non_code_step(
-                state, char, following, block_comment_depth
-            )
-            closing_index = None
-        if closing_index is not None:
-            return closing_index
-        index += skip + 1
-    require(False, f"unterminated balanced block starting at position {start}")
-    return -1  # unreachable; keeps static type checkers total
-
-
+from rust_lexer import (
+    _balanced_span_from,
+    _rust_code_mask,
+    _rust_comments_mask,
+    require,
+)
 
 _MODULE_ITEM = re.compile(
     r"(?:(?:pub(?:\s*\([^)]*\))?)\s+)?(?:unsafe\s+)?"
@@ -124,8 +29,6 @@ _ATTRIBUTE_START = re.compile(r"#\s*(?P<inner>!)?\s*\[")
 _MACRO_RULES_START = re.compile(
     r"\bmacro_rules\s*!\s*(?:r#)?[A-Za-z_][A-Za-z0-9_]*\s*(?P<opener>[{([])"
 )
-_RAW_LITERAL_START = re.compile(r'(?:b|c)?r(?P<hashes>#{0,255})"')
-_CHAR_LITERAL = re.compile(r"'(?:\\(?:.|x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]+\})|[^'\\\n])'")
 _CFG_TOKEN = re.compile(
     r"\s*(?:(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|"
     r'(?P<string>"(?:\\.|[^"\\])*")|(?P<punct>[(),=]))'
@@ -154,90 +57,6 @@ _RustSourceInput = namedtuple("_RustSourceInput", ("path", "module_dir", "predic
 _RustModuleFamily = namedtuple(
     "_RustModuleFamily", ("production", "with_tests", "production_paths", "all_paths")
 )
-
-
-def _rust_mask(source: str, *, literals: bool) -> str:
-    """Blank comments and optionally literals while retaining source offsets."""
-
-    masked = list(source)
-    index = 0
-    while index < len(source):
-        if source.startswith("//", index):
-            end = source.find("\n", index + 2)
-            end = len(source) if end < 0 else end
-            masked[index:end] = " " * (end - index)
-            index = end
-            continue
-        if source.startswith("/*", index):
-            depth = 1
-            cursor = index + 2
-            while cursor < len(source) and depth:
-                if source.startswith("/*", cursor):
-                    depth += 1
-                    cursor += 2
-                elif source.startswith("*/", cursor):
-                    depth -= 1
-                    cursor += 2
-                else:
-                    cursor += 1
-            require(depth == 0, "unterminated Rust block comment")
-            for position in range(index, cursor):
-                if source[position] != "\n":
-                    masked[position] = " "
-            index = cursor
-            continue
-        raw = _RAW_LITERAL_START.match(source, index)
-        if raw:
-            terminator = '"' + raw.group("hashes")
-            end = source.find(terminator, raw.end())
-            require(end >= 0, "unterminated Rust raw string")
-            end += len(terminator)
-            if literals:
-                for position in range(index, end):
-                    if source[position] != "\n":
-                        masked[position] = " "
-            index = end
-            continue
-        quote = source[index]
-        char_literal = _CHAR_LITERAL.match(source, index) if quote == "'" else None
-        if quote == '"' or char_literal is not None:
-            if char_literal is not None:
-                end = char_literal.end()
-                if literals:
-                    for position in range(index, end):
-                        if source[position] != "\n":
-                            masked[position] = " "
-                index = end
-                continue
-            end = index + 1
-            while end < len(source):
-                if source[end] == "\\":
-                    end += 2
-                    continue
-                if source[end] == quote:
-                    end += 1
-                    break
-                end += 1
-            require(
-                end <= len(source) and source[end - 1] == quote,
-                "unterminated Rust literal",
-            )
-            if literals:
-                for position in range(index, end):
-                    if source[position] != "\n":
-                        masked[position] = " "
-            index = end
-            continue
-        index += 1
-    return "".join(masked)
-
-
-def _rust_code_mask(source: str) -> str:
-    return _rust_mask(source, literals=True)
-
-
-def _rust_comments_mask(source: str) -> str:
-    return _rust_mask(source, literals=False)
 
 
 def _macro_rule_template_attribute_starts(mask: str) -> set[int]:
@@ -292,8 +111,7 @@ def _macro_rule_template_attribute_starts(mask: str) -> set[int]:
             bindings = {
                 template.group("name")
                 for attribute, template in parsed_templates
-                if attribute.start() < arrow
-                and template.group("fragment") == "meta"
+                if attribute.start() < arrow and template.group("fragment") == "meta"
             }
             for attribute, template in parsed_templates:
                 name = template.group("name")
@@ -1028,7 +846,9 @@ def read_module_tree(
     Missing or unsupported declared inputs fail closed.
     """
 
-    source, _, _ = _load_module_tree(relative, root_dir=root_dir, include_tests=include_tests)
+    source, _, _ = _load_module_tree(
+        relative, root_dir=root_dir, include_tests=include_tests
+    )
     return source
 
 
@@ -1058,7 +878,9 @@ def read_compiler_family(relative: str, root_dir: Path) -> _RustModuleFamily:
     and fails closed instead of silently escaping the contract proof.
     """
 
-    production, production_paths, module_dir = _load_module_tree(relative, root_dir=root_dir)
+    production, production_paths, module_dir = _load_module_tree(
+        relative, root_dir=root_dir
+    )
     with_tests, all_paths, test_module_dir = _load_module_tree(
         relative, root_dir=root_dir, include_tests=True
     )

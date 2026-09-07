@@ -27,6 +27,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _script(name: str):
+    # Gate scripts run as `python3 scripts/<name>.py`, so scripts/ is their
+    # sys.path[0] and sibling scanner modules resolve from it.  Reproduce that
+    # here instead of relying on another test module having done it first.
+    scripts = str(ROOT / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
     path = ROOT / "scripts" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader

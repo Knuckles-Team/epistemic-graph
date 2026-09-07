@@ -26,6 +26,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
     (repo / "src").mkdir()
     for name in (
         "check_kiss_staged.sh",
+        "rust_lexer.py",
         "rust_module_tree.py",
         "scanner_contract.py",
     ):
@@ -83,6 +84,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         ".kiss/kiss.toml",
         "pyproject.toml",
         "scripts/check_kiss_staged.sh",
+        "scripts/rust_lexer.py",
         "scripts/rust_module_tree.py",
         "scripts/scanner_contract.py",
         "src/example.rs",

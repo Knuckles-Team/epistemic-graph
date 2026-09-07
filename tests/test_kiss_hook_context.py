@@ -76,14 +76,6 @@ def test_hook_resolves_its_worktree_when_called_outside_checkout(
         capture_output=True,
         text=True,
     ).stdout.strip()
-    module_walker_blob = subprocess.run(
-        ["git", "hash-object", "-w", "scripts/rust_module_tree.py"],
-        cwd=REPO,
-        env=index_env,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
     subprocess.run(
         [
             "git",
@@ -96,18 +88,27 @@ def test_hook_resolves_its_worktree_when_called_outside_checkout(
         env=index_env,
         check=True,
     )
-    subprocess.run(
-        [
-            "git",
-            "update-index",
-            "--add",
-            "--cacheinfo",
-            f"100644,{module_walker_blob},scripts/rust_module_tree.py",
-        ],
-        cwd=REPO,
-        env=index_env,
-        check=True,
-    )
+    for authority in ("scripts/rust_module_tree.py", "scripts/rust_lexer.py"):
+        blob = subprocess.run(
+            ["git", "hash-object", "-w", authority],
+            cwd=REPO,
+            env=index_env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        subprocess.run(
+            [
+                "git",
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"100644,{blob},{authority}",
+            ],
+            cwd=REPO,
+            env=index_env,
+            check=True,
+        )
 
     result = subprocess.run(
         ["bash", str(HOOK)],

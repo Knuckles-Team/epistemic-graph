@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 import tomllib
+from rust_lexer import _rust_code_mask
 from scanner_contract import load_contract, resolve_binary, run_git, sanitized_env
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,8 +68,6 @@ FS_OPERATIONS = (
     "write",
 )
 FILE_OPERATIONS = ("create", "open")
-_RAW_STRING = re.compile(r"(?:br|cr|r)(#+)?\"")
-_CHAR_LITERAL = re.compile(r"(?:b)?'(?:\\.|[^\\'\n])'")
 
 
 class GateError(RuntimeError):
@@ -159,80 +158,6 @@ def source_universe(repo: Path = ROOT) -> tuple[dict[str, str], dict[str, Any]]:
         "files": len(sources),
         "sha256": digest.hexdigest(),
     }
-
-
-def _mask_rust(source: str) -> str:
-    """Mask comments and literals while preserving offsets and newlines."""
-
-    out = list(source)
-    i = 0
-    block_depth = 0
-    while i < len(source):
-        if block_depth:
-            if source.startswith("/*", i):
-                block_depth += 1
-                out[i : i + 2] = "  "
-                i += 2
-            elif source.startswith("*/", i):
-                block_depth -= 1
-                out[i : i + 2] = "  "
-                i += 2
-            else:
-                if source[i] != "\n":
-                    out[i] = " "
-                i += 1
-            continue
-        if source.startswith("//", i):
-            end = source.find("\n", i)
-            if end < 0:
-                end = len(source)
-            out[i:end] = " " * (end - i)
-            i = end
-            continue
-        if source.startswith("/*", i):
-            block_depth = 1
-            out[i : i + 2] = "  "
-            i += 2
-            continue
-        raw = _RAW_STRING.match(source, i) if source[i] in {"b", "c", "r"} else None
-        if raw:
-            terminator = '"' + (raw.group(1) or "")
-            start = i
-            end = source.find(terminator, raw.end())
-            end = len(source) if end < 0 else end + len(terminator)
-            for pos in range(start, end):
-                if source[pos] != "\n":
-                    out[pos] = " "
-            i = end
-            continue
-        char_literal = (
-            _CHAR_LITERAL.match(source, i)
-            if source[i] == "'" or source.startswith("b'", i)
-            else None
-        )
-        if char_literal:
-            out[i : char_literal.end()] = " " * (char_literal.end() - i)
-            i = char_literal.end()
-            continue
-        prefix = 1 if source.startswith(('b"', 'c"'), i) else 0
-        if source[i + prefix : i + prefix + 1] == '"':
-            start = i
-            i += prefix + 1
-            escaped = False
-            while i < len(source):
-                char = source[i]
-                i += 1
-                if char == '"' and not escaped:
-                    break
-                escaped = char == "\\" and not escaped
-                if char != "\\":
-                    escaped = False
-            for pos in range(start, i):
-                if source[pos] != "\n":
-                    out[pos] = " "
-            continue
-        i += 1
-    return "".join(out)
 
 
 def _brace_pairs(masked: str) -> dict[int, int]:
@@ -505,7 +430,7 @@ def _spans(masked: str) -> list[Span]:
 
 
 def context_at(source: str, offset: int) -> Context:
-    masked = _mask_rust(source)
+    masked = _rust_code_mask(source)
     return _context_from_spans(_spans(masked), offset)
 
 
@@ -612,7 +537,7 @@ def _alias_calls(
 ) -> list[dict[str, Any]]:
     """Find std::fs calls hidden from AL002 by module/function aliases."""
 
-    masked = _mask_rust(source) if masked is None else masked
+    masked = _rust_code_mask(source) if masked is None else masked
     spans = _spans(masked) if spans is None else spans
     brace_pairs = _brace_pairs(masked)
     imports: list[tuple[str, str, str, int, int]] = []
@@ -818,7 +743,7 @@ def classify_report(report: dict[str, Any], sources: dict[str, str]) -> dict[str
         path: (masked, _spans(masked))
         for path in sorted(al002_paths | alias_paths)
         for source in [sources[path]]
-        for masked in [_mask_rust(source)]
+        for masked in [_rust_code_mask(source)]
     }
     dispositions: list[dict[str, Any]] = []
     for index, finding in enumerate(violations):
