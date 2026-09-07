@@ -286,26 +286,48 @@ impl<'a> ShapesGraph<'a> {
         }
     }
 
-    /// The shape's target declarations (W3C SHACL Core §2.1). Three of the four name a
-    /// predicate or class IRI, so a non-IRI object is simply not a target.
+    /// The shape's target declarations (W3C SHACL Core §2.1), in this exact order:
+    /// `sh:targetClass`, `sh:targetNode`, `sh:targetSubjectsOf`, `sh:targetObjectsOf`.
+    ///
+    /// The ORDER IS OBSERVABLE and must not be rearranged: [`crate::validate`] walks
+    /// `Shape::targets` in sequence and de-duplicates first-wins, so this fixes the focus-node
+    /// order and therefore the order of `sh:ValidationResult`s in the report.
     fn parse_targets(&self, id: &Term) -> Vec<Target> {
         let mut targets = Vec::new();
-        let iri_targets: [(&str, fn(NamedNode) -> Target); 3] = [
-            (vocab::TARGET_CLASS, Target::Class),
-            (vocab::TARGET_SUBJECTS_OF, Target::SubjectsOf),
-            (vocab::TARGET_OBJECTS_OF, Target::ObjectsOf),
-        ];
-        for (predicate, as_target) in iri_targets {
-            for c in self.objects(id, predicate) {
-                if let Term::NamedNode(n) = c {
-                    targets.push(as_target(n));
-                }
-            }
-        }
+        self.push_iri_targets(id, vocab::TARGET_CLASS, Target::Class, &mut targets);
+        // `sh:targetNode` is the one target whose object need not be an IRI.
         for c in self.objects(id, vocab::TARGET_NODE) {
             targets.push(Target::Node(c));
         }
+        self.push_iri_targets(
+            id,
+            vocab::TARGET_SUBJECTS_OF,
+            Target::SubjectsOf,
+            &mut targets,
+        );
+        self.push_iri_targets(
+            id,
+            vocab::TARGET_OBJECTS_OF,
+            Target::ObjectsOf,
+            &mut targets,
+        );
         targets
+    }
+
+    /// Append every IRI object of `predicate` as a target, in object order. A non-IRI object
+    /// of an IRI-valued target predicate is simply not a target.
+    fn push_iri_targets(
+        &self,
+        id: &Term,
+        predicate: &str,
+        as_target: fn(NamedNode) -> Target,
+        out: &mut Vec<Target>,
+    ) {
+        for c in self.objects(id, predicate) {
+            if let Term::NamedNode(n) = c {
+                out.push(as_target(n));
+            }
+        }
     }
 
     /// Cardinality and value-type constraints (W3C SHACL Core §4.1, §4.2).

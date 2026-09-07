@@ -311,3 +311,46 @@ ex:S a sh:NodeShape ;
         good.results
     );
 }
+
+// ── target declaration order is observable in the report ───────────────
+/// A shape may declare several kinds of target at once. The validator walks
+/// `Shape::targets` in order and de-duplicates first-wins, so the ORDER the shapes parser
+/// records them in fixes the focus-node order and therefore the order of the
+/// `sh:ValidationResult`s. That order is the SHACL Core §2.1 declaration order —
+/// `sh:targetClass`, `sh:targetNode`, `sh:targetSubjectsOf`, `sh:targetObjectsOf` — and this
+/// pins it: reordering the parser (for example lifting the three IRI-valued targets into one
+/// table and appending `sh:targetNode` last) moves `ex:n` to the end and fails here.
+#[test]
+fn multi_target_shape_reports_in_declaration_order() {
+    let shapes = r#"
+ex:MultiShape a sh:NodeShape ;
+    sh:targetClass ex:C ;
+    sh:targetNode ex:n ;
+    sh:targetSubjectsOf ex:p ;
+    sh:targetObjectsOf ex:q ;
+    sh:property [ sh:path ex:required ; sh:minCount 1 ] .
+"#;
+    // One focus node per target kind, none of which carries ex:required.
+    let data = r#"
+ex:c a ex:C .
+ex:s ex:p ex:o .
+ex:t ex:q ex:objtarget .
+"#;
+    let report = run(shapes, data);
+    assert!(!report.conforms, "every focus node is missing ex:required");
+    let focus: Vec<&str> = report
+        .results
+        .iter()
+        .map(|r| r.focus_node.as_str())
+        .collect();
+    assert_eq!(
+        focus,
+        vec![
+            "<http://example.org/c>",
+            "<http://example.org/n>",
+            "<http://example.org/s>",
+            "<http://example.org/objtarget>",
+        ],
+        "targets must be walked as targetClass, targetNode, targetSubjectsOf, targetObjectsOf"
+    );
+}
