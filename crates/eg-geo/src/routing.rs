@@ -351,14 +351,9 @@ impl Network {
                 continue; // stale heap entry
             }
             for e in &self.adjacency[node] {
-                let tc = if prev == usize::MAX {
-                    0.0
-                } else {
-                    turns.turn_cost(prev, node, e.to)
-                };
-                if !tc.is_finite() {
+                let Some(tc) = turn_charge(turns, prev, node, e.to) else {
                     continue; // banned turn (INFINITY) or NaN
-                }
+                };
                 let nd = cost + e.weight + tc;
                 let key = (node, e.to);
                 if nd < dist.get(&key).copied().unwrap_or(f64::INFINITY) {
@@ -420,10 +415,9 @@ impl Network {
                 continue; // stale heap entry
             }
             for e in &self.adjacency[node] {
-                let travel = cost.traverse_cost(node, e.to, e.weight, t_now);
-                if !travel.is_finite() || travel < 0.0 {
+                let Some(travel) = traversal_at(cost, node, e.to, e.weight, t_now) else {
                     continue; // edge closed at this instant (e.g. outside opening hours)
-                }
+                };
                 let arr = t_now + travel;
                 if arr < arrival[e.to] {
                     arrival[e.to] = arr;
@@ -439,22 +433,54 @@ impl Network {
         if !arrival[target].is_finite() {
             return None;
         }
-        let mut nodes = vec![target];
-        let mut cur = target;
-        while cur != source {
-            let p = prev[cur];
-            if p == usize::MAX {
-                return None;
-            }
-            nodes.push(p);
-            cur = p;
-        }
-        nodes.reverse();
         Some(Path {
-            nodes,
+            nodes: reconstruct_prev(source, target, &prev)?,
             cost: arrival[target] - t_start,
         })
     }
+}
+
+/// The realised traversal cost of the edge `from → to` entered at `t_now`, or `None` when
+/// the edge is closed at that instant — a non-finite or negative cost, which is how a time
+/// model expresses "outside opening hours".
+fn traversal_at<C: TimeCost>(
+    cost: &C,
+    from: usize,
+    to: usize,
+    weight: f64,
+    t_now: f64,
+) -> Option<f64> {
+    let travel = cost.traverse_cost(from, to, weight, t_now);
+    (travel.is_finite() && travel >= 0.0).then_some(travel)
+}
+
+/// Walk a `prev` predecessor array back from `target` to `source`, returning the node ids
+/// in travel order. `None` when the chain breaks before reaching the source, which means
+/// no path was found.
+fn reconstruct_prev(source: usize, target: usize, prev: &[usize]) -> Option<Vec<usize>> {
+    let mut nodes = vec![target];
+    let mut cur = target;
+    while cur != source {
+        let p = prev[cur];
+        if p == usize::MAX {
+            return None;
+        }
+        nodes.push(p);
+        cur = p;
+    }
+    nodes.reverse();
+    Some(nodes)
+}
+
+/// What leaving `node` for `next`, having arrived from `prev`, costs in turn penalty —
+/// `None` when the turn is banned (`INFINITY`) or undefined (NaN), which closes the move.
+/// The start state (`prev == usize::MAX`) has no prior edge, so it is charged nothing.
+fn turn_charge<T: TurnCost>(turns: &T, prev: usize, node: usize, next: usize) -> Option<f64> {
+    if prev == usize::MAX {
+        return Some(0.0);
+    }
+    let cost = turns.turn_cost(prev, node, next);
+    cost.is_finite().then_some(cost)
 }
 
 /// A routed path (CONCEPT:EG-KG.domains.geo-routing): the ordered node ids from source to target and the total

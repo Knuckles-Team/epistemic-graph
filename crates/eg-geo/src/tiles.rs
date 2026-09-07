@@ -205,6 +205,47 @@ pub fn encode_mvt(tile_bounds: &Bbox, layers: &[MvtLayer]) -> Vec<u8> {
     out
 }
 
+/// Encode one MVT `Feature` message: its id, its property tags as index pairs into the
+/// layer's key/value tables (interning into them as it goes), its geometry type and its
+/// packed command stream.
+fn encode_feature(
+    feature: &MvtFeature,
+    geom_type: u32,
+    commands: &[u32],
+    keys: &mut Vec<String>,
+    values: &mut Vec<MvtValue>,
+) -> Vec<u8> {
+    let mut fb = Vec::new();
+    // Feature.id = field 1, varint.
+    write_tag(&mut fb, 1, 0);
+    write_varint(&mut fb, feature.id);
+    // Feature.tags = field 2, packed varint (repeated key_idx, value_idx).
+    if !feature.properties.is_empty() {
+        let mut tags = Vec::new();
+        for (k, v) in &feature.properties {
+            let ki = intern(keys, k.clone());
+            let vi = intern(values, v.clone());
+            write_varint(&mut tags, ki as u64);
+            write_varint(&mut tags, vi as u64);
+        }
+        write_tag(&mut fb, 2, 2);
+        write_varint(&mut fb, tags.len() as u64);
+        fb.extend_from_slice(&tags);
+    }
+    // Feature.type = field 3, varint.
+    write_tag(&mut fb, 3, 0);
+    write_varint(&mut fb, geom_type as u64);
+    // Feature.geometry = field 4, packed varint command stream.
+    let mut geom = Vec::new();
+    for c in commands {
+        write_varint(&mut geom, *c as u64);
+    }
+    write_tag(&mut fb, 4, 2);
+    write_varint(&mut fb, geom.len() as u64);
+    fb.extend_from_slice(&geom);
+    fb
+}
+
 /// Encode one [`MvtLayer`] into its protobuf message bytes.
 fn encode_layer(tile_bounds: &Bbox, layer: &MvtLayer) -> Vec<u8> {
     let extent = if layer.extent == 0 {
@@ -221,36 +262,13 @@ fn encode_layer(tile_bounds: &Bbox, layer: &MvtLayer) -> Vec<u8> {
         if commands.is_empty() || geom_type == GEOM_UNKNOWN {
             continue; // fully clipped away / unsupported
         }
-        let mut fb = Vec::new();
-        // Feature.id = field 1, varint.
-        write_tag(&mut fb, 1, 0);
-        write_varint(&mut fb, f.id);
-        // Feature.tags = field 2, packed varint (repeated key_idx, value_idx).
-        if !f.properties.is_empty() {
-            let mut tags = Vec::new();
-            for (k, v) in &f.properties {
-                let ki = intern(&mut keys, k.clone());
-                let vi = intern(&mut values, v.clone());
-                write_varint(&mut tags, ki as u64);
-                write_varint(&mut tags, vi as u64);
-            }
-            write_tag(&mut fb, 2, 2);
-            write_varint(&mut fb, tags.len() as u64);
-            fb.extend_from_slice(&tags);
-        }
-        // Feature.type = field 3, varint.
-        write_tag(&mut fb, 3, 0);
-        write_varint(&mut fb, geom_type as u64);
-        // Feature.geometry = field 4, packed varint command stream.
-        let mut geom = Vec::new();
-        for c in &commands {
-            write_varint(&mut geom, *c as u64);
-        }
-        write_tag(&mut fb, 4, 2);
-        write_varint(&mut fb, geom.len() as u64);
-        fb.extend_from_slice(&geom);
-
-        feature_bodies.push(fb);
+        feature_bodies.push(encode_feature(
+            f,
+            geom_type,
+            &commands,
+            &mut keys,
+            &mut values,
+        ));
     }
 
     let mut out = Vec::new();
