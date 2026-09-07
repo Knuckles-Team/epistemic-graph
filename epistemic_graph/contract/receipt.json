@@ -45,13 +45,13 @@
   "format_identities": {
     "ANALYTICS_JOB_SCOPE_INCARNATION": {
       "sites": [
-        "crates/eg-jobs/src/store.rs:2406"
+        "crates/eg-jobs/src/store.rs:2414"
       ],
       "value": "\"incarnation:eg-jobs:analytics-jobs:1\""
     },
     "BOOTSTRAP_COMMONS_INCARNATION": {
       "sites": [
-        "crates/eg-core/src/registry.rs:436"
+        "crates/eg-core/src/registry.rs:458"
       ],
       "value": "\"incarnation:commons:v1\""
     },
@@ -135,7 +135,7 @@
     },
     "GRAPH_SNAPSHOT_SCHEMA_VERSION": {
       "sites": [
-        "crates/eg-core/src/graph.rs:893"
+        "crates/eg-core/src/graph.rs:919"
       ],
       "value": "2"
     },
@@ -143,7 +143,7 @@
       "sites": [
         "crates/eg-statechart/src/store/batches.rs:23"
       ],
-      "value": "\"incarnation:eg-statechart:statechart-instances:1\""
+      "value": ""
     },
     "INTENT_SCHEMA_VERSION": {
       "sites": [
@@ -183,7 +183,7 @@
     },
     "PATH_SCOPE_INCARNATION": {
       "sites": [
-        "crates/eg-core/src/path_persist.rs:192"
+        "crates/eg-core/src/path_persist.rs:191"
       ],
       "value": "\"path-index:v1\""
     },
