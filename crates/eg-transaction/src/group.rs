@@ -98,8 +98,14 @@ impl<'a, D: OwnerDomain> AdmittedGroup<'a, D> {
     }
 
     /// What admission decided for one member: apply, or replay a terminal
-    /// receipt. A group containing a replayed member is still committed — the
-    /// other members' rows are real — but that member must write no rows.
+    /// receipt whose rows are already durable.
+    ///
+    /// A group containing a replayed member IS committed: the other members'
+    /// rows are real, and one retry among N is the coalescer's ordinary case.
+    /// The replayed member is marked terminal at admission, so it writes no
+    /// rows — `owner_rows` and `finish` both refuse it — and its scope's
+    /// version, fence and receipt are left exactly as its first apply left
+    /// them.
     pub fn begun(&self, index: usize) -> Result<&Begin, String> {
         self.begins
             .get(index)

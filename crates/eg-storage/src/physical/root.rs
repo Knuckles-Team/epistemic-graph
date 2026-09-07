@@ -51,6 +51,15 @@ const RETIRED_PROTOTYPE_TABLES: &[&str] = &[
     "__sql_mutation_outbox__",
 ];
 
+/// The durability of every write transaction this kernel opens.
+///
+/// A constant, not an option: `begin_write` is the one path every mutation
+/// commit takes, and a weaker level would let redb roll a committed ledger back
+/// on crash — un-consuming an acknowledged replay nonce and re-enabling the
+/// double apply `record_replay_in` exists to prevent. No caller can select
+/// anything else, because there is nothing else to select.
+pub(crate) const WRITE_DURABILITY: redb::Durability = redb::Durability::Immediate;
+
 /// Non-serializable proof that a store root was derived from and matched the
 /// exact physical database.
 #[derive(Debug, Clone)]
@@ -69,7 +78,7 @@ pub(crate) struct PhysicalStore {
     physical_path: PathBuf,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
     owner_manifest: OwnerManifest,
-    /// How this handle was opened — page cache, durability, write authority.
+    /// How this handle was opened — page cache and write authority.
     /// Never part of the store's identity: no digest, manifest or incarnation
     /// check reads it, so the same file opened with different options is the
     /// same store.
@@ -105,7 +114,7 @@ impl PhysicalStore {
             .begin_write()
             .map_err(|error| error.to_string())?;
         transaction
-            .set_durability(self.options.write_durability())
+            .set_durability(WRITE_DURABILITY)
             .map_err(|error| error.to_string())?;
         validate_handle_write(&self.handle, &transaction)?;
         let manifest = &self.owner_manifest;

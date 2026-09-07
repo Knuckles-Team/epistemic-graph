@@ -11,6 +11,7 @@ pub(crate) mod identity;
 pub(crate) mod layout;
 pub(crate) mod manifest_io;
 pub(crate) mod registry;
+pub(crate) mod row_key;
 pub(crate) mod table_api;
 
 pub(crate) use manifest_io::{

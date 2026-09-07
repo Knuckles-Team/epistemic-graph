@@ -16,6 +16,19 @@ pub(crate) enum AdmissionState {
         batch: Vec<u8>,
         class: MutationClass,
     },
+    /// Admission resolved to a terminal receipt that is ALREADY durable, so
+    /// this write applies nothing for it.
+    ///
+    /// A sole writer aborts on `Begin::Replay` and never reaches commit, but a
+    /// group cannot: its members share one transaction, and one member's retry
+    /// among N — the shard coalescer's ordinary case — must not discard the
+    /// other members' real work. So a replayed member is a first-class
+    /// terminal state: it may be committed with, and it may write nothing.
+    /// `open_owner_admission` and `finish_batch_admission` both refuse it,
+    /// which is what "writes nothing" means mechanically.
+    Replayed {
+        batch: Vec<u8>,
+    },
     Poisoned,
 }
 
@@ -39,7 +52,24 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
             AdmissionState::Applying { .. } => {
                 Err("another mutation batch is already admitted".to_string())
             }
+            AdmissionState::Replayed { .. } => {
+                Err("a replayed member applies nothing".to_string())
+            }
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
+        }
+    }
+
+    /// Record that this member's batch resolved to an already-durable receipt.
+    pub(crate) fn admit_replayed_batch(&self, batch: &MutationBatch) -> Result<(), String> {
+        let encoded = encode_bounded(batch, "replayed mutation batch")?;
+        let mut state = self.admission.borrow_mut();
+        match &*state {
+            AdmissionState::Idle => {
+                *state = AdmissionState::Replayed { batch: encoded };
+                Ok(())
+            }
+            AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
+            _ => Err("a replayed batch cannot follow an admitted one".to_string()),
         }
     }
 
@@ -58,6 +88,9 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
                 Ok(*class)
             }
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
+            AdmissionState::Replayed { .. } => {
+                Err("a replayed member has no admitted class".to_string())
+            }
             AdmissionState::Idle => Err("mutation write has no admitted batch".to_string()),
         }
     }
@@ -129,6 +162,13 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
         match &*self.admission.borrow() {
             AdmissionState::Finished { batch: finished, .. }
                 if finished.as_slice() == encoded.as_slice() =>
+            {
+                Ok(())
+            }
+            // A replayed member wrote nothing and needs nothing written; its
+            // receipt was already durable before this transaction opened.
+            AdmissionState::Replayed { batch: replayed }
+                if replayed.as_slice() == encoded.as_slice() =>
             {
                 Ok(())
             }

@@ -5,23 +5,25 @@
 //! the write capability additionally needs the single, move-once
 //! [`crate::MutationOwnerAuthority`] token.
 
-use crate::owner::contract::expected_owner_table_contract;
 use crate::owner::domain::OwnerDomain;
 use crate::owner::handle::OwnedStoreHandle;
 use crate::owner::registry::{declared_table_names, owner_table_names};
+use crate::owner::row_key::{is_control_scope, owner_row_key, OwnerRowScope, RowKey};
+use crate::scoped::{
+    OwnerReadTable, ScopedOwnerTable, ScopedOwnerTableMut, ScopedTable, ScopedTableMut,
+};
 use crate::physical::binding::{
     binding_for_read, binding_for_write, ledger_scope_key, retire_scope_in,
 };
-use crate::physical::manifest::TableScope;
 use crate::physical::root::PhysicalStore;
 use crate::recovery::evidence::{strict_snapshot_read, StrictRecoveryEvidence};
 use crate::tables::LedgerRowScope;
 use eg_types::MutationScopeIdentity;
 use redb::{
-    AccessGuard, Range, ReadOnlyTable, ReadTransaction, ReadableTable, ReadableTableMetadata, Table,
-    TableDefinition, TableHandle, WriteTransaction,
+    ReadOnlyTable, ReadTransaction, Table, TableDefinition, TableHandle, WriteTransaction,
 };
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// The three tables that ARE the file's physical identity. A capability never
@@ -56,40 +58,19 @@ fn permit_table(store: &PhysicalStore, name: &str) -> Result<(), String> {
 /// produces `Member`.
 enum WriteTxn {
     /// Boxed so the two variants are the same size: a `redb::WriteTransaction`
-    /// is ~600 bytes and a shared handle is two words, and one heap word per
+    /// is ~600 bytes and a shared handle is one word, and one heap word per
     /// physical write transaction is nothing beside the transaction itself.
     Sole(Box<WriteTransaction>),
-    Member {
-        transaction: Arc<WriteTransaction>,
-        rows: GroupRowClass,
-    },
+    Member(Arc<WriteTransaction>),
 }
 
 impl WriteTxn {
     fn get(&self) -> &WriteTransaction {
         match self {
             Self::Sole(transaction) => transaction.as_ref(),
-            Self::Member { transaction, .. } => transaction,
+            Self::Member(transaction) => transaction,
         }
     }
-}
-
-/// Which owner tables one group member may reach.
-///
-/// A shard file's tables split two ways: most lead their key with the graph
-/// name and belong to one serving scope (`Serving`), while the Raft log and
-/// meta, the cross-shard 2PC records, the matview and canary rows and the
-/// series key spaces are keyed by Raft group, transaction id, view name or
-/// series id and belong to the FILE. Both kinds of scope are graph scopes
-/// under this layout, so the class cannot be read off the identity: it is the
-/// member's position in the group, decided by the mutation owner authority
-/// when the group is minted and not settable by a consumer.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum GroupRowClass {
-    /// The store's own file-wide member: control rows only.
-    Control,
-    /// A scoped member: its own layout's serving rows only.
-    Scoped,
 }
 
 /// The one mintable physical write authority for one owner file.
@@ -98,6 +79,16 @@ pub struct PhysicalWriteCapability<'a, D: OwnerDomain> {
     store: &'a PhysicalStore,
     identity: MutationScopeIdentity,
     principal: String,
+    /// Set by any capability on this transaction whose operation failed.
+    ///
+    /// The owner-row path already refuses to commit unfinished work through
+    /// the admission state machine. Nothing did that for the shared-service
+    /// CAS surface, so a caller that swallowed, say, a refcount-underflow
+    /// refusal could still commit the rows it had already written. Poison is
+    /// per TRANSACTION, not per capability, so one member's failure stops the
+    /// whole group's commit: it is shared by every member and the group cannot
+    /// commit while it is set.
+    poison: Arc<AtomicBool>,
     _domain: PhantomData<D>,
 }
 
@@ -107,7 +98,12 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         owner: &OwnedStoreHandle<D>,
     ) -> Result<Self, String> {
         let transaction = store.begin_write()?;
-        Self::bind(store, WriteTxn::Sole(Box::new(transaction)), owner)
+        Self::bind(
+            store,
+            WriteTxn::Sole(Box::new(transaction)),
+            Arc::new(AtomicBool::new(false)),
+            owner,
+        )
     }
 
     /// Mint one member of an admitted scope group over an already-open shared
@@ -119,10 +115,10 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     pub(crate) fn open_member(
         store: &'a PhysicalStore,
         transaction: Arc<WriteTransaction>,
-        rows: GroupRowClass,
+        poison: Arc<AtomicBool>,
         owner: &OwnedStoreHandle<D>,
     ) -> Result<Self, String> {
-        Self::bind(store, WriteTxn::Member { transaction, rows }, owner)
+        Self::bind(store, WriteTxn::Member(transaction), poison, owner)
     }
 
     /// Prove the store's layout and incarnation-anchored authority, then bind
@@ -132,6 +128,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     fn bind(
         store: &'a PhysicalStore,
         transaction: WriteTxn,
+        poison: Arc<AtomicBool>,
         owner: &OwnedStoreHandle<D>,
     ) -> Result<Self, String> {
         let manifest = store.manifest();
@@ -146,56 +143,68 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
             store,
             identity: owner.identity().clone(),
             principal: owner.principal().to_string(),
+            poison,
             _domain: PhantomData,
         })
     }
 
     /// Whether this capability is one member of an admitted scope group.
     pub fn is_group_member(&self) -> bool {
-        matches!(self.transaction, WriteTxn::Member { .. })
+        matches!(self.transaction, WriteTxn::Member(_))
     }
 
-    /// Whether this capability is the group's file-wide control member.
-    pub fn is_group_control(&self) -> bool {
-        matches!(
-            self.transaction,
-            WriteTxn::Member {
-                rows: GroupRowClass::Control,
-                ..
-            }
-        )
+    /// Whether this capability serves the file's reserved control scope.
+    ///
+    /// Read off the bound identity, never off a caller's argument order, so
+    /// the control/serving split is a property of the layout and holds for a
+    /// sole admit exactly as it does for a group member.
+    pub fn is_control(&self) -> bool {
+        is_control_scope(D::LAYOUT, &self.identity)
     }
 
-    /// A group member's owner-row class bound.
+    /// Mark this transaction unusable for commit.
     ///
-    /// Ledger rows are already confined per member by [`ScopedTableMut`], whose
-    /// scope key comes from this capability. Owner rows are layout-bounded
-    /// everywhere else in this crate, which is right for a single-scope write
-    /// but not for a group: the shard's control rows (Raft log and meta, the
-    /// cross-shard 2PC records, the matview, canary and series key spaces)
-    /// belong to the FILE and carry no graph component, while its graph rows
-    /// lead their key with the graph name. So a member admitted for a graph
-    /// scope reaches only `Serving` owner tables and the control member only
-    /// the file-wide ones. Without this, one member of a group could write
-    /// another member's owner rows even though it cannot touch its ledger.
+    /// Called on every failed operation of a surface that has no admission
+    /// window of its own, so a swallowed error cannot be followed by a commit.
+    pub(crate) fn poison(&self) {
+        self.poison.store(true, Ordering::SeqCst);
+    }
+
+    /// Poison this transaction when a shared-service operation fails.
     ///
-    /// This applies to group members only. A sole capability is unchanged, so
-    /// no existing layout's behaviour moves.
-    fn permit_group_owner_table(&self, name: &str) -> Result<(), String> {
-        let WriteTxn::Member { rows, .. } = &self.transaction else {
-            return Ok(());
-        };
-        let serving = expected_owner_table_contract(name, D::LAYOUT).scope == TableScope::Serving;
-        let permitted = match rows {
-            GroupRowClass::Scoped => serving,
-            GroupRowClass::Control => !serving,
-        };
-        if !permitted {
-            return Err(
-                "group member may not open an owner table outside its row class".to_string(),
-            );
+    /// Crate-visible rather than private because
+    /// [`crate::owner::blob_shared`] is the surface that needs it: it has no
+    /// admission window of its own to drop unfinished.
+    pub(crate) fn poison_shared_on_error<T>(&self, result: Result<T, String>) -> Result<T, String> {
+        if result.is_err() {
+            self.poison();
+        }
+        result
+    }
+
+    fn refuse_if_poisoned(&self) -> Result<(), String> {
+        if self.poison.load(Ordering::SeqCst) {
+            return Err("write transaction is poisoned by a failed operation".to_string());
         }
         Ok(())
+    }
+
+    /// The owner-row class bound.
+    ///
+    /// Owner tables were layout-bounded and nothing more, which is right for a
+    /// file that serves one scope. A graph shard serves many, and 42 of its 53
+    /// tables lead their key with the graph name while 11 belong to the file.
+    /// So a scope-prefixed table is unreachable through the raw accessors —
+    /// they cannot express a row bound — and a file-wide table is reachable
+    /// only from the reserved control scope. Layouts that declare neither
+    /// ([`RowKey::Unscoped`], every layout but the shard) are unchanged.
+    fn permit_owner_row_class(&self, name: &str) -> Result<(), String> {
+        permit_owner_row_class::<D>(name, self.is_control())
+    }
+
+    /// The scope name every key of a scope-prefixed owner table must carry.
+    fn owner_scope_key(&self) -> Result<&str, String> {
+        owner_scope_key(&self.identity)
     }
 
     /// Open one declared, non-identity table of this owner file for writing.
@@ -237,7 +246,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         if !owner_table_names(D::LAYOUT).contains(&name) {
             return Err("owner write may not open a table outside its layout".to_string());
         }
-        self.permit_group_owner_table(name)?;
+        self.permit_owner_row_class(name)?;
         self.open_table(definition)
     }
 
@@ -290,13 +299,38 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         if !owner_table_names(D::LAYOUT).contains(&name) {
             return Err("owner read may not open a table outside its layout".to_string());
         }
-        self.permit_group_owner_table(name)?;
+        self.permit_owner_row_class(name)?;
         Ok(OwnerReadTable {
             table: self
                 .transaction
                 .get()
                 .open_table(definition)
                 .map_err(|error| error.to_string())?,
+        })
+    }
+
+    /// Open one scope-prefixed owner table of this layout, bounded to **this
+    /// capability's own** serving scope.
+    ///
+    /// The owner-row counterpart of [`Self::scoped_table_mut`]: the scope name
+    /// comes from the capability, never from an argument, and every key it
+    /// accepts — read, insert, remove, or either bound of a range — must carry
+    /// that name in its first position. This is the only way a scoped member
+    /// reaches a table its neighbours also live in.
+    pub fn scoped_owner_table_mut<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ScopedOwnerTableMut<'_, K, V>, String>
+    where
+        K: redb::Key + 'static,
+        for<'k> K::SelfType<'k>: OwnerRowScope,
+        V: redb::Value + 'static,
+    {
+        let name = definition.name();
+        permit_scope_prefixed::<D>(name, self.is_control())?;
+        Ok(ScopedOwnerTableMut {
+            table: self.open_table(definition)?,
+            scope_key: self.owner_scope_key()?.to_string(),
         })
     }
 
@@ -380,11 +414,12 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     /// group's members share one transaction and committing from inside one of
     /// them would commit the others' half-written work.
     pub fn commit(self) -> Result<(), String> {
+        self.refuse_if_poisoned()?;
         match self.transaction {
             WriteTxn::Sole(transaction) => {
                 (*transaction).commit().map_err(|error| error.to_string())
             }
-            WriteTxn::Member { .. } => Err(GROUP_MEMBER_CANNOT_END.to_string()),
+            WriteTxn::Member(_) => Err(GROUP_MEMBER_CANNOT_END.to_string()),
         }
     }
 
@@ -395,7 +430,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
             WriteTxn::Sole(transaction) => {
                 (*transaction).abort().map_err(|error| error.to_string())
             }
-            WriteTxn::Member { .. } => Err(GROUP_MEMBER_CANNOT_END.to_string()),
+            WriteTxn::Member(_) => Err(GROUP_MEMBER_CANNOT_END.to_string()),
         }
     }
 
@@ -406,7 +441,10 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     /// and able to write. Refused for a sole capability, which uses
     /// [`Self::commit`] / [`Self::abort`].
     pub fn end_group_transaction(self, commit: bool) -> Result<(), String> {
-        let WriteTxn::Member { transaction, .. } = self.transaction else {
+        if commit {
+            self.refuse_if_poisoned()?;
+        }
+        let WriteTxn::Member(transaction) = self.transaction else {
             return Err("a sole write capability is not a group member".to_string());
         };
         let transaction = Arc::try_unwrap(transaction)
@@ -417,6 +455,46 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
             transaction.abort().map_err(|error| error.to_string())
         }
     }
+}
+
+/// The owner-row class bound, shared by the write and read sides so a reader
+/// cannot reach what a writer of the same scope cannot.
+fn permit_owner_row_class<D: OwnerDomain>(name: &str, control: bool) -> Result<(), String> {
+    match owner_row_key(name, D::LAYOUT) {
+        RowKey::Unscoped => Ok(()),
+        RowKey::FileWide if control => Ok(()),
+        RowKey::FileWide => {
+            Err("only the file's control scope may open a file-wide owner table".to_string())
+        }
+        RowKey::ScopePrefixed => Err(
+            "a scope-prefixed owner table is reachable only through its scoped accessor"
+                .to_string(),
+        ),
+    }
+}
+
+/// The scope-prefixed accessor's own bound: the table must be scope-prefixed,
+/// and the control scope owns no rows in one.
+fn permit_scope_prefixed<D: OwnerDomain>(name: &str, control: bool) -> Result<(), String> {
+    if !owner_table_names(D::LAYOUT).contains(&name) {
+        return Err("scoped owner access may not open a table outside its layout".to_string());
+    }
+    if owner_row_key(name, D::LAYOUT) != RowKey::ScopePrefixed {
+        return Err("this owner table is not scope-prefixed".to_string());
+    }
+    if control {
+        return Err("the file's control scope owns no scope-prefixed rows".to_string());
+    }
+    Ok(())
+}
+
+/// The scope name a scope-prefixed owner row must carry.
+fn owner_scope_key(identity: &MutationScopeIdentity) -> Result<&str, String> {
+    identity
+        .scope()
+        .graph_name()
+        .map(|name| name.as_str())
+        .ok_or_else(|| "this serving scope has no name to prefix owner rows with".to_string())
 }
 
 const GROUP_MEMBER_CANNOT_END: &str =
@@ -542,7 +620,32 @@ impl<'a, D: OwnerDomain> ScopedRead<'a, D> {
         if !owner_table_names(D::LAYOUT).contains(&name) {
             return Err("scoped read may not open a table outside its layout".to_string());
         }
+        permit_owner_row_class::<D>(name, is_control_scope(D::LAYOUT, &self.identity))?;
         self.open_table(definition)
+    }
+
+    /// Open one scope-prefixed owner table bounded to this read's own serving
+    /// scope.
+    ///
+    /// The read twin of [`PhysicalWriteCapability::scoped_owner_table_mut`].
+    /// Without it a reader bound to one graph could enumerate every other
+    /// graph's rows in the same shard file, which is the read half of the
+    /// confinement the write side enforces.
+    pub fn scoped_owner_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ScopedOwnerTable<K, V>, String>
+    where
+        K: redb::Key + 'static,
+        for<'k> K::SelfType<'k>: OwnerRowScope,
+        V: redb::Value + 'static,
+    {
+        let name = definition.name();
+        permit_scope_prefixed::<D>(name, is_control_scope(D::LAYOUT, &self.identity))?;
+        Ok(ScopedOwnerTable {
+            table: self.open_table(definition)?,
+            scope_key: owner_scope_key(&self.identity)?.to_string(),
+        })
     }
 
     pub fn scope(&self) -> &MutationScopeIdentity {
@@ -582,175 +685,6 @@ impl<D: OwnerDomain> ScopedSnapshot<D> {
 
     pub fn scope(&self) -> &MutationScopeIdentity {
         &self.identity
-    }
-}
-
-/// A declared table restricted to one serving scope.
-///
-/// It is the read counterpart of the write capability's confinement: the scope
-/// key comes from the [`ScopedRead`] that issued it, and every key presented to
-/// it must carry that same key in its first position.
-pub struct ScopedTable<K: redb::Key + 'static, V: redb::Value + 'static> {
-    table: ReadOnlyTable<K, V>,
-    scope_key: String,
-}
-
-impl<K, V> ScopedTable<K, V>
-where
-    K: redb::Key + 'static,
-    for<'k> K::SelfType<'k>: LedgerRowScope,
-    V: redb::Value + 'static,
-{
-    /// The one scope every key of this table must name.
-    pub fn scope_key(&self) -> &str {
-        &self.scope_key
-    }
-
-    /// One row of this read's own scope. A key naming another scope is refused.
-    pub fn get<'k>(&self, key: K::SelfType<'k>) -> Result<Option<AccessGuard<'static, V>>, String> {
-        self.permit(&key)?;
-        self.table.get(&key).map_err(|error| error.to_string())
-    }
-
-    /// Every row between two inclusive bounds, both of which must name this
-    /// read's own scope.
-    pub fn range_inclusive<'k>(
-        &self,
-        start: K::SelfType<'k>,
-        end: K::SelfType<'k>,
-    ) -> Result<Range<'static, K, V>, String> {
-        self.permit(&start)?;
-        self.permit(&end)?;
-        self.table
-            .range(start..=end)
-            .map_err(|error| error.to_string())
-    }
-
-    fn permit(&self, key: &K::SelfType<'_>) -> Result<(), String> {
-        if key.ledger_scope() != self.scope_key {
-            return Err("scoped read may not address another scope's rows".to_string());
-        }
-        Ok(())
-    }
-}
-
-/// A read-only view of one owner table inside an admitted write transaction.
-///
-/// It exists so a domain can read its own rows and write in one serialized
-/// transaction without ever holding something that can mutate or that exposes
-/// the transaction. Every method here is a read.
-pub struct OwnerReadTable<'a, K: redb::Key + 'static, V: redb::Value + 'static> {
-    table: Table<'a, K, V>,
-}
-
-impl<K, V> OwnerReadTable<'_, K, V>
-where
-    K: redb::Key + 'static,
-    V: redb::Value + 'static,
-{
-    pub fn get<'k>(&self, key: K::SelfType<'k>) -> Result<Option<AccessGuard<'_, V>>, String> {
-        self.table.get(&key).map_err(|error| error.to_string())
-    }
-
-    pub fn range_inclusive<'k>(
-        &self,
-        start: K::SelfType<'k>,
-        end: K::SelfType<'k>,
-    ) -> Result<Range<'_, K, V>, String> {
-        self.table
-            .range(start..=end)
-            .map_err(|error| error.to_string())
-    }
-
-    /// Rows from `start` to the end of the table.
-    ///
-    /// Strictly weaker than [`Self::iter`], which already returns every row of
-    /// this layout-bounded table: it adds no reach, only a starting position,
-    /// so a prefix scan over a composite key does not have to read from the
-    /// first row. Needed because several owner tables key on
-    /// `(partition, key)` and a prefix scan of one partition has no natural
-    /// inclusive upper bound.
-    pub fn range_from<'k>(&self, start: K::SelfType<'k>) -> Result<Range<'_, K, V>, String> {
-        self.table.range(start..).map_err(|error| error.to_string())
-    }
-
-    pub fn iter(&self) -> Result<Range<'_, K, V>, String> {
-        self.table.iter().map_err(|error| error.to_string())
-    }
-
-    pub fn len(&self) -> Result<u64, String> {
-        self.table.len().map_err(|error| error.to_string())
-    }
-
-    pub fn is_empty(&self) -> Result<bool, String> {
-        self.len().map(|len| len == 0)
-    }
-}
-
-/// A declared table opened for writing and restricted to one serving scope.
-///
-/// The write counterpart of [`ScopedTable`]. Its scope key comes from the
-/// capability that issued it, and every key presented to it — read, insert,
-/// remove, or either bound of a range — must carry that same key in its first
-/// position. No accessor returns the underlying `redb::Table`.
-pub struct ScopedTableMut<'a, K: redb::Key + 'static, V: redb::Value + 'static> {
-    table: Table<'a, K, V>,
-    scope_key: String,
-}
-
-impl<K, V> ScopedTableMut<'_, K, V>
-where
-    K: redb::Key + 'static,
-    for<'k> K::SelfType<'k>: LedgerRowScope,
-    V: redb::Value + 'static,
-{
-    /// The one scope every key of this table must name.
-    pub fn scope_key(&self) -> &str {
-        &self.scope_key
-    }
-
-    pub fn get<'k>(&self, key: K::SelfType<'k>) -> Result<Option<AccessGuard<'_, V>>, String> {
-        self.permit(&key)?;
-        self.table.get(&key).map_err(|error| error.to_string())
-    }
-
-    pub fn insert<'k, 'v>(
-        &mut self,
-        key: K::SelfType<'k>,
-        value: V::SelfType<'v>,
-    ) -> Result<(), String> {
-        self.permit(&key)?;
-        self.table
-            .insert(&key, &value)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-    }
-
-    pub fn remove<'k>(&mut self, key: K::SelfType<'k>) -> Result<(), String> {
-        self.permit(&key)?;
-        self.table
-            .remove(&key)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-    }
-
-    pub fn range_inclusive<'k>(
-        &self,
-        start: K::SelfType<'k>,
-        end: K::SelfType<'k>,
-    ) -> Result<Range<'_, K, V>, String> {
-        self.permit(&start)?;
-        self.permit(&end)?;
-        self.table
-            .range(start..=end)
-            .map_err(|error| error.to_string())
-    }
-
-    fn permit(&self, key: &K::SelfType<'_>) -> Result<(), String> {
-        if key.ledger_scope() != self.scope_key {
-            return Err("scoped write may not address another scope's rows".to_string());
-        }
-        Ok(())
     }
 }
 

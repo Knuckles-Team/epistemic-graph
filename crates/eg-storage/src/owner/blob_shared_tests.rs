@@ -9,7 +9,7 @@
 //! accounts for it live or die with the caller's one transaction.
 
 use crate::capability::PhysicalWriteCapability;
-use crate::kernel::{StorageKernelV1, StoreDurability, StoreOpenOptions};
+use crate::kernel::{StorageKernelV1, StoreOpenOptions};
 use crate::owner::blob_shared::{
     BlobSharedServiceHandle, BlobSharedServiceVerifier, BlobSharedTable,
 };
@@ -149,7 +149,6 @@ fn the_shared_service_write_serves_every_chunk_and_refcount_operation() {
     assert_eq!(shared.refcount(DIGEST_A).unwrap(), 0);
     assert_eq!(shared.adjust_refcount(DIGEST_A, 3).unwrap(), 3);
     assert_eq!(shared.adjust_refcount(DIGEST_A, -1).unwrap(), 2);
-    assert!(shared.compare_and_set_refcount(DIGEST_A, 5, 9).is_err());
     shared.compare_and_set_refcount(DIGEST_A, 2, 7).unwrap();
     assert_eq!(shared.refcount(DIGEST_A).unwrap(), 7);
     shared.compare_and_set_refcount(DIGEST_B, 0, 0).unwrap();
@@ -167,6 +166,9 @@ fn the_shared_service_write_serves_every_chunk_and_refcount_operation() {
         seen,
         vec![(DIGEST_B.to_string(), 0), (DIGEST_A.to_string(), 7)]
     );
+
+    // (A compare-and-set that disagrees with the row is refused; that case is
+    // asserted in its own transaction, because a refusal poisons the commit.)
 
     // the sweep's reclaim.
     assert!(shared.remove_refcount(DIGEST_B).unwrap());
@@ -210,17 +212,24 @@ fn a_shared_reference_count_cannot_underflow() {
         .adjust_refcount(DIGEST_A, -1)
         .unwrap_err()
         .contains("underflow"));
-    // The refused decrement wrote nothing.
+    // The refused decrement wrote nothing, and the read still answers inside
+    // the (now poisoned) transaction.
     assert_eq!(shared.refcount(DIGEST_A).unwrap(), 0);
     // An absent row is zero references, and zero cannot be decremented either.
     assert!(shared.adjust_refcount(DIGEST_B, -1).is_err());
     assert_eq!(shared.refcount_rows().unwrap(), 1);
-    // Overflow is symmetric.
+    // A refused operation makes the whole transaction uncommittable.
+    assert!(write.commit().unwrap_err().contains("poisoned"));
+
+    // Overflow is symmetric, in its own transaction.
+    let write = cas.write();
+    let shared = write.blob_shared_write(&cas.service, SERVICE).unwrap();
     shared.compare_and_set_refcount(DIGEST_A, 0, u64::MAX).unwrap();
     assert!(shared
         .adjust_refcount(DIGEST_A, 1)
         .unwrap_err()
         .contains("overflow"));
+    assert!(shared.compare_and_set_refcount(DIGEST_A, 5, 9).is_err());
     write.abort().unwrap();
 }
 
@@ -504,34 +513,88 @@ fn a_read_only_open_has_no_write_authority_at_either_bound() {
         .contains("read-only"));
 }
 
-/// Durability is opt-in and defaults to the pre-options behaviour.
+/// There is no way to select a weaker durability than `Immediate`.
+///
+/// The open options carry a page-cache bound and a read-only flag and nothing
+/// else, and `begin_write` reads a constant, so no caller — and no future
+/// option value — can weaken the level every mutation commit runs at.
 #[test]
-fn durability_defaults_to_immediate_and_is_explicit_otherwise() {
-    assert_eq!(
-        StoreOpenOptions::default().durability(),
-        StoreDurability::Immediate
-    );
-    let deferred = StoreOpenOptions::default().with_durability(StoreDurability::Deferred);
-    assert_eq!(deferred.durability(), StoreDurability::Deferred);
+fn no_open_option_can_weaken_write_durability() {
+    // `redb::Durability` is not `PartialEq`, so match it structurally.
+    assert!(matches!(
+        crate::physical::root::WRITE_DURABILITY,
+        redb::Durability::Immediate
+    ));
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("blob.redb");
-    let kernel =
-        StorageKernelV1::create_owner_with::<BlobOwner>(
-            &path,
-            PhysicalStoreIdentity::new("physical:blob:durability").unwrap(),
-            None,
-            deferred,
-        )
-        .unwrap();
-    assert_eq!(kernel.open_options().durability(), StoreDurability::Deferred);
-    let cas = open_cas(kernel);
+    // The whole option surface: a bounded page cache and a read-only flag.
+    // Anything a caller can build differs from the default in one of those two
+    // and in nothing else, so there is no durability value to pass.
+    for options in [
+        StoreOpenOptions::default(),
+        StoreOpenOptions::default()
+            .with_cache_bytes(StoreOpenOptions::MIN_CACHE_BYTES)
+            .unwrap(),
+        StoreOpenOptions::default()
+            .with_cache_bytes(StoreOpenOptions::MAX_CACHE_BYTES)
+            .unwrap(),
+        StoreOpenOptions::default().read_only(),
+    ] {
+        let rebuilt = match (options.cache_bytes(), options.is_read_only()) {
+            (None, false) => StoreOpenOptions::default(),
+            (None, true) => StoreOpenOptions::default().read_only(),
+            (Some(bytes), false) => StoreOpenOptions::default()
+                .with_cache_bytes(bytes)
+                .unwrap(),
+            (Some(bytes), true) => StoreOpenOptions::default()
+                .with_cache_bytes(bytes)
+                .unwrap()
+                .read_only(),
+        };
+        assert_eq!(rebuilt, options);
+    }
+
+    // And the transaction a real store opens runs at that constant.
+    let cas = cas(&path, "physical:blob:durability");
     let write = cas.write();
     let shared = write.blob_shared_write(&cas.service, SERVICE).unwrap();
-    shared.insert_chunk_if_absent(DIGEST_A, b"deferred").unwrap();
+    shared.insert_chunk_if_absent(DIGEST_A, b"durable").unwrap();
     write.commit().unwrap();
-    // Deferred durability changes when the write reaches the disk, not what the
-    // store reads back in this process.
+    assert!(cas
+        .kernel
+        .read_blob_shared(&cas.service, SERVICE)
+        .unwrap()
+        .chunk_present(DIGEST_A)
+        .unwrap());
+}
+
+/// A failed shared-service operation poisons the caller's transaction, so a
+/// caller that swallows the refusal cannot commit the rows it already wrote.
+#[test]
+fn a_failed_shared_operation_poisons_the_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("blob.redb");
+    let cas = cas(&path, "physical:blob:poison");
+
+    let write = cas.write();
+    let shared = write.blob_shared_write(&cas.service, SERVICE).unwrap();
+    shared.insert_chunk_if_absent(DIGEST_A, b"written").unwrap();
+    // The headline refusal, deliberately ignored by the caller.
+    let _ = shared.adjust_refcount(DIGEST_A, -1);
+    assert!(write
+        .commit()
+        .unwrap_err()
+        .contains("poisoned by a failed operation"));
+
+    // Nothing landed, and a fresh transaction is unaffected.
+    let read = cas.kernel.read_blob_shared(&cas.service, SERVICE).unwrap();
+    assert!(!read.chunk_present(DIGEST_A).unwrap());
+    drop(read);
+    let write = cas.write();
+    let shared = write.blob_shared_write(&cas.service, SERVICE).unwrap();
+    shared.insert_chunk_if_absent(DIGEST_A, b"written").unwrap();
+    write.commit().unwrap();
     assert!(cas
         .kernel
         .read_blob_shared(&cas.service, SERVICE)

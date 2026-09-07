@@ -177,6 +177,12 @@ impl MutationKernelV1 {
     /// admission the whole group is discarded, because there is only one
     /// transaction and no partial outcome to choose.
     ///
+    /// A member whose idempotency key names a terminal receipt returns
+    /// [`Begin::Replay`] and is marked terminal here: it writes nothing and is
+    /// not `finish`ed, and the group still commits, because the other members'
+    /// rows are real. A sole writer aborts on `Begin::Replay`; a group cannot,
+    /// since one retry among N is the coalescer's ordinary case.
+    ///
     /// The single-scope [`Self::admit`] and [`Self::admit_maintenance`] are
     /// unchanged and remain the path for every other layout.
     pub fn admit_group<'a, 'i, D: OwnerDomain>(
@@ -196,13 +202,25 @@ impl MutationKernelV1 {
             .collect();
         let mut begins = Vec::with_capacity(intents.len());
         for (write, intent) in admitted.iter().zip(intents.iter()) {
-            match commit::begin(write, intent.batch, intent.class) {
-                Ok(begun) => begins.push(begun),
+            let begun = match commit::begin(write, intent.batch, intent.class) {
+                Ok(begun) => begun,
                 Err(error) => {
-                    AdmittedGroup::new(admitted, begins).end(false)?;
+                    // Discard the group, but report the ADMISSION failure: a
+                    // teardown error must not stand in for the real cause.
+                    let _ = AdmittedGroup::new(admitted, begins).end(false);
+                    return Err(error);
+                }
+            };
+            // A replayed member's receipt is already durable, so it applies
+            // nothing here and must not be able to. Marking it terminal is
+            // what lets the group commit the other members' real rows.
+            if matches!(begun, Begin::Replay(_)) {
+                if let Err(error) = write.admit_replayed_batch(intent.batch) {
+                    let _ = AdmittedGroup::new(admitted, begins).end(false);
                     return Err(error);
                 }
             }
+            begins.push(begun);
         }
         Ok(AdmittedGroup::new(admitted, begins))
     }

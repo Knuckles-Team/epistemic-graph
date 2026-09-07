@@ -188,93 +188,127 @@ pub(crate) fn write_blob_shared<'a>(
 }
 
 impl BlobSharedWrite<'_> {
+    /// Run one shared-service operation, poisoning the caller's transaction if
+    /// it fails.
+    ///
+    /// This surface has no admission window of its own — `AdmittedOwnerWrite`
+    /// poisons its write when a row window is dropped unfinished, and nothing
+    /// did that here. So a caller that swallowed a refusal (the refcount
+    /// underflow above all) could still commit the rows it had already
+    /// written. Now it cannot: the poison lives on the transaction, so the
+    /// commit is refused for the sole writer and for the whole group alike.
+    fn guard<T>(&self, run: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        self.capability.poison_shared_on_error(run())
+    }
+
     /// One chunk body, read inside the caller's own write transaction so the
     /// dedup decision it feeds is serialized against every concurrent writer.
     pub fn chunk_bytes(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-        permit_digest(digest)?;
-        let chunks = self.capability.open_table(CAS_CHUNKS)?;
-        let row = chunks.get(digest).map_err(|error| error.to_string())?;
-        row.map(|value| {
-            permit_chunk_bytes(value.value())?;
-            Ok(value.value().to_vec())
+        self.guard(|| {
+            permit_digest(digest)?;
+            let chunks = self.capability.open_table(CAS_CHUNKS)?;
+            let row = chunks.get(digest).map_err(|error| error.to_string())?;
+            row.map(|value| {
+                permit_chunk_bytes(value.value())?;
+                Ok(value.value().to_vec())
+            })
+            .transpose()
+    
         })
-        .transpose()
     }
 
     /// Whether `digest` is already a committed chunk row.
     pub fn chunk_present(&self, digest: &str) -> Result<bool, String> {
-        permit_digest(digest)?;
-        let chunks = self.capability.open_table(CAS_CHUNKS)?;
-        // Bind before returning: the `AccessGuard` borrows `chunks`, and a tail
-        // expression's temporaries outlive the local (E0597).
-        let present = chunks
-            .get(digest)
-            .map_err(|error| error.to_string())?
-            .is_some();
-        Ok(present)
+        self.guard(|| {
+            permit_digest(digest)?;
+            let chunks = self.capability.open_table(CAS_CHUNKS)?;
+            // Bind before returning: the `AccessGuard` borrows `chunks`, and a tail
+            // expression's temporaries outlive the local (E0597).
+            let present = chunks
+                .get(digest)
+                .map_err(|error| error.to_string())?
+                .is_some();
+            Ok(present)
+    
+        })
     }
 
     /// Row count of `cas_chunks`, inside the write.
     pub fn chunk_rows(&self) -> Result<u64, String> {
-        self.capability
-            .open_table(CAS_CHUNKS)?
-            .len()
-            .map_err(|error| error.to_string())
+        self.guard(|| {
+            self.capability
+                .open_table(CAS_CHUNKS)?
+                .len()
+                .map_err(|error| error.to_string())
+    
+        })
     }
 
     /// Store `bytes` at `digest` unless the row is already there; reports
     /// whether it was new. This is the dedup answer, computed and acted on in
     /// one transaction so two concurrent writers cannot both report "new".
     pub fn insert_chunk_if_absent(&self, digest: &str, bytes: &[u8]) -> Result<bool, String> {
-        self.insert_chunks_if_absent(&[(digest, bytes)])
-            .map(|was_new| was_new[0])
+        self.guard(|| {
+            self.insert_chunks_if_absent(&[(digest, bytes)])
+                .map(|was_new| was_new[0])
+    
+        })
     }
 
     /// The group-commit form: one table open for a whole staged chunk window,
     /// each row reporting whether it was new, all in the caller's transaction.
     pub fn insert_chunks_if_absent(&self, rows: &[(&str, &[u8])]) -> Result<Vec<bool>, String> {
-        for (digest, bytes) in rows {
-            permit_digest(digest)?;
-            permit_chunk_bytes(bytes)?;
-        }
-        let mut chunks = self.capability.open_table(CAS_CHUNKS)?;
-        let mut was_new = Vec::with_capacity(rows.len());
-        for (digest, bytes) in rows {
-            let absent = chunks
-                .get(*digest)
-                .map_err(|error| error.to_string())?
-                .is_none();
-            if absent {
-                chunks
-                    .insert(*digest, *bytes)
-                    .map_err(|error| error.to_string())?;
+        self.guard(|| {
+            for (digest, bytes) in rows {
+                permit_digest(digest)?;
+                permit_chunk_bytes(bytes)?;
             }
-            was_new.push(absent);
-        }
-        Ok(was_new)
+            let mut chunks = self.capability.open_table(CAS_CHUNKS)?;
+            let mut was_new = Vec::with_capacity(rows.len());
+            for (digest, bytes) in rows {
+                let absent = chunks
+                    .get(*digest)
+                    .map_err(|error| error.to_string())?
+                    .is_none();
+                if absent {
+                    chunks
+                        .insert(*digest, *bytes)
+                        .map_err(|error| error.to_string())?;
+                }
+                was_new.push(absent);
+            }
+            Ok(was_new)
+    
+        })
     }
 
     /// Drop one chunk row; reports whether it was there. The sweep's reclaim.
     pub fn remove_chunk(&self, digest: &str) -> Result<bool, String> {
-        permit_digest(digest)?;
-        let mut chunks = self.capability.open_table(CAS_CHUNKS)?;
-        let removed = chunks
-            .remove(digest)
-            .map_err(|error| error.to_string())?
-            .is_some();
-        Ok(removed)
+        self.guard(|| {
+            permit_digest(digest)?;
+            let mut chunks = self.capability.open_table(CAS_CHUNKS)?;
+            let removed = chunks
+                .remove(digest)
+                .map_err(|error| error.to_string())?
+                .is_some();
+            Ok(removed)
+    
+        })
     }
 
     /// The reference count of `digest`; an absent row is zero references.
     pub fn refcount(&self, digest: &str) -> Result<u64, String> {
-        permit_digest(digest)?;
-        let refs = self.capability.open_table(CAS_REFCOUNT)?;
-        let count = refs
-            .get(digest)
-            .map_err(|error| error.to_string())?
-            .map(|value| value.value())
-            .unwrap_or(0);
-        Ok(count)
+        self.guard(|| {
+            permit_digest(digest)?;
+            let refs = self.capability.open_table(CAS_REFCOUNT)?;
+            let count = refs
+                .get(digest)
+                .map_err(|error| error.to_string())?
+                .map(|value| value.value())
+                .unwrap_or(0);
+            Ok(count)
+    
+        })
     }
 
     /// Move a reference count by `delta` and report the new value.
@@ -285,24 +319,27 @@ impl BlobSharedWrite<'_> {
     /// caller sees the error inside its own transaction and aborts, so no row
     /// of that batch lands. Overflow fails closed for the same reason.
     pub fn adjust_refcount(&self, digest: &str, delta: i64) -> Result<u64, String> {
-        permit_digest(digest)?;
-        let mut refs = self.capability.open_table(CAS_REFCOUNT)?;
-        let current = refs
-            .get(digest)
-            .map_err(|error| error.to_string())?
-            .map(|value| value.value())
-            .unwrap_or(0);
-        let updated = match u64::try_from(delta) {
-            Ok(up) => current
-                .checked_add(up)
-                .ok_or_else(|| "shared blob reference count overflow".to_string())?,
-            Err(_) => current
-                .checked_sub(delta.unsigned_abs())
-                .ok_or_else(|| "shared blob reference count underflow".to_string())?,
-        };
-        refs.insert(digest, updated)
-            .map_err(|error| error.to_string())?;
-        Ok(updated)
+        self.guard(|| {
+            permit_digest(digest)?;
+            let mut refs = self.capability.open_table(CAS_REFCOUNT)?;
+            let current = refs
+                .get(digest)
+                .map_err(|error| error.to_string())?
+                .map(|value| value.value())
+                .unwrap_or(0);
+            let updated = match u64::try_from(delta) {
+                Ok(up) => current
+                    .checked_add(up)
+                    .ok_or_else(|| "shared blob reference count overflow".to_string())?,
+                Err(_) => current
+                    .checked_sub(delta.unsigned_abs())
+                    .ok_or_else(|| "shared blob reference count underflow".to_string())?,
+            };
+            refs.insert(digest, updated)
+                .map_err(|error| error.to_string())?;
+            Ok(updated)
+    
+        })
     }
 
     /// Set the reference count of `digest` only if it currently reads
@@ -315,38 +352,46 @@ impl BlobSharedWrite<'_> {
         expected: u64,
         next: u64,
     ) -> Result<(), String> {
-        permit_digest(digest)?;
-        let mut refs = self.capability.open_table(CAS_REFCOUNT)?;
-        let current = refs
-            .get(digest)
-            .map_err(|error| error.to_string())?
-            .map(|value| value.value())
-            .unwrap_or(0);
-        if current != expected {
-            return Err("shared blob reference count changed under this write".to_string());
-        }
-        refs.insert(digest, next)
-            .map_err(|error| error.to_string())?;
-        Ok(())
+        self.guard(|| {
+            permit_digest(digest)?;
+            let mut refs = self.capability.open_table(CAS_REFCOUNT)?;
+            let current = refs
+                .get(digest)
+                .map_err(|error| error.to_string())?
+                .map(|value| value.value())
+                .unwrap_or(0);
+            if current != expected {
+                return Err("shared blob reference count changed under this write".to_string());
+            }
+            refs.insert(digest, next)
+                .map_err(|error| error.to_string())?;
+            Ok(())
+        })
     }
 
     /// Drop one refcount row; reports whether it was there.
     pub fn remove_refcount(&self, digest: &str) -> Result<bool, String> {
-        permit_digest(digest)?;
-        let mut refs = self.capability.open_table(CAS_REFCOUNT)?;
-        let removed = refs
-            .remove(digest)
-            .map_err(|error| error.to_string())?
-            .is_some();
-        Ok(removed)
+        self.guard(|| {
+            permit_digest(digest)?;
+            let mut refs = self.capability.open_table(CAS_REFCOUNT)?;
+            let removed = refs
+                .remove(digest)
+                .map_err(|error| error.to_string())?
+                .is_some();
+            Ok(removed)
+    
+        })
     }
 
     /// Row count of `cas_refcount`, inside the write.
     pub fn refcount_rows(&self) -> Result<u64, String> {
-        self.capability
-            .open_table(CAS_REFCOUNT)?
-            .len()
-            .map_err(|error| error.to_string())
+        self.guard(|| {
+            self.capability
+                .open_table(CAS_REFCOUNT)?
+                .len()
+                .map_err(|error| error.to_string())
+    
+        })
     }
 
     /// Visit every refcount row in key order. Streaming rather than collecting,
@@ -356,13 +401,15 @@ impl BlobSharedWrite<'_> {
         &self,
         mut visit: impl FnMut(&str, u64) -> Result<(), String>,
     ) -> Result<(), String> {
-        let refs = self.capability.open_table(CAS_REFCOUNT)?;
-        for row in refs.iter().map_err(|error| error.to_string())? {
-            let (key, value) = row.map_err(|error| error.to_string())?;
-            permit_digest(key.value())?;
-            visit(key.value(), value.value())?;
-        }
-        Ok(())
+        self.guard(|| {
+            let refs = self.capability.open_table(CAS_REFCOUNT)?;
+            for row in refs.iter().map_err(|error| error.to_string())? {
+                let (key, value) = row.map_err(|error| error.to_string())?;
+                permit_digest(key.value())?;
+                visit(key.value(), value.value())?;
+            }
+            Ok(())
+        })
     }
 }
 

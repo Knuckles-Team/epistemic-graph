@@ -1,6 +1,6 @@
 //! `StorageKernelV1` — the sole physical-state authority.
 
-use crate::capability::{GroupRowClass, PhysicalWriteCapability, ScopedRead, ScopedSnapshot};
+use crate::capability::{PhysicalWriteCapability, ScopedRead, ScopedSnapshot};
 use crate::owner::blob_shared::{
     BlobSharedRead, BlobSharedServiceHandle, BlobSharedServiceVerifier,
 };
@@ -9,6 +9,7 @@ use crate::owner::grant::{AuthenticatedScopeGrant, ScopeGrantVerifier};
 use crate::owner::handle::OwnedStoreHandle;
 use crate::owner::identity::PhysicalStoreIdentity;
 use crate::owner::layout::OwnerLayout;
+use crate::owner::row_key::{is_control_scope, permit_reserved_name};
 use crate::owner::{
     open_declared_owner_tables, validate_declared_owner_tables, validate_manifest_read,
     write_new_manifest,
@@ -23,7 +24,17 @@ use eg_types::MutationScopeIdentity;
 use redb::{Database, ReadableDatabase};
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+/// Largest admitted scope group.
+///
+/// Every other collection this kernel touches is bounded (`encode_bounded`,
+/// `CollectionBudget`, a batch's write budget), and N unbounded members would
+/// be one unbounded write transaction holding redb's single write lock. The
+/// shard's coalescer drains a burst of graph batches, so the bound is generous
+/// but finite.
+const MAX_SCOPE_GROUP_MEMBERS: usize = 1024;
 
 /// The sole physical owner of one durable store file.
 ///
@@ -52,31 +63,6 @@ pub struct MutationOwnerAuthority {
     store: Arc<PhysicalStore>,
 }
 
-/// How durably a write transaction on this store commits.
-///
-/// The fail-closed default is [`StoreDurability::Immediate`] — the behaviour
-/// every store had before options existed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum StoreDurability {
-    /// `commit()` returns only once the write is persistent.
-    #[default]
-    Immediate,
-    /// `commit()` may return before the write is persistent; it becomes
-    /// persistent when a later `Immediate` commit lands. A crash before that
-    /// loses the transaction. Never a default, and never correct for a store
-    /// whose ledger is the authority for something already acknowledged.
-    Deferred,
-}
-
-impl StoreDurability {
-    fn redb(self) -> redb::Durability {
-        match self {
-            Self::Immediate => redb::Durability::Immediate,
-            Self::Deferred => redb::Durability::None,
-        }
-    }
-}
-
 /// How one physical owner file is **opened** — never what it *is*.
 ///
 /// None of these values reaches [`PhysicalStoreIdentity`], the owner manifest,
@@ -88,13 +74,18 @@ impl StoreDurability {
 /// store and failed adoption closed.
 ///
 /// The default is exactly the pre-options behaviour: `redb`'s own default
-/// cache, read-write, `Immediate` durability. Every setter validates, so an
-/// out-of-range value is refused at construction rather than silently clamped.
+/// cache, read-write. Every setter validates, so an out-of-range value is
+/// refused at construction rather than silently clamped.
+///
+/// There is deliberately **no durability knob**. `PhysicalStore::begin_write`
+/// is the one path every mutation commit takes, and it hard-codes
+/// `redb::Durability::Immediate`: a weaker level would let redb roll a
+/// committed ledger back on crash, un-consuming an acknowledged replay nonce
+/// and re-enabling a double apply. B9's need was the page-cache bound alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct StoreOpenOptions {
     cache_bytes: Option<usize>,
     read_only: bool,
-    durability: StoreDurability,
 }
 
 impl StoreOpenOptions {
@@ -128,25 +119,12 @@ impl StoreOpenOptions {
         self
     }
 
-    pub fn with_durability(mut self, durability: StoreDurability) -> Self {
-        self.durability = durability;
-        self
-    }
-
     pub fn cache_bytes(&self) -> Option<usize> {
         self.cache_bytes
     }
 
     pub fn is_read_only(&self) -> bool {
         self.read_only
-    }
-
-    pub fn durability(&self) -> StoreDurability {
-        self.durability
-    }
-
-    pub(crate) fn write_durability(&self) -> redb::Durability {
-        self.durability.redb()
     }
 
     fn builder(&self) -> redb::Builder {
@@ -185,7 +163,8 @@ impl StorageKernelV1 {
     /// Create a current-format owner file under explicit open options.
     ///
     /// `options` bounds how this process's handle behaves — its page cache, its
-    /// durability — and is not part of the store's identity. Creating a store
+    /// its page cache, whether it may write — and is not part of the store's
+    /// identity. Creating a store
     /// with [`StoreOpenOptions::read_only`] is refused: it would produce a file
     /// nothing in this process could ever write, including the bootstrap the
     /// create path itself performs.
@@ -385,21 +364,49 @@ impl MutationOwnerAuthority {
         control: &OwnedStoreHandle<D>,
         members: &[&OwnedStoreHandle<D>],
     ) -> Result<Vec<PhysicalWriteCapability<'_, D>>, String> {
+        // Everything that can refuse the group is checked BEFORE the one redb
+        // write lock is taken, so a rejected group never blocks a live writer.
+        if members.len() + 1 > MAX_SCOPE_GROUP_MEMBERS {
+            return Err("admitted scope group exceeds its member budget".to_string());
+        }
+        if !is_control_scope(D::LAYOUT, control.identity()) {
+            return Err("a scope group's control member must be the file's reserved control scope"
+                .to_string());
+        }
         let mut seen = BTreeSet::new();
-        let classed = std::iter::once((control, GroupRowClass::Control))
-            .chain(members.iter().map(|owner| (*owner, GroupRowClass::Scoped)));
-        let transaction = Arc::new(self.store.begin_write()?);
-        let mut capabilities = Vec::with_capacity(members.len() + 1);
-        for (owner, rows) in classed {
+        seen.insert(control.identity().binding_digest().to_hex());
+        for owner in members {
+            if is_control_scope(D::LAYOUT, owner.identity()) {
+                return Err(
+                    "a scope group's control scope may not also be a scoped member".to_string()
+                );
+            }
             if !seen.insert(owner.identity().binding_digest().to_hex()) {
                 return Err("an admitted scope group may not repeat a scope".to_string());
             }
-            capabilities.push(PhysicalWriteCapability::open_member(
+        }
+
+        let transaction = Arc::new(self.store.begin_write()?);
+        let poison = Arc::new(AtomicBool::new(false));
+        let mut capabilities = Vec::with_capacity(members.len() + 1);
+        for owner in std::iter::once(&control).chain(members.iter()) {
+            match PhysicalWriteCapability::open_member(
                 &self.store,
                 Arc::clone(&transaction),
-                rows,
+                Arc::clone(&poison),
                 owner,
-            )?);
+            ) {
+                Ok(capability) => capabilities.push(capability),
+                Err(error) => {
+                    // End the transaction we just opened rather than leaving it
+                    // to `Drop`, so the write lock is released on a named path.
+                    drop(capabilities);
+                    if let Ok(transaction) = Arc::try_unwrap(transaction) {
+                        let _ = transaction.abort();
+                    }
+                    return Err(error);
+                }
+            }
         }
         Ok(capabilities)
     }
@@ -428,6 +435,7 @@ pub(crate) fn authenticate_scope_in<D: OwnerDomain>(
     if manifest.layout != D::LAYOUT || !manifest.layout.accepts(&identity) {
         return Err("serving scope is outside the declared owner layout".to_string());
     }
+    permit_reserved_name(manifest.layout, &identity)?;
     verifier.verify(
         &manifest.physical_identity,
         manifest.layout,

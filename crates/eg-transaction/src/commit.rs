@@ -305,6 +305,9 @@ pub(crate) fn commit_group<D: OwnerDomain>(
     batches: &[&MutationBatch],
 ) -> Result<(), String> {
     if batches.len() != group.len() {
+        // End the shared transaction on a named path rather than leaving it to
+        // `Drop`, exactly as the seal-failure path below does.
+        let _ = group.end(false);
         return Err("scope group commit does not name every admitted member".to_string());
     }
     for (index, batch) in batches.iter().enumerate() {

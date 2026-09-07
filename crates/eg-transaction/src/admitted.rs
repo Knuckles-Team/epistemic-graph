@@ -10,7 +10,7 @@ use crate::admission::AdmissionState;
 use eg_storage::{
     BlobOwner, BlobSharedServiceHandle, BlobSharedWrite, LedgerRowScope, MutationClass,
     MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain, OwnerLayout, OwnerReadTable,
-    PhysicalWriteCapability, ScopedTableMut,
+    OwnerRowScope, PhysicalWriteCapability, ScopedOwnerTableMut, ScopedTableMut,
 };
 use eg_types::{MutationBatch, MutationScopeIdentity};
 use redb::{Table, TableDefinition};
@@ -222,6 +222,27 @@ impl<D: OwnerDomain> AdmittedOwnerWrite<'_, D> {
         V: redb::Value + 'static,
     {
         self.write.capability().open_owner_write(definition)
+    }
+
+    /// Open one **scope-prefixed** owner table of this layout, bounded to this
+    /// write's own serving scope.
+    ///
+    /// A layout whose owner tables lead their key with the scope's name — a
+    /// graph shard, where 42 of 53 tables do — makes those tables unreachable
+    /// through [`Self::open_table`], because a raw `redb::Table` cannot carry a
+    /// row bound. This is the accessor for them, and its scope name comes from
+    /// the capability rather than from an argument, so one graph cannot write
+    /// another's rows in the file they share.
+    pub fn open_scoped_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ScopedOwnerTableMut<'_, K, V>, String>
+    where
+        K: redb::Key + 'static,
+        for<'k> K::SelfType<'k>: OwnerRowScope,
+        V: redb::Value + 'static,
+    {
+        self.write.capability().scoped_owner_table_mut(definition)
     }
 
     pub fn finish_owner(mut self) -> Result<(), String> {
