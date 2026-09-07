@@ -131,7 +131,7 @@ impl PreparedJournalRecovery {
         mut self,
         registry: &DirectStateRegistry,
         permit: &StateImageInstallPermit,
-    ) -> Result<PreparedWholeGeneration, PreparedJournalRecovery> {
+    ) -> Result<PreparedWholeGeneration, Box<PreparedJournalRecovery>> {
         let attempt = (|| {
             permit.validate_affinity(&self.authority_identity)?;
             registry.validate_filesystem()?;
@@ -161,7 +161,7 @@ impl PreparedJournalRecovery {
         })();
         if let Err(first_error) = attempt {
             self.first_error = first_error;
-            return Err(self);
+            return Err(Box::new(self));
         }
         let durable = DurablePreparedJournal {
             authority_identity: self.authority_identity,
@@ -422,7 +422,7 @@ impl PublishedJournalRecovery {
         mut self,
         registry: &DirectStateRegistry,
         permit: &StateImageInstallPermit,
-    ) -> Result<DurablePublishedJournal, PublishedJournalRecovery> {
+    ) -> Result<DurablePublishedJournal, Box<PublishedJournalRecovery>> {
         let attempt = (|| {
             permit.validate_affinity(&self.durable.authority_identity)?;
             registry.validate_filesystem()?;
@@ -440,7 +440,7 @@ impl PublishedJournalRecovery {
         })();
         if let Err(first_error) = attempt {
             self.first_error = first_error;
-            return Err(self);
+            return Err(Box::new(self));
         }
         Ok(self.durable)
     }

@@ -872,10 +872,14 @@ mod tests {
         assert_eq!(probe.delivery_wait_calls.load(Ordering::Relaxed), 1);
     }
 
+    /// The exact `RawKafkaProducer::publish` shape the test below pins: producer,
+    /// topic, key, payload -- topic and key supplied per call rather than baked
+    /// into the producer.
+    type RawKafkaPublish = fn(&RawKafkaProducer, &str, &[u8], &[u8]) -> Result<(), SinkError>;
+
     #[test]
     fn raw_kafka_producer_publish_takes_topic_and_key_per_call() {
-        let publish: fn(&RawKafkaProducer, &str, &[u8], &[u8]) -> Result<(), SinkError> =
-            RawKafkaProducer::publish;
+        let publish: RawKafkaPublish = RawKafkaProducer::publish;
         let _ = publish;
     }
 }

@@ -162,9 +162,7 @@ async fn projection_context(state: &Arc<RwLock<ServerState>>) -> Option<Projecti
         .into_iter()
         .map(|entry| (entry.name.clone(), entry.core.clone()))
         .collect();
-    let Some(persistence) = persistence else {
-        return None;
-    };
+    let persistence = persistence?;
     Some(ProjectionContext {
         persistence,
         persist_dir,
@@ -701,7 +699,7 @@ fn prepare_snapshot_directory(root: &Path, parent: &Path) -> Result<(), String> 
             return Err("reasoning projection snapshot directory is unavailable".to_string());
         }
     }
-    std::fs::create_dir_all(&parent)
+    std::fs::create_dir_all(parent)
         .map_err(|_| "reasoning projection snapshot directory is unavailable".to_string())?;
     for directory in [root, parent] {
         let metadata = std::fs::symlink_metadata(directory)
@@ -714,11 +712,11 @@ fn prepare_snapshot_directory(root: &Path, parent: &Path) -> Result<(), String> 
 }
 
 fn create_temporary_snapshot(temporary: &Path) -> Result<std::fs::File, String> {
-    match std::fs::symlink_metadata(&temporary) {
+    match std::fs::symlink_metadata(temporary) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
             return Err("reasoning projection temporary snapshot is unavailable".to_string());
         }
-        Ok(_) => std::fs::remove_file(&temporary)
+        Ok(_) => std::fs::remove_file(temporary)
             .map_err(|_| "reasoning projection temporary snapshot is unavailable".to_string())?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => {
@@ -728,7 +726,7 @@ fn create_temporary_snapshot(temporary: &Path) -> Result<std::fs::File, String> 
     std::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
-        .open(&temporary)
+        .open(temporary)
         .map_err(|_| "reasoning projection temporary snapshot is unavailable".to_string())
 }
 

@@ -192,20 +192,20 @@ impl DirectStateRegistry {
         };
         match self.cleanup_current_artifacts(permit, &current) {
             Ok(()) => Ok(CurrentPromotion::Durable(current)),
-            Err(first_error) => Ok(CurrentPromotion::CleanupRecoveryRequired(
+            Err(first_error) => Ok(CurrentPromotion::CleanupRecoveryRequired(Box::new(
                 CurrentCleanupRecovery {
                     current,
                     first_error,
                 },
-            )),
+            ))),
         }
     }
 
     pub fn retry_current_durability(
         &self,
         permit: &StateImageInstallPermit,
-        mut recovery: CurrentDurabilityRecovery,
-    ) -> Result<CurrentPromotion, CurrentDurabilityRecovery> {
+        mut recovery: Box<CurrentDurabilityRecovery>,
+    ) -> Result<CurrentPromotion, Box<CurrentDurabilityRecovery>> {
         let validation = permit
             .validate_affinity(&self.authority_identity)
             .and_then(|_| self.validate_filesystem())
@@ -249,42 +249,42 @@ impl DirectStateRegistry {
             mut published,
             mut displaced_retirement,
             ..
-        } = recovery;
+        } = *recovery;
         if let Some(retirement) = displaced_retirement.as_mut() {
             if let Err(first_error) = retirement.retry() {
-                return Err(CurrentDurabilityRecovery {
+                return Err(Box::new(CurrentDurabilityRecovery {
                     current,
                     published,
                     displaced_retirement,
                     first_error,
-                });
+                }));
             }
             displaced_retirement = None;
         }
         if let Err(first_error) = published.retire_exact() {
-            return Err(CurrentDurabilityRecovery {
+            return Err(Box::new(CurrentDurabilityRecovery {
                 current,
                 published,
                 displaced_retirement,
                 first_error,
-            });
+            }));
         }
         match self.cleanup_current_artifacts(permit, &current) {
             Ok(()) => Ok(CurrentPromotion::Durable(current)),
-            Err(first_error) => Ok(CurrentPromotion::CleanupRecoveryRequired(
+            Err(first_error) => Ok(CurrentPromotion::CleanupRecoveryRequired(Box::new(
                 CurrentCleanupRecovery {
                     current,
                     first_error,
                 },
-            )),
+            ))),
         }
     }
 
     pub fn retry_current_cleanup(
         &self,
         permit: &StateImageInstallPermit,
-        recovery: CurrentCleanupRecovery,
-    ) -> Result<DurableCurrentImage, CurrentCleanupRecovery> {
+        recovery: Box<CurrentCleanupRecovery>,
+    ) -> Result<DurableCurrentImage, Box<CurrentCleanupRecovery>> {
         if recovery
             .current
             .validate_registry_affinity(&self.registry_identity)
@@ -295,10 +295,10 @@ impl DirectStateRegistry {
         }
         match self.cleanup_current_artifacts(permit, &recovery.current) {
             Ok(()) => Ok(recovery.current),
-            Err(first_error) => Err(CurrentCleanupRecovery {
+            Err(first_error) => Err(Box::new(CurrentCleanupRecovery {
                 current: recovery.current,
                 first_error,
-            }),
+            })),
         }
     }
 

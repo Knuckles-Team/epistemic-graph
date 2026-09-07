@@ -185,14 +185,14 @@ fn replay_current_publication(
         .ok_or_else(|| "exact direct-state Current replay disappeared".to_string())?;
     match published.retire_exact() {
         Ok(()) => Ok(CurrentPointerPublication::Durable(current)),
-        Err(first_error) => Ok(CurrentPointerPublication::RecoveryRequired(
+        Err(first_error) => Ok(CurrentPointerPublication::RecoveryRequired(Box::new(
             CurrentDurabilityRecovery {
                 current,
                 published,
                 displaced_retirement: None,
                 first_error,
             },
-        )),
+        ))),
     }
 }
 
@@ -231,22 +231,22 @@ fn finish_current_publication(
         Ok::<(), String>(())
     })();
     if let Err(first_error) = durability {
-        return CurrentPointerPublication::RecoveryRequired(CurrentDurabilityRecovery {
+        return CurrentPointerPublication::RecoveryRequired(Box::new(CurrentDurabilityRecovery {
             current,
             published,
             displaced_retirement,
             first_error,
-        });
+        }));
     }
     // Current is durable. Retiring the superseded Published journal is
     // idempotent cleanup debt and cannot turn committed publication into Err.
     if let Err(first_error) = published.retire_exact() {
-        return CurrentPointerPublication::RecoveryRequired(CurrentDurabilityRecovery {
+        return CurrentPointerPublication::RecoveryRequired(Box::new(CurrentDurabilityRecovery {
             current,
             published,
             displaced_retirement,
             first_error,
-        });
+        }));
     }
     CurrentPointerPublication::Durable(current)
 }
@@ -256,7 +256,7 @@ pub(in crate::direct_state) enum CurrentPointerPublication {
     /// The rename is already visible and therefore must never unwind as an
     /// ordinary error. This token pins that exact Current inode until its parent
     /// directory fsync is retried.
-    RecoveryRequired(CurrentDurabilityRecovery),
+    RecoveryRequired(Box<CurrentDurabilityRecovery>),
 }
 
 pub struct CurrentDurabilityRecovery {
@@ -284,8 +284,8 @@ pub struct DurableCurrentImage {
 
 pub enum CurrentPromotion {
     Durable(DurableCurrentImage),
-    DurabilityRecoveryRequired(CurrentDurabilityRecovery),
-    CleanupRecoveryRequired(CurrentCleanupRecovery),
+    DurabilityRecoveryRequired(Box<CurrentDurabilityRecovery>),
+    CleanupRecoveryRequired(Box<CurrentCleanupRecovery>),
 }
 
 pub struct CurrentCleanupRecovery {
@@ -298,7 +298,7 @@ pub enum PendingAbandonment {
     /// The Pending name is already retired. The token keeps the last-known-good
     /// Current authority and recovered generation alive while directory fsync or
     /// bounded artifact cleanup is retried.
-    RecoveryRequired(PendingAbandonRecovery),
+    RecoveryRequired(Box<PendingAbandonRecovery>),
 }
 
 pub struct PendingAbandonRecovery {

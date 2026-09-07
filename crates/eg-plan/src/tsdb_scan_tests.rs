@@ -605,7 +605,7 @@ fn tsdb_scan_rejects_unscoped_committed_store() {
     use eg_core::compute::semantic::SemanticStore;
     use eg_core::graph::GraphCore;
     use eg_tsdb::point::Point;
-    use eg_tsdb::store::{SeriesKey, SeriesStore};
+    use eg_tsdb::store::SeriesKey;
     use eg_types::wire::{Op, Plan};
 
     let path = temp_store_path("graph_scope");
@@ -642,7 +642,7 @@ fn tsdb_scan_honors_verified_actor_and_tenant_scope() {
     use eg_core::compute::semantic::SemanticStore;
     use eg_core::graph::GraphCore;
     use eg_tsdb::point::Point;
-    use eg_tsdb::store::{SeriesKey, SeriesStore};
+    use eg_tsdb::store::SeriesKey;
     use eg_types::wire::{Op, Plan};
 
     let path = temp_store_path("verified_owner_scope");

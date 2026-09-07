@@ -33,7 +33,7 @@ use eg_modality::{
 use crate::model::{JustRule, TimeAxis};
 use crate::BeliefState;
 
-const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "belief states are computed views, not persisted values — CDC would require explicit materialization of beliefs as a separate store operation",

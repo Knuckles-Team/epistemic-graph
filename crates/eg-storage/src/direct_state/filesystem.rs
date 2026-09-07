@@ -89,7 +89,7 @@ impl PinnedDirectoryRead<'_> {
         #[cfg(target_os = "linux")]
         {
             use std::os::fd::AsRawFd;
-            return PathBuf::from(format!("/proc/self/fd/{}", self.root.authority.as_raw_fd()));
+            PathBuf::from(format!("/proc/self/fd/{}", self.root.authority.as_raw_fd()))
         }
         #[cfg(all(unix, not(target_os = "linux")))]
         {
@@ -129,7 +129,7 @@ impl PinnedDirectoryRead<'_> {
             {
                 return Err(format!("{operation}: source is not a regular file"));
             }
-            return Ok(file);
+            Ok(file)
         }
         #[cfg(not(unix))]
         {
@@ -146,7 +146,7 @@ impl PinnedDirectoryRead<'_> {
         #[cfg(unix)]
         {
             validate_relative_basename(name)?;
-            return match openat(
+            match openat(
                 &self.root.authority,
                 name,
                 OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
@@ -165,7 +165,7 @@ impl PinnedDirectoryRead<'_> {
                 }
                 Err(rustix::io::Errno::NOENT) => Ok(None),
                 Err(error) => Err(format!("{operation}: {error}")),
-            };
+            }
         }
         #[cfg(not(unix))]
         {
@@ -191,7 +191,7 @@ impl PinnedDirectoryMutations<'_> {
                 Mode::RUSR | Mode::WUSR,
             )
             .map_err(|error| format!("{operation}: {error}"))?;
-            return Ok(File::from(fd));
+            Ok(File::from(fd))
         }
         #[cfg(not(unix))]
         {
@@ -208,7 +208,7 @@ impl PinnedDirectoryMutations<'_> {
         #[cfg(unix)]
         {
             validate_relative_basename(name)?;
-            return match openat(
+            match openat(
                 &self.root.authority,
                 name,
                 OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC | OFlags::NOFOLLOW,
@@ -217,7 +217,7 @@ impl PinnedDirectoryMutations<'_> {
                 Ok(fd) => Ok(Some(File::from(fd))),
                 Err(rustix::io::Errno::EXIST) => Ok(None),
                 Err(error) => Err(format!("{operation}: {error}")),
-            };
+            }
         }
         #[cfg(not(unix))]
         {
@@ -245,7 +245,7 @@ impl PinnedDirectoryMutations<'_> {
                 AtFlags::empty(),
             )
             .map_err(|error| format!("{operation}: {error}"))?;
-            return Ok(());
+            Ok(())
         }
         #[cfg(not(unix))]
         {
@@ -330,7 +330,7 @@ impl PinnedDirectoryMutations<'_> {
             validate_relative_basename(name)?;
             unlinkat(&self.root.authority, name, AtFlags::empty())
                 .map_err(|error| format!("{operation}: {error}"))?;
-            return Ok(());
+            Ok(())
         }
         #[cfg(not(unix))]
         {

@@ -348,10 +348,19 @@ fn fit_linear_ovr(
     let mut weights = Vec::with_capacity(classes.len());
     let mut biases = Vec::with_capacity(classes.len());
     for &cls in classes {
+        let fit = BinaryFit {
+            x,
+            y,
+            cls,
+            dim,
+            n,
+            lr,
+            epochs,
+        };
         let (w, b) = if options.kind == "logistic" {
-            fit_logistic_binary(x, y, cls, dim, n, lr, epochs, options.l2)
+            fit_logistic_binary(&fit, options.l2)
         } else {
-            fit_svc_binary(x, y, cls, dim, n, lr, epochs, options.c)
+            fit_svc_binary(&fit, options.c)
         };
         weights.push(w);
         biases.push(b);
@@ -364,81 +373,68 @@ fn fit_linear_ovr(
     }
 }
 
-fn fit_logistic_binary(
-    x: &[Point],
-    y: &[i64],
+/// One binary one-vs-rest sub-problem: the training set, the positive class, and
+/// the gradient-descent schedule every linear OvR fitter below reads unchanged.
+/// The per-objective regularizer (`l2`/`c`) stays an explicit argument because it
+/// is the one value that differs between them.
+struct BinaryFit<'a> {
+    x: &'a [Point],
+    y: &'a [i64],
     cls: i64,
     dim: usize,
     n: f64,
     lr: f64,
     epochs: usize,
-    l2: f64,
-) -> (Vec<f64>, f64) {
-    let mut w = vec![0.0f64; dim];
+}
+
+fn fit_logistic_binary(fit: &BinaryFit<'_>, l2: f64) -> (Vec<f64>, f64) {
+    let mut w = vec![0.0f64; fit.dim];
     let mut b = 0.0f64;
-    for _ in 0..epochs {
-        let mut gw = vec![0.0f64; dim];
+    for _ in 0..fit.epochs {
+        let mut gw = vec![0.0f64; fit.dim];
         let mut gb = 0.0f64;
-        for (i, row) in x.iter().enumerate() {
-            let t = if y[i] == cls { 1.0 } else { 0.0 };
+        for (i, row) in fit.x.iter().enumerate() {
+            let t = if fit.y[i] == fit.cls { 1.0 } else { 0.0 };
             let err = sigmoid(dot(&w, row) + b) - t;
-            for d in 0..dim {
+            for d in 0..fit.dim {
                 gw[d] += err * row[d];
             }
             gb += err;
         }
-        for d in 0..dim {
-            w[d] -= lr * (gw[d] / n + l2 * w[d]);
+        for d in 0..fit.dim {
+            w[d] -= fit.lr * (gw[d] / fit.n + l2 * w[d]);
         }
-        b -= lr * (gb / n);
+        b -= fit.lr * (gb / fit.n);
     }
     (w, b)
 }
 
-fn fit_svc_binary(
-    x: &[Point],
-    y: &[i64],
-    cls: i64,
-    dim: usize,
-    n: f64,
-    lr: f64,
-    epochs: usize,
-    c: f64,
-) -> (Vec<f64>, f64) {
-    let mut w = vec![0.0f64; dim];
+fn fit_svc_binary(fit: &BinaryFit<'_>, c: f64) -> (Vec<f64>, f64) {
+    let mut w = vec![0.0f64; fit.dim];
     let mut b = 0.0f64;
     // SVC: minimize (lambda/2)||w||^2 + (1/n) Σ hinge(s_i (w·x+b)).
-    let lambda = 1.0 / (c.max(1e-6) * n);
-    for _ in 0..epochs {
-        let (gw, gb) = svc_gradient(x, y, cls, dim, n, &w, b, lambda);
-        for d in 0..dim {
-            w[d] -= lr * gw[d];
+    let lambda = 1.0 / (c.max(1e-6) * fit.n);
+    for _ in 0..fit.epochs {
+        let (gw, gb) = svc_gradient(fit, &w, b, lambda);
+        for d in 0..fit.dim {
+            w[d] -= fit.lr * gw[d];
         }
-        b -= lr * gb;
+        b -= fit.lr * gb;
     }
     (w, b)
 }
 
-fn svc_gradient(
-    x: &[Point],
-    y: &[i64],
-    cls: i64,
-    dim: usize,
-    n: f64,
-    w: &[f64],
-    b: f64,
-    lambda: f64,
-) -> (Vec<f64>, f64) {
+fn svc_gradient(fit: &BinaryFit<'_>, w: &[f64], b: f64, lambda: f64) -> (Vec<f64>, f64) {
     let mut gw: Vec<f64> = w.iter().map(|&wi| lambda * wi).collect();
     let mut gb = 0.0f64;
-    for (i, row) in x.iter().enumerate() {
-        let s = if y[i] == cls { 1.0 } else { -1.0 };
+    for (i, row) in fit.x.iter().enumerate() {
+        let s = if fit.y[i] == fit.cls { 1.0 } else { -1.0 };
         let margin = s * (dot(w, row) + b);
         if margin < 1.0 {
-            for d in 0..dim {
-                gw[d] -= s * row[d] / n;
+            for d in 0..fit.dim {
+                gw[d] -= s * row[d] / fit.n;
             }
-            gb -= s / n;
+            gb -= s / fit.n;
         }
     }
     (gw, gb)

@@ -163,9 +163,18 @@ impl Drop for SpillAppendCompletion {
     }
 }
 
+/// The acknowledgement's two-field state: whichever of the outcome and the
+/// waiting task's waker exists yet. Named fields rather than a tuple so the
+/// `complete`/`wait` pair below cannot transpose them.
+#[derive(Default)]
+struct SpillAppendState {
+    outcome: Option<Result<(), String>>,
+    waker: Option<std::task::Waker>,
+}
+
 #[derive(Default)]
 struct SpillAppendAck {
-    state: Mutex<(Option<Result<(), String>>, Option<std::task::Waker>)>,
+    state: Mutex<SpillAppendState>,
 }
 
 impl SpillAppendAck {
@@ -175,8 +184,8 @@ impl SpillAppendAck {
                 .state
                 .lock()
                 .expect("spill acknowledgement lock poisoned");
-            state.0 = Some(result);
-            state.1.take()
+            state.outcome = Some(result);
+            state.waker.take()
         };
         if let Some(waker) = waker {
             waker.wake();
@@ -189,10 +198,10 @@ impl SpillAppendAck {
                 .state
                 .lock()
                 .expect("spill acknowledgement lock poisoned");
-            if let Some(result) = state.0.take() {
+            if let Some(result) = state.outcome.take() {
                 return std::task::Poll::Ready(result);
             }
-            state.1 = Some(context.waker().clone());
+            state.waker = Some(context.waker().clone());
             std::task::Poll::Pending
         })
         .await

@@ -6433,12 +6433,14 @@ fn read_snapshot_rows(
     let mut page = Vec::new();
     let mut encoded_bytes = 0usize;
     let mut scanned_bytes = 0usize;
-    let mut scanned_rows = 0usize;
     let mut last_processed_row_id = None;
     let mut has_more = false;
-    for row in rows_table
+    // `scanned_rows` is the loop index by construction: both `break`s below
+    // precede the point where a row counts as scanned.
+    for (scanned_rows, row) in rows_table
         .range((table, first_row_id)..=(table, u64::MAX))
         .map_err(map_err)?
+        .enumerate()
     {
         let (key, value) = row.map_err(map_err)?;
         if scanned_rows == ROW_SNAPSHOT_MAX_RECORDS {
@@ -6458,7 +6460,6 @@ fn read_snapshot_rows(
         }
         let mut cells: Vec<Cell> = decode_stored(value.value(), "row")?;
         scanned_bytes += row_bytes;
-        scanned_rows += 1;
         if visibility.is_some_and(|predicate| !predicate.eval(&row_map(schema, &cells))) {
             last_processed_row_id = Some(key.value().1);
             continue;

@@ -675,20 +675,33 @@ fn load_traces_snapshot(obs_base: &Path) -> Result<Option<eg_tsdb::traces::SpanS
 /// file written by `persist_stream_segments`. Returns empty maps when the directory
 /// does not exist yet in a fresh persist dir. Each file's bytes go through the same bounded
 /// structural preflight `load_traces_snapshot` uses.
-fn load_segment_manifests(
-    obs_base: &Path,
-) -> Result<
-    (
-        Vec<SegmentManifest>,
-        HashMap<String, Vec<usize>>,
-        HashMap<String, (usize, usize)>,
-        usize,
-        usize,
-    ),
-    String,
-> {
+/// Per-stream `(bytes, items)` and the aggregate totals for the manifest files
+/// that have completed durable publication. Named fields, because the bounds
+/// check and the publication commit below both read all three together and a
+/// transposed tuple index would silently compare bytes against items.
+#[derive(Debug, Default)]
+struct SegmentManifestUsage {
+    per_stream: HashMap<String, (usize, usize)>,
+    bytes: usize,
+    items: usize,
+}
+
+/// Everything `load_segment_manifests` rebuilds from the durable side files: the
+/// manifests themselves, the per-stream prune index into them, and their bounds.
+#[derive(Debug)]
+struct LoadedSegmentManifests {
+    manifests: Vec<SegmentManifest>,
+    positions: HashMap<String, Vec<usize>>,
+    usage: SegmentManifestUsage,
+}
+
+fn load_segment_manifests(obs_base: &Path) -> Result<LoadedSegmentManifests, String> {
     let Some(directory) = open_segment_manifest_directory(obs_base)? else {
-        return Ok((Vec::new(), HashMap::new(), HashMap::new(), 0, 0));
+        return Ok(LoadedSegmentManifests {
+            manifests: Vec::new(),
+            positions: HashMap::new(),
+            usage: SegmentManifestUsage::default(),
+        });
     };
     let names = segment_manifest_names(&directory)?;
     let limits = eg_types::msgpack::MsgpackLimits::new(
@@ -735,7 +748,15 @@ fn load_segment_manifests(
         manifests.extend(stream_manifests);
     }
     directory.require_still_named(MANIFEST_DIRECTORY_ERROR)?;
-    Ok((manifests, positions, usage, total_bytes, total_items))
+    Ok(LoadedSegmentManifests {
+        manifests,
+        positions,
+        usage: SegmentManifestUsage {
+            per_stream: usage,
+            bytes: total_bytes,
+            items: total_items,
+        },
+    })
 }
 
 fn include_manifest_budget(total: &mut usize, increment: usize, max: usize) -> Result<(), String> {
@@ -798,20 +819,24 @@ fn encode_bounded_stream_manifests(
         .collect::<Result<_, _>>()?;
     let bytes = rmp_serde::to_vec_named(&target).map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
     let usage = state.manifest_usage.lock();
-    let previous = usage.0.get(target_stream).copied().unwrap_or((0, 0));
-    let file_count = usage.0.len()
-        + if usage.0.contains_key(target_stream) {
+    let previous = usage
+        .per_stream
+        .get(target_stream)
+        .copied()
+        .unwrap_or((0, 0));
+    let file_count = usage.per_stream.len()
+        + if usage.per_stream.contains_key(target_stream) {
             0
         } else {
             1
         };
     let total_bytes = usage
-        .1
+        .bytes
         .checked_sub(previous.0)
         .and_then(|total| total.checked_add(bytes.len()))
         .filter(|total| *total <= MAX_MANIFEST_TOTAL_BYTES);
     let total_items = usage
-        .2
+        .items
         .checked_sub(previous.1)
         .and_then(|total| total.checked_add(target_positions.len()))
         .filter(|total| *total <= MAX_MANIFEST_TOTAL_ITEMS);
@@ -860,7 +885,7 @@ pub struct ObsState {
     manifest_positions: Mutex<HashMap<String, Vec<usize>>>,
     /// Per-stream and aggregate bounds for the manifest files that have completed
     /// durable publication. Updated before the global publication lock is released.
-    manifest_usage: Mutex<(HashMap<String, (usize, usize)>, usize, usize)>,
+    manifest_usage: Mutex<SegmentManifestUsage>,
     /// Base dir for persistent text indices; `None` ⇒ in-memory indices (tests).
     text_dir: Option<std::path::PathBuf>,
     /// `{persist_dir}/obs` -- the base this module's own durable side-files
@@ -925,11 +950,14 @@ fn open_obs_state_blocking(
             (series, blob, None, None)
         }
     };
-    let (segments, manifest_positions, manifest_usage, manifest_bytes, manifest_items) =
-        match obs_base.as_deref() {
-            Some(base) => load_segment_manifests(base)?,
-            None => (Vec::new(), HashMap::new(), HashMap::new(), 0, 0),
-        };
+    let loaded = match obs_base.as_deref() {
+        Some(base) => load_segment_manifests(base)?,
+        None => LoadedSegmentManifests {
+            manifests: Vec::new(),
+            positions: HashMap::new(),
+            usage: SegmentManifestUsage::default(),
+        },
+    };
     #[cfg(feature = "traces")]
     let traces = match obs_base.as_deref() {
         Some(base) => match load_traces_snapshot(base)? {
@@ -943,9 +971,9 @@ fn open_obs_state_blocking(
         blob: Arc::new(blob),
         indices: Mutex::new(HashMap::new()),
         buffers: Mutex::new(HashMap::new()),
-        segments: Mutex::new(segments),
-        manifest_positions: Mutex::new(manifest_positions),
-        manifest_usage: Mutex::new((manifest_usage, manifest_bytes, manifest_items)),
+        segments: Mutex::new(loaded.manifests),
+        manifest_positions: Mutex::new(loaded.positions),
+        manifest_usage: Mutex::new(loaded.usage),
         text_dir,
         obs_base,
         flush_threshold: flush_threshold.max(1),
@@ -1122,9 +1150,9 @@ impl ObsState {
                     .take()
                     .expect("manifest usage is prepared before publication");
                 let mut usage = self.manifest_usage.lock();
-                usage.0.insert(stream.to_string(), (bytes, items));
-                usage.1 = total_bytes;
-                usage.2 = total_items;
+                usage.per_stream.insert(stream.to_string(), (bytes, items));
+                usage.bytes = total_bytes;
+                usage.items = total_items;
             },
         )
     }
@@ -2804,7 +2832,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         assert!(load_segment_manifests(dir.path())
             .expect("missing manifest directory")
-            .0
+            .manifests
             .is_empty());
     }
 

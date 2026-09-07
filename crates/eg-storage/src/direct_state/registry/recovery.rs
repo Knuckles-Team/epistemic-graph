@@ -2,7 +2,7 @@ use super::*;
 
 pub enum RecoveredDirectStateGeneration {
     Ready(AssembledDirectStateGeneration),
-    CleanupRequired(RecoveredPublishedCleanup),
+    CleanupRequired(Box<RecoveredPublishedCleanup>),
 }
 
 impl RecoveredDirectStateGeneration {
@@ -460,13 +460,13 @@ impl DirectStateRegistry {
         let assembled = assemble_recovered(self, current, pending_journal, entries)?;
         if let Some(mut published) = published_residue.take() {
             if let Err(first_error) = published.retire_exact() {
-                return Ok(RecoveredDirectStateGeneration::CleanupRequired(
+                return Ok(RecoveredDirectStateGeneration::CleanupRequired(Box::new(
                     RecoveredPublishedCleanup {
                         assembled,
                         published,
                         first_error,
                     },
-                ));
+                )));
             }
         }
         Ok(RecoveredDirectStateGeneration::Ready(assembled))
@@ -475,8 +475,8 @@ impl DirectStateRegistry {
     pub fn retry_recovered_published_cleanup(
         &self,
         permit: &StateImageInstallPermit,
-        mut recovery: RecoveredPublishedCleanup,
-    ) -> Result<RecoveredDirectStateGeneration, RecoveredPublishedCleanup> {
+        mut recovery: Box<RecoveredPublishedCleanup>,
+    ) -> Result<RecoveredDirectStateGeneration, Box<RecoveredPublishedCleanup>> {
         let result = permit
             .validate_affinity(&self.authority_identity)
             .and_then(|_| self.validate_filesystem())
@@ -562,7 +562,7 @@ impl DirectStateRegistry {
         };
         let recovery =
             prepare_pending_abandonment(self, journal_path, current, &pending, assembled)?;
-        match self.retry_pending_abandonment(permit, recovery) {
+        match self.retry_pending_abandonment(permit, Box::new(recovery)) {
             Ok(assembled) => Ok(PendingAbandonment::Durable(assembled)),
             Err(recovery) => Ok(PendingAbandonment::RecoveryRequired(recovery)),
         }
@@ -571,8 +571,8 @@ impl DirectStateRegistry {
     pub fn retry_pending_abandonment(
         &self,
         permit: &StateImageInstallPermit,
-        mut recovery: PendingAbandonRecovery,
-    ) -> Result<AssembledDirectStateGeneration, PendingAbandonRecovery> {
+        mut recovery: Box<PendingAbandonRecovery>,
+    ) -> Result<AssembledDirectStateGeneration, Box<PendingAbandonRecovery>> {
         let attempt = (|| {
             permit.validate_affinity(&self.authority_identity)?;
             self.validate_filesystem()?;

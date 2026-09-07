@@ -106,38 +106,34 @@ pub struct DirectStateTransportGeneration {
     pub(super) sources: Vec<DirectStateSectionSource>,
 }
 
+/// The transport's ordered wire sections: each canonical section manifest paired
+/// with the chunk stream that carries its bytes. Named once because the wire
+/// payload, its two accessors and the reception entrypoint all name the same set.
+pub type DirectStateWireSections = Vec<(
+    DirectStateSectionManifest,
+    Box<dyn DirectStateChunkStream>,
+)>;
+
 /// Serializable transport payload. It deliberately contains no process-local
 /// registry capability; only `DirectStateRegistry::receive_authenticated_remote`
 /// may bind it to a destination after the outer Raft snapshot envelope has been
 /// authenticated.
 pub struct DirectStateRemoteTransport {
     pub(super) header: DirectStateTransportHeader,
-    pub(super) sections: Vec<(
-        DirectStateSectionManifest,
-        Box<dyn DirectStateChunkStream>,
-    )>,
+    pub(super) sections: DirectStateWireSections,
 }
 
 impl DirectStateRemoteTransport {
     pub fn from_wire_parts(
         header: DirectStateTransportHeader,
-        sections: Vec<(
-            DirectStateSectionManifest,
-            Box<dyn DirectStateChunkStream>,
-        )>,
+        sections: DirectStateWireSections,
     ) -> Self {
         Self { header, sections }
     }
 
     pub fn into_wire_parts(
         self,
-    ) -> (
-        DirectStateTransportHeader,
-        Vec<(
-            DirectStateSectionManifest,
-            Box<dyn DirectStateChunkStream>,
-        )>,
-    ) {
+    ) -> (DirectStateTransportHeader, DirectStateWireSections) {
         (self.header, self.sections)
     }
 }
@@ -159,10 +155,7 @@ impl DirectStateTransportGeneration {
         registry_identity: &Arc<DirectStateRegistryIdentity>,
         expected_contract_sha256: &str,
         header: DirectStateTransportHeader,
-        sections: Vec<(
-            DirectStateSectionManifest,
-            Box<dyn DirectStateChunkStream>,
-        )>,
+        sections: DirectStateWireSections,
     ) -> Result<Self, String> {
         permit.validate_affinity(&registry_identity.authority_identity)?;
         if header.schema_version != DIRECT_STATE_SCHEMA_VERSION {

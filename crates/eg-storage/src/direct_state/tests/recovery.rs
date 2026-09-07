@@ -50,7 +50,7 @@ async fn pending_abandonment_rejects_canonical_name_resurrection() {
         first_error: "injected".into(),
     };
 
-    let recovery = match registry.retry_pending_abandonment(&install, recovery) {
+    let recovery = match registry.retry_pending_abandonment(&install, Box::new(recovery)) {
         Err(recovery) => recovery,
         Ok(_) => panic!("a resurrected canonical Pending name must fail closed"),
     };
@@ -186,7 +186,9 @@ async fn one_authority_cannot_cross_registry_staging_or_recovery_tokens() {
         current: current.try_clone_token().unwrap(),
         first_error: "injected".into(),
     };
-    assert!(second.retry_current_cleanup(&install, cleanup).is_err());
+    assert!(second
+        .retry_current_cleanup(&install, Box::new(cleanup))
+        .is_err());
     let journal_file = File::create(&first.journal_path).unwrap();
     let durability = CurrentDurabilityRecovery {
         current: current.try_clone_token().unwrap(),
@@ -204,7 +206,7 @@ async fn one_authority_cannot_cross_registry_staging_or_recovery_tokens() {
         first_error: "injected".into(),
     };
     assert!(second
-        .retry_current_durability(&install, durability)
+        .retry_current_durability(&install, Box::new(durability))
         .is_err());
     let abandon = PendingAbandonRecovery {
         current,
@@ -222,7 +224,9 @@ async fn one_authority_cannot_cross_registry_staging_or_recovery_tokens() {
         retirement_complete: false,
         first_error: "injected".into(),
     };
-    assert!(second.retry_pending_abandonment(&install, abandon).is_err());
+    assert!(second
+        .retry_pending_abandonment(&install, Box::new(abandon))
+        .is_err());
 
     let journal_file = File::create(&first.journal_path).unwrap();
     let prepared_recovery = PreparedJournalRecovery {
@@ -328,7 +332,7 @@ async fn current_durability_retry_rejects_published_journal_path_replacement() {
     std::fs::remove_file(&registry.journal_path).unwrap();
     let replacement = b"unrelated replacement journal";
     std::fs::write(&registry.journal_path, replacement).unwrap();
-    let recovery = match registry.retry_current_durability(&install, recovery) {
+    let recovery = match registry.retry_current_durability(&install, Box::new(recovery)) {
         Err(recovery) => recovery,
         Ok(_) => panic!("replacement must keep Current recovery required"),
     };

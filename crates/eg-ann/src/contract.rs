@@ -12,7 +12,7 @@ use eg_modality::{
 
 use crate::flat::FlatIndex;
 
-const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "a vector index is an immutable structure — change-capture/delete/GC is a store-layer concern, not a modality-value capability",

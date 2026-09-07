@@ -91,7 +91,7 @@ impl ValidatedPlainRecoveryStore {
 
 pub enum ClassifiedRecoveryStore {
     Plain(ValidatedPlainRecoveryStore),
-    Mutation(ValidatedRecoveryStore),
+    Mutation(Box<ValidatedRecoveryStore>),
 }
 
 /// Classify recovery only against an explicit operator expectation. A plain
@@ -106,7 +106,7 @@ pub fn classify_recovery_store(
             physical_identity,
             layout,
         } => open_recovery(path, physical_identity, private_integrity, layout)
-            .map(ClassifiedRecoveryStore::Mutation),
+            .map(|store| ClassifiedRecoveryStore::Mutation(Box::new(store))),
         RecoveryExpectation::Plain => {
             let database = redb::ReadOnlyDatabase::open(path).map_err(|error| error.to_string())?;
             let rtx = database.begin_read().map_err(|error| error.to_string())?;

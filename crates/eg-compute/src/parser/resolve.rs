@@ -989,12 +989,12 @@ fn normalize_join(base: &str, rel: &str) -> String {
 /// The families are deliberately explicit rather than derived:
 ///   * `python`  — `.py`/`.pyi`; a directory is its `__init__.py`.
 ///   * `jsts`    — one family, NOT two: TS and JS genuinely interoperate, a
-///                 `.ts` importing `./foo` legitimately resolves `foo.js`
-///                 (and `.d.ts`-less JS deps are the norm). Directory index
-///                 files are `index.ts`/`index.js`.
+///     `.ts` importing `./foo` legitimately resolves `foo.js`
+///     (and `.d.ts`-less JS deps are the norm). Directory index
+///     files are `index.ts`/`index.js`.
 ///   * `rust`    — `.rs`; a directory is its `mod.rs`.
 ///   * `go`      — `.go`. No index-file convention (a Go package is every
-///                 `.go` in the directory), so directories do not resolve.
+///     `.go` in the directory), so directories do not resolve.
 ///   * `java`    — `.java`. One public type per file; no index convention.
 ///
 /// A language with no entry here (C/C++/C#/Ruby/PHP/Bash/Scala/Lua, and the
@@ -1135,9 +1135,7 @@ fn match_with_extensions(
     exact: bool,
 ) -> Option<String> {
     // The importer's OWN language decides which spellings are even candidates.
-    let Some(family) = family_of(importer) else {
-        return None;
-    };
+    let family = family_of(importer)?;
 
     /// Leading path segments `a` and `b` share.
     fn shared_segments(a: &str, b: &str) -> usize {

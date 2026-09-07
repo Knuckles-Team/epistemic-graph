@@ -515,7 +515,6 @@ mod tableau_tests {
             let mut evolution = tab.clifford();
             evolution.h(0);
             evolution.cnot(0, 1);
-            drop(evolution);
             let mut rng = eg_numeric::random::Generator::new(seed);
             let (o0, o1) = measure_pair(&mut tab, &mut rng);
             assert_eq!(o0, o1, "Bell pair outcomes diverged at seed {seed}");
@@ -533,7 +532,6 @@ mod tableau_tests {
             evolution.h(0);
             evolution.cnot(0, 1);
             evolution.cnot(0, 2);
-            drop(evolution);
             let mut rng = eg_numeric::random::Generator::new(seed);
             let (o0, o1) = measure_pair(&mut tab, &mut rng);
             let o2 = tab.measure(2, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
@@ -554,7 +552,6 @@ mod tableau_tests {
         let mut evolution = tab.clifford();
         evolution.cz(0, 1);
         evolution.cz(0, 1);
-        drop(evolution);
         assert_eq!(tab.x, base.x);
         assert_eq!(tab.z, base.z);
         assert_eq!(tab.r, base.r);
@@ -563,7 +560,6 @@ mod tableau_tests {
         let mut evolution = tab2.clifford();
         evolution.cy(0, 1);
         evolution.cy(0, 1);
-        drop(evolution);
         assert_eq!(tab2.x, base.x);
         assert_eq!(tab2.z, base.z);
         assert_eq!(tab2.r, base.r);
@@ -575,7 +571,6 @@ mod tableau_tests {
         let mut tab = base.clone();
         let mut evolution = tab.clifford();
         evolution.h(0); // break the symmetry so swap is actually observable
-        drop(evolution);
         let after_h = tab.clone();
         let mut evolution = tab.clifford();
         evolution.swap(0, 1);
