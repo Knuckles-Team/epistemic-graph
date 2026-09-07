@@ -532,6 +532,28 @@ pub struct TableRowSnapshot {
     pub scanned_bytes: usize,
 }
 
+/// Declare one legacy schema DDL entrypoint.
+///
+/// Each is the same three steps — refuse the call when the table is not on the
+/// legacy DDL path, open one named maintenance write transaction, and apply the
+/// `*_in` operation that owns the change — over a different label, operation and
+/// parameter list.
+macro_rules! legacy_schema_ddl {
+    (
+        $(#[$documentation:meta])*
+        $name:ident, $label:literal, $apply:ident, $($parameter:ident: $parameter_type:ty),+
+    ) => {
+        $(#[$documentation])*
+        pub fn $name(&self, table: &str, $($parameter: $parameter_type),+) -> Result<(), String> {
+            self.ensure_legacy_schema_ddl_allowed(table)?;
+            self.authority.maintain($label, table, |wtx| {
+                $apply(wtx, self.index_scope(), table, $($parameter),+)?;
+                Ok(())
+            })
+        }
+    };
+}
+
 impl TableStore {
     /// Open (creating if absent) the user-table store at `path`.
     ///
@@ -652,85 +674,51 @@ impl TableStore {
         })
     }
 
-    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP COLUMN`: remove `column` from the schema and
-    /// drop its cell from every stored row, atomically in one write txn. Errors if the
-    /// column (or table) does not exist unless `if_exists`.
-    pub fn drop_column(&self, table: &str, column: &str, if_exists: bool) -> Result<(), String> {
-        self.ensure_legacy_schema_ddl_allowed(table)?;
-        self.authority.maintain("drop-column", table, |wtx| {
-            drop_column_in(wtx, self.index_scope(), table, column, if_exists)?;
-            Ok(())
-        })
+    // Every legacy schema DDL entrypoint is the same three steps — refuse the
+    // call when the table is not on the legacy path, open one maintenance write
+    // transaction under a named label, and apply the `*_in` operation that owns
+    // the change. Only the label, the operation and its extra parameters differ,
+    // so the entrypoints are declared rather than written out six times.
+    legacy_schema_ddl! {
+        /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP COLUMN`: remove `column` from the schema and
+        /// drop its cell from every stored row, atomically in one write txn. Errors if the
+        /// column (or table) does not exist unless `if_exists`.
+        drop_column, "drop-column", drop_column_in, column: &str, if_exists: bool
     }
-
-    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE RENAME COLUMN a TO b`: rename a column in place.
-    /// Stored rows are positional so they need no migration. Errors if `from` is absent
-    /// or `to` already exists.
-    pub fn rename_column(&self, table: &str, from: &str, to: &str) -> Result<(), String> {
-        self.ensure_legacy_schema_ddl_allowed(table)?;
-        self.authority.maintain("rename-column", table, |wtx| {
-            rename_column_in(wtx, self.index_scope(), table, from, to)?;
-            Ok(())
-        })
+    legacy_schema_ddl! {
+        /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE RENAME COLUMN a TO b`: rename a column in place.
+        /// Stored rows are positional so they need no migration. Errors if `from` is absent
+        /// or `to` already exists.
+        rename_column, "rename-column", rename_column_in, from: &str, to: &str
     }
-
-    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE RENAME TO newtable`: move the table's catalog entry,
-    /// sequence, and every stored row's key to `new_name`, atomically. Errors if the
-    /// table is absent or `new_name` already exists.
-    pub fn rename_table(&self, table: &str, new_name: &str) -> Result<(), String> {
-        self.ensure_legacy_schema_ddl_allowed(table)?;
-        self.authority.maintain("rename-table", table, |wtx| {
-            rename_table_in(wtx, self.index_scope(), table, new_name)?;
-            Ok(())
-        })
+    legacy_schema_ddl! {
+        /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE RENAME TO newtable`: move the table's catalog entry,
+        /// sequence, and every stored row's key to `new_name`, atomically. Errors if the
+        /// table is absent or `new_name` already exists.
+        rename_table, "rename-table", rename_table_in, new_name: &str
     }
-
-    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE ALTER COLUMN col TYPE newtype`: change a column's
-    /// declared type and best-effort coerce every stored cell to it, atomically. A cell
-    /// that cannot be coerced aborts (and rolls back) the whole change.
-    pub fn alter_column_type(
-        &self,
-        table: &str,
-        column: &str,
-        new_type: ColumnType,
-    ) -> Result<(), String> {
-        self.ensure_legacy_schema_ddl_allowed(table)?;
-        self.authority.maintain("alter-column-type", table, |wtx| {
-            alter_column_type_in(wtx, self.index_scope(), table, column, new_type)?;
-            Ok(())
-        })
+    legacy_schema_ddl! {
+        /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE ALTER COLUMN col TYPE newtype`: change a column's
+        /// declared type and best-effort coerce every stored cell to it, atomically. A cell
+        /// that cannot be coerced aborts (and rolls back) the whole change.
+        alter_column_type, "alter-column-type", alter_column_type_in, column: &str, new_type: ColumnType
     }
-
-    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP CONSTRAINT name`: drop the named constraint
-    /// (matched against Postgres's synthesized names — `<table>_pkey`, `<table>_<col>_key`,
-    /// `<table>_<col>_check`, `<table>_<col>_fkey`). Errors if no such constraint
-    /// exists unless `if_exists`.
-    pub fn drop_constraint(
-        &self,
-        table: &str,
-        constraint: &str,
-        if_exists: bool,
-    ) -> Result<(), String> {
-        self.ensure_legacy_schema_ddl_allowed(table)?;
-        self.authority.maintain("drop-constraint", table, |wtx| {
-            drop_constraint_in(wtx, self.index_scope(), table, constraint, if_exists)?;
-            Ok(())
-        })
+    legacy_schema_ddl! {
+        /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER TABLE DROP CONSTRAINT name`: drop the named constraint
+        /// (matched against Postgres's synthesized names — `<table>_pkey`, `<table>_<col>_key`,
+        /// `<table>_<col>_check`, `<table>_<col>_fkey`). Errors if no such constraint
+        /// exists unless `if_exists`.
+        drop_constraint, "drop-constraint", drop_constraint_in, constraint: &str, if_exists: bool
     }
-
-    /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `ALTER TABLE ADD CONSTRAINT`: append a table-level
-    /// constraint (composite PK/UNIQUE, FOREIGN KEY, or general CHECK) to an
-    /// already-created table, atomically. Runs the SAME structural + cross-table
-    /// validation `CREATE TABLE` runs (FK target existence/uniqueness, at most one
-    /// PK, …) and, for PK/UNIQUE/CHECK, re-validates every EXISTING row against the
-    /// new constraint before committing — matching Postgres's `ADD CONSTRAINT`
-    /// behavior of refusing to add a constraint the current data already violates.
-    pub fn add_constraint(&self, table: &str, constraint: TableConstraint) -> Result<(), String> {
-        self.ensure_legacy_schema_ddl_allowed(table)?;
-        self.authority.maintain("add-constraint", table, |wtx| {
-            add_constraint_in(wtx, self.index_scope(), table, constraint)?;
-            Ok(())
-        })
+    legacy_schema_ddl! {
+        /// CONCEPT:EG-KG.query.table-schema-constraints/NE-001 — `ALTER TABLE ADD CONSTRAINT`: append a table-level
+        /// constraint (composite PK/UNIQUE, FOREIGN KEY, or general CHECK) to an
+        /// already-created table, atomically. Runs the SAME structural + cross-table
+        /// validation `CREATE TABLE` runs (FK target existence/uniqueness, at most one
+        /// PK, …) and, for PK/UNIQUE/CHECK, re-validates every EXISTING row against the
+        /// new constraint before committing — matching Postgres's `ADD CONSTRAINT`
+        /// behavior of refusing to add a constraint the current data already violates.
+        add_constraint, "add-constraint", add_constraint_in, constraint: TableConstraint
     }
 
     // ── catalog reads (own read txn) ──────────────────────────────────────────
@@ -1285,20 +1273,64 @@ impl TableStore {
         Ok(())
     }
 
-    /// The names of every user table (sorted for determinism).
-    pub fn list_tables(&self) -> Result<Vec<String>, String> {
+    /// Every key of one owner catalog table, sorted, under the collection budget.
+    ///
+    /// The catalogs that are pure name sets (`__sql_catalog__`,
+    /// `__sql_extensions__`) are enumerated identically; only the table differs.
+    fn list_owner_keys<V: redb::Value + 'static>(
+        &self,
+        definition: TableDefinition<'static, &'static str, V>,
+    ) -> Result<Vec<String>, String> {
         let rtx = self.authority.read()?;
-        let cat = rtx.open_owner_table(CATALOG)?;
+        let catalog = rtx.open_owner_table(definition)?;
         let mut names = Vec::new();
         let mut count = 0usize;
         let mut bytes = 0usize;
-        for row in cat.iter().map_err(map_err)? {
+        for row in catalog.iter().map_err(map_err)? {
             let (key, _) = row.map_err(map_err)?;
             account_collection(&mut count, &mut bytes, key.value().len())?;
             names.push(key.value().to_string());
         }
         names.sort();
         Ok(names)
+    }
+
+    /// Every decoded value of one owner catalog table, in stable key order,
+    /// under the collection budget.
+    ///
+    /// The catalogs that store an encoded plan per name (ANN indexes,
+    /// hypertables) are enumerated identically; only the table, the stored type
+    /// and the decode label differ.
+    fn list_owner_values<T: serde::de::DeserializeOwned>(
+        &self,
+        definition: TableDefinition<'static, &'static str, &'static [u8]>,
+        kind: &'static str,
+    ) -> Result<Vec<T>, String> {
+        let rtx = self.authority.read()?;
+        let catalog = rtx.open_owner_table(definition)?;
+        let mut rows = Vec::new();
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in catalog.iter().map_err(map_err)? {
+            let (key, value) = row.map_err(map_err)?;
+            let added = key
+                .value()
+                .len()
+                .checked_add(value.value().len())
+                .ok_or_else(|| "SQL collection byte limit exceeded".to_string())?;
+            account_collection(&mut count, &mut bytes, added)?;
+            rows.push((
+                key.value().to_string(),
+                decode_stored::<T>(value.value(), kind)?,
+            ));
+        }
+        rows.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(rows.into_iter().map(|(_, plan)| plan).collect())
+    }
+
+    /// The names of every user table (sorted for determinism).
+    pub fn list_tables(&self) -> Result<Vec<String>, String> {
+        self.list_owner_keys(CATALOG)
     }
 
     /// Every row of `table`, each a schema-aligned `Vec<Cell>` (NULL-padded to the
@@ -1673,18 +1705,7 @@ impl TableStore {
 
     /// Every enabled extension name (sorted for determinism).
     pub fn list_extensions(&self) -> Result<Vec<String>, String> {
-        let rtx = self.authority.read()?;
-        let exts = rtx.open_owner_table(EXTENSIONS)?;
-        let mut out = Vec::new();
-        let mut count = 0usize;
-        let mut bytes = 0usize;
-        for row in exts.iter().map_err(map_err)? {
-            let (key, _) = row.map_err(map_err)?;
-            account_collection(&mut count, &mut bytes, key.value().len())?;
-            out.push(key.value().to_string());
-        }
-        out.sort();
-        Ok(out)
+        self.list_owner_keys(EXTENSIONS)
     }
 
     // ── function catalog (CONCEPT:EG-KG.query.create-drop-function) ──────────────────────────────────────
@@ -1778,26 +1799,7 @@ impl TableStore {
     /// Every registered ANN index (sorted by key for determinism) — the set the SQL
     /// exec path consults to decide the pgvector pushdown (CONCEPT:EG-KG.query.real-pgvector-ann-top).
     pub fn list_ann_indexes(&self) -> Result<Vec<AnnIndexPlan>, String> {
-        let rtx = self.authority.read()?;
-        let idxs = rtx.open_owner_table(ANN_INDEXES)?;
-        let mut pairs = Vec::new();
-        let mut count = 0usize;
-        let mut bytes = 0usize;
-        for row in idxs.iter().map_err(map_err)? {
-            let (key, value) = row.map_err(map_err)?;
-            let added = key
-                .value()
-                .len()
-                .checked_add(value.value().len())
-                .ok_or_else(|| "SQL collection byte limit exceeded".to_string())?;
-            account_collection(&mut count, &mut bytes, added)?;
-            pairs.push((
-                key.value().to_string(),
-                decode_stored::<AnnIndexPlan>(value.value(), "ANN index")?,
-            ));
-        }
-        pairs.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(pairs.into_iter().map(|(_, p)| p).collect())
+        self.list_owner_values(ANN_INDEXES, "ANN index")
     }
 
     // ── ordinary scalar secondary-index catalog ─────────────────────────────
@@ -1912,26 +1914,7 @@ impl TableStore {
 
     /// Return every native hypertable declaration in stable table-name order.
     pub fn list_hypertables(&self) -> Result<Vec<HypertablePlan>, String> {
-        let rtx = self.authority.read()?;
-        let hypertables = rtx.open_owner_table(HYPERTABLES)?;
-        let mut rows = Vec::new();
-        let mut count = 0usize;
-        let mut bytes = 0usize;
-        for row in hypertables.iter().map_err(map_err)? {
-            let (key, value) = row.map_err(map_err)?;
-            let added = key
-                .value()
-                .len()
-                .checked_add(value.value().len())
-                .ok_or_else(|| "SQL collection byte limit exceeded".to_string())?;
-            account_collection(&mut count, &mut bytes, added)?;
-            rows.push((
-                key.value().to_string(),
-                decode_stored::<HypertablePlan>(value.value(), "hypertable")?,
-            ));
-        }
-        rows.sort_by(|left, right| left.0.cmp(&right.0));
-        Ok(rows.into_iter().map(|(_, plan)| plan).collect())
+        self.list_owner_values(HYPERTABLES, "hypertable")
     }
 
     // ── multi-statement transaction (CONCEPT:EG-KG.query.register-each-user-table) ──────────────────────────
