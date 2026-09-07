@@ -73,7 +73,7 @@ const GRANT_ID_BYTES: usize = 16;
 /// the same construction `server::mutation_batch::digest::principal_fingerprint`
 /// applies to a caller identity, over the engine's own name.
 pub const ENGINE_PRINCIPAL: &str =
-    "principal:sha256:41290b0e412ac542f312d4312a7a299e771eec66e3ffbbf7edb6369576875fb2";
+    crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL;
 
 /// The composition root's scope-grant authority.
 pub struct EngineScopeAuthority {

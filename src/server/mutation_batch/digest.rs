@@ -2,6 +2,41 @@
 
 use crate::protocol::Method;
 
+/// The engine's own ledger principal: the serving principal EVERY kernel-owned
+/// store in this process is bound under.
+///
+/// It is [`principal_fingerprint`] applied to the engine's own name, so a
+/// readable principal string stays unrepresentable in a batch
+/// (`eg-types`'s `validate_principal` accepts only the opaque-digest form).
+/// Defined here rather than in `crate::store_authority` because that module is
+/// `redb`-gated while this one is not, and RF-RULING-004's application note
+/// makes this principal the batch context principal for EVERY domain --
+/// including the ones a build without `redb` still compiles batches for.
+/// `store_authority::ENGINE_PRINCIPAL` re-exports this one definition.
+pub(crate) const ENGINE_LEDGER_PRINCIPAL: &str =
+    "principal:sha256:41290b0e412ac542f312d4312a7a299e771eec66e3ffbbf7edb6369576875fb2";
+
+/// The verified caller recorded on a compiled batch.
+///
+/// Under RF-RULING-004's application note `context.principal` is the committing
+/// ledger's serving principal on EVERY domain, so it can no longer answer "who
+/// asked for this". The caller is the outbox row's `actor` header, written by
+/// `finish_batch` on every batch this module compiles, and this is the one
+/// reader of it: a replay check that compares a caller against a durable record
+/// compares THIS, never `context.principal`.
+///
+/// `None` for a batch that carries no outbox row or no header -- which no batch
+/// this module compiles ever is, so a caller-scope check must treat `None` as a
+/// refusal rather than a match.
+pub(crate) fn batch_actor(batch: &eg_types::MutationBatch) -> Option<&str> {
+    batch
+        .outbox
+        .first()?
+        .headers
+        .get("actor")
+        .map(String::as_str)
+}
+
 /// Durable pseudonym used by every native coordinator retry check.
 pub(crate) fn principal_fingerprint(principal: &str) -> Result<String, String> {
     use sha2::{Digest, Sha256};

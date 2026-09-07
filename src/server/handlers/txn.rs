@@ -698,7 +698,7 @@ fn record_matches_reconcile_candidate(
         // `ReconcileTxnCandidate`, which is a behavior change out of scope for a
         // mechanical v1 port — flagged, not silently corrected or dropped.
         && record.batch.identity.tenant().as_str() == graph
-        && record.batch.context.principal == expected_principal
+        && crate::server::mutation_batch::batch_actor(&record.batch) == Some(expected_principal)
 }
 
 /// Handle the transaction methods. Returns `Err(method)` for any non-txn method so
@@ -3214,7 +3214,8 @@ async fn commit_graphql_cross_modal_replay(
         .map(|name| name.as_str())
         != Some(graph_name)
         || record.batch.identity.tenant().as_str() != authority.tenant_scope()
-        || record.batch.context.principal != expected_principal
+        || crate::server::mutation_batch::batch_actor(&record.batch)
+            != Some(expected_principal.as_str())
     {
         return Err("committed GraphQL cross-modal batch does not match caller scope".to_string());
     }

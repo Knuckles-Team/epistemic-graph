@@ -1431,7 +1431,8 @@ async fn dispatch_change_envelope_methods(
                         != Some(req_graph.as_str())
                         || envelope.mutation.identity.tenant().as_str() != claims.tenant
                         || batch_context.request_id != req_id
-                        || batch_context.principal != verified_context.principal_persistence_id()
+                        || crate::server::mutation_batch::batch_actor(&envelope.mutation)
+                            != Some(verified_context.principal_persistence_id().as_str())
                         || envelope.mutation.idempotency_key != verified_context.idempotency_key()
                         || batch_context.policy_fingerprint.as_deref()
                             != Some(claims.policy_version.as_str())

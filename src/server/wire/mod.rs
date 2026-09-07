@@ -782,7 +782,8 @@ fn committed_sql_replay_receipt(
     // RF-RULING-006 made the SQL catalog a kernel-owned owner store, so
     // `AdmittedMutation::owner_rows` requires `context.principal` to be the
     // file's bound SERVING principal (`store_authority::ENGINE_PRINCIPAL`) and
-    // `mutation_batch::compile::ledger_principal` stamps it there. Attribution
+    // `mutation_batch::compile::finish_batch` stamps it there unconditionally,
+    // for every domain, as `ENGINE_LEDGER_PRINCIPAL`. Attribution
     // has exactly one home for every compiled batch -- the `actor` header --
     // so that is where this receipt reads the caller back from. Comparing
     // `context.principal` would compare the engine against the caller and
@@ -6295,8 +6296,9 @@ mod wired_catalog_tests {
     }
 
     /// RF-RULING-006 made the SQL catalog a kernel-owned owner store, so
-    /// `mutation_batch::compile::ledger_principal` stamps the FILE's bound
-    /// serving principal on `context.principal` and the verified caller travels
+    /// `mutation_batch::compile::finish_batch` stamps the FILE's bound
+    /// serving principal on `context.principal` -- uniformly, for every domain --
+    /// and the verified caller travels
     /// as the outbox row's `actor` header. This pins both halves of that on a
     /// real committed receipt: the recorded `context.principal` is the engine's,
     /// NOT the caller's — so the pre-ruling comparison would refuse every replay

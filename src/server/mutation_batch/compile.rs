@@ -15,7 +15,7 @@ use crate::protocol::Method;
 use crate::server::persistence::PersistenceBackend;
 
 use super::canonical::{domain_for, lower_canonical_operation, surface_for};
-use super::digest::principal_fingerprint;
+use super::digest::{principal_fingerprint, ENGINE_LEDGER_PRINCIPAL};
 
 /// Resolve the current graph version without treating RAM as a substitute for a
 /// missing durable authority. Version zero is the sole implicit bootstrap state;
@@ -397,7 +397,25 @@ fn finish_batch(
     let actor = principal_fingerprint(ctx.principal.ok_or_else(|| {
         "durable mutation authority requires a verified principal".to_string()
     })?)?;
-    let principal = ledger_principal(&operations, &actor)?;
+    // One rule, no per-domain arm: the batch context principal is the serving
+    // principal every kernel-owned store in this process is bound under, and
+    // the verified caller is the outbox `actor` header.
+    //
+    // RF-RULING-004's application note (2026-09-06) made this uniform. The
+    // per-domain form it replaced answered "caller" for graph-scoped batches and
+    // "serving principal" only for store-authoritative ones, which was right
+    // while the graph shard was a raw file. Once `graph-N.redb` is a kernel-owned
+    // store under `OwnerLayout::GraphShard`, EVERY shard row is an owner row, so
+    // a graph batch is admitted through
+    // `eg_transaction::AdmittedMutation::owner_rows` exactly like a KV or blob
+    // batch -- and that path accepts only the principal the file's serving scope
+    // is bound under. A per-domain answer makes every served graph mutation fail
+    // at runtime the moment the shard is cut over.
+    //
+    // Nothing is lost: the caller is on EVERY batch this module compiles, in the
+    // `actor` header, and every replay check that used to compare
+    // `context.principal` against a caller now compares that header.
+    let principal = ENGINE_LEDGER_PRINCIPAL.to_string();
     let tenant_id = TenantId::new(ctx.tenant.to_string())?;
     let resource_name = LogicalName::new(ctx.graph.to_string())?;
     let incarnation_id = IncarnationId::new(COMPILED_BATCH_INCARNATION)
@@ -465,64 +483,6 @@ fn finish_batch(
     };
     batch.validate()?;
     Ok(batch)
-}
-
-/// Does this operation's ledger live in a kernel-owned owner store?
-///
-/// `MutationDomain::forbidden_in_graph_scope` answers it for every domain whose
-/// authoritative state has ALWAYS been its own store — plus `SqlCatalog`, which
-/// became one when RF-RULING-006 retired the SQL `TableStore`'s private
-/// `__sql_mutation_*__` ledger onto the mutation kernel. `OwnerLayout::Sql` now
-/// declares the SQL catalog's tables, so a compiled `SqlCatalog` batch is
-/// admitted through `eg_transaction::AdmittedMutation::owner_rows` exactly like
-/// a KV or blob batch and is refused unless `context.principal` is the file's
-/// bound serving principal.
-///
-/// It is NOT folded into `forbidden_in_graph_scope` itself: that predicate also
-/// drives `MutationBatch::validate`'s scope rule and `derive_compiled_methods_
-/// scope`'s refusal, and `SqlCatalog` genuinely is not forbidden in a graph
-/// scope — a SQL statement is compiled by `compile_opaque_method`, which already
-/// gives it a native scope through `requires_native_scope`. What changed is the
-/// LEDGER that commits it, which is the only question this module asks here.
-fn is_store_authoritative(operation: &MutationOperation) -> bool {
-    operation.domain.forbidden_in_graph_scope()
-        || operation.domain == MutationDomain::SqlCatalog
-}
-
-/// The principal the ledger that will commit `operations` requires — the one
-/// rule documented on [`CompileBatch`].
-///
-/// A store-authoritative domain's authoritative state and version counter live
-/// in its own kernel-owned file, so its batch is admitted through
-/// `eg_transaction::AdmittedMutation::owner_rows`, which accepts only the
-/// principal that file's serving scope is bound under. Every other domain is
-/// committed by the graph kernel or a ledger-only coordinator, whose replay
-/// ownership is keyed on the caller.
-///
-/// `MutationBatch::validate` already rejects a graph scope carrying a
-/// store-authoritative operation, and a native scope whose declared domain
-/// disagrees with its operations, so answering over the operation list gives the
-/// same answer as answering over the scope for every batch that can validate.
-fn ledger_principal(operations: &[MutationOperation], actor: &str) -> Result<String, String> {
-    if !operations.iter().any(is_store_authoritative) {
-        return Ok(actor.to_string());
-    }
-    // Every store-authoritative domain is reachable only under a feature that
-    // implies `redb` (`kv`, `blob`, `tsdb`, `jobs`, `ann-redb`), because the
-    // owner store it names is a redb file. Without `redb` this binary owns no
-    // owner store at all, so such an operation cannot be committed by anything
-    // and must not be given a principal that implies it could be.
-    #[cfg(feature = "redb")]
-    {
-        Ok(crate::store_authority::ENGINE_PRINCIPAL.to_string())
-    }
-    #[cfg(not(feature = "redb"))]
-    {
-        Err(
-            "store-authoritative mutation domain has no owner store in a build without redb"
-                .to_string(),
-        )
-    }
 }
 
 /// `finish_batch`'s outbox projection-wakeup payload for builds without the `redb`

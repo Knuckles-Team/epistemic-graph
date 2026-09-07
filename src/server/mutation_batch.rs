@@ -25,7 +25,7 @@ pub(crate) use compile::{
 };
 pub(crate) use digest::{
     lifecycle_batch_id, opaque_coordinator_key, opaque_request_key, opaque_request_key_for_context,
-    principal_fingerprint,
+    batch_actor, principal_fingerprint, ENGINE_LEDGER_PRINCIPAL,
 };
 
 #[cfg(test)]

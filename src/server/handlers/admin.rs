@@ -826,7 +826,11 @@ pub(crate) fn resume_named_admin_saga(
     };
     validate_admin_record(&record, &identity)?;
     validate_admin_lookup_key(&record, batch_id)?;
-    if record.batch.context.principal != expected_principal {
+    // The caller lives in the outbox `actor` header, never in
+    // `context.principal` -- which is now the committing ledger's serving
+    // principal on every domain (RF-RULING-004 application note). A batch with
+    // no header is refused rather than matched.
+    if crate::server::mutation_batch::batch_actor(&record.batch) != Some(expected_principal.as_str()) {
         return Err("coordinator receipt does not match caller scope".to_string());
     }
     let replayed = match record.status {
@@ -871,7 +875,7 @@ pub(crate) fn read_named_admin_saga_result(
     if record.status != crate::mutation_batch::MutationBatchStatus::Committed {
         return Ok(None);
     }
-    if record.batch.context.principal != expected_principal {
+    if crate::server::mutation_batch::batch_actor(&record.batch) != Some(expected_principal.as_str()) {
         return Err("committed coordinator receipt does not match caller scope".to_string());
     }
     let (_, result) = decode_admin_commit(record, &identity, true)?;

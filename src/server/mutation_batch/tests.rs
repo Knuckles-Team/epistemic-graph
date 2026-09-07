@@ -575,8 +575,16 @@ fn graph_routed_compiler_refuses_a_store_authoritative_method() {
 // Owner-store batch principal (RF-RULING-004/005 / B12)
 // ---------------------------------------------------------------------------
 
+/// Uniform rule (RF-RULING-004 application note): a graph batch names the same
+/// serving principal an owner-store batch does, and the caller is the header.
+///
+/// This test asserted the opposite until the shard became a kernel-owned store:
+/// while `graph-N.redb` was a raw file its ledger keyed replay on the caller, so
+/// the caller WAS the principal its ledger required. Now every shard row is an
+/// owner row of `OwnerLayout::GraphShard`, admitted through `owner_rows`, which
+/// accepts only the file's serving principal.
 #[test]
-fn graph_routed_batch_keeps_the_caller_as_its_ledger_principal() {
+fn a_graph_batch_names_the_serving_principal_and_carries_the_caller_actor() {
     let batch = compile_methods(
         CompileBatch {
             batch_id: "graph-principal",
@@ -598,11 +606,69 @@ fn graph_routed_batch_keeps_the_caller_as_its_ledger_principal() {
     )
     .unwrap();
     let actor = crate::server::mutation_batch::principal_fingerprint("agent:a").unwrap();
-    // The graph kernel keys replay ownership on the caller, so the caller IS the
-    // principal its ledger requires -- and the actor header carries the same
-    // fingerprint on every batch, whichever ledger commits it.
-    assert_eq!(batch.context.principal, actor);
-    assert_eq!(batch.outbox[0].headers.get("actor"), Some(&actor));
+    assert_eq!(
+        batch.context.principal,
+        crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL,
+        "a graph batch is admitted through the same owner-row path as any other"
+    );
+    assert_ne!(
+        batch.context.principal, actor,
+        "the caller must not survive as the context principal on any domain"
+    );
+    assert_eq!(
+        batch.outbox[0].headers.get("actor"),
+        Some(&actor),
+        "the verified caller is not lost: it is the outbox row's actor"
+    );
+}
+
+/// The rule is uniform, so it holds across the domain axis rather than only on
+/// the two arms that happened to be exercised above.
+#[test]
+fn no_compiled_batch_on_any_domain_carries_the_caller_as_its_context_principal() {
+    let actor = crate::server::mutation_batch::principal_fingerprint("agent:a").unwrap();
+    let compile = |batch_id: &str, methods: Vec<Method>| {
+        compile_methods(
+            CompileBatch {
+                batch_id,
+                request_id: 1,
+                principal: Some("agent:a"),
+                tenant: "tenant-a",
+                graph: "graph-a",
+                placement_epoch: 0,
+                idempotency_key: batch_id,
+                expected_graph_version: Some(0),
+                fencing_token: None,
+                created_at_ms: 1,
+                default_surface: MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            methods,
+        )
+    };
+    for (tag, methods) in [
+        (
+            "remove-node",
+            vec![Method::RemoveNode {
+                node_id: "a".into(),
+            }],
+        ),
+        (
+            "remove-edge",
+            vec![Method::RemoveEdge {
+                source_id: "a".into(),
+                target_id: "b".into(),
+            }],
+        ),
+    ] {
+        let batch = compile(tag, methods).unwrap();
+        assert_eq!(
+            batch.context.principal,
+            crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL,
+            "{tag}"
+        );
+        assert_eq!(batch.outbox[0].headers.get("actor"), Some(&actor), "{tag}");
+    }
 }
 
 #[cfg(feature = "kv")]

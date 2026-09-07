@@ -221,7 +221,7 @@ fn modality_receipt_binding_matches(
             == Some(ctx.graph_name)
         && record.batch.placement_epoch == ctx.placement_epoch
         && record.batch.fencing_token == ctx.fencing_token
-        && record.batch.context.principal == ctx.principal_fingerprint
+        && crate::server::mutation_batch::batch_actor(&record.batch) == Some(ctx.principal_fingerprint)
 }
 
 /// Raft apply authenticated the sealed runtime state and result digest before
