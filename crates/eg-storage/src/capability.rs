@@ -9,19 +9,17 @@ use crate::owner::domain::OwnerDomain;
 use crate::owner::handle::OwnedStoreHandle;
 use crate::owner::registry::{declared_table_names, owner_table_names};
 use crate::owner::row_key::{is_control_scope, owner_row_key, OwnerRowScope, RowKey};
-use crate::scoped::{
-    OwnerReadTable, ScopedOwnerTable, ScopedOwnerTableMut, ScopedTable, ScopedTableMut,
-};
 use crate::physical::binding::{
     binding_for_read, binding_for_write, ledger_scope_key, retire_scope_in,
 };
 use crate::physical::root::PhysicalStore;
 use crate::recovery::evidence::{strict_snapshot_read, StrictRecoveryEvidence};
+use crate::scoped::{
+    OwnerReadTable, ScopedOwnerTable, ScopedOwnerTableMut, ScopedTable, ScopedTableMut,
+};
 use crate::tables::LedgerRowScope;
 use eg_types::MutationScopeIdentity;
-use redb::{
-    ReadOnlyTable, ReadTransaction, Table, TableDefinition, TableHandle, WriteTransaction,
-};
+use redb::{ReadOnlyTable, ReadTransaction, Table, TableDefinition, TableHandle, WriteTransaction};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

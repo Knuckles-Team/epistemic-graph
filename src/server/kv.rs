@@ -33,7 +33,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::RwLock;
 
 use super::state::ServerState;
-use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
+use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::mutation_batch::COMPILED_BATCH_INCARNATION;
@@ -422,9 +422,11 @@ impl KvStore {
         validate_key(namespace, key)?;
         validate_value(&value)?;
         match &self.backend {
-            Backend::Redb(store) => store.maintain("kv_put", &row_subject(namespace, key), |owner_write| {
-                write_kv_row(owner_write, namespace, key, Some(&value)).map(|_| ((), true))
-            }),
+            Backend::Redb(store) => {
+                store.maintain("kv_put", &row_subject(namespace, key), |owner_write| {
+                    write_kv_row(owner_write, namespace, key, Some(&value)).map(|_| ((), true))
+                })
+            }
             Backend::Memory(m) => {
                 m.lock()
                     .insert((namespace.to_string(), key.to_string()), value);
@@ -437,9 +439,11 @@ impl KvStore {
     pub fn delete(&self, namespace: &str, key: &str) -> Result<bool, String> {
         validate_key(namespace, key)?;
         match &self.backend {
-            Backend::Redb(store) => store.maintain("kv_delete", &row_subject(namespace, key), |owner_write| {
-                write_kv_row(owner_write, namespace, key, None).map(|existed| (existed, true))
-            }),
+            Backend::Redb(store) => {
+                store.maintain("kv_delete", &row_subject(namespace, key), |owner_write| {
+                    write_kv_row(owner_write, namespace, key, None).map(|existed| (existed, true))
+                })
+            }
             Backend::Memory(m) => Ok(m
                 .lock()
                 .remove(&(namespace.to_string(), key.to_string()))
@@ -520,10 +524,12 @@ impl KvStore {
             validate_value(value)?;
         }
         match &self.backend {
-            Backend::Redb(store) => store.maintain("kv_cas", &row_subject(namespace, key), |owner_write| {
-                swap_in_owner_write(owner_write, namespace, key, expected, new.as_deref())
-                    .map(|swapped| (swapped, swapped))
-            }),
+            Backend::Redb(store) => {
+                store.maintain("kv_cas", &row_subject(namespace, key), |owner_write| {
+                    swap_in_owner_write(owner_write, namespace, key, expected, new.as_deref())
+                        .map(|swapped| (swapped, swapped))
+                })
+            }
             Backend::Memory(m) => {
                 let mut guard = m.lock();
                 let mk = (namespace.to_string(), key.to_string());
@@ -798,7 +804,6 @@ fn is_kv_method(method: &Method) -> bool {
             | Method::KvCas { .. }
     )
 }
-
 
 /// Bundle the durable namespaced KV surface (CONCEPT:EG-KG.backend.networked-shared-kv) into
 /// an online backup.

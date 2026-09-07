@@ -128,9 +128,7 @@ pub struct DirectStateRegistryContract {
 }
 
 impl DirectStateRegistryContract {
-    pub fn new(
-        owners: impl IntoIterator<Item = DirectStateOwnerManifest>,
-    ) -> Result<Self, String> {
+    pub fn new(owners: impl IntoIterator<Item = DirectStateOwnerManifest>) -> Result<Self, String> {
         let mut by_domain = BTreeMap::new();
         for owner in owners {
             owner.sha256()?;

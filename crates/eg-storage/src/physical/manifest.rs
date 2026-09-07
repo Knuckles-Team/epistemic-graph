@@ -72,7 +72,10 @@ pub(crate) struct TableContract {
 }
 
 impl OwnerManifest {
-    pub(crate) fn new(physical_identity: PhysicalStoreIdentity, layout: OwnerLayout) -> Result<Self, String> {
+    pub(crate) fn new(
+        physical_identity: PhysicalStoreIdentity,
+        layout: OwnerLayout,
+    ) -> Result<Self, String> {
         physical_identity.validate()?;
         Ok(Self {
             schema_version: STORAGE_KERNEL_SCHEMA_VERSION,

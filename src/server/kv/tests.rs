@@ -152,7 +152,12 @@ fn concurrent_cas_has_exactly_one_winner() {
                 let store = Arc::clone(&store);
                 scope.spawn(move || {
                     store
-                        .cas("ns", "k", Some(b"base"), Some(format!("w{index}").into_bytes()))
+                        .cas(
+                            "ns",
+                            "k",
+                            Some(b"base"),
+                            Some(format!("w{index}").into_bytes()),
+                        )
                         .expect("a concurrent cas must not fail")
                 })
             })

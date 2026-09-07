@@ -20,7 +20,8 @@ use super::*;
 /// unknown value.
 pub(super) const INSTANCE_MUTATION_TENANT: &str = "native";
 pub(super) const INSTANCE_MUTATION_GRAPH: &str = "statechart-instances";
-pub(super) const INSTANCE_MUTATION_INCARNATION: &str = "incarnation:eg-statechart:statechart-instances:1";
+pub(super) const INSTANCE_MUTATION_INCARNATION: &str =
+    "incarnation:eg-statechart:statechart-instances:1";
 
 /// Operator-facing identity of the ONE physical `statecharts.redb` owner file.
 /// Independent of the logical scope above: it names the physical authority

@@ -98,7 +98,10 @@ fn a_generation_round_trips_through_the_mutation_kernel() {
     let before = store.semantic_search(&query, 10);
     let image = store.export_generation().unwrap();
 
-    assert!(codes.read_live().unwrap().is_none(), "nothing activated yet");
+    assert!(
+        codes.read_live().unwrap().is_none(),
+        "nothing activated yet"
+    );
     codes.activate(1, &image).unwrap();
     let (live, restored) = codes.read_live().unwrap().expect("generation 1 must serve");
     assert_eq!(live, 1);
@@ -248,8 +251,7 @@ fn a_bound_accessor_refuses_another_tenants_or_generations_rows() {
     codes.activate(1, &image).unwrap();
 
     let owner = codes.bind_for_write(1).unwrap();
-    let expected =
-        eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
+    let expected = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
     let batch = codes.generation_batch(&owner, 1, "acl-probe", expected);
     let write = codes.mutations.open_write(&owner).unwrap();
     assert!(matches!(
@@ -276,11 +278,8 @@ fn a_bound_accessor_refuses_another_tenants_or_generations_rows() {
         // Its own key is accepted, so the refusal is an ACL and not a stub.
         bound.insert((TENANT, BINDING, 1, "meta"), b"own").unwrap();
 
-        let mut binding_rows = BoundBindingRows::new(
-            rows.open_table(SEMANTIC_POINTERS).unwrap(),
-            TENANT,
-            BINDING,
-        );
+        let mut binding_rows =
+            BoundBindingRows::new(rows.open_table(SEMANTIC_POINTERS).unwrap(), TENANT, BINDING);
         let refused = binding_rows
             .insert(("tenant-b", BINDING), b"forged")
             .expect_err("a foreign binding key must be refused");
@@ -376,8 +375,7 @@ fn a_second_activation_racing_the_same_version_fails_closed() {
     let two = second.export_generation().unwrap();
 
     let owner = codes.bind_for_write(1).unwrap();
-    let stale_version =
-        eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
+    let stale_version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
     let loser = codes.generation_batch(&owner, 1, "loser-digest", stale_version);
 
     // The winner commits and moves the scope version.

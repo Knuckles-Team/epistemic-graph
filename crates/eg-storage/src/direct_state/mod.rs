@@ -115,9 +115,9 @@ pub use registry::{
     ValidatedWholeGeneration,
 };
 pub use transport::{
-    CapturedWholeGeneration, DirectStateChunkStream, DirectStateChunk,
-    DirectStateRemoteTransport, DirectStateSectionSource, DirectStateTransportGeneration,
-    DirectStateTransportHeader, ValidatingDirectStateChunks,
+    CapturedWholeGeneration, DirectStateChunk, DirectStateChunkStream, DirectStateRemoteTransport,
+    DirectStateSectionSource, DirectStateTransportGeneration, DirectStateTransportHeader,
+    ValidatingDirectStateChunks,
 };
 
 #[cfg(test)]

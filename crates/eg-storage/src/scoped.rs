@@ -15,9 +15,7 @@
 
 use crate::owner::row_key::OwnerRowScope;
 use crate::tables::LedgerRowScope;
-use redb::{
-    AccessGuard, Range, ReadOnlyTable, ReadableTable, ReadableTableMetadata, Table,
-};
+use redb::{AccessGuard, Range, ReadOnlyTable, ReadableTable, ReadableTableMetadata, Table};
 
 /// A declared table restricted to one serving scope.
 ///

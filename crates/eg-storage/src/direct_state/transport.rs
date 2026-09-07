@@ -76,12 +76,7 @@ impl DirectStateSectionSource {
     /// The only constructor reachable by that transport is the closed aggregate
     /// [`DirectStateTransportGeneration::into_authenticated_remote_wire`], so exposing the drain does
     /// not permit callers to mint or validate an incomplete generation.
-    pub fn into_parts(
-        self,
-    ) -> (
-        DirectStateSectionManifest,
-        Box<dyn DirectStateChunkStream>,
-    ) {
+    pub fn into_parts(self) -> (DirectStateSectionManifest, Box<dyn DirectStateChunkStream>) {
         (self.manifest, self.chunks)
     }
 }
@@ -109,10 +104,8 @@ pub struct DirectStateTransportGeneration {
 /// The transport's ordered wire sections: each canonical section manifest paired
 /// with the chunk stream that carries its bytes. Named once because the wire
 /// payload, its two accessors and the reception entrypoint all name the same set.
-pub type DirectStateWireSections = Vec<(
-    DirectStateSectionManifest,
-    Box<dyn DirectStateChunkStream>,
-)>;
+pub type DirectStateWireSections =
+    Vec<(DirectStateSectionManifest, Box<dyn DirectStateChunkStream>)>;
 
 /// Serializable transport payload. It deliberately contains no process-local
 /// registry capability; only `DirectStateRegistry::receive_authenticated_remote`
@@ -131,9 +124,7 @@ impl DirectStateRemoteTransport {
         Self { header, sections }
     }
 
-    pub fn into_wire_parts(
-        self,
-    ) -> (DirectStateTransportHeader, DirectStateWireSections) {
+    pub fn into_wire_parts(self) -> (DirectStateTransportHeader, DirectStateWireSections) {
         (self.header, self.sections)
     }
 }

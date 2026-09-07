@@ -200,8 +200,8 @@ const TEST_GRAPH: &str = "test-graph";
 /// above `TEST_TENANT` for why an unscoped `PlanCtx` reads back nothing at all).
 #[cfg(feature = "timeseries")]
 fn build_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
-    use eg_tsdb::point::Point;
     use eg_tsdb::dev_scope_grant::open_dev_store;
+    use eg_tsdb::point::Point;
     use eg_tsdb::store::SeriesKey;
 
     let store = open_dev_store(path).unwrap();

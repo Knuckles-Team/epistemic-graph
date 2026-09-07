@@ -60,17 +60,17 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchRecord, DurabilityDomain, MutationOperation, MutationOutboxIntent,
-    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
-    MUTATION_BATCH_VERSION,
-};
-use eg_types::protocol::Method;
 use eg_storage::{
     OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead, StatechartOwner,
     StorageKernel,
 };
 use eg_transaction::{Begin, MutationKernel};
+use eg_types::mutation_batch::{
+    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationOperation, MutationOutboxIntent,
+    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
+    MUTATION_BATCH_VERSION,
+};
+use eg_types::protocol::Method;
 use redb::{ReadableTable, TableDefinition};
 use serde::de::DeserializeOwned;
 
@@ -261,15 +261,12 @@ impl StatechartStore {
             StorageKernel::create_owner::<StatechartOwner>(path, physical, None)
         }
         .map_err(redb_err)?;
-        let (kernel, authority) = kernel.into_read_and_mutation_authority().map_err(redb_err)?;
+        let (kernel, authority) = kernel
+            .into_read_and_mutation_authority()
+            .map_err(redb_err)?;
         let mutations = MutationKernel::new(authority);
         let grant = kernel
-            .authenticate_scope::<StatechartOwner>(
-                verifier,
-                identity,
-                principal.to_string(),
-                proof,
-            )
+            .authenticate_scope::<StatechartOwner>(verifier, identity, principal.to_string(), proof)
             .map_err(redb_err)?;
         let owner = kernel.bind_serving_scope(grant, 0).map_err(redb_err)?;
         mutations.bootstrap_ledger(&owner).map_err(redb_err)?;
@@ -657,7 +654,10 @@ impl StatechartStore {
         // `version` re-checked (compare-and-set) so a concurrent writer cannot be
         // silently clobbered — the per-instance guard is preserved on top of the
         // gateway.
-        let (write, begun) = self.mutations.admit(&self.owner, &batch).map_err(redb_err)?;
+        let (write, begun) = self
+            .mutations
+            .admit(&self.owner, &batch)
+            .map_err(redb_err)?;
         match begun {
             Begin::Replay(_record) => {
                 // This exact resulting image already committed durably (idempotent
@@ -858,8 +858,8 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::test_support::open_test_store;
+    use super::*;
     use crate::model::{State, Transition};
 
     fn turnstile() -> StatechartDef {

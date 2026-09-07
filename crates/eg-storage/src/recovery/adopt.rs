@@ -1,9 +1,7 @@
 use crate::owner::identity::PhysicalStoreIdentity;
 use crate::owner::layout::OwnerLayout;
 use crate::owner::registry::is_mutation_authority_marker;
-use crate::owner::{
-    read_current_manifest, validate_declared_owner_tables, validate_manifest_read,
-};
+use crate::owner::{read_current_manifest, validate_declared_owner_tables, validate_manifest_read};
 use crate::physical::binding::decode_binding;
 use crate::physical::incarnation::{require_persisted_root, StoreIncarnation};
 use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
@@ -18,7 +16,9 @@ use crate::tables::{SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
 use crate::StorageKernel;
 use eg_types::mutation_batch::DurabilityDomain;
 use eg_types::{IncarnationId, LogicalName, MutationScopeIdentity, ScopeTenantId};
-use redb::{Database, ReadTransaction, ReadableDatabase, ReadableTable, TableHandle, WriteTransaction};
+use redb::{
+    Database, ReadTransaction, ReadableDatabase, ReadableTable, TableHandle, WriteTransaction,
+};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

@@ -23,9 +23,9 @@ use eg_storage::{
 };
 use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernel};
 use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchRecord, DurabilityDomain, MutationOperation, MutationRequestContext,
-    MutationScopeIdentity, MutationSurface, VersionExpectation, COMPILED_BATCH_INCARNATION,
-    MUTATION_BATCH_VERSION,
+    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationOperation,
+    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
+    COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 

@@ -73,9 +73,9 @@ pub(crate) mod redb_layout;
 pub mod store_authority;
 // The one shape every small kernel-owned sidecar file in this binary takes.
 #[cfg(feature = "redb")]
-pub mod sidecar_store;
-#[cfg(feature = "redb")]
 pub mod redb_store;
+#[cfg(feature = "redb")]
+pub mod sidecar_store;
 
 // CONCEPT:INT-P2-2 -- the Loop statechart definition (W2.5 control-plane migration):
 // `LoopStatus`'s 16 values as a reusable `eg_statechart::StatechartDef`, instantiated

@@ -37,15 +37,11 @@ pub struct StrictRecoveryEvidence {
 }
 
 /// Per-table row counts and fingerprints over one owner file's whole census.
-pub fn strict_recovery_evidence(
-    kernel: &StorageKernel,
-) -> Result<StrictRecoveryEvidence, String> {
+pub fn strict_recovery_evidence(kernel: &StorageKernel) -> Result<StrictRecoveryEvidence, String> {
     strict_evidence_of(kernel.store())
 }
 
-pub(crate) fn strict_evidence_of(
-    store: &PhysicalStore,
-) -> Result<StrictRecoveryEvidence, String> {
+pub(crate) fn strict_evidence_of(store: &PhysicalStore) -> Result<StrictRecoveryEvidence, String> {
     let rtx = store.begin_read()?;
     let manifest = validated_source_manifest(store, &rtx)?;
     let authenticate = |sealed: &[u8], digest: &str| store.authenticate_private(sealed, digest);

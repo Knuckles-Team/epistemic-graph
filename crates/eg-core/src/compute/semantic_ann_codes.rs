@@ -277,9 +277,7 @@ impl SemanticCodeStore {
     ///
     /// This is the serving read, and it serves ONLY the live generation: a
     /// generation that has been superseded or retired is not reachable here.
-    pub fn read_live(
-        &self,
-    ) -> Result<Option<(u64, SemanticGenerationImage)>, SemanticCodeError> {
+    pub fn read_live(&self) -> Result<Option<(u64, SemanticGenerationImage)>, SemanticCodeError> {
         let read = self.serving_read()?;
         let Some(generation) = self.live_generation_in(&read)? else {
             return Ok(None);

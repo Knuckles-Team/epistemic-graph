@@ -18,9 +18,7 @@
 
 use std::path::Path;
 
-use eg_storage::{
-    OwnedStoreHandle, OwnerDomain, PhysicalStoreIdentity, ScopedRead, StorageKernel,
-};
+use eg_storage::{OwnedStoreHandle, OwnerDomain, PhysicalStoreIdentity, ScopedRead, StorageKernel};
 use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
 use eg_types::MutationScopeIdentity;
 

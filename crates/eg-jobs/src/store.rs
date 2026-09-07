@@ -34,17 +34,17 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchRecord, DurabilityDomain, MutationOperation, MutationOutboxIntent,
-    MutationRequestContext, MutationScope, MutationScopeIdentity, MutationSurface,
-    VersionExpectation, MUTATION_BATCH_VERSION,
-};
-use eg_types::protocol::Method;
 use eg_storage::{
     JobsOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead,
     StorageKernel,
 };
 use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernel};
+use eg_types::mutation_batch::{
+    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationOperation, MutationOutboxIntent,
+    MutationRequestContext, MutationScope, MutationScopeIdentity, MutationSurface,
+    VersionExpectation, MUTATION_BATCH_VERSION,
+};
+use eg_types::protocol::Method;
 use redb::{ReadableTable, TableDefinition};
 use serde::de::DeserializeOwned;
 
@@ -408,7 +408,9 @@ impl JobStore {
             StorageKernel::create_owner::<JobsOwner>(path, physical, None)
         }
         .map_err(redb_err)?;
-        let (kernel, authority) = kernel.into_read_and_mutation_authority().map_err(redb_err)?;
+        let (kernel, authority) = kernel
+            .into_read_and_mutation_authority()
+            .map_err(redb_err)?;
         let mutations = MutationKernel::new(authority);
         let grant = kernel
             .authenticate_scope::<JobsOwner>(verifier, identity, principal.to_string(), proof)
@@ -462,7 +464,9 @@ impl JobStore {
         let source_version = match begun {
             Begin::Replay(_) => {
                 write.abort().map_err(redb_err)?;
-                return Err(codec_err("analytics-job maintenance batch already committed"));
+                return Err(codec_err(
+                    "analytics-job maintenance batch already committed",
+                ));
             }
             Begin::Apply { source_version } => source_version,
         };
@@ -494,12 +498,7 @@ impl JobStore {
     ) -> Result<Self> {
         std::fs::create_dir_all(persist_dir)
             .map_err(|e| JobError::Redb(format!("create persist dir: {e}")))?;
-        Self::open(
-            &persist_dir.join("jobs.redb"),
-            verifier,
-            principal,
-            proof,
-        )
+        Self::open(&persist_dir.join("jobs.redb"), verifier, principal, proof)
     }
 
     fn next_job_id(&self) -> JobId {
@@ -761,13 +760,8 @@ impl JobStore {
         // only the unconstrained queue and the capability/pool/region anchors the
         // worker supplied, then merge the first eligible row from each ordered
         // range. Jobs whose anchor the worker cannot satisfy are never decoded.
-        let selected = select_ready_for_worker(
-            &write,
-            worker_capabilities,
-            &capabilities,
-            now_ms,
-            quota,
-        )?;
+        let selected =
+            select_ready_for_worker(&write, worker_capabilities, &capabilities, now_ms, quota)?;
         let Some(mut job) = selected else {
             if let Some(batch) = reconcile_batch {
                 self.mutations.commit(write, &batch).map_err(redb_err)?;
@@ -1359,7 +1353,9 @@ impl JobStore {
             return Err(codec_err("analytics-job idempotency key is invalid"));
         }
         let read = self.scoped_read()?;
-        let table = read.open_owner_table(IDEMPOTENCY_LEDGER).map_err(redb_err)?;
+        let table = read
+            .open_owner_table(IDEMPOTENCY_LEDGER)
+            .map_err(redb_err)?;
         Ok(table
             .get(key)
             .map_err(redb_err)?
@@ -1598,7 +1594,11 @@ fn clear_scheduler_indexes(wtx: &AdmittedOwnerWrite<'_, JobsOwner>) -> Result<()
     Ok(())
 }
 
-fn persist_job_image(wtx: &AdmittedOwnerWrite<'_, JobsOwner>, job: &AnalyticsJob, bytes: &[u8]) -> Result<()> {
+fn persist_job_image(
+    wtx: &AdmittedOwnerWrite<'_, JobsOwner>,
+    job: &AnalyticsJob,
+    bytes: &[u8],
+) -> Result<()> {
     let previous = {
         let table = wtx.open_table(JOBS).map_err(redb_err)?;
         let value = table
@@ -1764,7 +1764,11 @@ fn tenant_index_key(tenant: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn adjust_tenant_total(wtx: &AdmittedOwnerWrite<'_, JobsOwner>, job: &AnalyticsJob, add: bool) -> Result<()> {
+fn adjust_tenant_total(
+    wtx: &AdmittedOwnerWrite<'_, JobsOwner>,
+    job: &AnalyticsJob,
+    add: bool,
+) -> Result<()> {
     let key = tenant_index_key(&job.policy.tenant);
     let cpu = reserved_cpu(job);
     let mut totals = wtx.open_table(JOB_TENANT_TOTALS).map_err(redb_err)?;
@@ -1852,7 +1856,10 @@ fn live_worker_claim_in_wtx(
     Ok(Some(WorkerClaim { lease, job }))
 }
 
-fn tenant_active_total(wtx: &AdmittedMutation<'_, JobsOwner>, tenant: &str) -> Result<(usize, u64)> {
+fn tenant_active_total(
+    wtx: &AdmittedMutation<'_, JobsOwner>,
+    tenant: &str,
+) -> Result<(usize, u64)> {
     let totals = wtx.open_read_table(JOB_TENANT_TOTALS).map_err(redb_err)?;
     let (count, cpu) = totals
         .get(tenant_index_key(tenant).as_str())
@@ -1937,7 +1944,9 @@ fn select_ready_for_worker(
             .map(|value| capability_index_key(value)),
     );
 
-    let ready = wtx.open_read_table(JOB_READY_BY_CAPABILITY).map_err(redb_err)?;
+    let ready = wtx
+        .open_read_table(JOB_READY_BY_CAPABILITY)
+        .map_err(redb_err)?;
     let jobs = wtx.open_read_table(JOBS).map_err(redb_err)?;
     let mut best: Option<((u32, i64, String), AnalyticsJob)> = None;
     let mut examined = 0usize;
@@ -2081,7 +2090,10 @@ fn reconcile_cancellation_job(
 /// Collect the durable job ids whose lease has expired by `now_ms`. Split out
 /// of `reconcile_scheduler` (extract-method, cx/wD8) — same limit check, same
 /// order as before.
-fn collect_expired_lease_ids(wtx: &AdmittedMutation<'_, JobsOwner>, now_ms: i64) -> Result<Vec<String>> {
+fn collect_expired_lease_ids(
+    wtx: &AdmittedMutation<'_, JobsOwner>,
+    now_ms: i64,
+) -> Result<Vec<String>> {
     let table = wtx.open_read_table(JOB_LEASE_EXPIRY).map_err(redb_err)?;
     let mut ids = Vec::new();
     for row in table
@@ -2570,10 +2582,7 @@ fn internal_job_batch(
             topic: "engine.analytics-job.transitioned".to_string(),
             key: batch_id,
             payload: rmp_serde::to_vec_named(&operation).map_err(codec_err)?,
-            headers: std::collections::BTreeMap::from([(
-                "actor".to_string(),
-                actor_digest,
-            )]),
+            headers: std::collections::BTreeMap::from([("actor".to_string(), actor_digest)]),
         }],
         created_at_ms: job.updated_at_ms.max(0) as u64,
     };
@@ -3225,7 +3234,13 @@ mod tests {
                     .unwrap(),
                 0
             );
-            assert_eq!(rtx.open_owner_table(JOB_LEASE_EXPIRY).unwrap().len().unwrap(), 1);
+            assert_eq!(
+                rtx.open_owner_table(JOB_LEASE_EXPIRY)
+                    .unwrap()
+                    .len()
+                    .unwrap(),
+                1
+            );
             let active = rtx.open_owner_table(JOB_TENANT_TOTALS).unwrap();
             assert_eq!(active.len().unwrap(), 1);
             let (key, value) = active.iter().unwrap().next().unwrap().unwrap();
@@ -3264,13 +3279,34 @@ mod tests {
                 .unwrap(),
             0
         );
-        assert_eq!(rtx.open_owner_table(JOB_LEASE_EXPIRY).unwrap().len().unwrap(), 0);
-        assert_eq!(rtx.open_owner_table(JOB_TENANT_TOTALS).unwrap().len().unwrap(), 0);
         assert_eq!(
-            rtx.open_owner_table(JOB_LEASE_BY_WORKER).unwrap().len().unwrap(),
+            rtx.open_owner_table(JOB_LEASE_EXPIRY)
+                .unwrap()
+                .len()
+                .unwrap(),
             0
         );
-        assert_eq!(rtx.open_owner_table(JOB_CANCELLATION).unwrap().len().unwrap(), 0);
+        assert_eq!(
+            rtx.open_owner_table(JOB_TENANT_TOTALS)
+                .unwrap()
+                .len()
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            rtx.open_owner_table(JOB_LEASE_BY_WORKER)
+                .unwrap()
+                .len()
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            rtx.open_owner_table(JOB_CANCELLATION)
+                .unwrap()
+                .len()
+                .unwrap(),
+            0
+        );
     }
 
     #[test]

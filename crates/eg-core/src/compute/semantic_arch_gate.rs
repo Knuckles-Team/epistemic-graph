@@ -171,7 +171,12 @@ fn spill(path: &std::path::Path, bytes: &[u8]) {
 }
 ";
     let found = violations(planted);
-    for construct in ["redb::Database", "Database::open", "begin_read", "fs::write"] {
+    for construct in [
+        "redb::Database",
+        "Database::open",
+        "begin_read",
+        "fs::write",
+    ] {
         assert!(
             found.iter().any(|(_, hit)| *hit == construct),
             "the gate missed `{construct}` in a planted bypass: {found:?}"

@@ -20,11 +20,11 @@ use crate::physical::root::PhysicalStore;
 use crate::recovery::adopt::{
     adopt_recovery, adopt_staged_mutation_store, inspect_staged_mutation_store, open_recovery,
 };
-use crate::recovery::evidence::{backup_strict_recovery_store_of, strict_evidence_of};
 use crate::recovery::evidence::strict_recovery_evidence;
+use crate::recovery::evidence::{backup_strict_recovery_store_of, strict_evidence_of};
 use crate::recovery::validate::{validate_live_recovery_store, validate_recovery_store_read_only};
 use crate::tables::{OWNER_MANIFEST, SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
-use eg_types::mutation_batch::{IncarnationId, LogicalName, DurabilityDomain, ScopeTenantId};
+use eg_types::mutation_batch::{DurabilityDomain, IncarnationId, LogicalName, ScopeTenantId};
 use eg_types::MutationScopeIdentity;
 use redb::{
     Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition, TableHandle,
@@ -196,9 +196,15 @@ fn partial_initialization_rolls_back_as_one_transaction() {
     bind_scope_in(&store.handle, &abandoned, &identity, 0).unwrap();
     abandoned.abort().unwrap();
     validate_live_recovery_store(&store).unwrap();
-    assert_eq!(validate_live_recovery_store(&store).unwrap().scope_bindings, 0);
+    assert_eq!(
+        validate_live_recovery_store(&store).unwrap().scope_bindings,
+        0
+    );
     bind_test_scope(&store, &identity, 0).unwrap();
-    assert_eq!(validate_live_recovery_store(&store).unwrap().scope_bindings, 1);
+    assert_eq!(
+        validate_live_recovery_store(&store).unwrap().scope_bindings,
+        1
+    );
 }
 
 #[test]
@@ -500,10 +506,7 @@ fn strict_backup_copies_owner_rows_and_reopens_with_stable_evidence() {
         OwnerLayout::Kv,
     )
     .unwrap();
-    assert_eq!(
-        second_reopened.manifest().authority_epoch,
-        2
-    );
+    assert_eq!(second_reopened.manifest().authority_epoch, 2);
     assert_eq!(
         strict_evidence_of(&second_reopened).unwrap(),
         second_evidence
@@ -554,12 +557,9 @@ fn cached_manifest_epoch_is_revalidated_before_owner_authority_use() {
     .unwrap();
 
     let write = store.database().begin_write().unwrap();
-    let mut manifest = validate_manifest_write(
-        &write,
-        &store.manifest().physical_identity,
-        OwnerLayout::Kv,
-    )
-    .unwrap();
+    let mut manifest =
+        validate_manifest_write(&write, &store.manifest().physical_identity, OwnerLayout::Kv)
+            .unwrap();
     manifest.authority_epoch += 1;
     let encoded = encode_bounded(&manifest, "tampered authority epoch").unwrap();
     write

@@ -35,12 +35,11 @@ use eg_compute::graph_algos::{
     a_star, all_pairs_similarity, article_rank, betweenness_centrality, closeness_centrality,
     degree_centrality, dijkstra, eigenvector_centrality, harmonic_centrality, haversine_km,
     k1_coloring, k_core, knn_similarity, knn_similarity_approx, label_propagation, leiden,
-    KnnSimilarityApproxConfig,
     local_clustering_coefficient, louvain, pagerank, random_walk, steiner_tree,
     strongly_connected_components, triangle_count, weakly_connected_components,
     yen_k_shortest_paths, AdjacencyGraph, ArticleRankConfig, ClosenessConfig, DegreeKind,
-    Direction, EigenvectorConfig, LabelPropagationConfig, LeidenConfig, LouvainConfig, Metric,
-    PageRankConfig, RandomWalkConfig,
+    Direction, EigenvectorConfig, KnnSimilarityApproxConfig, LabelPropagationConfig, LeidenConfig,
+    LouvainConfig, Metric, PageRankConfig, RandomWalkConfig,
 };
 
 use super::proc::{CypherProcedure, ProcRow, YieldValue};

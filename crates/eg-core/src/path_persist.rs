@@ -170,8 +170,7 @@ mod redb_store {
     use std::path::Path;
 
     use eg_storage::{
-        OwnedStoreHandle, PathIndexOwner, PhysicalStoreIdentity, ScopeGrantVerifier,
-        StorageKernel,
+        OwnedStoreHandle, PathIndexOwner, PhysicalStoreIdentity, ScopeGrantVerifier, StorageKernel,
     };
     use eg_transaction::{Begin, MutationKernel};
     use redb::TableDefinition;
@@ -269,8 +268,8 @@ mod redb_store {
             std::fs::create_dir_all(dir.as_ref())?;
             let path = dir.as_ref().join("path_index.redb");
             let identity = path_scope_identity()?;
-            let physical = PhysicalStoreIdentity::new(PATH_PHYSICAL_STORE)
-                .map_err(PathPersistError::Redb)?;
+            let physical =
+                PhysicalStoreIdentity::new(PATH_PHYSICAL_STORE).map_err(PathPersistError::Redb)?;
             let kernel = if path.exists() {
                 StorageKernel::open_owner::<PathIndexOwner>(&path, physical, None)
             } else {
@@ -361,9 +360,7 @@ mod redb_store {
                 .map_err(PathPersistError::Redb)?
                 .insert(SNAPSHOT_KEY, bytes.as_slice())
                 .map_err(|e| PathPersistError::Redb(e.to_string()))?;
-            owner_write
-                .finish_owner()
-                .map_err(PathPersistError::Redb)?;
+            owner_write.finish_owner().map_err(PathPersistError::Redb)?;
             self.mutations
                 .finish(&write, &batch, None, 0, source_version)
                 .map_err(PathPersistError::Redb)?;

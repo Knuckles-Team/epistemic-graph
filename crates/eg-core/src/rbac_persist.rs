@@ -24,8 +24,8 @@ use std::fmt;
 use std::path::Path;
 
 use eg_storage::{
-    backup_strict_recovery_store, OwnedStoreHandle, PhysicalStoreIdentity, RbacOwner, ScopedRead,
-    ScopeGrantVerifier, StorageKernel,
+    backup_strict_recovery_store, OwnedStoreHandle, PhysicalStoreIdentity, RbacOwner,
+    ScopeGrantVerifier, ScopedRead, StorageKernel,
 };
 use eg_transaction::MutationKernel;
 use redb::TableDefinition;
@@ -215,7 +215,9 @@ fn authority_identity_digest(
 fn read_authority_image(
     read: &ScopedRead<'_, RbacOwner>,
 ) -> Result<(RbacPolicy, BTreeMap<String, AgentIdentity>), RbacPersistError> {
-    let state = read.open_owner_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
+    let state = read
+        .open_owner_table(RBAC_TABLE)
+        .map_err(RbacPersistError::Redb)?;
     let policy = state
         .get(POLICY_KEY)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?
@@ -444,7 +446,9 @@ impl RbacStore {
     /// of an authorization state transition.
     fn bootstrap_current_state(&self) -> Result<(), RbacPersistError> {
         let read = self.scoped_read()?;
-        let table = read.open_owner_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
+        let table = read
+            .open_owner_table(RBAC_TABLE)
+            .map_err(RbacPersistError::Redb)?;
         let policy_present = table
             .get(POLICY_KEY)
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?
@@ -486,7 +490,9 @@ impl RbacStore {
         RbacPersistError,
     > {
         let read = self.scoped_read()?;
-        let t = read.open_owner_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
+        let t = read
+            .open_owner_table(RBAC_TABLE)
+            .map_err(RbacPersistError::Redb)?;
         let policy = match t
             .get(POLICY_KEY)
             .map_err(|e| RbacPersistError::Redb(e.to_string()))?
@@ -613,8 +619,7 @@ mod tests {
 
     use super::test_support::open_test_store;
     use super::{
-        IdentityBootstrapState, MemoryRbacStore, RbacPersistError, RbacPolicyStore,
-        IDENTITIES_KEY,
+        IdentityBootstrapState, MemoryRbacStore, RbacPersistError, RbacPolicyStore, IDENTITIES_KEY,
     };
     use crate::acl::{
         AgentIdentity, AgentRole, Grant, GrantEffect, RbacAction, ResourceContext,
@@ -752,7 +757,9 @@ mod tests {
         // A known-bad durable input, produced the ONLY way this crate can now
         // write: an admitted mutation through the mutation kernel. The store
         // must still refuse to serve, and refuse to reopen, a partial image.
-        store.remove_mandatory_record_for_test(IDENTITIES_KEY).unwrap();
+        store
+            .remove_mandatory_record_for_test(IDENTITIES_KEY)
+            .unwrap();
         assert!(matches!(
             store.load(),
             Err(RbacPersistError::IncompleteState(_))

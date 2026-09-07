@@ -18,7 +18,9 @@ use crate::physical::binding::bind_scope_in;
 use crate::physical::incarnation::StoreIncarnation;
 use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
 use crate::physical::manifest::{OwnerManifest, OwnerManifestDigest};
-use crate::physical::root::{initialize_strict_in, store_handle, validate_incarnation_read, PhysicalStore};
+use crate::physical::root::{
+    initialize_strict_in, store_handle, validate_incarnation_read, PhysicalStore,
+};
 use crate::recovery::validate::validate_recovery_content;
 use eg_types::MutationScopeIdentity;
 use redb::{Database, ReadableDatabase};
@@ -136,7 +138,9 @@ impl StoreOpenOptions {
     }
 
     fn create_database(&self, path: &Path) -> Result<Database, String> {
-        self.builder().create(path).map_err(|error| error.to_string())
+        self.builder()
+            .create(path)
+            .map_err(|error| error.to_string())
     }
 
     fn open_database(&self, path: &Path) -> Result<Database, String> {
@@ -177,8 +181,14 @@ impl StorageKernel {
         if options.is_read_only() {
             return Err("a store cannot be created read-only".to_string());
         }
-        create_physical_with(path, physical_identity, private_integrity, D::LAYOUT, options)
-            .map(Self::from_store)
+        create_physical_with(
+            path,
+            physical_identity,
+            private_integrity,
+            D::LAYOUT,
+            options,
+        )
+        .map(Self::from_store)
     }
 
     /// Open only an exact current-format owner file under the default open
@@ -203,8 +213,14 @@ impl StorageKernel {
         private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
         options: StoreOpenOptions,
     ) -> Result<Self, String> {
-        open_physical_with(path, physical_identity, private_integrity, D::LAYOUT, options)
-            .map(Self::from_store)
+        open_physical_with(
+            path,
+            physical_identity,
+            private_integrity,
+            D::LAYOUT,
+            options,
+        )
+        .map(Self::from_store)
     }
 
     /// The open options this kernel's handle is actually running under.
@@ -370,15 +386,17 @@ impl MutationOwnerAuthority {
             return Err("admitted scope group exceeds its member budget".to_string());
         }
         if !is_control_scope(D::LAYOUT, control.identity()) {
-            return Err("a scope group's control member must be the file's reserved control scope"
-                .to_string());
+            return Err(
+                "a scope group's control member must be the file's reserved control scope"
+                    .to_string(),
+            );
         }
         let mut seen = BTreeSet::new();
         seen.insert(control.identity().binding_digest().to_hex());
         for owner in members {
             if is_control_scope(D::LAYOUT, owner.identity()) {
                 return Err(
-                    "a scope group's control scope may not also be a scoped member".to_string()
+                    "a scope group's control scope may not also be a scoped member".to_string(),
                 );
             }
             if !seen.insert(owner.identity().binding_digest().to_hex()) {
@@ -526,14 +544,10 @@ pub(crate) fn create_physical_with(
     open_declared_owner_tables(&wtx, layout)?;
     write_new_manifest(&wtx, &manifest)?;
     wtx.commit().map_err(|error| error.to_string())?;
-    Ok(PhysicalStore::from_parts(
-        database,
-        handle,
-        physical_path,
-        private_integrity,
-        manifest,
+    Ok(
+        PhysicalStore::from_parts(database, handle, physical_path, private_integrity, manifest)
+            .with_options(options),
     )
-    .with_options(options))
 }
 
 /// Open one exact current-format physical owner file under the default open

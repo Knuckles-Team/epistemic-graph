@@ -223,5 +223,4 @@ mod tests {
             "a re-embedded-but-not-yet-migrated index is detectably mixed-version"
         );
     }
-
 }

@@ -248,9 +248,7 @@ fn read_live_pointer_in(
     decode_live_pointer(raw)
 }
 
-pub(super) fn decode_live_pointer(
-    raw: Option<Vec<u8>>,
-) -> Result<Option<u64>, SemanticCodeError> {
+pub(super) fn decode_live_pointer(raw: Option<Vec<u8>>) -> Result<Option<u64>, SemanticCodeError> {
     let Some(bytes) = raw else {
         return Ok(None);
     };
@@ -311,7 +309,12 @@ pub(super) fn read_part(
     let mut out = Vec::with_capacity(length.min(MAX_PART_BYTES));
     for ordinal in 0..part_chunks(length) {
         let chunk = codes
-            .get((tenant, binding, generation, chunk_part(part, ordinal).as_str()))
+            .get((
+                tenant,
+                binding,
+                generation,
+                chunk_part(part, ordinal).as_str(),
+            ))
             .map_err(kernel_error)?
             .ok_or_else(|| {
                 SemanticCodeError::Corrupt(format!("part `{part}` chunk {ordinal} is missing"))

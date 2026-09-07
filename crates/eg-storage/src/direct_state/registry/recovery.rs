@@ -308,9 +308,7 @@ fn assemble_recovered(
     Ok(AssembledDirectStateGeneration {
         authority_identity: registry.authority_identity.clone(),
         registry_identity: registry.registry_identity.clone(),
-        source_journal_sha256: pending
-            .map(DirectStateInstallJournal::sha256)
-            .transpose()?,
+        source_journal_sha256: pending.map(DirectStateInstallJournal::sha256).transpose()?,
         current_image_sha256: target.sha256()?,
         generation: Arc::new(DirectStateGeneration {
             authority_identity: registry.authority_identity.clone(),

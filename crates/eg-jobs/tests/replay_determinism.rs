@@ -25,8 +25,9 @@ use eg_jobs::{
     ReproducibilityManifest, ResultColumn, SubmitSpec, TenantJobQuota, TypedJobResult,
 };
 use eg_types::mutation_batch::{
-    MutationBatch, DurabilityDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
-    MutationScopeIdentity, MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
+    DurabilityDomain, MutationBatch, MutationOperation, MutationOutboxIntent,
+    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
+    MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use proptest::prelude::*;

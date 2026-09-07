@@ -64,7 +64,9 @@ fn is_current(
     encoded: &EncodedAuthorityState,
 ) -> Result<bool, RbacPersistError> {
     let read = store.scoped_read()?;
-    let table = read.open_owner_table(RBAC_TABLE).map_err(RbacPersistError::Redb)?;
+    let table = read
+        .open_owner_table(RBAC_TABLE)
+        .map_err(RbacPersistError::Redb)?;
     let policy_matches = table
         .get(POLICY_KEY)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?
@@ -161,9 +163,9 @@ pub(super) fn remove_authority_record(
     key: &'static str,
 ) -> Result<(), RbacPersistError> {
     let expected = store.current_version()?;
-    let target = expected
-        .checked_add(1)
-        .ok_or_else(|| RbacPersistError::Redb("identity/RBAC state version overflow".to_string()))?;
+    let target = expected.checked_add(1).ok_or_else(|| {
+        RbacPersistError::Redb("identity/RBAC state version overflow".to_string())
+    })?;
     let batch = authority_batch(store, expected, target, &format!("remove-{key}"));
     commit_authority_mutation(store, &batch, None, |owner_write| {
         owner_write

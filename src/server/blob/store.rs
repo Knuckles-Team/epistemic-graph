@@ -32,7 +32,8 @@
 //! from the surviving manifests at sweep time, so a chunk shared by a live blob is kept.
 
 use crate::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationScopeIdentity, ScopeTenantId,
+    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationScopeIdentity,
+    ScopeTenantId,
 };
 use eg_storage::{BlobOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernel};
 use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
@@ -456,10 +457,7 @@ pub(crate) const BLOB_PHYSICAL_STORE: &str = "epistemic-graph:blob";
 
 /// Authenticate and bind ONE logical serving scope on `blob.redb`. The proof bytes are
 /// the composition root's; this module supplies only the identity and the layout.
-fn bind_scope(
-    kernel: &StorageKernel,
-    scope: &MutationScopeIdentity,
-) -> Result<BlobHandle, String> {
+fn bind_scope(kernel: &StorageKernel, scope: &MutationScopeIdentity) -> Result<BlobHandle, String> {
     let authority = crate::store_authority::process_authority();
     let grant = kernel.authenticate_scope::<BlobOwner>(
         authority.as_ref(),
@@ -471,7 +469,10 @@ fn bind_scope(
 }
 
 /// The native blob-domain scope identity for one (tenant, resource) pair.
-fn blob_scope_identity(tenant: ScopeTenantId, resource: &str) -> Result<MutationScopeIdentity, String> {
+fn blob_scope_identity(
+    tenant: ScopeTenantId,
+    resource: &str,
+) -> Result<MutationScopeIdentity, String> {
     MutationScopeIdentity::native(
         tenant,
         DurabilityDomain::BlobStore,
@@ -1105,15 +1106,19 @@ impl RedbChunkStore {
             return Ok(());
         }
         let group = std::mem::take(&mut batch.pending);
-        self.maintain("blob_chunk_group_v1", &group_subject(&group), |owner_write| {
-            let mut table = owner_write.open_table(CAS_CHUNKS)?;
-            for (digest, bytes) in &group {
-                table
-                    .insert(digest.as_str(), bytes.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-            Ok(())
-        })
+        self.maintain(
+            "blob_chunk_group_v1",
+            &group_subject(&group),
+            |owner_write| {
+                let mut table = owner_write.open_table(CAS_CHUNKS)?;
+                for (digest, bytes) in &group {
+                    table
+                        .insert(digest.as_str(), bytes.as_slice())
+                        .map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            },
+        )
     }
 
     /// Commit any staged chunk group. Called before every other operation so exactly one

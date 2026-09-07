@@ -72,8 +72,7 @@ const GRANT_ID_BYTES: usize = 16;
 /// so a store bound under one could never commit a maintenance mutation. It is
 /// the same construction `server::mutation_batch::digest::principal_fingerprint`
 /// applies to a caller identity, over the engine's own name.
-pub const ENGINE_PRINCIPAL: &str =
-    crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL;
+pub const ENGINE_PRINCIPAL: &str = crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL;
 
 /// The composition root's scope-grant authority.
 pub struct EngineScopeAuthority {

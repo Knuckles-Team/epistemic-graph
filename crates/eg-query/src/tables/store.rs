@@ -45,8 +45,8 @@ use std::sync::{Arc, RwLock};
 use eg_storage::ScopeGrantVerifier;
 use eg_transaction::Begin;
 use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchCommit, MutationBatchRecord, DurabilityDomain, MutationOutboxRecord,
-    MutationScope, MutationScopeIdentity,
+    DurabilityDomain, MutationBatch, MutationBatchCommit, MutationBatchRecord,
+    MutationOutboxRecord, MutationScope, MutationScopeIdentity,
 };
 use redb::{ReadableTable, TableDefinition};
 use serde_json::Value;

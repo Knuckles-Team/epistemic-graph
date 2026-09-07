@@ -204,8 +204,8 @@ impl RedbColdStore {
     ) -> io::Result<Self> {
         let path = path.as_ref();
         let identity = cold_scope_identity()?;
-        let physical =
-            eg_storage::PhysicalStoreIdentity::new(COLD_PHYSICAL_STORE).map_err(io::Error::other)?;
+        let physical = eg_storage::PhysicalStoreIdentity::new(COLD_PHYSICAL_STORE)
+            .map_err(io::Error::other)?;
         // The kernel materializes the whole declared census at create and
         // re-validates it on every open, so a first `get` before any `put`
         // succeeds without this crate opening a table itself.
@@ -227,8 +227,12 @@ impl RedbColdStore {
                 proof,
             )
             .map_err(io::Error::other)?;
-        let owner = kernel.bind_serving_scope(grant, 0).map_err(io::Error::other)?;
-        mutations.bootstrap_ledger(&owner).map_err(io::Error::other)?;
+        let owner = kernel
+            .bind_serving_scope(grant, 0)
+            .map_err(io::Error::other)?;
+        mutations
+            .bootstrap_ledger(&owner)
+            .map_err(io::Error::other)?;
         Ok(RedbColdStore {
             kernel,
             mutations,
@@ -239,9 +243,7 @@ impl RedbColdStore {
     /// Apply one cold-tier row change as an admitted maintenance mutation.
     fn maintain<F>(&self, kind: &str, apply: F) -> io::Result<()>
     where
-        F: FnOnce(
-            &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::KvOwner>,
-        ) -> io::Result<()>,
+        F: FnOnce(&eg_transaction::AdmittedOwnerWrite<'_, eg_storage::KvOwner>) -> io::Result<()>,
     {
         let read = self
             .kernel

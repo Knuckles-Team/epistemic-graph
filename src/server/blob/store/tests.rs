@@ -2,12 +2,7 @@
 
 use super::*;
 
-fn coordinator_batch(
-    id: &str,
-    request_id: u64,
-    expected: u64,
-    event_type: &str,
-) -> MutationBatch {
+fn coordinator_batch(id: &str, request_id: u64, expected: u64, event_type: &str) -> MutationBatch {
     crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id: id,
@@ -360,7 +355,9 @@ fn concurrent_increfs_never_lose_a_reference() {
             let store = Arc::clone(&store);
             let digest = blob.digest.clone();
             scope.spawn(move || {
-                store.incref(&digest).expect("a concurrent incref must not fail");
+                store
+                    .incref(&digest)
+                    .expect("a concurrent incref must not fail");
             });
         }
     });
