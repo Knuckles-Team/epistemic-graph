@@ -129,7 +129,7 @@
     },
     "GRAPH_META_SCHEMA_VERSION": {
       "sites": [
-        "src/redb_store.rs:16056"
+        "src/redb_store.rs:16113"
       ],
       "value": "2"
     },
