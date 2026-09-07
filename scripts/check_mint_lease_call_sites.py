@@ -57,8 +57,15 @@ REQUIRED_MINT_AUTHORIZATION_TOKENS = (
     ".claims()",
 )
 
+# A `fn` item at ANY nesting depth. Rust puts most real code in `impl`/`mod`/
+# `trait` blocks, so anchoring this at column zero (as it once was) makes an
+# `impl` method invisible: the enclosing-function lookup then either falls back
+# to the whole file or attributes the call to an unrelated free function that
+# happens to sit above it. Both outcomes let a neighbour's tokens satisfy the
+# audit for a call site that never constructs its own `MintAuthorization`.
 _ITEM_FN = re.compile(
-    r"^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)",
+    r"^[ \t]*(?:pub(?:\([^)]*\))?\s+)?(?:default\s+)?(?:const\s+)?(?:async\s+)?"
+    r'(?:unsafe\s+)?(?:extern\s+"[^"]*"\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)',
     re.MULTILINE,
 )
 
@@ -68,6 +75,11 @@ _ITEM_FN = re.compile(
 # "[`IsolationLayer::mint_policy_decision_lease`]" (`::`, not `.`, and no `(`
 # immediately after the identifier in that form).
 _CALL_SITE = re.compile(r"\.mint_policy_decision_lease\s*\(")
+
+# Returned when no `fn` item encloses the call site. The gate fails on it: an
+# unattributable call is exactly the case where reading the whole file would
+# hand the audit a neighbour's tokens.
+NO_ENCLOSING_FUNCTION = "<no enclosing fn>"
 
 # Directories this repo's own Rust sources live under (mirrors what `cargo
 # check -p epistemic-graph` / `-p eg-core` actually compile — see
@@ -119,25 +131,78 @@ def find_call_sites(root: Path) -> list[tuple[str, int]]:
     return sorted(sites)
 
 
-def enclosing_function(text: str, line_no: int) -> tuple[str, str]:
-    """The item-level `fn` containing 1-based `line_no`, as `(name, body)`.
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
 
-    Only column-zero `fn` items are considered, so a nested closure or an inner
-    helper cannot shrink the audited window below the function the reviewer
-    actually read.
+
+def _body_opening(lines: list[str], declaration: int) -> int | None:
+    """Index of the line that opens the `fn` body, or `None` if it has none.
+
+    A signature can span several lines and its continuation lines (`) -> T {`,
+    a `where` clause) are not indented deeper than the declaration, so the body
+    boundary is found from the opening brace rather than from indentation
+    alone. A trait method declared without a body ends in `;` and has no span.
     """
 
-    offset = sum(len(line) + 1 for line in text.splitlines()[: line_no - 1])
-    declarations = [match for match in _ITEM_FN.finditer(text)]
-    enclosing = [match for match in declarations if match.start() <= offset]
-    if not enclosing:
-        return "<file>", text
-    start = enclosing[-1]
-    following = next(
-        (match for match in declarations if match.start() > start.start()), None
-    )
-    end = following.start() if following else len(text)
-    return start.group(1), text[start.start() : end]
+    for index in range(declaration, len(lines)):
+        stripped = lines[index].rstrip()
+        if "{" in stripped:
+            return index
+        if stripped.endswith(";"):
+            return None
+    return None
+
+
+def _function_span(lines: list[str], declaration: int, indent: int) -> int:
+    """Exclusive end line of the `fn` declared at `declaration`.
+
+    `rustfmt` closes a function with a `}` at exactly the declaration's
+    indentation, so the first non-blank line after the opening brace that is
+    not indented deeper ends the body. A source line that starts at a
+    shallower column inside the body (only reachable from a multi-line raw
+    string literal) ends the window early, which narrows the audited text and
+    can only make this gate stricter.
+    """
+
+    opening = _body_opening(lines, declaration)
+    if opening is None:
+        return declaration + 1
+    if lines[opening].rstrip().endswith("}"):
+        return opening + 1
+    for index in range(opening + 1, len(lines)):
+        line = lines[index]
+        if line.strip() and _indent(line) <= indent:
+            return index + 1
+    return len(lines)
+
+
+def enclosing_function(text: str, line_no: int) -> tuple[str, str]:
+    """The `fn` item containing 1-based `line_no`, as `(name, body)`.
+
+    `fn` items are recognised at any nesting depth -- an `impl` method, a
+    method inside a nested `mod`, a trait default body -- and each candidate's
+    window is its own indentation-delimited body, so a call can never be
+    attributed to a neighbouring item. When several `fn` items contain the call
+    (an inner helper declared inside a function body) the OUTERMOST one wins:
+    the audited window must never shrink below the function the reviewer read.
+    `NO_ENCLOSING_FUNCTION` is returned when no `fn` contains the call, and the
+    audit treats that as a failure rather than reading the whole file.
+    """
+
+    lines = text.splitlines()
+    target = line_no - 1
+    containing = []
+    for index, line in enumerate(lines):
+        match = _ITEM_FN.match(line)
+        if match is None:
+            continue
+        end = _function_span(lines, index, _indent(line))
+        if index <= target < end:
+            containing.append((index, end, match.group(1)))
+    if not containing:
+        return NO_ENCLOSING_FUNCTION, ""
+    start, end, name = min(containing)
+    return name, "\n".join(lines[start:end]) + "\n"
 
 
 def require_sole_owning_call_site(
@@ -193,6 +258,12 @@ def require_self_constructed_authorization(
     function, body = enclosing_function(
         (root / relative).read_text(encoding="utf-8"), line_no
     )
+    if function == NO_ENCLOSING_FUNCTION:
+        raise SystemExit(
+            "mint-lease call-site gate failed: the sole production call site "
+            f"{relative}:{line_no} is not inside any `fn` item, so there is no "
+            "function whose MintAuthorization construction can be audited."
+        )
     missing = [
         token for token in REQUIRED_MINT_AUTHORIZATION_TOKENS if token not in body
     ]

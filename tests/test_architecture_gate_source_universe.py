@@ -227,6 +227,121 @@ def test_mint_lease_audit_reads_the_enclosing_function_not_the_file(
     assert satisfied is audited
 
 
+_IMPL_METHOD_CALLER = """\
+fn audited_free_function() {
+    let (auth_secret, verified) = load(state);
+    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
+        .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
+}
+
+impl Router {
+    async fn smuggled_impl_method(&self) -> Result<()> {
+        let lease = isolation.mint_policy_decision_lease(&caller_token, &graph, read)?;
+        Ok(())
+    }
+}
+"""
+
+_NESTED_MODULE_CALLER = """\
+fn audited_free_function() {
+    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
+        .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
+}
+
+mod outer {
+    pub mod inner {
+        pub async fn smuggled_nested_module_fn() {
+            let lease = isolation.mint_policy_decision_lease(&caller_token, &graph, read);
+        }
+    }
+}
+"""
+
+_WRAPPED_SIGNATURE_CALLER = """\
+async fn dispatch_governed_stream_write_methods(
+    state: &ServerState,
+    graph: &GraphName,
+) -> Result<Lease> {
+    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
+        .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
+    isolation.mint_policy_decision_lease(&mint_auth, &graph, read)
+}
+"""
+
+
+@pytest.mark.parametrize(
+    "source,expected_function",
+    [
+        (_IMPL_METHOD_CALLER, "smuggled_impl_method"),
+        (_NESTED_MODULE_CALLER, "smuggled_nested_module_fn"),
+    ],
+)
+def test_mint_lease_audit_resolves_a_call_nested_below_column_zero(
+    source: str, expected_function: str
+) -> None:
+    """Known-bad: an indented `fn` must not borrow a free function's tokens.
+
+    The resolver once matched only column-zero `fn` items, so a call inside an
+    `impl` block or a nested `mod` -- where nearly all real Rust lives -- had no
+    recognised enclosing function. The lookup then fell back to the whole file,
+    and the audited free function above satisfied
+    `REQUIRED_MINT_AUTHORIZATION_TOKENS` on behalf of a call site that supplies
+    a caller-provided token and never builds a `MintAuthorization` at all.
+    """
+
+    gate = _script("check_mint_lease_call_sites")
+    call_line = source[: source.index(".mint_policy_decision_lease(")].count("\n") + 1
+
+    name, window = gate.enclosing_function(source, call_line)
+
+    assert name == expected_function
+    assert "audited_free_function" not in window
+    assert not all(token in window for token in gate.REQUIRED_MINT_AUTHORIZATION_TOKENS)
+
+
+def test_mint_lease_audit_spans_a_wrapped_signature() -> None:
+    """Known-good: a multi-line signature must not truncate the window.
+
+    The continuation lines of a wrapped signature (`) -> Result<Lease> {`) sit
+    at the declaration's own indentation, so a purely indentation-based span
+    would end the body before it began and report the real production caller
+    -- which looks exactly like this -- as unaudited.
+    """
+
+    gate = _script("check_mint_lease_call_sites")
+    source = _WRAPPED_SIGNATURE_CALLER
+    call_line = source[: source.index(".mint_policy_decision_lease(")].count("\n") + 1
+
+    name, window = gate.enclosing_function(source, call_line)
+
+    assert name == "dispatch_governed_stream_write_methods"
+    assert all(token in window for token in gate.REQUIRED_MINT_AUTHORIZATION_TOKENS)
+
+
+def test_mint_lease_gate_rejects_a_second_production_caller(tmp_path: Path) -> None:
+    """Known-bad: two production call sites must fail, not pick one.
+
+    The count is the whole control: a second production caller is a second
+    place that has to get `MintAuthorization` construction right, and the gate
+    exists so that nothing else has to notice.
+    """
+
+    gate = _script("check_mint_lease_call_sites")
+    (tmp_path / "src" / "server" / "dispatch").mkdir(parents=True)
+    (tmp_path / "src" / "server" / "dispatch.rs").write_text(
+        "pub mod router;\n", encoding="utf-8"
+    )
+    (tmp_path / "src" / "server" / "dispatch" / "router.rs").write_text(
+        _WRAPPED_SIGNATURE_CALLER, encoding="utf-8"
+    )
+    (tmp_path / "src" / "admin.rs").write_text(_IMPL_METHOD_CALLER, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as failure:
+        gate.check(tmp_path)
+
+    assert "expected exactly ONE production call site" in str(failure.value)
+
+
 def test_mint_lease_gate_passes_on_the_current_tree() -> None:
     gate = _script("check_mint_lease_call_sites")
     gate.check(ROOT)
