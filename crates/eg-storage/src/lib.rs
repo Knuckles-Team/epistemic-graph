@@ -46,7 +46,7 @@ pub use owner::identity::PhysicalStoreIdentity;
 pub use owner::layout::OwnerLayout;
 pub use owner::row_key::{
     is_control_scope, owner_row_key, reserved_control_graph, OwnerRowScope, RowKey,
-    GRAPH_SHARD_CONTROL_GRAPH,
+    GRAPH_SHARD_CONTROL_GRAPH, GRAPH_SHARD_TENANT,
 };
 pub use owner::registry::{
     declared_table_names, owner_table_names, ANN_CODES, SEMANTIC_POINTERS, SEMANTIC_STATES,

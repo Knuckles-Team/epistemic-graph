@@ -42,6 +42,26 @@ use eg_types::MutationScopeIdentity;
 /// agree is one copy too many. Every other layer references this constant.
 pub const GRAPH_SHARD_CONTROL_GRAPH: &str = "__shard_control__";
 
+/// The tenant component of every graph-shard mutation scope.
+///
+/// RF-RULING-004 application note 2: a shard scope is
+/// `(this tenant, graph name, graph incarnation)` — the same shape the
+/// cluster-admin scope already uses. The shard's durable authority has always
+/// been per graph (its OCC counter and every shard table key lead with the
+/// graph name, never a tenant), and no durable structure records a graph→tenant
+/// binding at all, so the Raft follower apply path and recovery — which have no
+/// request carrier — could not supply a caller's tenant even in principle.
+///
+/// The caller's tenant is request-boundary authorization and outbox
+/// attribution; it is deliberately NOT part of the scope identity, because
+/// making it so would give one graph a different binding digest, ledger scope
+/// key, OCC counter and fence depending on who wrote to it.
+///
+/// Reserved, and refused as a caller tenant at the request boundary: a caller
+/// able to name it could compile a batch whose scope identity collides with the
+/// shard's own.
+pub const GRAPH_SHARD_TENANT: &str = "__shard__";
+
 /// What one owner table's key says about scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKey {

@@ -818,3 +818,55 @@ fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The two reserved shard identifiers are refused to a request-boundary caller.
+///
+/// A graph-shard scope is `(GRAPH_SHARD_TENANT, graph, incarnation)` and
+/// `GRAPH_SHARD_CONTROL_GRAPH` is the shard file's own control scope, so a
+/// caller able to name either could compile a batch whose scope identity
+/// collides with the shard's own -- taking its OCC counter and fence, or writing
+/// under its control scope. This is the ONLY place the tenant half can be
+/// caught: nothing below the compiler ever sees a tenant.
+#[test]
+fn a_caller_cannot_name_either_reserved_graph_shard_identifier() {
+    let compile_with = |tenant: &str, graph: &str| {
+        compile_methods(
+            CompileBatch {
+                batch_id: "reserved",
+                request_id: 1,
+                principal: Some("agent:a"),
+                tenant,
+                graph,
+                placement_epoch: 0,
+                idempotency_key: "reserved",
+                expected_graph_version: Some(0),
+                fencing_token: None,
+                created_at_ms: 1,
+                default_surface: MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            vec![Method::RemoveNode {
+                node_id: "a".into(),
+            }],
+        )
+    };
+
+    let tenant_error = compile_with(eg_storage::GRAPH_SHARD_TENANT, "graph-a").unwrap_err();
+    assert!(
+        tenant_error.contains("reserved scope tenant"),
+        "{tenant_error}"
+    );
+    let graph_error = compile_with("tenant-a", eg_storage::GRAPH_SHARD_CONTROL_GRAPH).unwrap_err();
+    assert!(
+        graph_error.contains("reserved control scope"),
+        "{graph_error}"
+    );
+
+    // The guard is those two exact names, not a `__…__` shape: `__commons__` is
+    // a real user-visible graph and must stay compilable.
+    let ok = compile_with("tenant-a", "__commons__").unwrap();
+    assert_eq!(
+        ok.identity.scope().graph_name().map(|n| n.as_str()),
+        Some("__commons__")
+    );
+}

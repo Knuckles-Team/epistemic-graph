@@ -416,6 +416,7 @@ fn finish_batch(
     // `actor` header, and every replay check that used to compare
     // `context.principal` against a caller now compares that header.
     let principal = ENGINE_LEDGER_PRINCIPAL.to_string();
+    reject_reserved_shard_identifiers(ctx.tenant, ctx.graph)?;
     let tenant_id = TenantId::new(ctx.tenant.to_string())?;
     let resource_name = LogicalName::new(ctx.graph.to_string())?;
     let incarnation_id = IncarnationId::new(COMPILED_BATCH_INCARNATION)
@@ -483,6 +484,47 @@ fn finish_batch(
     };
     batch.validate()?;
     Ok(batch)
+}
+
+/// Refuse the two reserved shard identifiers to a request-boundary caller.
+///
+/// RF-RULING-004 application note 2 makes a graph-shard scope
+/// `(GRAPH_SHARD_TENANT, graph, incarnation)`, and note 1 reserves
+/// `GRAPH_SHARD_CONTROL_GRAPH` for the shard file's own file-wide rows. Both are
+/// scope-identity components, so a caller able to name either could compile a
+/// batch whose identity COLLIDES with the shard's own — taking the shard's OCC
+/// counter and fence, or writing under its control scope.
+///
+/// Checked here because this is the one place a caller-supplied tenant and graph
+/// become a `MutationScopeIdentity`. `redb_store::reject_reserved_graph` guards
+/// the durable chokepoints below for the graph half; nothing below this point
+/// ever sees the tenant, which is why the tenant half can only be caught here.
+#[cfg(feature = "redb")]
+fn reject_reserved_shard_identifiers(tenant: &str, graph: &str) -> Result<(), String> {
+    if tenant == eg_storage::GRAPH_SHARD_TENANT {
+        return Err(
+            "'__shard__' is the graph shard's reserved scope tenant and cannot be a caller tenant"
+                .to_string(),
+        );
+    }
+    if graph == eg_storage::GRAPH_SHARD_CONTROL_GRAPH {
+        return Err(
+            "'__shard_control__' is the shard's reserved control scope and cannot be a caller graph"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Without `redb` this binary owns no shard file, so neither name is reserved
+/// against anything — but the refusal is kept so a slim build cannot be the one
+/// that mints an identity a redb build would refuse.
+#[cfg(not(feature = "redb"))]
+fn reject_reserved_shard_identifiers(tenant: &str, graph: &str) -> Result<(), String> {
+    if tenant == "__shard__" || graph == "__shard_control__" {
+        return Err("reserved graph-shard identifier cannot be supplied by a caller".to_string());
+    }
+    Ok(())
 }
 
 /// `finish_batch`'s outbox projection-wakeup payload for builds without the `redb`
