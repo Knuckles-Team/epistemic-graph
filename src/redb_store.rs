@@ -664,7 +664,6 @@ pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::n
 // tamper-evident AUDIT entry at that seq -- so tampering this side table cannot
 // forge a passing inclusion proof; it can only make an otherwise-valid proof fail
 // closed (see `crate::redb_store::prove_inclusion`).
-#[cfg(feature = "security")]
 pub(crate) const PROVENANCE_ANCHOR_MEMBERS: TableDefinition<(&str, u64), &[u8]> =
     TableDefinition::new("provenance_anchor_members");
 pub(crate) const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
@@ -782,7 +781,6 @@ pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
 // current result rows). Durable so a matview survives restart; the handler reloads the
 // in-RAM `MatViewStore` from this table on boot and refreshes incrementally on a delta.
 // Lives in the authoritative shard for the same-file reason as the Raft log + xshard rows.
-#[cfg(feature = "compute-dist")]
 pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("matviews");
 
 // Named PLAN-BACKED materialized views (CONCEPT:EG-KG.storage.plan-backed-matview). One
@@ -792,7 +790,6 @@ pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("
 // `matviews` table above (and from Lane D's secondary-index tables): a distinct redb
 // table name, so the two matview families and the index rows never collide. Reloaded into
 // the in-RAM plan-matview manager on boot.
-#[cfg(feature = "matview")]
 pub(crate) const PLAN_MATVIEWS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("plan_matviews");
 
@@ -802,7 +799,6 @@ pub(crate) const PLAN_MATVIEWS: TableDefinition<&str, &[u8]> =
 // direct analogue of turso's `dbsp_state` btree, scoped down to redb. DISJOINT from
 // `plan_matviews` (that table holds the DEFINITION; this holds the maintained STATE).
 // Written when an incremental view is defined and dropped with it.
-#[cfg(feature = "matview")]
 pub(crate) const MATVIEW_OPERATOR_STATE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("matview_operator_state");
 
@@ -900,6 +896,19 @@ fn init_canonical_change_tables(wtx: &redb::WriteTransaction) -> Result<(), Stri
     Ok(())
 }
 
+/// The shard's file-wide tables.
+///
+/// Every one is materialized unconditionally, with no `cfg` gate, even though
+/// `audit_chain`/`provenance_anchor_members` are only written under `security`,
+/// `matviews` under `compute-dist`, and `plan_matviews`/`matview_operator_state`
+/// under `matview`. The durable table set is the FILE'S FORMAT IDENTITY, not a
+/// property of the binary that opened it: `OwnerLayout::GraphShard` declares all
+/// 53 tables and `eg_storage`'s census check is exact equality, so a
+/// feature-dependent bootstrap would make one shard file valid or invalid
+/// depending on which build read it. `matview_operator_state` was never
+/// pre-warmed at all (redb creates a table lazily on first write), which under
+/// the exact census would have failed every open of a shard that had never
+/// defined an incremental view.
 fn init_canonical_misc_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     wtx.open_table(RAFT_LOG)
         .map_err(|error| error.to_string())?;
@@ -907,15 +916,13 @@ fn init_canonical_misc_tables(wtx: &redb::WriteTransaction) -> Result<(), String
         .map_err(|error| error.to_string())?;
     wtx.open_table(XSHARD_DECISION)
         .map_err(|error| error.to_string())?;
-    #[cfg(feature = "compute-dist")]
     wtx.open_table(MATVIEWS)
         .map_err(|error| error.to_string())?;
-    #[cfg(feature = "matview")]
     wtx.open_table(PLAN_MATVIEWS)
         .map_err(|error| error.to_string())?;
-    #[cfg(feature = "security")]
+    wtx.open_table(MATVIEW_OPERATOR_STATE)
+        .map_err(|error| error.to_string())?;
     wtx.open_table(AUDIT).map_err(|error| error.to_string())?;
-    #[cfg(feature = "security")]
     wtx.open_table(PROVENANCE_ANCHOR_MEMBERS)
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -1011,6 +1018,45 @@ impl<'a> DurableCrypto<'a> {
         }
         Ok(stored.to_vec())
     }
+}
+
+/// The shard file's own control scope.
+///
+/// `OwnerLayout::GraphShard` declares `MutationDomain::GraphRows`, which may
+/// never own a native scope (`may_own_native_scope() == false`), so EVERY scope
+/// bound to a shard file is a graph scope -- including the one the file's own
+/// file-wide rows are written under. RF-RULING-008's group admission needs
+/// exactly one such control scope per shard write transaction: it is the member
+/// that may reach the Raft log/metadata, the cross-shard prepare/decision rows,
+/// the materialized views, the encryption canary and the cross-modal series
+/// rows, none of which belong to any one graph.
+///
+/// It is therefore a REAL graph name that no user may ever hold. The name is
+/// bracketed like `__commons__` (a real, user-visible graph) but is refused at
+/// every durable chokepoint below, so a tenant cannot create it, write to it,
+/// register its identity, or purge it -- and a shard that already carries a user
+/// graph under this name cannot exist, because no path could have created one.
+#[cfg(test)]
+mod shard_control_tests;
+
+pub const SHARD_CONTROL_GRAPH: &str = "__shard_control__";
+
+/// Refuse a durable operation that names the shard's own control scope.
+///
+/// Enforced at the CHOKEPOINTS rather than at the entrypoints: the durable
+/// identity writer ([`write_graph_meta_with_incarnation`]), the coalesced write
+/// path ([`commit_ops`]), the cross-modal commit's implicit identity backfill
+/// ([`backfill_crossmodal_graph_meta`]) and the whole-graph teardown
+/// ([`purge_graph_rows`]). Every server, embedded, Raft-apply and checkpoint
+/// entrypoint reaches the durable tier through one of those four, so guarding
+/// them covers paths this module does not own.
+pub fn reject_reserved_graph(graph: &str) -> Result<(), String> {
+    if graph == SHARD_CONTROL_GRAPH || sanitize(graph) == SHARD_CONTROL_GRAPH {
+        return Err(format!(
+            "'{SHARD_CONTROL_GRAPH}' is the shard's reserved control scope and cannot be used as a graph"
+        ));
+    }
+    Ok(())
 }
 
 /// Map a logical graph name to the bounded durable key used by the served and
@@ -1219,6 +1265,9 @@ pub(crate) fn commit_ops(
 ) -> Result<(), String> {
     if ops.is_empty() && raft_log_ops.is_empty() {
         return Ok(());
+    }
+    for (graph, _) in ops.iter() {
+        reject_reserved_graph(graph)?;
     }
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(durability).map_err(|e| e.to_string())?;
@@ -12007,6 +12056,7 @@ fn apply_crossmodal_measurements(
 
 /// Backfill a graph_meta identity row so authoritative load_all recovers it.
 fn backfill_crossmodal_graph_meta(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    reject_reserved_graph(graph)?;
     let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
     if meta.get(graph).map_err(|e| e.to_string())?.is_none() {
         let incarnation_id = new_incarnation_id(graph);
@@ -12172,6 +12222,7 @@ pub(crate) fn write_graph_meta_with_incarnation(
     graph_type: GraphType,
     incarnation_id: &str,
 ) -> Result<(), String> {
+    reject_reserved_graph(graph)?;
     if incarnation_id.trim().is_empty() {
         return Err("graph incarnation id must not be empty".to_string());
     }
@@ -14131,6 +14182,7 @@ pub(crate) fn purge_graph_rows(
     graph: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    reject_reserved_graph(graph)?;
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;

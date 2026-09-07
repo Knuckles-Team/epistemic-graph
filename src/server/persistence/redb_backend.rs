@@ -118,7 +118,6 @@ pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinitio
 /// never silently re-establishes a canary under whatever key happens to be present.
 /// A changed key reference is an explicit rotation boundary and fails closed until
 /// the documented offline re-encryption ceremony has completed.
-#[cfg(feature = "security")]
 pub(crate) const ENCRYPTION_CANARY: TableDefinition<&str, &[u8]> =
     TableDefinition::new("encryption_canary");
 
@@ -1145,8 +1144,10 @@ impl Shard {
         {
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
             crate::redb_store::initialize_canonical_tables(&wtx)?;
+            // Unconditional, like every other declared table: the shard file's
+            // table set is its format identity, not a property of the build
+            // that opened it. See `init_canonical_misc_tables`.
             wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
-            #[cfg(feature = "security")]
             wtx.open_table(ENCRYPTION_CANARY)
                 .map_err(|e| e.to_string())?;
             wtx.commit().map_err(|e| e.to_string())?;
