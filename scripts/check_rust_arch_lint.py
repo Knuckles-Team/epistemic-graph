@@ -17,12 +17,21 @@ import json
 import re
 import subprocess
 import sys
-from collections import Counter
-from dataclasses import dataclass
+from collections import Counter, namedtuple
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any
 
 import tomllib
+from rust_context import (
+    Context,
+    GateError,
+    Span,
+    _brace_pairs,
+    _context_from_spans,
+    _fail,
+    _lexical_scope,
+    _spans,
+)
 from rust_lexer import _rust_code_mask
 from scanner_contract import load_contract, resolve_binary, run_git, sanitized_env
 
@@ -70,16 +79,36 @@ FS_OPERATIONS = (
 FILE_OPERATIONS = ("create", "open")
 
 
-class GateError(RuntimeError):
-    """The policy, environment, scanner report, or source universe is invalid."""
-
-
-def _fail(message: str) -> NoReturn:
-    raise GateError(message)
-
-
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _validate_analyzer(analyzer: Any) -> None:
+    """Reject any analyzer scope other than the reviewed repository-root scan."""
+
+    if not isinstance(analyzer, dict) or set(analyzer) != {
+        "root",
+        "exclude",
+        "respect_gitignore",
+    }:
+        _fail("arch-lint analyzer keys are not the reviewed closed set")
+    if analyzer["root"] != "." or analyzer["respect_gitignore"] is not True:
+        _fail("arch-lint must scan repository root and respect .gitignore")
+    if analyzer["exclude"] != ["**/target/**", "**/target-*/**"]:
+        _fail("arch-lint may exclude only isolated Cargo build products")
+
+
+def _validate_rules(rules: Any) -> None:
+    """Reject implicit rule selection: every supported rule states its own state."""
+
+    if not isinstance(rules, dict) or set(rules) != set(RULES):
+        _fail("arch-lint rules must explicitly name the complete supported set")
+    for name, (_code, enabled, severity) in RULES.items():
+        if rules[name] != {"enabled": enabled, "severity": severity}:
+            _fail(
+                f"arch-lint rule {name!r} must set "
+                f"enabled={str(enabled).lower()}, severity={severity}"
+            )
 
 
 def load_policy(path: Path = POLICY) -> dict[str, Any]:
@@ -93,26 +122,8 @@ def load_policy(path: Path = POLICY) -> dict[str, Any]:
         _fail("arch-lint policy must contain only fail_on, analyzer, and rules")
     if document["fail_on"] != "error":
         _fail("arch-lint fail_on must remain 'error'")
-    analyzer = document.get("analyzer")
-    if not isinstance(analyzer, dict) or set(analyzer) != {
-        "root",
-        "exclude",
-        "respect_gitignore",
-    }:
-        _fail("arch-lint analyzer keys are not the reviewed closed set")
-    if analyzer["root"] != "." or analyzer["respect_gitignore"] is not True:
-        _fail("arch-lint must scan repository root and respect .gitignore")
-    if analyzer["exclude"] != ["**/target/**", "**/target-*/**"]:
-        _fail("arch-lint may exclude only isolated Cargo build products")
-    rules = document.get("rules")
-    if not isinstance(rules, dict) or set(rules) != set(RULES):
-        _fail("arch-lint rules must explicitly name the complete supported set")
-    for name, (_code, enabled, severity) in RULES.items():
-        if rules[name] != {"enabled": enabled, "severity": severity}:
-            _fail(
-                f"arch-lint rule {name!r} must set "
-                f"enabled={str(enabled).lower()}, severity={severity}"
-            )
+    _validate_analyzer(document.get("analyzer"))
+    _validate_rules(document.get("rules"))
     return document
 
 
@@ -160,300 +171,6 @@ def source_universe(repo: Path = ROOT) -> tuple[dict[str, str], dict[str, Any]]:
     }
 
 
-def _brace_pairs(masked: str) -> dict[int, int]:
-    stack: list[int] = []
-    pairs: dict[int, int] = {}
-    for index, char in enumerate(masked):
-        if char == "{":
-            stack.append(index)
-        elif char == "}" and stack:
-            pairs[stack.pop()] = index
-    return pairs
-
-
-@dataclass(frozen=True)
-class Span:
-    start: int
-    end: int
-    kind: str
-
-    def contains(self, offset: int) -> bool:
-        return self.start <= offset <= self.end
-
-
-@dataclass(frozen=True)
-class Context:
-    test: bool
-    spawn_blocking: bool
-    async_context: bool
-
-
-_VIS = r"(?:pub(?:\s*\([^)]*\))?\s+)?"
-_FN_START = re.compile(
-    _VIS
-    + r"(?P<qualifiers>(?:(?:async|const|unsafe)\s+|extern(?:\s+\"[^\"]*\")?\s+)*)"
-    + r"fn\s+(?:r#)?[A-Za-z_]\w*",
-    re.MULTILINE,
-)
-_MOD = re.compile(_VIS + r"\bmod\s+\w+\s*\{", re.MULTILINE)
-_ASYNC_BLOCK = re.compile(r"\basync(?:\s+move)?\s*\{")
-_ASYNC_CLOSURE = re.compile(r"\basync(?:\s+move)?\s*\|[^|]*\|")
-_CFG_TOKEN = re.compile(r"[A-Za-z_]\w*|[(),=]")
-
-
-def _preceding_attrs(masked: str, start: int) -> str:
-    """Return the contiguous attribute block immediately before an item."""
-
-    prefix = masked[max(0, start - 1000) : start]
-    match = re.search(r"((?:#\s*\[[^\]]+\]\s*)+)$", prefix)
-    return match.group(1) if match else ""
-
-
-class _CfgParser:
-    def __init__(self, expression: str) -> None:
-        self.tokens = _CFG_TOKEN.findall(expression)
-        self.index = 0
-
-    def parse(self) -> set[bool]:
-        if self.index >= len(self.tokens):
-            return {False, True}
-        name = self.tokens[self.index]
-        self.index += 1
-        if self.index < len(self.tokens) and self.tokens[self.index] == "=":
-            self.index += 1
-            if self.index < len(self.tokens) and self.tokens[self.index] not in {
-                ",",
-                ")",
-            }:
-                self.index += 1
-            return {False, True}
-        if self.index >= len(self.tokens) or self.tokens[self.index] != "(":
-            return {False} if name == "test" else {False, True}
-        self.index += 1
-        arguments: list[set[bool]] = []
-        while self.index < len(self.tokens) and self.tokens[self.index] != ")":
-            arguments.append(self.parse())
-            if self.index < len(self.tokens) and self.tokens[self.index] == ",":
-                self.index += 1
-        if self.index < len(self.tokens):
-            self.index += 1
-        if name == "not" and len(arguments) == 1:
-            return {not value for value in arguments[0]}
-        if name == "all":
-            values = {True}
-            for argument in arguments:
-                values = {left and right for left in values for right in argument}
-            return values
-        if name == "any":
-            values = {False}
-            for argument in arguments:
-                values = {left or right for left in values for right in argument}
-            return values
-        return {False, True}
-
-
-def _attrs_are_test(attrs: str) -> bool:
-    if re.search(r"#\s*\[\s*(?:[A-Za-z_]\w*::)*test\b", attrs):
-        return True
-    for cfg in re.finditer(r"#\s*\[\s*cfg\s*\(([^]]*)\)\s*\]", attrs):
-        if True not in _CfgParser(cfg.group(1)).parse():
-            return True
-    return False
-
-
-def _function_body(masked: str, signature_start: int) -> int | None:
-    """Resolve a function body without mistaking signature const braces for it."""
-
-    stack: list[str] = []
-    closing = {"(": ")", "[": "]", "<": ">", "{": "}"}
-    position = signature_start
-    while position < len(masked):
-        char = masked[position]
-        if char == "{" and not stack:
-            return position
-        if char in "([":
-            stack.append(closing[char])
-        elif char == "{":
-            stack.append("}")
-        elif char == "<" and "}" not in stack:
-            stack.append(">")
-        elif stack and char == stack[-1]:
-            stack.pop()
-        elif char == ";" and not stack:
-            return None
-        elif char == "}" and not stack:
-            _fail("function signature reached an enclosing scope before its body")
-        position += 1
-    _fail("function signature has no provable body or terminating semicolon")
-
-
-def _lexical_scope(
-    brace_pairs: dict[int, int], position: int, source_length: int
-) -> tuple[int, int]:
-    containing = [
-        (start, end) for start, end in brace_pairs.items() if start < position < end
-    ]
-    if not containing:
-        return 0, source_length
-    start, end = min(containing, key=lambda pair: pair[1] - pair[0])
-    return start + 1, end
-
-
-def _name_shadowed(fragment: str, name: str, call_offset: int) -> bool:
-    prefix = fragment[:call_offset]
-    escaped = re.escape(name)
-    declarations = (
-        rf"\blet\s+(?:mut\s+)?{escaped}\b",
-        rf"\b(?:fn|mod|struct|enum|const|static|type)\s+{escaped}\b",
-        rf"\bfn\s+\w+[^{{;]*\([^)]*\b{escaped}\s*:",
-    )
-    return any(re.search(pattern, prefix) for pattern in declarations)
-
-
-def _closing_paren(masked: str, opening: int) -> int | None:
-    depth = 0
-    for position in range(opening, len(masked)):
-        if masked[position] == "(":
-            depth += 1
-        elif masked[position] == ")":
-            depth -= 1
-            if depth == 0:
-                return position
-    return None
-
-
-def _expression_end(masked: str, start: int, limit: int) -> int:
-    """Return the conservative end of one closure expression body."""
-
-    stack: list[str] = []
-    closing = {"(": ")", "[": "]", "{": "}"}
-    position = start
-    while position < limit:
-        char = masked[position]
-        if char in closing:
-            stack.append(closing[char])
-        elif stack and char == stack[-1]:
-            stack.pop()
-        elif not stack and char in {",", ";", ")", "]", "}"}:
-            return max(start, position - 1)
-        position += 1
-    return max(start, limit - 1)
-
-
-def _async_closure_spans(masked: str, brace_pairs: dict[int, int]) -> list[Span]:
-    spans: list[Span] = []
-    for match in _ASYNC_CLOSURE.finditer(masked):
-        body = match.end()
-        while body < len(masked) and masked[body].isspace():
-            body += 1
-        if body >= len(masked):
-            spans.append(Span(match.start(), len(masked), "async_closure"))
-            continue
-        if masked[body] == "{" and body in brace_pairs:
-            spans.append(Span(body, brace_pairs[body], "async_closure"))
-            continue
-        _scope_start, scope_end = _lexical_scope(
-            brace_pairs, match.start(), len(masked)
-        )
-        spans.append(
-            Span(body, _expression_end(masked, body, scope_end), "async_closure")
-        )
-    return spans
-
-
-def _spawn_blocking_spans(masked: str) -> list[Span]:
-    spans: list[Span] = []
-    brace_pairs = _brace_pairs(masked)
-    closure = r"\s*\(\s*(?:move\s*)?\|[^|]*\|"
-
-    def add_calls(pattern: str, start: int, end: int, alias: str | None = None) -> None:
-        fragment = masked[start:end]
-        for match in re.finditer(pattern + closure, fragment):
-            if alias and _name_shadowed(fragment, alias, match.start()):
-                continue
-            absolute_start = start + match.start()
-            opening = masked.find("(", absolute_start, start + match.end())
-            closing = _closing_paren(masked, opening) if opening >= 0 else None
-            if closing is not None:
-                spans.append(Span(start + match.end(), closing, "spawn_blocking"))
-
-    add_calls(r"(?<![:\w])::tokio::task::spawn_blocking", 0, len(masked))
-    imports: list[tuple[str, int, int]] = []
-    direct = re.compile(r"\buse\s+::tokio::task::spawn_blocking\s*(?:as\s+(\w+))?\s*;")
-    for match in direct.finditer(masked):
-        start, end = _lexical_scope(brace_pairs, match.start(), len(masked))
-        imports.append((match.group(1) or "spawn_blocking", start, end))
-    grouped = re.compile(r"\buse\s+::tokio::task::\{([^}]*)\}\s*;")
-    for match in grouped.finditer(masked):
-        for item in match.group(1).split(","):
-            parsed = re.fullmatch(r"\s*spawn_blocking\s*(?:as\s+(\w+))?\s*", item)
-            if parsed:
-                start, end = _lexical_scope(brace_pairs, match.start(), len(masked))
-                imports.append((parsed.group(1) or "spawn_blocking", start, end))
-    for alias, start, end in imports:
-        add_calls(rf"(?<![:\w]){re.escape(alias)}", start, end, alias)
-    return spans
-
-
-def _spans(masked: str) -> list[Span]:
-    pairs = _brace_pairs(masked)
-    spans: list[Span] = []
-    for match in _MOD.finditer(masked):
-        brace = match.end() - 1
-        attrs = _preceding_attrs(masked, match.start())
-        if brace in pairs and _attrs_are_test(attrs):
-            spans.append(Span(brace, pairs[brace], "test"))
-    for match in _FN_START.finditer(masked):
-        brace = _function_body(masked, match.end())
-        if brace is None:
-            continue
-        if brace not in pairs:
-            _fail("resolved function body has no matching closing brace")
-        attrs = _preceding_attrs(masked, match.start())
-        if _attrs_are_test(attrs):
-            spans.append(Span(brace, pairs[brace], "test"))
-        qualifiers = match.group("qualifiers")
-        spans.append(
-            Span(
-                brace,
-                pairs[brace],
-                "async_fn" if re.search(r"\basync\b", qualifiers) else "sync_fn",
-            )
-        )
-    for match in _ASYNC_BLOCK.finditer(masked):
-        brace = match.end() - 1
-        if brace in pairs:
-            spans.append(Span(brace, pairs[brace], "async_block"))
-    spans.extend(_async_closure_spans(masked, pairs))
-    spans.extend(_spawn_blocking_spans(masked))
-    return spans
-
-
-def context_at(source: str, offset: int) -> Context:
-    masked = _rust_code_mask(source)
-    return _context_from_spans(_spans(masked), offset)
-
-
-def _context_from_spans(spans: list[Span], offset: int) -> Context:
-    containing = [span for span in spans if span.contains(offset)]
-    test = any(span.kind == "test" for span in containing)
-    spawn = any(span.kind == "spawn_blocking" for span in containing)
-    execution_contexts = [
-        span
-        for span in containing
-        if span.kind in {"sync_fn", "async_fn", "async_block", "async_closure"}
-    ]
-    innermost = (
-        min(execution_contexts, key=lambda span: span.end - span.start)
-        if execution_contexts
-        else None
-    )
-    is_async = bool(
-        innermost and innermost.kind in {"async_fn", "async_block", "async_closure"}
-    )
-    return Context(test=test, spawn_blocking=spawn, async_context=is_async)
-
-
 def _offset(source: str, line: int, column: int) -> int:
     if line < 1 or column < 1:
         _fail(f"invalid source location {line}:{column}")
@@ -475,34 +192,62 @@ def _path_is_test(path: str) -> bool:
     )
 
 
+_DIRECT_DISPOSITIONS = {
+    "test": ("test_context", "test, bench, example, or cfg(test) context"),
+    "spawn_blocking": (
+        "spawn_blocking_context",
+        "blocking call is already off the async executor",
+    ),
+    "async": (
+        "async_direct",
+        "qualified synchronous filesystem call in async context",
+    ),
+    "sync": (
+        "sync_context",
+        "synchronous startup, offline, or ordinary function context",
+    ),
+}
+_ALIAS_DISPOSITIONS = {
+    "test": ("test_context", "aliased call is in test context"),
+    "spawn_blocking": ("spawn_blocking_context", "aliased call is off the executor"),
+    "async": (
+        "async_alias",
+        "aliased synchronous filesystem call in async context",
+    ),
+    "sync": ("sync_context", "aliased call is in synchronous context"),
+}
+
+
+def _context_kind(path: str, context: Context) -> str:
+    """Name the execution context a filesystem call site sits in."""
+
+    if _path_is_test(path) or context.test:
+        return "test"
+    if context.spawn_blocking:
+        return "spawn_blocking"
+    if context.async_context:
+        return "async"
+    return "sync"
+
+
 def _disposition(
-    path: str, context: Context, *, receiver_unresolved: bool
+    path: str,
+    context: Context,
+    labels: dict[str, tuple[str, str]],
+    *,
+    receiver_unresolved: bool = False,
 ) -> tuple[str, str, bool]:
+    """Classify one call site; only a proven async context is blocking."""
+
     if receiver_unresolved:
         return (
             "receiver_unresolved",
             "method receiver type is not proven by arch-lint 0.5.0",
             False,
         )
-    if _path_is_test(path) or context.test:
-        return "test_context", "test, bench, example, or cfg(test) context", False
-    if context.spawn_blocking:
-        return (
-            "spawn_blocking_context",
-            "blocking call is already off the async executor",
-            False,
-        )
-    if context.async_context:
-        return (
-            "async_direct",
-            "qualified synchronous filesystem call in async context",
-            True,
-        )
-    return (
-        "sync_context",
-        "synchronous startup, offline, or ordinary function context",
-        False,
-    )
+    kind = _context_kind(path, context)
+    classification, reason = labels[kind]
+    return classification, reason, kind == "async"
 
 
 def _group_items(
@@ -528,50 +273,73 @@ def _group_items(
     return items
 
 
-def _alias_calls(
-    path: str,
-    source: str,
-    *,
-    masked: str | None = None,
-    spans: list[Span] | None = None,
-) -> list[dict[str, Any]]:
-    """Find std::fs calls hidden from AL002 by module/function aliases."""
+_FsImport = namedtuple("_FsImport", ("kind", "alias", "operation", "start", "end"))
+_GROUP_ITEM = re.compile(r"\s*(\w+)\s*(?:as\s+(\w+))?\s*")
+_STD_FS_MODULE = re.compile(r"\buse\s+(?:::)?std::fs\s*(?:as\s+(\w+))?\s*;")
+_STD_GROUP = re.compile(r"\buse\s+(?:::)?std::\s*\{")
+_STD_FS_ITEM = re.compile(r"\buse\s+(?:::)?std::fs::(\w+)\s*(?:as\s+(\w+))?\s*;")
+_STD_FS_GROUP = re.compile(r"\buse\s+(?:::)?std::fs::\{([^}]*)\}\s*;")
+_STD_FS_GLOB = re.compile(r"\buse\s+(?:::)?std::fs::\*\s*;")
+_GROUPED_FS_MODULE = re.compile(r"\s*fs\s*(?:as\s+(\w+))?\s*")
+_GROUPED_FS_ITEM = re.compile(r"\s*fs\s*::\s*(\w+)\s*(?:as\s+(\w+))?\s*")
+_GROUPED_FS_NESTED = re.compile(r"\s*fs\s*::\s*\{")
+_GROUPED_FS_ANY = re.compile(r"\s*fs\s*::")
 
-    masked = _rust_code_mask(source) if masked is None else masked
-    spans = _spans(masked) if spans is None else spans
-    brace_pairs = _brace_pairs(masked)
-    imports: list[tuple[str, str, str, int, int]] = []
 
-    def add_import(kind: str, alias: str, operation: str, position: int) -> None:
-        scope_start, scope_end = _lexical_scope(brace_pairs, position, len(masked))
-        imports.append((kind, alias, operation, scope_start, scope_end))
+def _imported_operation(operation: str, alias: str | None) -> tuple[str, str, str]:
+    """Name what a single ``std::fs`` import item makes callable."""
 
-    def add_fs_group(start: int, end: int, position: int) -> None:
-        for item_start, item_end in _group_items(masked, start, end, brace_pairs):
-            item = masked[item_start:item_end]
-            pieces = re.fullmatch(r"\s*(\w+)\s*(?:as\s+(\w+))?\s*", item)
-            if pieces and pieces.group(1) == "self":
-                add_import("module", pieces.group(2) or "fs", "", position)
-            elif pieces and pieces.group(1) in FS_OPERATIONS:
-                add_import(
-                    "function",
-                    pieces.group(2) or pieces.group(1),
-                    pieces.group(1),
-                    position,
-                )
-            elif pieces and pieces.group(1) == "File":
-                add_import(
-                    "file_type",
-                    pieces.group(2) or pieces.group(1),
-                    pieces.group(1),
-                    position,
-                )
-            elif item.strip() == "*" or "{" in item:
+    if operation in FS_OPERATIONS:
+        return "function", alias or operation, operation
+    if operation == "File":
+        return "file_type", alias or operation, operation
+    return "", "", ""
+
+
+def _scoped_import(
+    kind: str,
+    alias: str,
+    operation: str,
+    position: int,
+    brace_pairs: dict[int, int],
+    length: int,
+) -> _FsImport:
+    scope_start, scope_end = _lexical_scope(brace_pairs, position, length)
+    return _FsImport(kind, alias, operation, scope_start, scope_end)
+
+
+def _fs_group_imports(
+    masked: str, brace_pairs: dict[int, int], start: int, end: int, position: int
+) -> list[_FsImport]:
+    """Read the items of a ``std::fs::{...}`` group into scoped imports."""
+
+    imports: list[_FsImport] = []
+    for item_start, item_end in _group_items(masked, start, end, brace_pairs):
+        item = masked[item_start:item_end]
+        pieces = _GROUP_ITEM.fullmatch(item)
+        if pieces is None:
+            if item.strip() == "*" or "{" in item:
                 _fail("unsupported nested std::fs import cannot be proven safe")
+            continue
+        name, alias = pieces.groups()
+        if name == "self":
+            kind, bound, operation = "module", alias or "fs", ""
+        else:
+            kind, bound, operation = _imported_operation(name, alias)
+        if kind:
+            imports.append(
+                _scoped_import(
+                    kind, bound, operation, position, brace_pairs, len(masked)
+                )
+            )
+    return imports
 
-    for match in re.finditer(r"\buse\s+(?:::)?std::fs\s*(?:as\s+(\w+))?\s*;", masked):
-        add_import("module", match.group(1) or "fs", "", match.end())
-    for match in re.finditer(r"\buse\s+(?:::)?std::\s*\{", masked):
+
+def _std_group_fs_imports(masked: str, brace_pairs: dict[int, int]) -> list[_FsImport]:
+    """Read ``use std::{... fs ...};`` groups into scoped imports."""
+
+    imports: list[_FsImport] = []
+    for match in _STD_GROUP.finditer(masked):
         outer_open = match.end() - 1
         outer_close = brace_pairs.get(outer_open)
         if outer_close is None:
@@ -584,106 +352,139 @@ def _alias_calls(
         for item_start, item_end in _group_items(
             masked, outer_open + 1, outer_close, brace_pairs
         ):
-            item = masked[item_start:item_end]
-            pieces = re.fullmatch(r"\s*fs\s*(?:as\s+(\w+))?\s*", item)
-            if pieces:
-                add_import("module", pieces.group(1) or "fs", "", semicolon + 1)
-                continue
-            flat = re.fullmatch(r"\s*fs\s*::\s*(\w+)\s*(?:as\s+(\w+))?\s*", item)
-            if flat:
-                operation, alias = flat.groups()
-                if operation in FS_OPERATIONS:
-                    add_import("function", alias or operation, operation, semicolon + 1)
-                elif operation == "File":
-                    add_import(
-                        "file_type", alias or operation, operation, semicolon + 1
-                    )
-                continue
-            nested = re.match(r"\s*fs\s*::\s*\{", item)
-            if not nested:
-                if re.match(r"\s*fs\s*::", item):
-                    _fail("unsupported std::fs import cannot be proven safe")
-                continue
-            inner_open = item_start + nested.end() - 1
-            inner_close = brace_pairs.get(inner_open)
-            if inner_close is None or masked[inner_close + 1 : item_end].strip():
-                _fail("unsupported nested std::fs grouped import")
-            add_fs_group(inner_open + 1, inner_close, semicolon + 1)
-    for match in re.finditer(
-        r"\buse\s+(?:::)?std::fs::(\w+)\s*(?:as\s+(\w+))?\s*;", masked
-    ):
-        operation, alias = match.groups()
-        if operation in FS_OPERATIONS:
-            add_import("function", alias or operation, operation, match.end())
-        elif operation == "File":
-            add_import("file_type", alias or operation, operation, match.end())
-    for match in re.finditer(r"\buse\s+(?:::)?std::fs::\{([^}]*)\}\s*;", masked):
-        add_fs_group(match.start(1), match.end(1), match.end())
-    if re.search(r"\buse\s+(?:::)?std::fs::\*\s*;", masked):
-        _fail("unsupported std::fs glob import cannot be proven safe")
-
-    found: list[dict[str, Any]] = []
-    candidates: list[tuple[int, str, str]] = []
-    operation_pattern = "|".join(FS_OPERATIONS)
-    for kind, alias, operation, scope_start, scope_end in imports:
-        fragment = masked[scope_start:scope_end]
-        if kind == "module":
-            pattern = (
-                rf"\b{re.escape(alias)}::"
-                rf"((?:{operation_pattern})|File::(?:{'|'.join(FILE_OPERATIONS)}))\s*\("
+            imports.extend(
+                _grouped_fs_item(
+                    masked, brace_pairs, item_start, item_end, semicolon + 1
+                )
             )
-            for match in re.finditer(pattern, fragment):
-                candidates.append(
-                    (scope_start + match.start(), match.group(1), match.group(0))
-                )
-        elif kind == "function":
-            for match in re.finditer(rf"(?<![:\w]){re.escape(alias)}\s*\(", fragment):
-                candidates.append(
-                    (scope_start + match.start(), operation, match.group(0))
-                )
-        else:
-            for match in re.finditer(
-                rf"\b{re.escape(alias)}::({'|'.join(FILE_OPERATIONS)})\s*\(",
-                fragment,
-            ):
-                candidates.append(
-                    (
-                        scope_start + match.start(),
-                        f"File::{match.group(1)}",
-                        match.group(0),
-                    )
-                )
+    return imports
 
+
+def _grouped_fs_item(
+    masked: str,
+    brace_pairs: dict[int, int],
+    item_start: int,
+    item_end: int,
+    position: int,
+) -> list[_FsImport]:
+    """Read one item of a ``use std::{...}`` group that names ``fs``."""
+
+    item = masked[item_start:item_end]
+    module = _GROUPED_FS_MODULE.fullmatch(item)
+    if module:
+        return [
+            _scoped_import(
+                "module",
+                module.group(1) or "fs",
+                "",
+                position,
+                brace_pairs,
+                len(masked),
+            )
+        ]
+    flat = _GROUPED_FS_ITEM.fullmatch(item)
+    if flat:
+        operation, alias = flat.groups()
+        kind, bound, resolved = _imported_operation(operation, alias)
+        if not kind:
+            return []
+        return [
+            _scoped_import(kind, bound, resolved, position, brace_pairs, len(masked))
+        ]
+    nested = _GROUPED_FS_NESTED.match(item)
+    if not nested:
+        if _GROUPED_FS_ANY.match(item):
+            _fail("unsupported std::fs import cannot be proven safe")
+        return []
+    inner_open = item_start + nested.end() - 1
+    inner_close = brace_pairs.get(inner_open)
+    if inner_close is None or masked[inner_close + 1 : item_end].strip():
+        _fail("unsupported nested std::fs grouped import")
+    return _fs_group_imports(masked, brace_pairs, inner_open + 1, inner_close, position)
+
+
+def _fs_imports(masked: str, brace_pairs: dict[int, int]) -> list[_FsImport]:
+    """Collect every ``std::fs`` binding AL002 cannot resolve, with its scope."""
+
+    if _STD_FS_GLOB.search(masked):
+        _fail("unsupported std::fs glob import cannot be proven safe")
+    imports = [
+        _scoped_import(
+            "module", match.group(1) or "fs", "", match.end(), brace_pairs, len(masked)
+        )
+        for match in _STD_FS_MODULE.finditer(masked)
+    ]
+    imports.extend(_std_group_fs_imports(masked, brace_pairs))
+    for match in _STD_FS_ITEM.finditer(masked):
+        kind, bound, operation = _imported_operation(*match.groups())
+        if kind:
+            imports.append(
+                _scoped_import(
+                    kind, bound, operation, match.end(), brace_pairs, len(masked)
+                )
+            )
+    for match in _STD_FS_GROUP.finditer(masked):
+        imports.extend(
+            _fs_group_imports(
+                masked, brace_pairs, match.start(1), match.end(1), match.end()
+            )
+        )
+    return imports
+
+
+def _alias_call_sites(
+    masked: str, imports: list[_FsImport]
+) -> set[tuple[int, str, str]]:
+    """Find the calls each aliased ``std::fs`` binding makes reachable."""
+
+    operations = "|".join(FS_OPERATIONS)
+    files = "|".join(FILE_OPERATIONS)
+    patterns = {
+        "module": rf"\b{{alias}}::((?:{operations})|File::(?:{files}))\s*\(",
+        "function": r"(?<![:\w]){alias}\s*\(",
+        "file_type": rf"\b{{alias}}::({files})\s*\(",
+    }
+    sites: set[tuple[int, str, str]] = set()
+    for entry in imports:
+        fragment = masked[entry.start : entry.end]
+        pattern = patterns[entry.kind].format(alias=re.escape(entry.alias))
+        for match in re.finditer(pattern, fragment):
+            if entry.kind == "function":
+                operation = entry.operation
+            elif entry.kind == "file_type":
+                operation = f"File::{match.group(1)}"
+            else:
+                operation = match.group(1)
+            sites.add((entry.start + match.start(), operation, match.group(0)))
+    return sites
+
+
+def _line_column(line_starts: list[int], offset: int) -> tuple[int, int]:
+    line = 1 + sum(start <= offset for start in line_starts[1:])
+    return line, offset - line_starts[line - 1] + 1
+
+
+def _alias_calls(
+    path: str,
+    source: str,
+    *,
+    masked: str | None = None,
+    spans: list[Span] | None = None,
+) -> list[dict[str, Any]]:
+    """Find std::fs calls hidden from AL002 by module/function aliases."""
+
+    masked = _rust_code_mask(source) if masked is None else masked
+    spans = _spans(masked) if spans is None else spans
+    brace_pairs = _brace_pairs(masked)
+    sites = _alias_call_sites(masked, _fs_imports(masked, brace_pairs))
     line_starts = [0]
     line_starts.extend(match.end() for match in re.finditer("\n", source))
-    for offset, operation, expression in sorted(set(candidates)):
-        context = _context_from_spans(spans, offset)
-        if _path_is_test(path) or context.test:
-            classification, reason, blocking = (
-                "test_context",
-                "aliased call is in test context",
-                False,
-            )
-        elif context.spawn_blocking:
-            classification, reason, blocking = (
-                "spawn_blocking_context",
-                "aliased call is off the executor",
-                False,
-            )
-        elif context.async_context:
-            classification, reason, blocking = (
-                "async_alias",
-                "aliased synchronous filesystem call in async context",
-                True,
-            )
-        else:
-            classification, reason, blocking = (
-                "sync_context",
-                "aliased call is in synchronous context",
-                False,
-            )
-        line = 1 + sum(start <= offset for start in line_starts[1:])
-        column = offset - line_starts[line - 1] + 1
+    found: list[dict[str, Any]] = []
+    for offset, operation, expression in sorted(sites):
+        classification, reason, blocking = _disposition(
+            path, _context_from_spans(spans, offset), _ALIAS_DISPOSITIONS
+        )
+        line, column = _line_column(line_starts, offset)
         found.append(
             {
                 "code": "EG-AL002-ALIAS",
@@ -702,8 +503,35 @@ def _has_fs_import(source: str) -> bool:
     return bool(re.search(r"\buse\s+(?:::)?std::(?:fs\b|\{[^;]*\bfs\b)", source))
 
 
-def classify_report(report: dict[str, Any], sources: dict[str, str]) -> dict[str, Any]:
-    """Validate a raw report and add conservative, non-mutating dispositions."""
+def _validated_violation_path(finding: Any, index: int, sources: dict[str, str]) -> str:
+    """Prove one raw violation obeys the enabled policy; name its source path."""
+
+    if not isinstance(finding, dict):
+        _fail(f"violation {index} is not an object")
+    location = finding.get("location")
+    if not isinstance(location, dict) or not isinstance(location.get("file"), str):
+        _fail(f"violation {index} has no valid location")
+    if finding.get("code") not in ENABLED_CODES:
+        _fail(f"violation {index} uses a rule outside the enabled policy")
+    expected_rule, expected_severity = ENABLED_POLICY[finding["code"]]
+    if finding.get("rule") != expected_rule:
+        _fail(
+            f"violation {index} rule identity does not match "
+            f"{finding['code']}={expected_rule}"
+        )
+    if finding.get("severity") != expected_severity:
+        _fail(
+            f"violation {index} severity does not match "
+            f"{finding['code']}={expected_severity}"
+        )
+    path = location["file"].removeprefix("./")
+    if path not in sources:
+        _fail(f"violation {index} references source outside the universe: {path}")
+    return path
+
+
+def _validated_al002_paths(report: dict[str, Any], sources: dict[str, str]) -> set[str]:
+    """Prove the raw report obeys the enabled policy; name its AL002 sources."""
 
     if not isinstance(report, dict) or set(report) != {"violations", "files_checked"}:
         _fail("arch-lint JSON must contain exactly violations and files_checked")
@@ -713,67 +541,77 @@ def classify_report(report: dict[str, Any], sources: dict[str, str]) -> dict[str
             f"arch-lint files_checked={report.get('files_checked')!r} does not match "
             f"source universe={len(sources)}"
         )
-    al002_paths: set[str] = set()
-    for index, finding in enumerate(violations):
-        if not isinstance(finding, dict):
-            _fail(f"violation {index} is not an object")
-        location = finding.get("location")
-        if not isinstance(location, dict) or not isinstance(location.get("file"), str):
-            _fail(f"violation {index} has no valid location")
-        if finding.get("code") not in ENABLED_CODES:
-            _fail(f"violation {index} uses a rule outside the enabled policy")
-        expected_rule, expected_severity = ENABLED_POLICY[finding["code"]]
-        if finding.get("rule") != expected_rule:
-            _fail(
-                f"violation {index} rule identity does not match "
-                f"{finding['code']}={expected_rule}"
-            )
-        if finding.get("severity") != expected_severity:
-            _fail(
-                f"violation {index} severity does not match "
-                f"{finding['code']}={expected_severity}"
-            )
-        path = location["file"].removeprefix("./")
-        if path not in sources:
-            _fail(f"violation {index} references source outside the universe: {path}")
-        if finding.get("code") == "AL002":
-            al002_paths.add(path)
-    alias_paths = {path for path, source in sources.items() if _has_fs_import(source)}
-    analyses = {
-        path: (masked, _spans(masked))
-        for path in sorted(al002_paths | alias_paths)
-        for source in [sources[path]]
-        for masked in [_rust_code_mask(source)]
+    paths = [
+        _validated_violation_path(finding, index, sources)
+        for index, finding in enumerate(violations)
+    ]
+    return {
+        path
+        for path, finding in zip(paths, violations, strict=True)
+        if finding.get("code") == "AL002"
     }
-    dispositions: list[dict[str, Any]] = []
-    for index, finding in enumerate(violations):
-        location = finding.get("location")
-        path = location["file"].removeprefix("./")
-        if finding.get("code") != "AL002":
-            continue
-        message = finding.get("message", "")
-        receiver_unresolved = bool(re.search(r"`\.[A-Za-z_]\w*\(\)`", str(message)))
-        offset = _offset(sources[path], location.get("line"), location.get("column"))
-        context = _context_from_spans(analyses[path][1], offset)
-        classification, reason, blocking = _disposition(
-            path, context, receiver_unresolved=receiver_unresolved
-        )
-        dispositions.append(
-            {
-                "raw_violation_index": index,
-                "classification": classification,
-                "reason": reason,
-                "blocking": blocking,
-            }
-        )
-    aliases = [
+
+
+def _al002_disposition(
+    finding: dict[str, Any], index: int, sources: dict[str, str], spans: list[Span]
+) -> dict[str, Any]:
+    """Classify one raw AL002 violation against its proven lexical context."""
+
+    location = finding["location"]
+    path = location["file"].removeprefix("./")
+    receiver_unresolved = bool(
+        re.search(r"`\.[A-Za-z_]\w*\(\)`", str(finding.get("message", "")))
+    )
+    offset = _offset(sources[path], location.get("line"), location.get("column"))
+    classification, reason, blocking = _disposition(
+        path,
+        _context_from_spans(spans, offset),
+        _DIRECT_DISPOSITIONS,
+        receiver_unresolved=receiver_unresolved,
+    )
+    return {
+        "raw_violation_index": index,
+        "classification": classification,
+        "reason": reason,
+        "blocking": blocking,
+    }
+
+
+def _masked_analyses(
+    sources: dict[str, str], paths: set[str]
+) -> dict[str, tuple[str, list[Span]]]:
+    """Mask and span each source once, so no path is analysed twice."""
+
+    return {
+        path: (masked, _spans(masked))
+        for path in sorted(paths)
+        for masked in [_rust_code_mask(sources[path])]
+    }
+
+
+def _alias_findings(
+    sources: dict[str, str],
+    alias_paths: set[str],
+    analyses: dict[str, tuple[str, list[Span]]],
+) -> list[dict[str, Any]]:
+    """Collect the aliased std::fs calls AL002 cannot see, in path order."""
+
+    return [
         item
         for path in sorted(alias_paths)
-        for source in [sources[path]]
         for item in _alias_calls(
-            path, source, masked=analyses[path][0], spans=analyses[path][1]
+            path, sources[path], masked=analyses[path][0], spans=analyses[path][1]
         )
     ]
+
+
+def _blocking_violations(
+    violations: list[Any],
+    dispositions: list[dict[str, Any]],
+    aliases: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collect every finding this gate treats as blocking, in report order."""
+
     blockers = [item for item in dispositions if item["blocking"]]
     blockers.extend(
         {
@@ -786,6 +624,28 @@ def classify_report(report: dict[str, Any], sources: dict[str, str]) -> dict[str
         if finding.get("code") != "AL002" and finding.get("severity") == "error"
     )
     blockers.extend(item for item in aliases if item["blocking"])
+    return blockers
+
+
+def classify_report(report: dict[str, Any], sources: dict[str, str]) -> dict[str, Any]:
+    """Validate a raw report and add conservative, non-mutating dispositions."""
+
+    al002_paths = _validated_al002_paths(report, sources)
+    violations = report["violations"]
+    alias_paths = {path for path, source in sources.items() if _has_fs_import(source)}
+    analyses = _masked_analyses(sources, al002_paths | alias_paths)
+    dispositions = [
+        _al002_disposition(
+            finding,
+            index,
+            sources,
+            analyses[finding["location"]["file"].removeprefix("./")][1],
+        )
+        for index, finding in enumerate(violations)
+        if finding.get("code") == "AL002"
+    ]
+    aliases = _alias_findings(sources, alias_paths, analyses)
+    blockers = _blocking_violations(violations, dispositions, aliases)
     return {
         "raw_report": report,
         "raw_summary": {
