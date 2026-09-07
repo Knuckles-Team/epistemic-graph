@@ -37,6 +37,8 @@ use spargebra::algebra::{
 use spargebra::term::{GroundTerm, NamedNodePattern, TermPattern, TriplePattern, Variable};
 use spargebra::{Query, SparqlParser};
 
+use crate::mapping::cell_lexical;
+
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
 pub type Solution = HashMap<String, Binding>;
 
@@ -169,19 +171,6 @@ fn camel_case(s: &str) -> String {
         }
     }
     out.replace('_', "")
-}
-
-/// Extract the lexical value of a node property cell. A typed RDF cell is the JSON
-/// object `{value, datatype, lang}` (the `AddTriples` shape); a native-LPG scalar is a
-/// bare string / number / bool. Arrays / objects-without-`value` / null ⇒ `None`.
-fn cell_lexical(cell: &serde_json::Value) -> Option<String> {
-    match cell {
-        serde_json::Value::Object(m) => m.get("value").and_then(|v| v.as_str()).map(String::from),
-        serde_json::Value::String(s) => Some(s.clone()),
-        serde_json::Value::Number(n) => Some(n.to_string()),
-        serde_json::Value::Bool(b) => Some(b.to_string()),
-        _ => None,
-    }
 }
 
 /// A materialized SELECT result: the projected variable order + the solution rows.

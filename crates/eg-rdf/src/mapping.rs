@@ -428,22 +428,46 @@ pub struct LoadReport {
     pub multivalue: usize,
 }
 
+/// Extract the lexical value of a node property cell.
+///
+/// A typed RDF cell is the JSON object `{value, datatype, lang}` (the `AddTriples`
+/// shape this module maps to and from); a native-LPG scalar is a bare string / number /
+/// bool. Arrays, objects without `value`, and null yield `None`. The SPARQL read path
+/// and the SPARQL Update write path must agree on this exactly, so it lives with the
+/// cell shape rather than once per consumer.
+pub(crate) fn cell_lexical(cell: &serde_json::Value) -> Option<String> {
+    match cell {
+        serde_json::Value::Object(m) => m.get("value").and_then(|v| v.as_str()).map(String::from),
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        serde_json::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+/// Drain one oxrdf streaming parser into an owned vector, naming the syntax in every
+/// error it reports.
+///
+/// The concrete-syntax readers differ only in their parser and that name; keeping the
+/// drain here means a new syntax cannot report its errors in a different shape.
+fn collect_parsed<T, E: std::fmt::Display>(
+    syntax: &str,
+    parsed: impl IntoIterator<Item = Result<T, E>>,
+) -> Result<Vec<T>, String> {
+    parsed
+        .into_iter()
+        .map(|item| item.map_err(|error| format!("{syntax} parse: {error}")))
+        .collect()
+}
+
 /// Parse a Turtle document into oxrdf triples.
 pub fn parse_turtle(doc: &str) -> Result<Vec<Triple>, String> {
-    let mut out = Vec::new();
-    for r in TurtleParser::new().for_reader(doc.as_bytes()) {
-        out.push(r.map_err(|e| format!("turtle parse: {e}"))?);
-    }
-    Ok(out)
+    collect_parsed("turtle", TurtleParser::new().for_reader(doc.as_bytes()))
 }
 
 /// Parse an N-Triples document into oxrdf triples.
 pub fn parse_ntriples(doc: &str) -> Result<Vec<Triple>, String> {
-    let mut out = Vec::new();
-    for r in NTriplesParser::new().for_reader(doc.as_bytes()) {
-        out.push(r.map_err(|e| format!("ntriples parse: {e}"))?);
-    }
-    Ok(out)
+    collect_parsed("ntriples", NTriplesParser::new().for_reader(doc.as_bytes()))
 }
 
 /// Serialize the `GraphCore` back OUT to RDF triples — the inverse mapping. Edges →
@@ -653,20 +677,12 @@ pub fn to_trig(triples: &[Triple], graph: Option<&str>) -> Result<String, String
 
 /// Parse an N-Quads document into oxrdf quads (subject/predicate/object + graph name).
 pub fn parse_nquads(doc: &str) -> Result<Vec<Quad>, String> {
-    let mut out = Vec::new();
-    for r in NQuadsParser::new().for_reader(doc.as_bytes()) {
-        out.push(r.map_err(|e| format!("nquads parse: {e}"))?);
-    }
-    Ok(out)
+    collect_parsed("nquads", NQuadsParser::new().for_reader(doc.as_bytes()))
 }
 
 /// Parse a TriG document into oxrdf quads.
 pub fn parse_trig(doc: &str) -> Result<Vec<Quad>, String> {
-    let mut out = Vec::new();
-    for r in TriGParser::new().for_reader(doc.as_bytes()) {
-        out.push(r.map_err(|e| format!("trig parse: {e}"))?);
-    }
-    Ok(out)
+    collect_parsed("trig", TriGParser::new().for_reader(doc.as_bytes()))
 }
 
 /// Serialize triples to RDF/XML (CONCEPT:EG-KG.ontology.feature, feature `rdf-xml`).
@@ -700,11 +716,7 @@ pub fn to_jsonld(triples: &[Triple], graph: Option<&str>) -> Result<String, Stri
 #[cfg(feature = "json-ld")]
 pub fn parse_jsonld(doc: &str) -> Result<Vec<Quad>, String> {
     use oxjsonld::JsonLdParser;
-    let mut out = Vec::new();
-    for r in JsonLdParser::new().for_slice(doc.as_bytes()) {
-        out.push(r.map_err(|e| format!("jsonld parse: {e}"))?);
-    }
-    Ok(out)
+    collect_parsed("jsonld", JsonLdParser::new().for_slice(doc.as_bytes()))
 }
 
 // ── EG-137: named-graph-aware `from_*` reader surface ────────────────────────────

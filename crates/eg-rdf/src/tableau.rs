@@ -340,27 +340,23 @@ fn apply_rdf_type_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &
     }
 }
 
-/// `s owl:sameAs o` — register both individuals and the link. Split out of
-/// `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same order as
-/// before.
-fn apply_same_as_triple(ont: &mut DlOntology, s: &str, o: &Term) {
+/// `s owl:sameAs|owl:differentFrom o` — register both individuals and the link on
+/// `links`.
+///
+/// The two identity assertions differ only in which pair list they extend; the
+/// individuals they introduce are registered identically. Same terms, same order as
+/// `parse_dl_ontology` applied them inline (extract-method, cx/wD8).
+fn apply_individual_identity_triple(
+    links: &mut Vec<(String, String)>,
+    individuals: &mut BTreeSet<String>,
+    s: &str,
+    o: &Term,
+) {
     if let Term::NamedNode(b) = o {
         let b = iri(b.as_str());
-        ont.same_as.push((s.to_string(), b.clone()));
-        ont.individuals.insert(s.to_string());
-        ont.individuals.insert(b);
-    }
-}
-
-/// `s owl:differentFrom o` — register both individuals and the link. Split
-/// out of `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same
-/// order as before.
-fn apply_different_from_triple(ont: &mut DlOntology, s: &str, o: &Term) {
-    if let Term::NamedNode(b) = o {
-        let b = iri(b.as_str());
-        ont.different_from.push((s.to_string(), b.clone()));
-        ont.individuals.insert(s.to_string());
-        ont.individuals.insert(b);
+        links.push((s.to_string(), b.clone()));
+        individuals.insert(s.to_string());
+        individuals.insert(b);
     }
 }
 
@@ -394,8 +390,15 @@ pub fn parse_dl_ontology(triples: &[Triple]) -> DlOntology {
                     ont.sub_roles.push((s.clone(), iri(sup.as_str())));
                 }
             }
-            OWL_SAME_AS => apply_same_as_triple(&mut ont, &s, o),
-            OWL_DIFFERENT_FROM => apply_different_from_triple(&mut ont, &s, o),
+            OWL_SAME_AS => {
+                apply_individual_identity_triple(&mut ont.same_as, &mut ont.individuals, &s, o)
+            }
+            OWL_DIFFERENT_FROM => apply_individual_identity_triple(
+                &mut ont.different_from,
+                &mut ont.individuals,
+                &s,
+                o,
+            ),
             RDF_TYPE => apply_rdf_type_triple(&idx, &mut ont, &s, &ok, o),
             // Structurally-consumed predicates carry no direct axiom here.
             _ if STRUCTURAL_PREDICATES.contains(&p) => {}
