@@ -74,8 +74,9 @@ def text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def main() -> int:
-    failures: list[str] = []
+def _edge_relationship_failures() -> list[str]:
+    """Structural edge readers must never fall back to an ordinary `type` field."""
+    failures = []
     for path in STRUCTURAL_READERS:
         source = (
             read_module_tree(path, root_dir=ROOT)
@@ -87,26 +88,32 @@ def main() -> int:
                 failures.append(
                     f"{path}: edge relationship must not fall back to ordinary `type`"
                 )
-
     knowledge = text(KNOWLEDGE_READER)
     if KNOWLEDGE_TYPE_FALLBACK.search(knowledge):
         failures.append(
             f"{KNOWLEDGE_READER}: KnowledgeSet kind must read only canonical `node_type`"
         )
+    return failures
 
-    # Cypher labels are a strict current-only seam. An application may still
-    # carry ordinary payload fields named `type` or `label`, but MATCH/CREATE and
-    # db.labels must never reinterpret them as structural labels.
+
+def _cypher_label_failures() -> list[str]:
+    """Cypher labels are a strict current-only seam.
+
+    An application may still carry ordinary payload fields named `type` or
+    `label`, but MATCH/CREATE and db.labels must never reinterpret them as
+    structural labels, and the executor must project/write the canonical
+    node shape.
+    """
+    failures = []
     for path in CYPHER_READERS:
         source = text(path).split("#[cfg(test)]", 1)[0]
         if re.search(r'\.get\("(?:type|label)"\)', source):
             failures.append(
                 f"{path}: Cypher structural label readers must use only `node_type`/`labels`"
             )
-
     cypher_exec = text("crates/eg-query/src/cypher/exec.rs")
     for required in (
-        'materialize_node(view, id)',
+        "materialize_node(view, id)",
         'obj.insert("id".to_string(), Value::String(node_id.to_string()));',
         'obj.insert("node_type".to_string(), Value::Null);',
         'props.insert("node_type".to_string(), Value::String(label.clone()));',
@@ -116,13 +123,20 @@ def main() -> int:
                 "crates/eg-query/src/cypher/exec.rs: missing canonical Cypher node "
                 f"projection/write marker `{required}`"
             )
+    return failures
 
+
+def _edge_writer_failures() -> list[str]:
+    """Edge writers and the typed edge itself expose only `relationship`."""
+    failures = []
     graphql_writer = text("crates/eg-graphql/src/mutation.rs")
-    if 'obj.insert("relationship".to_string(), Value::String(rel.clone()));' not in graphql_writer:
+    if (
+        'obj.insert("relationship".to_string(), Value::String(rel.clone()));'
+        not in graphql_writer
+    ):
         failures.append(
             "crates/eg-graphql/src/mutation.rs: GraphQL edge writer must stamp `relationship`"
         )
-
     typed_edge = text("crates/eg-types/src/types.rs")
     if (
         "pub relationship: String," not in typed_edge
@@ -132,17 +146,33 @@ def main() -> int:
         failures.append(
             "crates/eg-types/src/types.rs: EdgeData must expose only canonical `relationship`"
         )
+    return failures
 
+
+def _documentation_failures() -> list[str]:
+    """The contract page exists, is navigable, and names every canonical term."""
+    failures = []
     docs = text("docs/architecture/canonical-property-schema.md")
     nav = text("mkdocs.yml")
     if "architecture/canonical-property-schema.md" not in nav:
-        failures.append("mkdocs.yml: canonical property schema page is not in navigation")
+        failures.append(
+            "mkdocs.yml: canonical property schema page is not in navigation"
+        )
     for required in ("`relationship`", "`node_type`", "`rel_type`"):
         if required not in docs:
             failures.append(
                 f"docs/architecture/canonical-property-schema.md: missing contract term {required}"
             )
+    return failures
 
+
+def main() -> int:
+    failures = (
+        _edge_relationship_failures()
+        + _cypher_label_failures()
+        + _edge_writer_failures()
+        + _documentation_failures()
+    )
     if failures:
         print("canonical property schema gate: FAIL")
         for failure in failures:
