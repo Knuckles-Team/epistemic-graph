@@ -133,6 +133,13 @@ impl StrTree {
     /// **Range query** (CONCEPT:EG-KG.domains.spatial-strtree-index): the ids of every indexed item whose box intersects
     /// `query`. Descends only into nodes whose box intersects the query. Order unspecified.
     pub fn query_bbox(&self, query: &Bbox) -> Vec<usize> {
+        self.harvest(query, |b| b.intersects(query))
+    }
+
+    /// Descend from the root, pruning every subtree whose covering box misses `window`,
+    /// and collect the ids of the leaf items `accept` keeps. The shared traversal behind
+    /// every box query (CONCEPT:EG-KG.domains.spatial-strtree-index); order unspecified.
+    fn harvest(&self, window: &Bbox, accept: impl Fn(&Bbox) -> bool) -> Vec<usize> {
         let mut out = Vec::new();
         let Some(root) = self.root else {
             return out;
@@ -140,13 +147,13 @@ impl StrTree {
         let mut stack = vec![root];
         while let Some(n) = stack.pop() {
             let node = &self.nodes[n];
-            if !node.bbox.intersects(query) {
-                continue;
+            if !node.bbox.intersects(window) {
+                continue; // disjoint ⇒ no item below can be kept
             }
             match &node.kind {
                 NodeKind::Leaf(items) => {
                     for (id, b) in items {
-                        if b.intersects(query) {
+                        if accept(b) {
                             out.push(*id);
                         }
                     }
@@ -161,28 +168,7 @@ impl StrTree {
     /// **fully inside** `window`. Prunes any subtree whose covering box does not intersect the
     /// window; a subtree entirely inside the window is fully harvested. Order unspecified.
     pub fn query_contained_in(&self, window: &Bbox) -> Vec<usize> {
-        let mut out = Vec::new();
-        let Some(root) = self.root else {
-            return out;
-        };
-        let mut stack = vec![root];
-        while let Some(n) = stack.pop() {
-            let node = &self.nodes[n];
-            if !node.bbox.intersects(window) {
-                continue; // disjoint ⇒ nothing inside
-            }
-            match &node.kind {
-                NodeKind::Leaf(items) => {
-                    for (id, b) in items {
-                        if window.contains(b) {
-                            out.push(*id);
-                        }
-                    }
-                }
-                NodeKind::Internal(children) => stack.extend(children.iter().copied()),
-            }
-        }
-        out
+        self.harvest(window, |b| window.contains(b))
     }
 
     /// **k-nearest-neighbour** (CONCEPT:EG-KG.domains.spatial-strtree-index): the up-to-`k` items whose box is closest to

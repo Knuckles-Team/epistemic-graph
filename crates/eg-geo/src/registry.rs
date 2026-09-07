@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::crs::{utm_to_wgs84, web_mercator_to_wgs84, wgs84_to_utm, wgs84_to_web_mercator, Crs};
-use crate::geometry::{Geometry, LineString, Point, Polygon};
+use crate::geometry::{Geometry, Point};
 
 /// A 2-D affine transform mapping `(x, y) → (x', y')` (CONCEPT:EG-KG.domains.geo-registry):
 ///
@@ -280,7 +280,7 @@ impl CrsRegistry {
         let to_def = self
             .resolve(to)
             .ok_or_else(|| format!("unregistered target CRS EPSG:{to}"))?;
-        map_coords(geom, &|p| {
+        geom.try_map_points(&|p| {
             let ll = Self::to_wgs84(&from_def, p)?;
             Ok(Self::from_wgs84(&to_def, &ll))
         })
@@ -294,51 +294,10 @@ pub fn st_transform(geom: &Geometry, from: Crs, to: Crs) -> Result<Geometry, Str
     CrsRegistry::standard().transform(geom, from.epsg, to.epsg)
 }
 
-/// Apply a fallible per-coordinate transform to every vertex, rebuilding the structure
-/// (CONCEPT:EG-KG.domains.geo-registry). Mirrors `crate::crs::map_coords` but kept local so the registry owns
-/// its own error strings.
-fn map_coords(
-    g: &Geometry,
-    f: &impl Fn(&Point) -> Result<Point, String>,
-) -> Result<Geometry, String> {
-    let line = |l: &LineString| -> Result<LineString, String> {
-        Ok(LineString::new(
-            l.points.iter().map(f).collect::<Result<Vec<_>, _>>()?,
-        ))
-    };
-    let poly = |pg: &Polygon| -> Result<Polygon, String> {
-        Ok(Polygon::new(
-            line(&pg.exterior)?,
-            pg.interiors
-                .iter()
-                .map(line)
-                .collect::<Result<Vec<_>, _>>()?,
-        ))
-    };
-    Ok(match g {
-        Geometry::Point(p) => Geometry::Point(f(p)?),
-        Geometry::LineString(l) => Geometry::LineString(line(l)?),
-        Geometry::Polygon(pg) => Geometry::Polygon(poly(pg)?),
-        Geometry::MultiPoint(ps) => {
-            Geometry::MultiPoint(ps.iter().map(f).collect::<Result<Vec<_>, _>>()?)
-        }
-        Geometry::MultiLineString(ls) => {
-            Geometry::MultiLineString(ls.iter().map(&line).collect::<Result<Vec<_>, _>>()?)
-        }
-        Geometry::MultiPolygon(pgs) => {
-            Geometry::MultiPolygon(pgs.iter().map(&poly).collect::<Result<Vec<_>, _>>()?)
-        }
-        Geometry::GeometryCollection(gs) => Geometry::GeometryCollection(
-            gs.iter()
-                .map(|g| map_coords(g, f))
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::LineString;
 
     fn approx(a: f64, b: f64, tol: f64, what: &str) {
         assert!((a - b).abs() < tol, "{what}: {a} vs {b} (tol {tol})");

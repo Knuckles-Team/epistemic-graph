@@ -17,6 +17,7 @@
 //! follow-up.
 
 use crate::geometry::{point_segment_distance, Geometry, LineString, Point, Polygon};
+use crate::predicates::orient;
 
 /// Grow `g` outward by `dist` (CONCEPT:EG-KG.ontology.concept-9), returning a convex buffer polygon: the
 /// convex hull of a disk of radius `dist` (16-gon) placed at every vertex — i.e. the
@@ -252,8 +253,10 @@ fn hull_geometry(mut ring: Vec<Point>) -> Geometry {
     }
 }
 
-/// The signed area of a ring (shoelace); positive when CCW.
-fn signed_area(ring: &[Point]) -> f64 {
+/// The signed area of a ring (shoelace); positive when CCW. The crate's one ring-area
+/// authority — [`crate::shapefile`] reads the same sign to tell an exterior ring from a
+/// hole. Fewer than 3 vertices ⇒ 0.
+pub(crate) fn signed_area(ring: &[Point]) -> f64 {
     let n = ring.len();
     if n < 3 {
         return 0.0;
@@ -363,8 +366,8 @@ fn sutherland_hodgman(subject: Vec<Point>, clip: &[Point]) -> Vec<Point> {
         for j in 0..m {
             let cur = input[j];
             let prev = input[(j + m - 1) % m];
-            let cur_in = inside(&cur, &a, &b);
-            let prev_in = inside(&prev, &a, &b);
+            let cur_in = orient(&a, &b, &cur) >= 0.0;
+            let prev_in = orient(&a, &b, &prev) >= 0.0;
             if cur_in {
                 if !prev_in {
                     output.push(edge_intersect(&prev, &cur, &a, &b));
@@ -376,11 +379,6 @@ fn sutherland_hodgman(subject: Vec<Point>, clip: &[Point]) -> Vec<Point> {
         }
     }
     output
-}
-
-/// Is `p` on the inside (left) of the directed clip edge `a→b` (CCW clip)?
-fn inside(p: &Point, a: &Point, b: &Point) -> bool {
-    (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) >= 0.0
 }
 
 /// The intersection point of segment `p1→p2` with the (infinite) clip line `a→b`.

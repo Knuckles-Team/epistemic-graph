@@ -182,6 +182,49 @@ impl Geometry {
         }
         out
     }
+
+    /// Rebuild this geometry with `f` applied to every vertex, preserving the exact
+    /// structure — part order, polygon interior rings, and nested collections — and
+    /// failing on the first coordinate `f` rejects. The transform owner for every
+    /// coordinate-reference-system conversion in the crate (CONCEPT:EG-KG.domains.coordinate-reference-system).
+    pub(crate) fn try_map_points(
+        &self,
+        f: &impl Fn(&Point) -> Result<Point, String>,
+    ) -> Result<Geometry, String> {
+        let line = |l: &LineString| -> Result<LineString, String> {
+            Ok(LineString::new(
+                l.points.iter().map(f).collect::<Result<Vec<_>, _>>()?,
+            ))
+        };
+        let poly = |pg: &Polygon| -> Result<Polygon, String> {
+            Ok(Polygon::new(
+                line(&pg.exterior)?,
+                pg.interiors
+                    .iter()
+                    .map(line)
+                    .collect::<Result<Vec<_>, _>>()?,
+            ))
+        };
+        Ok(match self {
+            Geometry::Point(p) => Geometry::Point(f(p)?),
+            Geometry::LineString(l) => Geometry::LineString(line(l)?),
+            Geometry::Polygon(pg) => Geometry::Polygon(poly(pg)?),
+            Geometry::MultiPoint(ps) => {
+                Geometry::MultiPoint(ps.iter().map(f).collect::<Result<Vec<_>, _>>()?)
+            }
+            Geometry::MultiLineString(ls) => {
+                Geometry::MultiLineString(ls.iter().map(&line).collect::<Result<Vec<_>, _>>()?)
+            }
+            Geometry::MultiPolygon(pgs) => {
+                Geometry::MultiPolygon(pgs.iter().map(&poly).collect::<Result<Vec<_>, _>>()?)
+            }
+            Geometry::GeometryCollection(gs) => Geometry::GeometryCollection(
+                gs.iter()
+                    .map(|g| g.try_map_points(f))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+        })
+    }
 }
 
 /// Bounding box of an iterator of points (`None` when empty).

@@ -230,7 +230,7 @@ fn encode_layer(tile_bounds: &Bbox, layer: &MvtLayer) -> Vec<u8> {
             let mut tags = Vec::new();
             for (k, v) in &f.properties {
                 let ki = intern(&mut keys, k.clone());
-                let vi = intern_value(&mut values, v.clone());
+                let vi = intern(&mut values, v.clone());
                 write_varint(&mut tags, ki as u64);
                 write_varint(&mut tags, vi as u64);
             }
@@ -642,23 +642,14 @@ fn write_varint(out: &mut Vec<u8>, mut v: u64) {
     }
 }
 
-/// Intern a key into the layer key table, returning its index.
-fn intern(keys: &mut Vec<String>, k: String) -> usize {
-    if let Some(i) = keys.iter().position(|e| *e == k) {
+/// Intern `v` into an MVT layer's key or value table, returning its index — the existing
+/// entry when the table already holds an equal one, otherwise a freshly appended tail.
+fn intern<T: PartialEq>(table: &mut Vec<T>, v: T) -> usize {
+    if let Some(i) = table.iter().position(|e| *e == v) {
         i
     } else {
-        keys.push(k);
-        keys.len() - 1
-    }
-}
-
-/// Intern a value into the layer value table, returning its index.
-fn intern_value(values: &mut Vec<MvtValue>, v: MvtValue) -> usize {
-    if let Some(i) = values.iter().position(|e| *e == v) {
-        i
-    } else {
-        values.push(v);
-        values.len() - 1
+        table.push(v);
+        table.len() - 1
     }
 }
 

@@ -180,8 +180,10 @@ fn prim_intersect(x: &Prim<'_>, y: &Prim<'_>) -> bool {
     false
 }
 
-/// Orientation of the ordered triple `(a, b, c)`: >0 CCW, <0 CW, 0 collinear.
-fn orient(a: &Point, b: &Point, c: &Point) -> f64 {
+/// Orientation of the ordered triple `(a, b, c)`: >0 CCW, <0 CW, 0 collinear. The
+/// crate's one 2D cross-product authority — the sign also answers "is `c` left of the
+/// directed edge `a→b`", which is how [`crate::algebra`] clips against a convex window.
+pub(crate) fn orient(a: &Point, b: &Point, c: &Point) -> f64 {
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }
 

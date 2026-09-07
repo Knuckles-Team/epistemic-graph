@@ -31,6 +31,7 @@
 //! The `Z`/`M` measured variants (11/13/15/18, 21/…) are read as their 2-D `(x, y)` core — the
 //! trailing Z/M arrays are skipped — so a PointZ still yields a planar [`Geometry::Point`].
 
+use crate::algebra::signed_area;
 use crate::geometry::{Geometry, LineString, Point, Polygon};
 
 // ── ESRI shape type codes (little-endian i32 at the head of each .shp record) ────────
@@ -251,22 +252,6 @@ fn read_parts(c: &mut Cur) -> Result<Vec<Vec<Point>>, String> {
         parts.push(all[s..e].to_vec());
     }
     Ok(parts)
-}
-
-/// Signed area of a ring (shoelace). Positive = counter-clockwise, negative = clockwise —
-/// matching the ESRI rule that exterior rings are clockwise and holes counter-clockwise.
-fn signed_area(ring: &[Point]) -> f64 {
-    let n = ring.len();
-    if n < 3 {
-        return 0.0;
-    }
-    let mut a = 0.0;
-    for i in 0..n {
-        let p = ring[i];
-        let q = ring[(i + 1) % n];
-        a += p.x * q.y - q.x * p.y;
-    }
-    a / 2.0
 }
 
 /// Assemble shapefile polygon rings (CONCEPT:EG-KG.domains.geo-formats) into a [`Geometry::Polygon`] (single
