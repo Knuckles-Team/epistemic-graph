@@ -57,6 +57,11 @@ pub mod path_persist;
 
 // One test-only composition root for the kernel-owned stores this crate opens.
 // Never compiled outside `cfg(test)`.
+/// The bounded per-actor, version-and-generation-keyed cache mechanism the two RLS read
+/// caches (`rls_projection_cache`, `rls_view_cache`) share; each of those modules keeps
+/// its own rationale and names this type. Gated with them.
+#[cfg(feature = "security")]
+pub(crate) mod per_actor_cache;
 /// Single-writer-per-persist-dir guard, hoisted down from the facade's
 /// `src/persist_lock.rs` (same `engine.lock` `flock` mechanism, unchanged) so a
 /// caller below the facade (`crates/eg-pyengine`) can take the SAME exclusive lock a

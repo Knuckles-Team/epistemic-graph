@@ -50,114 +50,28 @@
 // `rls.filter_view` call that expects to mutate its own owned copy) MUST NOT take a
 // cached entry without cloning first — see this module's `get` doc.
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
-
-use parking_lot::Mutex;
-
 use crate::graph::GraphView;
+use crate::per_actor_cache::PerActorCache;
 
-/// Bounded so a deployment with many distinct concurrent actors cannot grow this
-/// unboundedly — mirrors `rls_projection_cache::CAPACITY`. A capacity miss costs exactly
-/// what every call cost before this cache existed — never worse.
-const CAPACITY: usize = 64;
-
-#[derive(Default)]
-struct Inner {
-    entries: HashMap<String, (u64, Arc<GraphView>)>,
-    // Recency order, oldest at the front — see `rls_projection_cache::Inner::order`.
-    order: VecDeque<String>,
-    // Whole-image generation, distinct from the per-write `version` key — see this
-    // module's doc and `rls_projection_cache::Inner::generation` for the full rationale
-    // (a `replace_snapshot`/`clear`/`hibernate` transition can leave `version()`
-    // numerically unchanged, or skip bumping it entirely).
-    generation: u64,
-}
-
-impl Inner {
-    fn touch(&mut self, actor: &str) {
-        if let Some(pos) = self.order.iter().position(|a| a == actor) {
-            self.order.remove(pos);
-        }
-        self.order.push_back(actor.to_string());
-    }
-}
-
-/// One instance lives on each [`crate::graph::GraphCore`], gated behind the `security`
-/// feature — the only build where `IsolationLayer::filter_view` does non-trivial
-/// (msgpack-decode-per-node) work worth amortizing; see this module's doc.
-#[derive(Default)]
-pub(crate) struct FilteredViewCache(Mutex<Inner>);
-
-impl std::fmt::Debug for FilteredViewCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.0.lock();
-        f.debug_struct("FilteredViewCache")
-            .field("len", &inner.entries.len())
-            .field("generation", &inner.generation)
-            .finish()
-    }
-}
-
-impl FilteredViewCache {
-    /// Fresh hit only: `None` on a cold miss OR a stale (version-mismatched) entry. The
-    /// returned `Arc<GraphView>` is shared — a caller that needs to further mutate its
-    /// own copy (e.g. `overlay_write_set` on a read-your-own-writes path) must NOT hand
-    /// this Arc to a mutating call; that shape should build its own owned snapshot
-    /// instead of consulting this cache, exactly as `Method::CypherQuery`'s plain read
-    /// branch (the only current consumer) already does not overlay anything onto its
-    /// snapshot.
-    pub(crate) fn get(&self, actor: &str, current_version: u64) -> Option<Arc<GraphView>> {
-        let mut inner = self.0.lock();
-        let hit = match inner.entries.get(actor) {
-            Some((version, view)) if *version == current_version => Some(view.clone()),
-            _ => None,
-        };
-        if hit.is_some() {
-            inner.touch(actor);
-        }
-        hit
-    }
-
-    /// The current whole-image generation — capture BEFORE starting an (unlocked,
-    /// potentially slow) `analysis_snapshot_versioned` + `filter_view` rebuild and hand
-    /// back to [`Self::put`] once it finishes. See `rls_projection_cache::ProjectionCache::generation`.
-    pub(crate) fn generation(&self) -> u64 {
-        self.0.lock().generation
-    }
-
-    /// Insert/overwrite this actor's entry with a freshly filtered view, but ONLY if
-    /// `generation` (captured via [`Self::generation`] right before the build started)
-    /// is still current — see `rls_projection_cache::ProjectionCache::put`'s identical
-    /// race-closing contract.
-    pub(crate) fn put(&self, actor: String, version: u64, generation: u64, view: Arc<GraphView>) {
-        let mut inner = self.0.lock();
-        if generation != inner.generation {
-            return;
-        }
-        if !inner.entries.contains_key(&actor) && inner.entries.len() >= CAPACITY {
-            if let Some(evict) = inner.order.pop_front() {
-                inner.entries.remove(&evict);
-            }
-        }
-        inner.touch(&actor);
-        inner.entries.insert(actor, (version, view));
-    }
-
-    /// Advance the generation and drop every cached entry — call from every whole-image
-    /// transition a plain `version` bump does not already cover
-    /// (`GraphCore::replace_snapshot`/`clear`/`hibernate`), alongside the existing
-    /// `invalidate_projection_cache()` call at each of those sites.
-    pub(crate) fn invalidate_all(&self) {
-        let mut inner = self.0.lock();
-        inner.generation += 1;
-        inner.entries.clear();
-        inner.order.clear();
-    }
-}
+/// The per-actor RLS-filtered `GraphView` cache. One instance lives on each
+/// [`crate::graph::GraphCore`], gated behind the `security` feature — the only build where
+/// `IsolationLayer::filter_view` does non-trivial (msgpack-decode-per-node) work worth
+/// amortizing; see this module's doc.
+///
+/// A cached `GraphView` is served ONLY to read-only, no-write-set-overlay callers
+/// (`Method::CypherQuery`'s plain read branch). Any caller that further mutates the view
+/// (`overlay_write_set` for a read-your-own-writes staged transaction, or a later
+/// `rls.filter_view` call that expects to mutate its own owned copy) MUST NOT take a
+/// cached entry without cloning first.
+///
+/// The bounded LRU, the `(actor, version)` hit rule and the whole-image `generation` race
+/// check are [`PerActorCache`]'s; this alias only fixes what is cached.
+pub(crate) type FilteredViewCache = PerActorCache<GraphView>;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     fn view() -> Arc<GraphView> {
